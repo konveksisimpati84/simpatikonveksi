@@ -5763,12 +5763,46 @@
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             const [printOptions, setPrintOptions] = useState({ marketing: true, production: true, daily: true, overtime: true });
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
+            const [incomeTypeFilter, setIncomeTypeFilter] = useState('Semua');
             const safeOrdersForReport = Array.isArray(orders) ? orders : [];
             const safeEmployeesForReport = Array.isArray(employees) ? employees : [];
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
             const safeInvoicesForReport = Array.isArray(invoices) ? invoices : [];
             const visibleEmployees = safeEmployeesForReport.filter(isVisibleRecord);
             const filteredReportEmployees = visibleEmployees.filter(emp => matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm));
+
+            const allSiapDirekap = [];
+            visibleEmployees.forEach(emp => {
+                safeOrdersForReport.filter(isVisibleOrder).forEach(order => {
+                    if (!order.progress) return;
+                    Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
+                        if (!getActiveProductionStageIds(order).includes(stage)) return;
+                        const empLogs = safeArray(data?.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
+                        if (empLogs.length === 0) return;
+                        const qty = empLogs.reduce((sum, l) => sum + getWorkLogSubmittedQty(l), 0);
+                        const unitPrice = safeNumber(getProductionUnitPrice(order, stage));
+                        const stageLabel = productionStageOptions.find(opt => opt.id === stage)?.label || stage;
+                        allSiapDirekap.push({ tanggal: empLogs[0].submittedAt?.slice(0, 10) || order.date || '-', empId: emp.id, empName: emp.name, divisi: emp.division, jenis: 'Produksi', keterangan: `${order.id} - ${stageLabel} (${order.type || ''})`, nominal: qty * unitPrice, status: 'Belum Direkap' });
+                    });
+                });
+                getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId).forEach(log => {
+                    const lt = getDailySalaryLogTotal(log);
+                    if (lt.daily > 0) allSiapDirekap.push({ tanggal: log.date || '-', empId: emp.id, empName: emp.name, divisi: emp.division, jenis: 'Harian', keterangan: log.note || `Gaji Harian (${log.workDays || 0} hari)`, nominal: lt.daily, status: 'Belum Direkap' });
+                    if (lt.overtime > 0) allSiapDirekap.push({ tanggal: log.date || '-', empId: emp.id, empName: emp.name, divisi: emp.division, jenis: 'Lembur', keterangan: log.note || `Lembur (${log.overtimeCount || 0}x)`, nominal: lt.overtime, status: 'Belum Direkap' });
+                });
+                safeInvoicesForReport.filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0).forEach(inv => allSiapDirekap.push({ tanggal: inv.date || '-', empId: emp.id, empName: emp.name, divisi: emp.division, jenis: 'Marketing', keterangan: `Invoice ${inv.id} - ${inv.customer || '-'}`, nominal: getInvoiceCommissionTotal(inv), status: 'Belum Direkap' }));
+            });
+            const filteredSiapDirekap = allSiapDirekap
+                .filter(item => incomeTypeFilter === 'Semua' || item.jenis === incomeTypeFilter)
+                .filter(item => matchesSearch([item.empName, item.divisi, item.jenis, item.keterangan], searchTerm))
+                .sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+            const siapDirekapTotals = {
+                produksi: allSiapDirekap.filter(i => i.jenis === 'Produksi').reduce((s, i) => s + i.nominal, 0),
+                harian: allSiapDirekap.filter(i => i.jenis === 'Harian').reduce((s, i) => s + i.nominal, 0),
+                lembur: allSiapDirekap.filter(i => i.jenis === 'Lembur').reduce((s, i) => s + i.nominal, 0),
+                marketing: allSiapDirekap.filter(i => i.jenis === 'Marketing').reduce((s, i) => s + i.nominal, 0),
+                total: allSiapDirekap.reduce((s, i) => s + i.nominal, 0)
+            };
 
             const toggleSelection = (key) => {
                 setSelectedItemKeys(prev => {
@@ -6336,6 +6370,7 @@
                     </div>
                     <div className="flex gap-4 border-b border-gray-200 pb-2">
                         <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Input / Laporan Kinerja</button>
+                        <button onClick={() => setActiveReportTab('siap_direkap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeReportTab === 'siap_direkap' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Siap Direkap{allSiapDirekap.length > 0 && <span className="bg-yellow-500 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">{allSiapDirekap.length}</span>}</button>
                         <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
                     </div>
                     <Card>
@@ -6470,22 +6505,28 @@
                                                 </div>
                                             </div>
 
-                                            {unsettledItems.length > 0 ? (
+                                            {(unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0) ? (
                                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                                                     <div>
                                                         <h4 className="font-bold text-gray-800 flex items-center gap-2">
-                                                            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span> Pekerjaan Siap Direkap
+                                                            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span> Siap Direkap
                                                         </h4>
-                                                        <div className="text-sm text-gray-600 mt-1">{unsettledItems.length} order/tahap, {totalUnsettled} pcs, estimasi gaji {formatRupiah(totalUnsettledWage || 0)}</div>
+                                                        <div className="flex flex-wrap gap-2 mt-2 text-xs">
+                                                            {unsettledItems.length > 0 && <span className="bg-green-100 text-green-800 font-bold px-2 py-1 rounded-full">Produksi: {unsettledItems.length} item — {formatRupiah(totalUnsettledWage)}</span>}
+                                                            {dailySalaryRows.length > 0 && <span className="bg-indigo-100 text-indigo-800 font-bold px-2 py-1 rounded-full">Harian: {dailySalaryRows.length} item — {formatRupiah(totalDailySalary)}</span>}
+                                                            {overtimeRows.length > 0 && <span className="bg-sky-100 text-sky-800 font-bold px-2 py-1 rounded-full">Lembur: {overtimeRows.length} item — {formatRupiah(totalOvertimeSalary)}</span>}
+                                                            {marketingRows.filter(inv => inv.commissionTotal > 0).length > 0 && <span className="bg-purple-100 text-purple-800 font-bold px-2 py-1 rounded-full">Marketing: {marketingRows.filter(inv => inv.commissionTotal > 0).length} item — {formatRupiah(totalMarketingCommission)}</span>}
+                                                        </div>
+                                                        <div className="text-sm text-gray-600 mt-2">Total pendapatan belum direkap: <strong>{formatRupiah(totalIncome)}</strong></div>
                                                     </div>
-                                                    <button 
-                                                        onClick={() => handleOpenRekapModal(emp.id, unsettledItems)} 
+                                                    <button
+                                                        onClick={() => handleOpenRekapModal(emp.id, unsettledItems)}
                                                         className="text-sm px-4 py-2 rounded shadow-sm font-bold transition flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-                                                        <IconCheckCircle /> Rekap
+                                                        <IconCheckCircle /> Rekap Gabungan
                                                     </button>
                                                 </div>
                                             ) : (
-                                                <p className="text-sm text-gray-500 italic p-3 bg-gray-50 rounded text-center">Tidak ada pekerjaan siap rekap.</p>
+                                                <p className="text-sm text-gray-500 italic p-3 bg-gray-50 rounded text-center">Tidak ada penghasilan siap rekap.</p>
                                             )}
                                         </div>
                                     </div>
@@ -6497,6 +6538,74 @@
                                 </Card>
                             )}
                         </div>
+                    </div>
+                    ) : activeReportTab === 'siap_direkap' ? (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            <Card><h3 className="text-xs font-bold text-gray-500">Total Item</h3><p className="text-xl font-black text-yellow-600">{allSiapDirekap.length}</p></Card>
+                            <Card><h3 className="text-xs font-bold text-gray-500">Gaji Produksi</h3><p className="text-lg font-black text-green-700">{formatRupiah(siapDirekapTotals.produksi)}</p></Card>
+                            <Card><h3 className="text-xs font-bold text-gray-500">Gaji Harian</h3><p className="text-lg font-black text-indigo-700">{formatRupiah(siapDirekapTotals.harian)}</p></Card>
+                            <Card><h3 className="text-xs font-bold text-gray-500">Gaji Lembur</h3><p className="text-lg font-black text-sky-700">{formatRupiah(siapDirekapTotals.lembur)}</p></Card>
+                            <Card><h3 className="text-xs font-bold text-gray-500">Komisi Marketing</h3><p className="text-lg font-black text-purple-700">{formatRupiah(siapDirekapTotals.marketing)}</p></Card>
+                        </div>
+                        <Card>
+                            <div className="flex flex-wrap gap-2 items-center mb-3">
+                                <span className="text-xs font-bold text-gray-500 mr-1">Filter Jenis:</span>
+                                {['Semua','Produksi','Harian','Lembur','Marketing'].map(f => (
+                                    <button key={f} onClick={() => setIncomeTypeFilter(f)} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${incomeTypeFilter === f ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400'}`}>{f}</button>
+                                ))}
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 text-gray-600">
+                                        <tr>
+                                            <th className="p-3 text-left font-semibold">Tanggal</th>
+                                            <th className="p-3 text-left font-semibold">Nama Karyawan</th>
+                                            <th className="p-3 text-left font-semibold">Divisi</th>
+                                            <th className="p-3 text-left font-semibold">Jenis Penghasilan</th>
+                                            <th className="p-3 text-left font-semibold">Keterangan</th>
+                                            <th className="p-3 text-right font-semibold">Nominal</th>
+                                            <th className="p-3 text-center font-semibold">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredSiapDirekap.map((item, idx) => {
+                                            const jenisColor = { Produksi: 'bg-green-100 text-green-800', Harian: 'bg-indigo-100 text-indigo-800', Lembur: 'bg-sky-100 text-sky-800', Marketing: 'bg-purple-100 text-purple-800' }[item.jenis] || 'bg-gray-100 text-gray-700';
+                                            return (
+                                                <tr key={`${item.empId}-${item.jenis}-${idx}`} className="border-t hover:bg-yellow-50">
+                                                    <td className="p-3 text-gray-600">{item.tanggal}</td>
+                                                    <td className="p-3 font-bold text-gray-800">{item.empName}</td>
+                                                    <td className="p-3 text-gray-600">{item.divisi}</td>
+                                                    <td className="p-3"><span className={`text-xs font-bold px-2 py-1 rounded-full ${jenisColor}`}>{item.jenis}</span></td>
+                                                    <td className="p-3 text-gray-700">{item.keterangan}</td>
+                                                    <td className="p-3 text-right font-black text-gray-900">{formatRupiah(item.nominal)}</td>
+                                                    <td className="p-3 text-center"><span className="text-xs bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded-full">{item.status}</span></td>
+                                                </tr>
+                                            );
+                                        })}
+                                        {filteredSiapDirekap.length === 0 && (
+                                            <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">
+                                                {allSiapDirekap.length === 0 ? 'Semua penghasilan sudah direkap.' : 'Tidak ada item yang cocok dengan filter.'}
+                                            </td></tr>
+                                        )}
+                                    </tbody>
+                                    {filteredSiapDirekap.length > 0 && (
+                                        <tfoot className="bg-gray-50 font-bold border-t-2">
+                                            <tr>
+                                                <td colSpan="5" className="p-3">Total ({filteredSiapDirekap.length} item)</td>
+                                                <td className="p-3 text-right text-blue-700">{formatRupiah(filteredSiapDirekap.reduce((s, i) => s + i.nominal, 0))}</td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    )}
+                                </table>
+                            </div>
+                        </Card>
+                        {allSiapDirekap.length > 0 && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+                                <strong>Cara Rekap:</strong> Buka tab <em>"Input / Laporan Kinerja"</em>, pilih karyawan, lalu klik tombol <strong>Rekap</strong> pada kartu karyawan yang bersangkutan. Semua jenis penghasilan (Produksi, Harian, Lembur, Marketing) otomatis digabung dalam satu rekap.
+                            </div>
+                        )}
                     </div>
                     ) : (
                     <div className="space-y-4">
