@@ -3521,6 +3521,7 @@
             const filteredRekapOrders = rekapOrders.filter(filterOrder);
             const materialNameSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.name || '').trim()).filter(Boolean)))].sort();
             const vendorSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.vendor || '').trim()).filter(Boolean)))].sort();
+            const specSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.spec || mat.color || '').trim()).filter(Boolean)))].sort();
 
             const openMaterialModal = (order) => {
                 setSelectedOrder(order);
@@ -4486,6 +4487,7 @@
                                                 <label className="block text-xs font-bold text-gray-600 mb-1">Warna / Spesifikasi</label>
                                                 <input
                                                     type="text"
+                                                    list="material-spec-suggestions"
                                                     className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500"
                                                     placeholder="Cth: Hitam, 30s, rib 1x1"
                                                     value={mat.spec || mat.color || ''} onChange={e => handleMaterialChange(index, 'spec', e.target.value)}
@@ -4582,6 +4584,9 @@
                                     </datalist>
                                     <datalist id="material-vendor-suggestions">
                                         {vendorSuggestions.map((vendor, idx) => <option key={idx} value={vendor} />)}
+                                    </datalist>
+                                    <datalist id="material-spec-suggestions">
+                                        {specSuggestions.map((spec, idx) => <option key={idx} value={spec} />)}
                                     </datalist>
                                     
                                     <button 
@@ -4879,6 +4884,9 @@
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
             const marketingEmployees = safeEmployeeRows.filter(isVisibleRecord).filter(emp => emp.division === 'Marketing' || emp.salaryType === 'Marketing' || emp.salaryType === 'Campuran' || getEmployeeSalaryTypes(emp).includes('Marketing'));
+            const _defaultProdTypes = ['Kaos', 'Kemeja', 'Jaket', 'Wearpack', 'Wangki / Polo Shirt', 'Celana', 'Topi'];
+            const uniqueInvoiceTypes = [...new Set([..._defaultProdTypes, ...safeInvoiceRows.flatMap(inv => getInvoiceItems(inv).map(item => item.productionType)).filter(Boolean)])].sort();
+            const clientAddressSuggestions = [...new Set(safeClientRows.filter(isVisibleRecord).map(c => String(c.address || '').trim()).filter(Boolean))].sort();
             const visibleInvoices = safeInvoiceRows.filter(isVisibleRecord).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.address, inv.marketing, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)], searchTerm);
@@ -4941,9 +4949,8 @@
                     const sizes = Array.isArray(item.sizes) ? item.sizes : [];
                     const qty = sizes.reduce((sum, size) => sum + safeMoney(size.qty), 0);
                     const total = sizes.reduce((sum, size) => sum + getInvoiceSizeTotal(size).total, 0);
-                    const priceList = [...new Set(sizes.map(size => formatRupiah(size.pricePerPcs)))].join('<br/>');
-                    const sizeDetails = sizes.map(size => `<div class="size-line"><span>${safe(size.size || '-')}</span><span>${safeMoney(size.qty)} pcs</span><span>${formatRupiah(getInvoiceSizeTotal(size).total)}</span></div>`).join('');
-                    return `<tr><td class="center">${idx + 1}</td><td><b>${safe(item.productionType || '-')}</b></td><td>${sizeDetails || '-'}</td><td class="center">${qty} pcs</td><td class="right">${priceList || '-'}</td><td class="right"><b>${formatRupiah(total)}</b></td></tr>`;
+                    const sizeDetails = sizes.map(size => `<div class="size-line"><span class="sz">${safe(size.size || '-')}</span><span class="sq">${safeMoney(size.qty)} pcs &times; ${formatRupiah(size.pricePerPcs)}</span><span class="st">${formatRupiah(getInvoiceSizeTotal(size).total)}</span></div>`).join('');
+                    return `<tr><td class="c">${idx + 1}</td><td><b>${safe(item.productionType || '-')}</b></td><td>${sizeDetails || '-'}</td><td class="c">${qty} pcs</td><td class="r"><b>${formatRupiah(total)}</b></td></tr>`;
                 }).join('');
                 const remaining = Math.max(0, totals.total - paid);
                 const dp = getInvoiceDpAmount(inv);
@@ -4955,11 +4962,11 @@
 body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .page{width:210mm;min-height:297mm;padding:12mm 14mm;display:flex;flex-direction:column}
 .header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10mm;border-bottom:3px solid #1e3a5f}
-.brand{display:flex;align-items:center;gap:12px}
-.brand img{max-height:80px;max-width:200px;object-fit:contain}
-.brand-text .co-name{font-size:22px;font-weight:900;color:#1e3a5f;line-height:1}
-.brand-text .co-sub{font-size:11px;color:#64748b;margin-top:3px}
-.brand-text .co-contact{font-size:10px;color:#64748b;margin-top:2px}
+.brand{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.brand img{max-height:55px;max-width:150px;object-fit:contain}
+.brand-text .co-name{font-size:18px;font-weight:900;color:#1e3a5f;line-height:1.1;margin-top:2px}
+.brand-text .co-sub{font-size:10px;color:#64748b;margin-top:2px}
+.brand-text .co-contact{font-size:10px;color:#64748b;margin-top:1px}
 .inv-right{text-align:right}
 .inv-right .inv-label{font-size:28px;font-weight:900;color:#1e3a5f;letter-spacing:-1px;line-height:1}
 .inv-right .inv-num{font-size:13px;font-weight:700;color:#3b82f6;margin-top:4px}
@@ -4979,9 +4986,12 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .items-section tbody td{padding:8px 10px;font-size:12px;vertical-align:top;border-bottom:1px solid #e2e8f0}
 .items-section tbody td.r{text-align:right}
 .items-section tbody td.c{text-align:center}
-.size-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dashed #cbd5e1;font-size:11px}
-.size-row:last-child{border:none}
-.totals-section{display:grid;grid-template-columns:1fr 0.65fr;gap:20px;margin-top:8mm}
+.size-line{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px dashed #e2e8f0;font-size:10px;gap:6px}
+.size-line:last-child{border:none}
+.size-line .sz{font-weight:700;color:#1e3a5f;min-width:28px}
+.size-line .sq{color:#64748b;flex:1}
+.size-line .st{font-weight:700;color:#374151;white-space:nowrap}
+.totals-section{display:grid;grid-template-columns:1fr 0.65fr;gap:16px;margin-top:6mm;page-break-inside:avoid;break-inside:avoid}
 .note-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px}
 .note-label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:6px}
 .note-text{font-size:12px;color:#374151;line-height:1.5}
@@ -4991,10 +5001,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .amount-row.total-final{font-size:15px;font-weight:900;color:#1e3a5f;padding-top:8px;border-top:2px solid #1e3a5f;margin-top:4px;border-bottom:none}
 .amount-row .label{color:#64748b}
 .amount-row .val{font-weight:700}
-.footer-section{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:10mm;padding-top:6mm;border-top:1px solid #e2e8f0}
-.sign-box{text-align:center}
-.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:30px}
-.sign-line{border-bottom:1.5px solid #374151;margin:0 20px;margin-bottom:4px}
+.footer-section{display:flex;justify-content:flex-end;margin-top:7mm;padding-top:5mm;border-top:1px solid #e2e8f0;page-break-inside:avoid;break-inside:avoid}
+.sign-box{text-align:center;width:200px}
+.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:38px}
+.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}
 .sign-name{font-size:11px;font-weight:700;color:#1e3a5f}
 .sign-sub{font-size:10px;color:#94a3b8}
 @media print{.page{padding:10mm 12mm}}
@@ -5053,22 +5063,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 </div>
 <div class="footer-section">
   <div class="sign-box">
-    <div class="sign-title">Dibuat Oleh</div>
+    <div class="sign-title">Dibuat oleh,</div>
     <div class="sign-line"></div>
     <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
-    <div class="sign-sub">Administrasi</div>
-  </div>
-  <div class="sign-box">
-    <div class="sign-title">Diperiksa Oleh</div>
-    <div class="sign-line"></div>
-    <div class="sign-name">&nbsp;</div>
-    <div class="sign-sub">Pimpinan</div>
-  </div>
-  <div class="sign-box">
-    <div class="sign-title">Diterima Oleh</div>
-    <div class="sign-line"></div>
-    <div class="sign-name">${safe(inv.customer || '-')}</div>
-    <div class="sign-sub">Customer</div>
+    <div class="sign-sub">Administration</div>
   </div>
 </div>
 </div></body></html>`;
@@ -5085,7 +5083,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 <div className="space-y-6">
                     <div><h2 className="text-2xl font-bold text-gray-800">Invoice</h2><p className="text-sm text-gray-500 mt-1">Invoice multi jenis produksi, multi size, DP, dan komisi marketing.</p></div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4"><Card><h3 className="text-sm font-bold text-gray-500">Total Invoice</h3><p className="text-2xl font-black text-blue-700">{formatRupiah(totalInvoice)}</p></Card><Card><h3 className="text-sm font-bold text-gray-500">Total DP</h3><p className="text-2xl font-black text-green-700">{formatRupiah(totalDp)}</p></Card><Card><h3 className="text-sm font-bold text-gray-500">Sudah Dibayar</h3><p className="text-2xl font-black text-green-700">{formatRupiah(totalPaid)}</p></Card><Card><h3 className="text-sm font-bold text-gray-500">Piutang</h3><p className="text-2xl font-black text-red-700">{formatRupiah(totalRemaining)}</p></Card></div>
-                    <Card><form onSubmit={saveInvoice} className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-4 gap-3"><input type="date" className="p-2 border rounded" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}/><input list="client-list-invoice" className="p-2 border rounded" placeholder="Nama instansi/customer" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} required/><datalist id="client-list-invoice">{safeClientRows.filter(isVisibleRecord).map(client => <option key={client.id} value={client.name}/>)}</datalist><input className="p-2 border rounded" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/><input list="marketing-list-enhanced" className="p-2 border rounded" placeholder="Marketing" value={form.marketing} onChange={e => setForm({ ...form, marketing: e.target.value })}/><datalist id="marketing-list-enhanced">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist></div>{getInvoiceItems(form).map((item, itemIndex) => <div key={item.id} className="border rounded-lg p-4 bg-gray-50"><div className="flex gap-2 mb-3"><input className="flex-1 p-2 border rounded" placeholder={`Jenis produksi ${itemIndex + 1}`} value={item.productionType || ''} onChange={e => patchItem(item.id, { productionType: e.target.value })}/>{getInvoiceItems(form).length > 1 && <button type="button" onClick={() => removeProductionItem(item.id)} className="px-3 py-2 bg-red-50 text-red-700 rounded font-bold">Hapus Jenis</button>}</div><div className="space-y-2">{(item.sizes || []).map(size => <div key={size.id} className="grid grid-cols-1 md:grid-cols-7 gap-2 items-center"><input className="p-2 border rounded" placeholder="Size" value={size.size || ''} onChange={e => patchSize(item.id, size.id, { size: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Qty" value={size.qty} onChange={e => patchSize(item.id, size.id, { qty: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Harga/pcs" value={size.pricePerPcs} onChange={e => patchSize(item.id, size.id, { pricePerPcs: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Diskon/pcs" value={size.discountPerPcs} onChange={e => patchSize(item.id, size.id, { discountPerPcs: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Diskon %" value={size.discountPercent} onChange={e => patchSize(item.id, size.id, { discountPercent: e.target.value })}/><div className="text-right font-black text-blue-700">{formatRupiah(getInvoiceSizeTotal(size).total)}</div>{(item.sizes || []).length > 1 && <button type="button" onClick={() => removeSize(item.id, size.id)} className="text-red-600 bg-red-50 p-2 rounded"><IconTrash /></button>}</div>)}</div><button type="button" onClick={() => addSize(item.id)} className="mt-3 text-sm font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded">Tambah Size</button></div>)}<button type="button" onClick={addProductionItem} className="text-sm font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded">Tambah Jenis Produksi</button><div className="grid grid-cols-1 md:grid-cols-5 gap-3"><input type="number" className="p-2 border rounded text-right" placeholder="DP" value={form.invoiceDp?.amount || ''} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), amount: e.target.value } })}/><input type="date" className="p-2 border rounded" value={form.invoiceDp?.date || form.date} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), date: e.target.value } })}/><select className="p-2 border rounded" value={form.invoiceDp?.method || 'Transfer'} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), method: e.target.value } })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select><select className="p-2 border rounded" value={form.commissionType} onChange={e => setForm({ ...form, commissionType: e.target.value })}><option>Persen</option><option>Rupiah per Pcs</option><option>Rupiah</option></select><input type="number" className="p-2 border rounded text-right" placeholder="Komisi" value={form.commissionValue} onChange={e => setForm({ ...form, commissionValue: e.target.value })}/><input className="p-2 border rounded md:col-span-5" placeholder="Catatan invoice" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></div><div className="bg-blue-50 border border-blue-100 rounded p-3 text-sm">Subtotal: <b>{formatRupiah(getInvoiceTotals(form).subtotal)}</b> | Diskon: <b>{formatRupiah(getInvoiceTotals(form).discount)}</b> | Total: <b>{formatRupiah(getInvoiceTotals(form).total)}</b> | Status: <b>{getInvoicePaymentStatus(form)}</b></div><div className="flex justify-end gap-2"><button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editId ? 'Simpan Edit' : 'Buat Invoice'}</button></div></form></Card>
+                    <Card><form onSubmit={saveInvoice} className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-4 gap-3"><input type="date" className="p-2 border rounded" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}/><input list="client-list-invoice" className="p-2 border rounded" placeholder="Nama instansi/customer" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} required/><datalist id="client-list-invoice">{safeClientRows.filter(isVisibleRecord).map(client => <option key={client.id} value={client.name}/>)}</datalist><input list="client-address-list" className="p-2 border rounded" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/><datalist id="client-address-list">{clientAddressSuggestions.map((a,i)=><option key={i} value={a}/>)}</datalist><input list="marketing-list-enhanced" className="p-2 border rounded" placeholder="Marketing" value={form.marketing} onChange={e => setForm({ ...form, marketing: e.target.value })}/><datalist id="marketing-list-enhanced">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist></div>{getInvoiceItems(form).map((item, itemIndex) => <div key={item.id} className="border rounded-lg p-4 bg-gray-50"><div className="flex gap-2 mb-3"><input list="invoice-type-list" className="flex-1 p-2 border rounded" placeholder={`Jenis produksi ${itemIndex + 1}`} value={item.productionType || ''} onChange={e => patchItem(item.id, { productionType: e.target.value })}/><datalist id="invoice-type-list">{uniqueInvoiceTypes.map((t,i)=><option key={i} value={t}/>)}</datalist>{getInvoiceItems(form).length > 1 && <button type="button" onClick={() => removeProductionItem(item.id)} className="px-3 py-2 bg-red-50 text-red-700 rounded font-bold">Hapus Jenis</button>}</div><div className="space-y-2">{(item.sizes || []).map(size => <div key={size.id} className="grid grid-cols-1 md:grid-cols-7 gap-2 items-center"><input className="p-2 border rounded" placeholder="Size" value={size.size || ''} onChange={e => patchSize(item.id, size.id, { size: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Qty" value={size.qty} onChange={e => patchSize(item.id, size.id, { qty: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Harga/pcs" value={size.pricePerPcs} onChange={e => patchSize(item.id, size.id, { pricePerPcs: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Diskon/pcs" value={size.discountPerPcs} onChange={e => patchSize(item.id, size.id, { discountPerPcs: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Diskon %" value={size.discountPercent} onChange={e => patchSize(item.id, size.id, { discountPercent: e.target.value })}/><div className="text-right font-black text-blue-700">{formatRupiah(getInvoiceSizeTotal(size).total)}</div>{(item.sizes || []).length > 1 && <button type="button" onClick={() => removeSize(item.id, size.id)} className="text-red-600 bg-red-50 p-2 rounded"><IconTrash /></button>}</div>)}</div><button type="button" onClick={() => addSize(item.id)} className="mt-3 text-sm font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded">Tambah Size</button></div>)}<button type="button" onClick={addProductionItem} className="text-sm font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded">Tambah Jenis Produksi</button><div className="grid grid-cols-1 md:grid-cols-5 gap-3"><input type="number" className="p-2 border rounded text-right" placeholder="DP" value={form.invoiceDp?.amount || ''} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), amount: e.target.value } })}/><input type="date" className="p-2 border rounded" value={form.invoiceDp?.date || form.date} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), date: e.target.value } })}/><select className="p-2 border rounded" value={form.invoiceDp?.method || 'Transfer'} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), method: e.target.value } })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select><select className="p-2 border rounded" value={form.commissionType} onChange={e => setForm({ ...form, commissionType: e.target.value })}><option>Persen</option><option>Rupiah per Pcs</option><option>Rupiah</option></select><input type="number" className="p-2 border rounded text-right" placeholder="Komisi" value={form.commissionValue} onChange={e => setForm({ ...form, commissionValue: e.target.value })}/><input list="invoice-note-list" className="p-2 border rounded md:col-span-5" placeholder="Catatan invoice" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/><datalist id="invoice-note-list">{[...new Set(safeInvoiceRows.filter(isVisibleRecord).map(inv=>String(inv.note||'').trim()).filter(Boolean))].sort().map((n,i)=><option key={i} value={n}/>)}</datalist></div><div className="bg-blue-50 border border-blue-100 rounded p-3 text-sm">Subtotal: <b>{formatRupiah(getInvoiceTotals(form).subtotal)}</b> | Diskon: <b>{formatRupiah(getInvoiceTotals(form).discount)}</b> | Total: <b>{formatRupiah(getInvoiceTotals(form).total)}</b> | Status: <b>{getInvoicePaymentStatus(form)}</b></div><div className="flex justify-end gap-2"><button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editId ? 'Simpan Edit' : 'Buat Invoice'}</button></div></form></Card>
                     <Card><div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari customer, marketing, jenis, status..." /><select className="p-3 border rounded-lg mt-5" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>Semua</option><option>Belum Dibayar</option><option>Termin</option><option>Lunas</option></select></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">Invoice</th><th className="p-2 text-left">Customer</th><th className="p-2 text-right">Pcs</th><th className="p-2 text-right">Total</th><th className="p-2 text-center">Status</th><th className="p-2 text-center">Aksi</th></tr></thead><tbody>{visibleInvoices.map(inv => { const totals = getInvoiceTotals(inv); return <React.Fragment key={inv.id}><tr className="border-t"><td className="p-2 font-bold text-blue-700">{inv.id}<div className="text-xs text-gray-500">{inv.date}</div></td><td className="p-2">{inv.customer}<div className="text-xs text-gray-500">{inv.marketing || '-'}</div></td><td className="p-2 text-right font-bold">{getInvoicePcsTotal(inv)}</td><td className="p-2 text-right font-black">{formatRupiah(totals.total)}</td><td className="p-2 text-center"><span className={`px-2 py-1 rounded-full text-xs font-bold ${statusClass(getInvoicePaymentStatus(inv))}`}>{getInvoicePaymentStatus(inv)}</span></td><td className="p-2"><div className="flex justify-center flex-wrap gap-1"><button onClick={() => setExpandedIds(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))} className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">{expandedIds[inv.id] ? 'Sembunyikan' : 'Rincian'}</button><button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: getInvoiceItems(inv), invoiceDp: getInvoiceDp(inv) }); }} className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">Edit</button><button onClick={() => printInvoice(inv)} className="text-xs bg-gray-50 text-slate-700 px-2 py-1 rounded">Cetak</button><button onClick={() => deleteInvoice(inv.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>{expandedIds[inv.id] && <tr className="bg-gray-50"><td colSpan="6" className="p-3 text-xs">DP: <b>{formatRupiah(getInvoiceDpAmount(inv))}</b> | Dibayar: <b>{formatRupiah(getInvoicePaidTotal(inv))}</b> | Sisa: <b>{formatRupiah(Math.max(0, totals.total - getInvoicePaidTotal(inv)))}</b> | Komisi: <b>{formatRupiah(getInvoiceCommissionTotal(inv))}</b><br/>{getInvoiceItems(inv).map(item => `${item.productionType || '-'}: ${(item.sizes || []).map(size => `${size.size || '-'} ${size.qty || 0}pcs`).join(', ')}`).join(' | ')}</td></tr>}</React.Fragment>; })}{visibleInvoices.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-gray-500 italic">Belum ada invoice.</td></tr>}</tbody></table></div></Card>
                     <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Komisi Marketing</h3><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Marketing</th><th className="p-3 text-right">Invoice</th><th className="p-3 text-right">Pcs</th><th className="p-3 text-right">Penjualan</th><th className="p-3 text-right">Komisi</th></tr></thead><tbody>{commissionRows.map(row => <tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-black text-purple-700">{formatRupiah(row.commission)}</td></tr>)}</tbody></table></div></Card>
                 </div>
