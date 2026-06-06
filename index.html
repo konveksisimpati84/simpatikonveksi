@@ -4945,7 +4945,133 @@
                     const sizeDetails = sizes.map(size => `<div class="size-line"><span>${safe(size.size || '-')}</span><span>${safeMoney(size.qty)} pcs</span><span>${formatRupiah(getInvoiceSizeTotal(size).total)}</span></div>`).join('');
                     return `<tr><td class="center">${idx + 1}</td><td><b>${safe(item.productionType || '-')}</b></td><td>${sizeDetails || '-'}</td><td class="center">${qty} pcs</td><td class="right">${priceList || '-'}</td><td class="right"><b>${formatRupiah(total)}</b></td></tr>`;
                 }).join('');
-                const printContent = `<!DOCTYPE html><html><head><title>Invoice ${safe(inv.id)}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;background:#fff}.sheet{padding:18px 20px 24px}.navy{color:#10264a}.top{display:flex;justify-content:space-between;align-items:flex-start}.brand img{max-height:95px;max-width:280px;object-fit:contain}.brand-fallback{line-height:.95}.brand-small{font-size:30px;font-weight:900;color:#e31b23}.brand-main{font-size:62px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-2px}.invoice-title{font-size:34px;font-weight:900;color:#1f64d1;margin:10px 0 28px;text-align:right}.meta{display:grid;grid-template-columns:80px 12px 1fr;gap:8px;font-size:15px;margin-top:8px}.section-grid{display:grid;grid-template-columns:1fr 1fr;gap:70px;margin-top:38px}.section-title{font-size:16px;font-weight:900;color:#10264a}.section-line{border-bottom:5px solid #10264a;margin-top:12px}.section-body{min-height:96px;margin-top:12px;font-size:14px;line-height:1.45}.items{width:100%;border-collapse:collapse;margin-top:46px;table-layout:fixed}.items th{background:#10264a;color:#fff;padding:12px 8px;font-size:15px;text-align:left}.items td{background:#eef1f6;border:2px solid #fff;padding:12px 8px;vertical-align:top;font-size:14px}.items .center{text-align:center}.items .right{text-align:right}.size-line{display:grid;grid-template-columns:1fr 70px 110px;gap:8px;border-bottom:1px solid rgba(16,38,74,.16);padding:2px 0}.bottom{display:grid;grid-template-columns:1.2fr .8fr;gap:50px;margin-top:28px}.note-title{font-size:16px;font-weight:900;color:#10264a;margin-bottom:8px}.note-line{border-bottom:2px solid #10264a;min-height:34px;white-space:pre-wrap}.totals{font-size:16px}.total-row{display:grid;grid-template-columns:1fr 12px 150px;gap:10px;margin:12px 0;align-items:center}.total-row .amount{border-bottom:2px solid #555;text-align:right;padding-bottom:3px}.total-row.strong{font-size:21px;font-weight:900}.total-row.strong .amount{border-bottom:5px double #555}.sign{margin-top:88px;text-align:center;margin-left:auto;width:260px}.sign-line{border-bottom:2px solid #555;margin:100px auto 4px;width:170px}</style></head><body><div class="sheet"><div class="top"><div class="brand">${templates?.companyLogo ? `<img src="${templates.companyLogo}" />` : `<div class="brand-fallback"><div class="brand-small">Konveksi</div><div class="brand-main">Simpati</div></div>`}</div><div><div class="invoice-title">Invoice</div><div class="meta"><div>Nomor</div><div>:</div><div>${safe(inv.id || '-')}</div><div>Tanggal</div><div>:</div><div>${safe(inv.date || '-')}</div></div></div></div><div class="section-grid"><div><div class="section-title">Informasi Perusahaan</div><div class="section-line"></div><div class="section-body"><b>${safe(templates?.companyName || 'Simpati Konveksi')}</b><br/>${safe(templates?.companySubtitle || '')}<br/>${safe(templates?.companyContact || '')}</div></div><div><div class="section-title">Tagihan Kepada</div><div class="section-line"></div><div class="section-body"><b>${safe(inv.customer || '-')}</b><br/>${safe(inv.address || '-')}</div></div></div><table class="items"><thead><tr><th style="width:44px">No.</th><th>Produk</th><th>Deskripsi</th><th style="width:95px">Kuantitas</th><th style="width:125px">Harga</th><th style="width:130px">Jumlah</th></tr></thead><tbody>${itemRows || '<tr><td colspan="6" class="center">Tidak ada item.</td></tr>'}<tr><td></td><td></td><td class="right"><b>Total Kuantitas</b></td><td class="center"><b>${getInvoicePcsTotal(inv)} pcs</b></td><td></td><td></td></tr></tbody></table><div class="bottom"><div><div class="note-title">Pesan</div><div class="note-line">${safe(inv.note || '-')}</div></div><div class="totals"><div class="total-row"><b>Subtotal</b><span>:</span><span class="amount">${formatRupiah(totals.subtotal)}</span></div><div class="total-row strong"><b>Total</b><span>:</span><span class="amount">${formatRupiah(totals.total)}</span></div><div class="total-row"><b>DP</b><span>:</span><span class="amount">${formatRupiah(getInvoiceDpAmount(inv))}</span></div><div class="total-row"><b>Sisa Tagihan</b><span>:</span><span class="amount">${formatRupiah(Math.max(0, totals.total - paid))}</span></div></div></div><div class="sign"><div>Dengan Hormat,</div><div class="sign-line"></div><div><b>${safe(templates?.companyName || 'Simpati Konveksi')}</b></div><div>Jabatan</div></div></div></body></html>`;
+                const remaining = Math.max(0, totals.total - paid);
+                const dp = getInvoiceDpAmount(inv);
+                const statusLabel = paid <= 0 ? 'Belum Dibayar' : paid >= totals.total ? 'LUNAS' : 'Termin / Sebagian';
+                const statusColor = paid <= 0 ? '#dc2626' : paid >= totals.total ? '#16a34a' : '#d97706';
+                const printContent = `<!DOCTYPE html><html><head><title>Invoice ${safe(inv.id)}</title><style>
+@page{size:A4;margin:0}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:210mm;min-height:297mm;padding:12mm 14mm;display:flex;flex-direction:column}
+.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10mm;border-bottom:3px solid #1e3a5f}
+.brand{display:flex;align-items:center;gap:12px}
+.brand img{max-height:80px;max-width:200px;object-fit:contain}
+.brand-text .co-name{font-size:22px;font-weight:900;color:#1e3a5f;line-height:1}
+.brand-text .co-sub{font-size:11px;color:#64748b;margin-top:3px}
+.brand-text .co-contact{font-size:10px;color:#64748b;margin-top:2px}
+.inv-right{text-align:right}
+.inv-right .inv-label{font-size:28px;font-weight:900;color:#1e3a5f;letter-spacing:-1px;line-height:1}
+.inv-right .inv-num{font-size:13px;font-weight:700;color:#3b82f6;margin-top:4px}
+.inv-right .inv-date{font-size:11px;color:#64748b;margin-top:2px}
+.status-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:900;margin-top:5px;border:2px solid}
+.parties{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:8mm}
+.party-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px}
+.party-label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:5px}
+.party-name{font-size:14px;font-weight:900;color:#1e3a5f;line-height:1.2}
+.party-detail{font-size:11px;color:#64748b;margin-top:3px;line-height:1.4}
+.items-section{margin-top:8mm;flex:1}
+.items-section table{width:100%;border-collapse:collapse}
+.items-section thead th{background:#1e3a5f;color:#fff;padding:9px 10px;font-size:11px;text-align:left;font-weight:700}
+.items-section thead th.r{text-align:right}
+.items-section thead th.c{text-align:center}
+.items-section tbody tr:nth-child(even) td{background:#f1f5f9}
+.items-section tbody td{padding:8px 10px;font-size:12px;vertical-align:top;border-bottom:1px solid #e2e8f0}
+.items-section tbody td.r{text-align:right}
+.items-section tbody td.c{text-align:center}
+.size-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dashed #cbd5e1;font-size:11px}
+.size-row:last-child{border:none}
+.totals-section{display:grid;grid-template-columns:1fr 0.65fr;gap:20px;margin-top:8mm}
+.note-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px}
+.note-label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:6px}
+.note-text{font-size:12px;color:#374151;line-height:1.5}
+.amounts{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px}
+.amount-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px;border-bottom:1px dashed #e2e8f0}
+.amount-row:last-child{border:none}
+.amount-row.total-final{font-size:15px;font-weight:900;color:#1e3a5f;padding-top:8px;border-top:2px solid #1e3a5f;margin-top:4px;border-bottom:none}
+.amount-row .label{color:#64748b}
+.amount-row .val{font-weight:700}
+.footer-section{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:10mm;padding-top:6mm;border-top:1px solid #e2e8f0}
+.sign-box{text-align:center}
+.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:30px}
+.sign-line{border-bottom:1.5px solid #374151;margin:0 20px;margin-bottom:4px}
+.sign-name{font-size:11px;font-weight:700;color:#1e3a5f}
+.sign-sub{font-size:10px;color:#94a3b8}
+@media print{.page{padding:10mm 12mm}}
+</style></head><body><div class="page">
+<div class="header">
+  <div class="brand">
+    ${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : ''}
+    <div class="brand-text">
+      <div class="co-name">${safe(templates?.companyName || 'SIMPATI KONVEKSI')}</div>
+      ${templates?.companySubtitle ? `<div class="co-sub">${safe(templates.companySubtitle)}</div>` : ''}
+      ${templates?.companyContact ? `<div class="co-contact">${safe(templates.companyContact)}</div>` : ''}
+    </div>
+  </div>
+  <div class="inv-right">
+    <div class="inv-label">INVOICE</div>
+    <div class="inv-num">${safe(inv.id || '-')}</div>
+    <div class="inv-date">Tanggal: ${safe(inv.date || '-')}</div>
+    <div class="status-badge" style="color:${statusColor};border-color:${statusColor};background:${statusColor}15">${statusLabel}</div>
+  </div>
+</div>
+<div class="parties">
+  <div class="party-box">
+    <div class="party-label">Dari / Penjual</div>
+    <div class="party-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
+    ${templates?.companyContact ? `<div class="party-detail">${safe(templates.companyContact)}</div>` : ''}
+  </div>
+  <div class="party-box">
+    <div class="party-label">Kepada / Pembeli</div>
+    <div class="party-name">${safe(inv.customer || '-')}</div>
+    ${inv.address ? `<div class="party-detail">${safe(inv.address)}</div>` : ''}
+    ${inv.marketing ? `<div class="party-detail" style="margin-top:4px;font-size:10px">Marketing: <b>${safe(inv.marketing)}</b></div>` : ''}
+  </div>
+</div>
+<div class="items-section">
+  <table>
+    <thead><tr><th style="width:36px" class="c">No.</th><th>Jenis Produksi</th><th>Rincian Ukuran & Qty</th><th style="width:90px" class="c">Total Qty</th><th style="width:120px" class="r">Subtotal</th></tr></thead>
+    <tbody>
+      ${itemRows || '<tr><td colspan="5" class="c" style="padding:20px;color:#94a3b8">Tidak ada item.</td></tr>'}
+      <tr style="background:#f1f5f9;font-weight:700"><td colspan="2"></td><td class="r" style="font-size:11px;color:#64748b">Total Keseluruhan</td><td class="c" style="font-weight:900">${getInvoicePcsTotal(inv)} pcs</td><td class="r" style="font-weight:900">${formatRupiah(totals.subtotal)}</td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="totals-section">
+  <div class="note-box">
+    <div class="note-label">Catatan / Pesan</div>
+    <div class="note-text">${safe(inv.note || '-')}</div>
+  </div>
+  <div class="amounts">
+    <div class="amount-row"><span class="label">Subtotal</span><span class="val">${formatRupiah(totals.subtotal)}</span></div>
+    ${totals.discount > 0 ? `<div class="amount-row"><span class="label">Total Diskon</span><span class="val" style="color:#dc2626">- ${formatRupiah(totals.discount)}</span></div>` : ''}
+    <div class="amount-row" style="font-size:13px;font-weight:800;border-top:1px solid #cbd5e1;margin-top:4px;padding-top:8px"><span>Total Invoice</span><span style="color:#1e3a5f">${formatRupiah(totals.total)}</span></div>
+    ${dp > 0 ? `<div class="amount-row"><span class="label">DP / Uang Muka</span><span class="val" style="color:#16a34a">- ${formatRupiah(dp)}</span></div>` : ''}
+    ${paid > dp ? `<div class="amount-row"><span class="label">Pembayaran Lain</span><span class="val" style="color:#16a34a">- ${formatRupiah(paid - dp)}</span></div>` : ''}
+    <div class="amount-row total-final"><span>Sisa Tagihan</span><span style="color:${remaining>0?'#dc2626':'#16a34a'}">${formatRupiah(remaining)}</span></div>
+  </div>
+</div>
+<div class="footer-section">
+  <div class="sign-box">
+    <div class="sign-title">Dibuat Oleh</div>
+    <div class="sign-line"></div>
+    <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
+    <div class="sign-sub">Administrasi</div>
+  </div>
+  <div class="sign-box">
+    <div class="sign-title">Diperiksa Oleh</div>
+    <div class="sign-line"></div>
+    <div class="sign-name">&nbsp;</div>
+    <div class="sign-sub">Pimpinan</div>
+  </div>
+  <div class="sign-box">
+    <div class="sign-title">Diterima Oleh</div>
+    <div class="sign-line"></div>
+    <div class="sign-name">${safe(inv.customer || '-')}</div>
+    <div class="sign-sub">Customer</div>
+  </div>
+</div>
+</div></body></html>`;
                 const w = window.open('', '_blank'); if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
             };
             const commissionRows = Object.values(visibleInvoices.reduce((acc, inv) => {
@@ -5763,46 +5889,13 @@
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             const [printOptions, setPrintOptions] = useState({ marketing: true, production: true, daily: true, overtime: true });
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
-            const [incomeTypeFilter, setIncomeTypeFilter] = useState('Semua');
+            const [expandedInputIds, setExpandedInputIds] = useState({});
             const safeOrdersForReport = Array.isArray(orders) ? orders : [];
             const safeEmployeesForReport = Array.isArray(employees) ? employees : [];
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
             const safeInvoicesForReport = Array.isArray(invoices) ? invoices : [];
             const visibleEmployees = safeEmployeesForReport.filter(isVisibleRecord);
             const filteredReportEmployees = visibleEmployees.filter(emp => matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm));
-
-            const allSiapDirekap = [];
-            visibleEmployees.forEach(emp => {
-                safeOrdersForReport.filter(isVisibleOrder).forEach(order => {
-                    if (!order.progress) return;
-                    Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
-                        if (!getActiveProductionStageIds(order).includes(stage)) return;
-                        const empLogs = safeArray(data?.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
-                        if (empLogs.length === 0) return;
-                        const qty = empLogs.reduce((sum, l) => sum + getWorkLogSubmittedQty(l), 0);
-                        const unitPrice = safeNumber(getProductionUnitPrice(order, stage));
-                        const stageLabel = productionStageOptions.find(opt => opt.id === stage)?.label || stage;
-                        allSiapDirekap.push({ tanggal: empLogs[0].submittedAt?.slice(0, 10) || order.date || '-', empId: emp.id, empName: emp.name, divisi: emp.division, jenis: 'Produksi', keterangan: `${order.id} - ${stageLabel} (${order.type || ''})`, nominal: qty * unitPrice, status: 'Belum Direkap' });
-                    });
-                });
-                getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId).forEach(log => {
-                    const lt = getDailySalaryLogTotal(log);
-                    if (lt.daily > 0) allSiapDirekap.push({ tanggal: log.date || '-', empId: emp.id, empName: emp.name, divisi: emp.division, jenis: 'Harian', keterangan: log.note || `Gaji Harian (${log.workDays || 0} hari)`, nominal: lt.daily, status: 'Belum Direkap' });
-                    if (lt.overtime > 0) allSiapDirekap.push({ tanggal: log.date || '-', empId: emp.id, empName: emp.name, divisi: emp.division, jenis: 'Lembur', keterangan: log.note || `Lembur (${log.overtimeCount || 0}x)`, nominal: lt.overtime, status: 'Belum Direkap' });
-                });
-                safeInvoicesForReport.filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0).forEach(inv => allSiapDirekap.push({ tanggal: inv.date || '-', empId: emp.id, empName: emp.name, divisi: emp.division, jenis: 'Marketing', keterangan: `Invoice ${inv.id} - ${inv.customer || '-'}`, nominal: getInvoiceCommissionTotal(inv), status: 'Belum Direkap' }));
-            });
-            const filteredSiapDirekap = allSiapDirekap
-                .filter(item => incomeTypeFilter === 'Semua' || item.jenis === incomeTypeFilter)
-                .filter(item => matchesSearch([item.empName, item.divisi, item.jenis, item.keterangan], searchTerm))
-                .sort((a, b) => b.tanggal.localeCompare(a.tanggal));
-            const siapDirekapTotals = {
-                produksi: allSiapDirekap.filter(i => i.jenis === 'Produksi').reduce((s, i) => s + i.nominal, 0),
-                harian: allSiapDirekap.filter(i => i.jenis === 'Harian').reduce((s, i) => s + i.nominal, 0),
-                lembur: allSiapDirekap.filter(i => i.jenis === 'Lembur').reduce((s, i) => s + i.nominal, 0),
-                marketing: allSiapDirekap.filter(i => i.jenis === 'Marketing').reduce((s, i) => s + i.nominal, 0),
-                total: allSiapDirekap.reduce((s, i) => s + i.nominal, 0)
-            };
 
             const toggleSelection = (key) => {
                 setSelectedItemKeys(prev => {
@@ -6332,7 +6425,8 @@
             const modalDailySalaryLogs = getEmployeeDailySalaryLogs(modalEmployee).filter(log => !log.rekapId);
             const modalDailySalary = modalDailySalaryLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
             const modalOvertimeSalary = modalDailySalaryLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
-            const modalMarketingCommission = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(modalEmployee?.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0).reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
+            const modalMarketingInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(modalEmployee?.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0);
+            const modalMarketingCommission = modalMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
             const modalPrintableGross = (printOptions.production ? modalSelectedWage : 0) + (printOptions.daily ? modalDailySalary : 0) + (printOptions.overtime ? modalOvertimeSalary : 0) + (printOptions.marketing ? modalMarketingCommission : 0);
             const modalGrossSalary = modalPrintableGross;
@@ -6370,7 +6464,6 @@
                     </div>
                     <div className="flex gap-4 border-b border-gray-200 pb-2">
                         <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Input / Laporan Kinerja</button>
-                        <button onClick={() => setActiveReportTab('siap_direkap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeReportTab === 'siap_direkap' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Siap Direkap{allSiapDirekap.length > 0 && <span className="bg-yellow-500 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">{allSiapDirekap.length}</span>}</button>
                         <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
                     </div>
                     <Card>
@@ -6439,8 +6532,11 @@
                                                 <h3 className="font-bold text-lg text-blue-900">{emp.name}</h3>
                                                 <span className="text-xs font-semibold bg-blue-200 text-blue-800 px-3 py-1 rounded-full">{emp.division}</span>
                                             </div>
+                                            <button onClick={() => setExpandedInputIds(prev => ({ ...prev, [emp.id]: !prev[emp.id] }))} className="mt-2 md:mt-0 text-xs font-bold px-3 py-1.5 rounded-lg border border-blue-300 bg-white text-blue-700 hover:bg-blue-100 transition-colors">
+                                                {expandedInputIds[emp.id] ? '▲ Sembunyikan Rincian' : '▼ Tampilkan Rincian'}
+                                            </button>
                                         </div>
-                                        
+
                                         <div className="p-4 space-y-4">
                                             <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
                                                 <div className="bg-green-50 border border-green-100 rounded-lg p-3"><div className="text-[11px] font-black text-green-700 uppercase">Total Produksi</div><div className="text-sm font-black text-green-900 mt-1">{formatRupiah(totalUnsettledWage)}</div></div>
@@ -6452,7 +6548,7 @@
                                                 <div className="bg-blue-50 border border-blue-100 rounded-lg p-3"><div className="text-[11px] font-black text-blue-700 uppercase">Bersih</div><div className="text-sm font-black text-blue-900 mt-1">{formatRupiah(projectedNetSalary)}</div></div>
                                             </div>
 
-                                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                            {expandedInputIds[emp.id] && <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                                                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                                                     <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Gaji Produksi</div>
                                                     <div className="overflow-x-auto">
@@ -6503,7 +6599,7 @@
                                                         </table>
                                                     </div>
                                                 </div>
-                                            </div>
+                                            </div>}
 
                                             {(unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0) ? (
                                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -6538,74 +6634,6 @@
                                 </Card>
                             )}
                         </div>
-                    </div>
-                    ) : activeReportTab === 'siap_direkap' ? (
-                    <div className="space-y-4">
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                            <Card><h3 className="text-xs font-bold text-gray-500">Total Item</h3><p className="text-xl font-black text-yellow-600">{allSiapDirekap.length}</p></Card>
-                            <Card><h3 className="text-xs font-bold text-gray-500">Gaji Produksi</h3><p className="text-lg font-black text-green-700">{formatRupiah(siapDirekapTotals.produksi)}</p></Card>
-                            <Card><h3 className="text-xs font-bold text-gray-500">Gaji Harian</h3><p className="text-lg font-black text-indigo-700">{formatRupiah(siapDirekapTotals.harian)}</p></Card>
-                            <Card><h3 className="text-xs font-bold text-gray-500">Gaji Lembur</h3><p className="text-lg font-black text-sky-700">{formatRupiah(siapDirekapTotals.lembur)}</p></Card>
-                            <Card><h3 className="text-xs font-bold text-gray-500">Komisi Marketing</h3><p className="text-lg font-black text-purple-700">{formatRupiah(siapDirekapTotals.marketing)}</p></Card>
-                        </div>
-                        <Card>
-                            <div className="flex flex-wrap gap-2 items-center mb-3">
-                                <span className="text-xs font-bold text-gray-500 mr-1">Filter Jenis:</span>
-                                {['Semua','Produksi','Harian','Lembur','Marketing'].map(f => (
-                                    <button key={f} onClick={() => setIncomeTypeFilter(f)} className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${incomeTypeFilter === f ? 'bg-yellow-500 text-white border-yellow-500' : 'bg-white text-gray-600 border-gray-300 hover:border-yellow-400'}`}>{f}</button>
-                                ))}
-                            </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 text-gray-600">
-                                        <tr>
-                                            <th className="p-3 text-left font-semibold">Tanggal</th>
-                                            <th className="p-3 text-left font-semibold">Nama Karyawan</th>
-                                            <th className="p-3 text-left font-semibold">Divisi</th>
-                                            <th className="p-3 text-left font-semibold">Jenis Penghasilan</th>
-                                            <th className="p-3 text-left font-semibold">Keterangan</th>
-                                            <th className="p-3 text-right font-semibold">Nominal</th>
-                                            <th className="p-3 text-center font-semibold">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredSiapDirekap.map((item, idx) => {
-                                            const jenisColor = { Produksi: 'bg-green-100 text-green-800', Harian: 'bg-indigo-100 text-indigo-800', Lembur: 'bg-sky-100 text-sky-800', Marketing: 'bg-purple-100 text-purple-800' }[item.jenis] || 'bg-gray-100 text-gray-700';
-                                            return (
-                                                <tr key={`${item.empId}-${item.jenis}-${idx}`} className="border-t hover:bg-yellow-50">
-                                                    <td className="p-3 text-gray-600">{item.tanggal}</td>
-                                                    <td className="p-3 font-bold text-gray-800">{item.empName}</td>
-                                                    <td className="p-3 text-gray-600">{item.divisi}</td>
-                                                    <td className="p-3"><span className={`text-xs font-bold px-2 py-1 rounded-full ${jenisColor}`}>{item.jenis}</span></td>
-                                                    <td className="p-3 text-gray-700">{item.keterangan}</td>
-                                                    <td className="p-3 text-right font-black text-gray-900">{formatRupiah(item.nominal)}</td>
-                                                    <td className="p-3 text-center"><span className="text-xs bg-yellow-100 text-yellow-800 font-bold px-2 py-1 rounded-full">{item.status}</span></td>
-                                                </tr>
-                                            );
-                                        })}
-                                        {filteredSiapDirekap.length === 0 && (
-                                            <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">
-                                                {allSiapDirekap.length === 0 ? 'Semua penghasilan sudah direkap.' : 'Tidak ada item yang cocok dengan filter.'}
-                                            </td></tr>
-                                        )}
-                                    </tbody>
-                                    {filteredSiapDirekap.length > 0 && (
-                                        <tfoot className="bg-gray-50 font-bold border-t-2">
-                                            <tr>
-                                                <td colSpan="5" className="p-3">Total ({filteredSiapDirekap.length} item)</td>
-                                                <td className="p-3 text-right text-blue-700">{formatRupiah(filteredSiapDirekap.reduce((s, i) => s + i.nominal, 0))}</td>
-                                                <td></td>
-                                            </tr>
-                                        </tfoot>
-                                    )}
-                                </table>
-                            </div>
-                        </Card>
-                        {allSiapDirekap.length > 0 && (
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
-                                <strong>Cara Rekap:</strong> Buka tab <em>"Input / Laporan Kinerja"</em>, pilih karyawan, lalu klik tombol <strong>Rekap</strong> pada kartu karyawan yang bersangkutan. Semua jenis penghasilan (Produksi, Harian, Lembur, Marketing) otomatis digabung dalam satu rekap.
-                            </div>
-                        )}
                     </div>
                     ) : (
                     <div className="space-y-4">
@@ -6746,118 +6774,155 @@
                     {modalData && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                             <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-                                <div className="px-5 py-4 bg-blue-600 text-white flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                <div className="px-5 py-4 bg-blue-700 text-white flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                                     <div>
-                                        <h3 className="font-black text-lg">Pilih Order untuk Rekap</h3>
-                                        <p className="text-xs text-white/85 mt-1">Ceklis pekerjaan yang akan dicetak pada struk gaji produksi.</p>
+                                        <h3 className="font-black text-lg">Rekap Gabungan Gaji</h3>
+                                        <p className="text-xs text-white/85 mt-1">{modalEmployee?.name || '-'} · {modalEmployee?.division || '-'}</p>
                                     </div>
                                     <div className="text-sm font-bold bg-white/15 px-3 py-2 rounded-lg">
-                                        {modalSelectedItems.length} dipilih | {modalSelectedTotal} pcs | {formatRupiah(modalSelectedWage || 0)}
+                                        Bruto: {formatRupiah(modalGrossSalary)} · Bersih: {formatRupiah(Math.max(0, modalGrossSalary - modalDeduction))}
                                     </div>
                                 </div>
-                                <div className="p-5 overflow-y-auto">
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-                                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                                            <h4 className="font-black text-slate-900 mb-3">Pilihan Data yang Akan Dicetak</h4>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                                                {[
-                                                    ['marketing', 'Komisi Marketing'],
-                                                    ['production', 'Gaji Produksi'],
-                                                    ['daily', 'Gaji Harian'],
-                                                    ['overtime', 'Lembur']
-                                                ].map(([key, label]) => (
-                                                    <label key={key} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2 font-bold text-slate-700">
-                                                        <input type="checkbox" className="w-4 h-4 rounded text-blue-600" checked={!!printOptions[key]} onChange={e => setPrintOptions(prev => ({ ...prev, [key]: e.target.checked }))} />
-                                                        {label}
-                                                    </label>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div className="bg-orange-50 border border-orange-100 rounded-lg p-4">
-                                            <h4 className="font-black text-orange-900 mb-3">Simulasi Kasbon</h4>
-                                            <div className="space-y-2 text-sm">
-                                                <div className="flex justify-between gap-3"><span>Total kasbon aktif</span><b className="text-red-700">{formatRupiah(modalCashAdvanceSummary.remaining)}</b></div>
-                                                <div className="flex justify-between gap-3"><span>Bayar kasbon sekarang</span><b className="text-orange-700">{formatRupiah(modalDeduction)}</b></div>
-                                                <div className="flex justify-between gap-3 border-t border-orange-200 pt-2"><span>Sisa kasbon</span><b className="text-slate-900">{formatRupiah(Math.max(0, modalCashAdvanceSummary.remaining - modalDeduction))}</b></div>
-                                            </div>
+                                <div className="p-5 overflow-y-auto space-y-4">
+                                    {/* Pilihan cetak */}
+                                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                        <h4 className="font-black text-slate-800 mb-2 text-sm">Pilihan Data yang Akan Dicetak</h4>
+                                        <div className="flex flex-wrap gap-2">
+                                            {[['production','Gaji Produksi'],['daily','Gaji Harian'],['overtime','Lembur'],['marketing','Komisi Marketing']].map(([key, label]) => (
+                                                <label key={key} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 cursor-pointer">
+                                                    <input type="checkbox" className="w-4 h-4 rounded text-blue-600" checked={!!printOptions[key]} onChange={e => setPrintOptions(prev => ({ ...prev, [key]: e.target.checked }))} />
+                                                    {label}
+                                                </label>
+                                            ))}
                                         </div>
                                     </div>
-                                    <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                                        <table className="w-full text-sm text-left border-collapse">
-                                            <thead className="bg-gray-50 text-gray-600">
-                                                <tr>
-                                                    <th className="py-2 px-3 font-semibold border-b border-gray-200 w-10 text-center">
-                                                        <input 
-                                                            type="checkbox" 
-                                                            className="w-4 h-4 rounded text-blue-600 cursor-pointer"
-                                                            checked={(modalData.allItems || []).length > 0 && (modalData.allItems || []).every(item => modalData.selectedKeys?.has(getRekapItemKey(item)))}
-                                                            onChange={toggleAllModalRekapItems}
-                                                        />
-                                                    </th>
-                                                    <th className="py-2 px-3 font-semibold border-b border-gray-200">ID Order</th>
-                                                    <th className="py-2 px-3 font-semibold border-b border-gray-200">Klien (Barang)</th>
-                                                    <th className="py-2 px-3 font-semibold border-b border-gray-200">Tahap</th>
-                                                    <th className="py-2 px-3 font-semibold border-b border-gray-200">Rincian Ukuran</th>
-                                                    <th className="py-2 px-3 font-semibold text-right border-b border-gray-200">Jumlah</th>
-                                                    <th className="py-2 px-3 font-semibold text-right border-b border-gray-200">Harga/Pcs</th>
-                                                    <th className="py-2 px-3 font-semibold text-right border-b border-gray-200">Gaji</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {(modalData.allItems || []).map((item, idx) => {
-                                                    const isSelected = modalData.selectedKeys?.has(getRekapItemKey(item));
-                                                    return (
-                                                        <tr key={`${item.orderId}-${item.stage}-${idx}`} className={`border-b border-gray-50 hover:bg-blue-50/30 transition-colors ${isSelected ? 'bg-blue-50' : ''}`}>
-                                                            <td className="py-2 px-3 text-center">
-                                                                <input 
-                                                                    type="checkbox" 
-                                                                    className="w-4 h-4 rounded text-blue-600 cursor-pointer"
-                                                                    checked={!!isSelected}
-                                                                    onChange={() => toggleModalRekapItem(item)}
-                                                                />
-                                                            </td>
-                                                            <td className="py-2 px-3 font-medium text-blue-600">{item.orderId}</td>
-                                                            <td className="py-2 px-3 text-gray-700">{item.client} <span className="text-gray-400 text-xs">({item.type})</span></td>
-                                                            <td className="py-2 px-3 text-gray-600">{item.stageLabel || item.stage}</td>
-                                                            <td className="py-2 px-3 text-gray-800 font-medium">{item.sizes}</td>
-                                                            <td className="py-2 px-3 text-right font-bold text-gray-800">{item.qty} pcs</td>
-                                                            <td className="py-2 px-3 text-right text-gray-700">{formatRupiah(item.unitPrice || 0)}</td>
-                                                            <td className="py-2 px-3 text-right font-bold text-green-700">{formatRupiah(item.wageTotal || 0)}</td>
+
+                                    {/* Rincian Gaji Produksi */}
+                                    {(modalData.allItems || []).length > 0 && (
+                                        <div className="border border-green-200 rounded-lg overflow-hidden">
+                                            <div className="bg-green-600 text-white px-4 py-2 flex items-center justify-between">
+                                                <span className="font-black text-sm">Rincian Gaji Produksi</span>
+                                                <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalSelectedWage)}</span>
+                                            </div>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-xs">
+                                                    <thead className="bg-green-50 text-green-900">
+                                                        <tr>
+                                                            <th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={(modalData.allItems||[]).length>0&&(modalData.allItems||[]).every(i=>modalData.selectedKeys?.has(getRekapItemKey(i)))} onChange={toggleAllModalRekapItems}/></th>
+                                                            <th className="py-2 px-3 text-left">Order</th>
+                                                            <th className="py-2 px-3 text-left">Tahap Produksi</th>
+                                                            <th className="py-2 px-3 text-left">Ukuran</th>
+                                                            <th className="py-2 px-3 text-right">Qty</th>
+                                                            <th className="py-2 px-3 text-right">Harga/Pcs</th>
+                                                            <th className="py-2 px-3 text-right">Subtotal</th>
                                                         </tr>
-                                                    );
-                                                })}
-                                                <tr className="bg-blue-50/50">
-                                                    <td colSpan="5" className="py-3 px-3 text-right font-semibold text-gray-700">Total Terpilih:</td>
-                                                    <td className="py-3 px-3 text-right font-bold text-blue-700 text-base">{modalSelectedTotal} pcs</td>
-                                                    <td className="py-3 px-3 text-right text-gray-400">-</td>
-                                                    <td className="py-3 px-3 text-right font-bold text-green-700 text-base">{formatRupiah(modalSelectedWage)}</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                                        <div className="bg-orange-50 border border-orange-100 rounded-lg p-4">
-                                            <h4 className="font-black text-orange-900 mb-3">Kasbon Karyawan</h4>
-                                            {modalCashAdvanceSummary.remaining > 0 ? (
-                                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                                    <div><span className="block text-xs text-gray-500 font-bold">Total Kasbon Aktif</span><span className="font-black text-red-700">{formatRupiah(modalCashAdvanceSummary.total)}</span></div>
-                                                    <div><span className="block text-xs text-gray-500 font-bold">Sudah Dipotong</span><span className="font-black text-green-700">{formatRupiah(modalCashAdvanceSummary.deducted)}</span></div>
-                                                    <div><span className="block text-xs text-gray-500 font-bold">Sisa Kasbon</span><span className="font-black text-orange-700">{formatRupiah(modalCashAdvanceSummary.remaining)}</span></div>
-                                                    <div><span className="block text-xs text-gray-500 font-bold">Gaji Harian</span><span className="font-black text-purple-700">{formatRupiah(modalDailySalary)}</span></div>
-                                                    <div><span className="block text-xs text-gray-500 font-bold">Lembur Harian</span><span className="font-black text-purple-700">{formatRupiah(modalOvertimeSalary)}</span></div>
-                                                    <div><span className="block text-xs text-gray-500 font-bold">Komisi Marketing</span><span className="font-black text-purple-700">{formatRupiah(modalMarketingCommission)}</span></div>
-                                                    <div><span className="block text-xs text-gray-500 font-bold">Gaji Bersih</span><span className="font-black text-blue-700">{formatRupiah(Math.max(0, modalGrossSalary - modalDeduction))}</span></div>
+                                                    </thead>
+                                                    <tbody>
+                                                        {(modalData.allItems||[]).map((item,idx) => {
+                                                            const isSelected = modalData.selectedKeys?.has(getRekapItemKey(item));
+                                                            return (
+                                                                <tr key={`${item.orderId}-${item.stage}-${idx}`} className={`border-t ${isSelected?'bg-green-50':''}`}>
+                                                                    <td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSelected} onChange={()=>toggleModalRekapItem(item)}/></td>
+                                                                    <td className="py-2 px-3 font-bold text-blue-700">{item.orderId}<div className="text-gray-500 font-normal">{item.client} ({item.type})</div></td>
+                                                                    <td className="py-2 px-3">{item.stageLabel||item.stage}</td>
+                                                                    <td className="py-2 px-3">{item.sizes}</td>
+                                                                    <td className="py-2 px-3 text-right font-bold">{item.qty} pcs</td>
+                                                                    <td className="py-2 px-3 text-right">{formatRupiah(item.unitPrice||0)}</td>
+                                                                    <td className="py-2 px-3 text-right font-black text-green-700">{formatRupiah(item.wageTotal||0)}</td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                        <tr className="bg-green-100 font-bold border-t-2">
+                                                            <td colSpan="4" className="py-2 px-3 text-right">Total Gaji Produksi</td>
+                                                            <td className="py-2 px-3 text-right">{modalSelectedTotal} pcs</td>
+                                                            <td></td>
+                                                            <td className="py-2 px-3 text-right text-green-800">{formatRupiah(modalSelectedWage)}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Rincian Gaji Harian */}
+                                    {modalDailySalaryLogs.filter(log=>getDailySalaryLogTotal(log).daily>0).length>0 && (
+                                        <div className="border border-indigo-200 rounded-lg overflow-hidden">
+                                            <div className="bg-indigo-600 text-white px-4 py-2 flex items-center justify-between">
+                                                <span className="font-black text-sm">Rincian Gaji Harian</span>
+                                                <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalDailySalary)}</span>
+                                            </div>
+                                            <table className="w-full text-xs">
+                                                <thead className="bg-indigo-50 text-indigo-900"><tr><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Hari Masuk</th><th className="py-2 px-3 text-right">Gaji Harian</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
+                                                <tbody>
+                                                    {modalDailySalaryLogs.filter(log=>getDailySalaryLogTotal(log).daily>0).map((log,idx)=>{const t=getDailySalaryLogTotal(log);return(<tr key={`daily-${idx}`} className="border-t"><td className="py-2 px-3">{log.date||'-'}</td><td className="py-2 px-3">{log.note||'Masuk Kerja'}</td><td className="py-2 px-3 text-right">{log.workDays||0} hari</td><td className="py-2 px-3 text-right">{formatRupiah(log.dailySalary)}</td><td className="py-2 px-3 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>);})}
+                                                    <tr className="bg-indigo-100 font-bold border-t-2"><td colSpan="4" className="py-2 px-3 text-right">Total Gaji Harian</td><td className="py-2 px-3 text-right text-indigo-800">{formatRupiah(modalDailySalary)}</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+
+                                    {/* Rincian Gaji Lembur */}
+                                    {modalDailySalaryLogs.filter(log=>getDailySalaryLogTotal(log).overtime>0).length>0 && (
+                                        <div className="border border-sky-200 rounded-lg overflow-hidden">
+                                            <div className="bg-sky-600 text-white px-4 py-2 flex items-center justify-between">
+                                                <span className="font-black text-sm">Rincian Gaji Lembur</span>
+                                                <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalOvertimeSalary)}</span>
+                                            </div>
+                                            <table className="w-full text-xs">
+                                                <thead className="bg-sky-50 text-sky-900"><tr><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Jumlah Lembur</th><th className="py-2 px-3 text-right">Nominal Lembur</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
+                                                <tbody>
+                                                    {modalDailySalaryLogs.filter(log=>getDailySalaryLogTotal(log).overtime>0).map((log,idx)=>{const t=getDailySalaryLogTotal(log);return(<tr key={`ot-${idx}`} className="border-t"><td className="py-2 px-3">{log.date||'-'}</td><td className="py-2 px-3">{log.note||'Lembur'}</td><td className="py-2 px-3 text-right">{log.overtimeCount||0}x</td><td className="py-2 px-3 text-right">{formatRupiah(log.overtimeRate)}</td><td className="py-2 px-3 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td></tr>);})}
+                                                    <tr className="bg-sky-100 font-bold border-t-2"><td colSpan="4" className="py-2 px-3 text-right">Total Gaji Lembur</td><td className="py-2 px-3 text-right text-sky-800">{formatRupiah(modalOvertimeSalary)}</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+
+                                    {/* Rincian Komisi Marketing */}
+                                    {modalMarketingInvoices.length>0 && (
+                                        <div className="border border-purple-200 rounded-lg overflow-hidden">
+                                            <div className="bg-purple-600 text-white px-4 py-2 flex items-center justify-between">
+                                                <span className="font-black text-sm">Rincian Komisi Marketing</span>
+                                                <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalMarketingCommission)}</span>
+                                            </div>
+                                            <table className="w-full text-xs">
+                                                <thead className="bg-purple-50 text-purple-900"><tr><th className="py-2 px-3 text-left">Invoice / Order</th><th className="py-2 px-3 text-left">Nama Klien</th><th className="py-2 px-3 text-right">Nilai Transaksi</th><th className="py-2 px-3 text-right">Komisi</th></tr></thead>
+                                                <tbody>
+                                                    {modalMarketingInvoices.map((inv,idx)=><tr key={`mkt-${idx}`} className="border-t"><td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-500 font-normal">{inv.date||'-'}</div></td><td className="py-2 px-3">{inv.customer||'-'}</td><td className="py-2 px-3 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td><td className="py-2 px-3 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td></tr>)}
+                                                    <tr className="bg-purple-100 font-bold border-t-2"><td colSpan="3" className="py-2 px-3 text-right">Total Komisi Marketing</td><td className="py-2 px-3 text-right text-purple-800">{formatRupiah(modalMarketingCommission)}</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+
+                                    {/* Kasbon & Total Akhir */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                            <h4 className="font-black text-orange-900 mb-3 text-sm">Potongan Kasbon</h4>
+                                            {modalCashAdvanceSummary.remaining>0 ? (
+                                                <div className="space-y-2 text-sm mb-3">
+                                                    <div className="flex justify-between"><span className="text-gray-600">Sisa Kasbon Aktif</span><b className="text-red-700">{formatRupiah(modalCashAdvanceSummary.remaining)}</b></div>
                                                 </div>
                                             ) : (
-                                                <p className="text-sm text-gray-500 italic">Tidak ada kasbon aktif.</p>
+                                                <p className="text-sm text-gray-500 italic mb-3">Tidak ada kasbon aktif.</p>
                                             )}
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">Input Potongan Kasbon</label>
+                                            <input type="number" min="0" className="w-full p-2 border rounded text-sm text-right" value={cashAdvanceDeduction} onChange={e=>setCashAdvanceDeduction(e.target.value)} placeholder="0" disabled={modalCashAdvanceSummary.remaining<=0}/>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1 mt-2">Catatan</label>
+                                            <input type="text" className="w-full p-2 border rounded text-sm" value={cashAdvanceDeductionNote} onChange={e=>setCashAdvanceDeductionNote(e.target.value)} placeholder="Catatan potongan kasbon"/>
+                                            {modalCashAdvanceSummary.remaining>0 && <div className="text-xs text-gray-500 mt-1">Maks: {formatRupiah(Math.min(modalGrossSalary, modalCashAdvanceSummary.remaining))}</div>}
                                         </div>
-                                        <div className="bg-white border border-gray-200 rounded-lg p-4">
-                                            <label className="block text-xs font-bold text-gray-600 mb-1">Input Potongan Kasbon untuk Rekap Ini</label>
-                                            <input type="number" min="0" className="w-full p-2 border rounded text-sm text-right" value={cashAdvanceDeduction} onChange={e => setCashAdvanceDeduction(e.target.value)} placeholder="0" />
-                                            <label className="block text-xs font-bold text-gray-600 mb-1 mt-3">Catatan Potongan</label>
-                                            <input type="text" className="w-full p-2 border rounded text-sm" value={cashAdvanceDeductionNote} onChange={e => setCashAdvanceDeductionNote(e.target.value)} placeholder="Catatan kasbon untuk rekap ini" />
-                                            <div className="text-xs text-gray-500 mt-2">Potongan maksimal {formatRupiah(Math.min(modalGrossSalary, modalCashAdvanceSummary.remaining))}.</div>
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                            <h4 className="font-black text-blue-900 mb-3 text-sm">Total Akhir</h4>
+                                            <div className="space-y-1.5 text-sm">
+                                                {modalSelectedWage>0 && <div className="flex justify-between"><span className="text-gray-600">Gaji Produksi</span><span className="font-bold text-green-700">{formatRupiah(modalSelectedWage)}</span></div>}
+                                                {modalDailySalary>0 && <div className="flex justify-between"><span className="text-gray-600">Gaji Harian</span><span className="font-bold text-indigo-700">{formatRupiah(modalDailySalary)}</span></div>}
+                                                {modalOvertimeSalary>0 && <div className="flex justify-between"><span className="text-gray-600">Gaji Lembur</span><span className="font-bold text-sky-700">{formatRupiah(modalOvertimeSalary)}</span></div>}
+                                                {modalMarketingCommission>0 && <div className="flex justify-between"><span className="text-gray-600">Komisi Marketing</span><span className="font-bold text-purple-700">{formatRupiah(modalMarketingCommission)}</span></div>}
+                                                <div className="flex justify-between border-t border-blue-200 pt-1.5"><span className="font-bold">Total Bruto</span><span className="font-black">{formatRupiah(modalGrossSalary)}</span></div>
+                                                {modalDeduction>0 && <div className="flex justify-between"><span className="text-gray-600">Potongan Kasbon</span><span className="font-bold text-red-600">- {formatRupiah(modalDeduction)}</span></div>}
+                                                <div className="flex justify-between border-t-2 border-blue-400 pt-2 text-base"><span className="font-black text-blue-900">Total Gaji Bersih</span><span className="font-black text-blue-700">{formatRupiah(Math.max(0,modalGrossSalary-modalDeduction))}</span></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
