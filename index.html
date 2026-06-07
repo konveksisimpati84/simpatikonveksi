@@ -593,7 +593,7 @@
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
             if (type.includes('pcs')) return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
             if (type === 'rupiah' || type === 'nominal') return safeMoney(invoice?.commissionValue);
-            return (getInvoicePaidTotal(invoice) - getInvoiceLinkedDpAmount(invoice)) * safeMoney(invoice?.commissionValue) / 100;
+            return getInvoicePaidTotal(invoice) * safeMoney(invoice?.commissionValue) / 100;
         };
 
         const Toast = ({ message, type, onClose }) => {
