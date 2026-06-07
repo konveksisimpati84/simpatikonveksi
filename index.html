@@ -6769,12 +6769,36 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [printOptions, setPrintOptions] = useState({ marketing: true, production: true, daily: true, overtime: true });
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const [expandedInputIds, setExpandedInputIds] = useState({});
+            const [showOnlyReady, setShowOnlyReady] = useState(false);
             const safeOrdersForReport = Array.isArray(orders) ? orders : [];
             const safeEmployeesForReport = Array.isArray(employees) ? employees : [];
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
             const safeInvoicesForReport = Array.isArray(invoices) ? invoices : [];
             const visibleEmployees = safeEmployeesForReport.filter(isVisibleRecord);
-            const filteredReportEmployees = visibleEmployees.filter(emp => matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm));
+
+            const empIdsWithPendingSalary = React.useMemo(() => {
+                const ids = new Set();
+                visibleEmployees.forEach(emp => {
+                    let hasProd = false;
+                    safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
+                        if (hasProd || !order.progress) return;
+                        Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
+                            if (hasProd || !getActiveProductionStageIds(order).includes(stage)) return;
+                            const logs = safeArray(data?.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
+                            if (logs.length > 0) hasProd = true;
+                        });
+                    });
+                    const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => !log.rekapId && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
+                    const hasMarketing = safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
+                    if (hasProd || hasDailyOvertime || hasMarketing) ids.add(String(emp.id));
+                });
+                return ids;
+            }, [visibleEmployees.length, safeOrdersForReport.length, safeInvoicesForReport.length, rekapKinerja?.length]);
+
+            const filteredReportEmployees = visibleEmployees.filter(emp => {
+                if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
+                return matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm);
+            });
             const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedReportEmployees, total: empTotal } = usePagination(filteredReportEmployees, 10);
 
             const toggleSelection = (key) => {
@@ -7383,7 +7407,21 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         <button onClick={() => setActiveReportTab('komisi')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'komisi' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Komisi Marketing</button>
                     </div>
                     <Card>
-                        <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari karyawan, divisi, order, instansi, jenis produksi, tahap, tanggal, status, kasbon, catatan..." />
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="flex-1">
+                                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari karyawan, divisi, order, instansi, jenis produksi, tahap, tanggal, status, kasbon, catatan..." />
+                            </div>
+                            <button
+                                onClick={() => setShowOnlyReady(prev => !prev)}
+                                className={`flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm border transition-all ${showOnlyReady ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-green-700 border-green-300 hover:bg-green-50'}`}
+                            >
+                                <span>{showOnlyReady ? '✓' : '○'}</span>
+                                Siap Direkap
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full font-black ${showOnlyReady ? 'bg-white/20 text-white' : 'bg-green-100 text-green-800'}`}>
+                                    {empIdsWithPendingSalary.size}
+                                </span>
+                            </button>
+                        </div>
                     </Card>
                     {activeReportTab === 'input' ? (
                     <div className="space-y-6">
