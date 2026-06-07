@@ -2285,101 +2285,92 @@
                     </div>
                 `;
 
-                const printContent = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Lembar Kerja - ${order.id}</title>
-                    <style>
-                        @page { margin: 8mm; size: A4 portrait; }
-                        body { font-family: 'Arial', sans-serif; padding: 0; margin: 0; color: #000; line-height: 1.4; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
-                        .container { flex-grow: 1; display: flex; flex-direction: column; max-width: 100%; box-sizing: border-box; overflow: hidden; }
-                        .header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px double #000; padding-bottom: 6px; margin-bottom: 10px; }
-                        .header-left { display: flex; align-items: center; gap: 12px; }
-                        .header-left h1 { margin: 0; font-size: 20px; text-transform: uppercase; color: #000; }
-                        .header-left p { margin: 4px 0 0 0; font-size: 11px; }
-                        .header-right { text-align: right; }
-                        .header-right h2 { margin: 0; font-size: 18px; font-weight: 900; background: #000; color: #fff; padding: 4px 12px; display: inline-block;}
-                        .info-grid { flex-shrink: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px; }
-                        .info-box { border: 1px solid #000; padding: 8px; }
-                        .info-label { font-size: 11px; color: #555; text-transform: uppercase; font-weight: bold; margin-bottom: 4px;}
-                        .info-value { font-size: 16px; font-weight: bold; }
-                        .sizes-section { flex-shrink: 0; margin-bottom: 10px; }
-                        .sizes-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(${minBoxWidth}, 1fr)); gap: 10px; margin-top: 8px; }
-                        .notes-box { flex-shrink: 0; border: 1px solid #000; padding: 8px; margin-top: 5px; font-size: 13px; }
-                        .images-section { flex-grow: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
-                        .signatures { flex-shrink: 0; display: flex; justify-content: center; gap: 90px; margin-top: auto; padding-top: 15px; text-align: center; }
-                        .sig-line { width: 160px; border-bottom: 1px solid #000; margin-top: 40px; }
-                        .sig-name { font-size: 12px; font-weight: bold; margin-top: 4px; min-height: 16px; }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="header">
-                            <div class="header-left">
-                                ${templates?.companyLogo ? `<img src="${templates.companyLogo}" style="max-height: 50px; object-fit: contain;" />` : ''}
-                                <div>
-                                    <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
-                                    <p>${templates?.companyContact || ''}</p>
-                                </div>
-                            </div>
-                            <div class="header-right">
-                                <h2>SPK PRODUKSI</h2>
-                                <p style="font-size: 14px; font-weight: bold; margin-top: 4px;">${order.id}</p>
-                            </div>
-                        </div>
-                        
-                        <div class="info-grid">
-                            <div class="info-box">
-                                <div class="info-label">Klien / Instansi</div>
-                                <div class="info-value">${order.client}</div>
-                                <div class="info-label" style="margin-top: 8px;">Tanggal Masuk</div>
-                                <div style="font-size: 13px;">${order.date}</div>
-                                <div class="info-label" style="margin-top: 8px;">Marketing</div>
-                                <div style="font-size: 13px; font-weight: bold;">${order.marketing || '-'}</div>
-                            </div>
-                            <div class="info-box">
-                                <div class="info-label">Jenis Produksi</div>
-                                <div class="info-value">${order.type} <span style="font-size: 13px; font-weight: normal;">(Total: ${order.total} pcs)</span></div>
-                                <div class="info-label" style="margin-top: 8px;">Deadline Produksi</div>
-                                <div style="font-size: 13px; color: #d32f2f; font-weight: bold;">${order.deadline}</div>
-                            </div>
-                        </div>
+                const printContent = `<!DOCTYPE html><html><head><title>SPK Produksi - ${order.id}</title><style>
+@page{size:A4 portrait;margin:8mm}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;height:calc(297mm - 16mm);display:flex;flex-direction:column;overflow:hidden}
+.header{flex-shrink:0;display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8px;border-bottom:3px solid #1e3a5f;margin-bottom:10px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand img{max-height:50px;max-width:130px;object-fit:contain}
+.co-name{font-size:17px;font-weight:900;color:#1e3a5f;line-height:1.1}
+.co-info{font-size:10px;color:#64748b;margin-top:2px}
+.spk-right{text-align:right}
+.spk-label{font-size:22px;font-weight:900;color:#1e3a5f;letter-spacing:-0.5px;line-height:1}
+.spk-num{font-size:13px;font-weight:700;color:#3b82f6;margin-top:4px}
+.info-grid{flex-shrink:0;display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.info-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px}
+.lbl{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:3px}
+.val{font-size:15px;font-weight:900;color:#1e3a5f;line-height:1.2}
+.val-sm{font-size:12px;color:#374151;margin-top:6px}
+.sec-title{flex-shrink:0;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:3px;margin-bottom:7px}
+.sizes-wrap{flex-shrink:0;margin-bottom:8px}
+.sizes-container{display:grid;grid-template-columns:repeat(auto-fill,minmax(${minBoxWidth},1fr));gap:8px}
+.notes-box{flex-shrink:0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.images-section{flex-grow:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+.spk-note{flex-shrink:0;font-size:10px;font-style:italic;color:#64748b;margin-top:6px}
+.signatures{flex-shrink:0;display:flex;justify-content:center;gap:80px;margin-top:auto;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center}
+.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:36px}
+.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px;width:150px}
+.sign-name{font-size:11px;font-weight:700;color:#1e3a5f}
+</style></head><body>
+<div class="header">
+  <div class="brand">
+    ${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : ''}
+    <div>
+      <div class="co-name">${templates?.companyName || 'SIMPATI KONVEKSI'}</div>
+      ${templates?.companySubtitle ? `<div class="co-info">${templates.companySubtitle}</div>` : ''}
+      ${templates?.companyContact ? `<div class="co-info">${templates.companyContact}</div>` : ''}
+    </div>
+  </div>
+  <div class="spk-right">
+    <div class="spk-label">SPK PRODUKSI</div>
+    <div class="spk-num">${order.id}</div>
+  </div>
+</div>
 
-                        <div class="sizes-section">
-                            <div style="font-size: 14px; color: #333; text-transform: uppercase; font-weight: 900; margin-bottom: 4px;">Rincian Ukuran & Jumlah</div>
-                            <div class="sizes-container">
-                                ${sizesHtml}
-                            </div>
-                        </div>
+<div class="info-grid">
+  <div class="info-box">
+    <div class="lbl">Klien / Instansi</div>
+    <div class="val">${order.client}</div>
+    <div class="val-sm"><span class="lbl">Tanggal Masuk</span><br/>${order.date}</div>
+    <div class="val-sm"><span class="lbl">Marketing</span><br/><strong>${order.marketing || '-'}</strong></div>
+  </div>
+  <div class="info-box">
+    <div class="lbl">Jenis Produksi</div>
+    <div class="val">${order.type} <span style="font-size:12px;font-weight:400;color:#64748b">(Total: ${order.total} pcs)</span></div>
+    <div class="val-sm"><span class="lbl">Deadline Produksi</span><br/><strong style="color:#dc2626;font-size:14px">${order.deadline}</strong></div>
+  </div>
+</div>
 
-                        <div class="notes-box">
-                            <div class="info-label">Catatan Tambahan & Spesifikasi</div>
-                            <div style="white-space: pre-wrap; margin-top: 2px;">${order.notes || '- Tidak ada catatan -'}</div>
-                        </div>
+<div class="sizes-wrap">
+  <div class="sec-title">Rincian Ukuran &amp; Jumlah</div>
+  <div class="sizes-container">${sizesHtml}</div>
+</div>
 
-                        <div class="images-section">
-                            ${(order.designImage1 || order.designImage2) ? imagesHtml : ''}
-                        </div>
+<div class="notes-box">
+  <div class="lbl">Catatan Tambahan &amp; Spesifikasi</div>
+  <div style="font-size:13px;white-space:pre-wrap;margin-top:4px;color:#374151">${order.notes || '- Tidak ada catatan -'}</div>
+</div>
 
-                        ${templates?.spkNote ? `<p style="font-size: 11px; font-style: italic; margin-top: 10px; flex-shrink: 0;">* ${templates.spkNote}</p>` : ''}
+<div class="images-section">
+  ${(order.designImage1 || order.designImage2) ? imagesHtml : ''}
+</div>
 
-                        <div class="signatures">
-                            <div>
-                                <p style="font-size: 13px; font-weight: bold; margin:0;">Marketing</p>
-                                <div class="sig-line"></div>
-                                <div class="sig-name">${order.marketing || '-'}</div>
-                            </div>
-                            <div>
-                                <p style="font-size: 13px; font-weight: bold; margin:0;">Direktur</p>
-                                <div class="sig-line"></div>
-                                <div class="sig-name">${templates?.spkDirectorName || 'Direktur'}</div>
-                            </div>
-                        </div>
-                    </div>
-                </body>
-                </html>
-                `;
+${templates?.spkNote ? `<p class="spk-note">* ${templates.spkNote}</p>` : ''}
+
+<div class="signatures">
+  <div>
+    <div class="sign-title">Marketing</div>
+    <div class="sign-line"></div>
+    <div class="sign-name">${order.marketing || '-'}</div>
+  </div>
+  <div>
+    <div class="sign-title">Direktur</div>
+    <div class="sign-line"></div>
+    <div class="sign-name">${templates?.spkDirectorName || 'Direktur'}</div>
+  </div>
+</div>
+</body></html>`;
 
                 let printWindow = window.open('', '_blank');
                 if (printWindow) {
