@@ -437,6 +437,43 @@
             </div>
         );
 
+        const usePagination = (items, pageSize = 20) => {
+            const [page, setPage] = React.useState(1);
+            React.useEffect(() => { setPage(1); }, [items.length]);
+            const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+            const safeP = Math.min(page, totalPages);
+            const start = (safeP - 1) * pageSize;
+            return { page: safeP, setPage, totalPages, paged: items.slice(start, start + pageSize), total: items.length };
+        };
+
+        const Paginator = ({ page, setPage, totalPages, total, pageSize, label = 'data' }) => {
+            if (totalPages <= 1) return null;
+            const from = (page - 1) * pageSize + 1;
+            const to = Math.min(page * pageSize, total);
+            const pages = [];
+            const delta = 2;
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= page - delta && i <= page + delta)) pages.push(i);
+                else if (pages[pages.length - 1] !== '...') pages.push('...');
+            }
+            return (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100 print:hidden">
+                    <div className="text-xs text-gray-500">Menampilkan <span className="font-bold text-gray-700">{from}–{to}</span> dari <span className="font-bold text-gray-700">{total}</span> {label}</div>
+                    <div className="flex items-center gap-1">
+                        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                            className="px-2.5 py-1.5 rounded text-sm font-bold border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+                        {pages.map((p, i) => p === '...'
+                            ? <span key={`e${i}`} className="px-1.5 text-gray-400 text-sm">…</span>
+                            : <button key={p} onClick={() => setPage(p)}
+                                className={`px-2.5 py-1.5 rounded text-sm font-bold border transition-colors ${page === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-100'}`}>{p}</button>
+                        )}
+                        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                            className="px-2.5 py-1.5 rounded text-sm font-bold border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+                    </div>
+                </div>
+            );
+        };
+
         const Badge = ({ status }) => {
             if (!status) return null;
             let colors = "bg-gray-100 text-gray-800";
@@ -6344,6 +6381,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const safeInvoicesForReport = Array.isArray(invoices) ? invoices : [];
             const visibleEmployees = safeEmployeesForReport.filter(isVisibleRecord);
             const filteredReportEmployees = visibleEmployees.filter(emp => matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm));
+            const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedReportEmployees, total: empTotal } = usePagination(filteredReportEmployees, 10);
 
             const toggleSelection = (key) => {
                 setSelectedItemKeys(prev => {
@@ -6921,7 +6959,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     {activeReportTab === 'input' ? (
                     <div className="space-y-6">
                         <div className="space-y-8">
-                            {filteredReportEmployees.map(emp => {
+                            {pagedReportEmployees.map(emp => {
                                 const unsettledItems = [];
                                 let totalUnsettled = 0;
                                 let totalUnsettledWage = 0;
@@ -7083,6 +7121,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 </Card>
                             )}
                         </div>
+                        {filteredReportEmployees.length > 0 && (
+                            <Card>
+                                <Paginator page={empPage} setPage={setEmpPage} totalPages={empTotalPages} total={empTotal} pageSize={10} label="karyawan" />
+                            </Card>
+                        )}
                     </div>
                     ) : (
                     <div className="space-y-4">
@@ -7458,6 +7501,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
         const RiwayatRekapKinerjaView = ({ orders, setOrders, employees, rekapKinerja, setRekapKinerja, showToast, authUser }) => {
             const [searchTerm, setSearchTerm] = useState('');
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
+            const [expandedRekapIds, setExpandedRekapIds] = useState({});
+            const toggleRekapExpand = (id) => setExpandedRekapIds(prev => ({ ...prev, [id]: !prev[id] }));
             const visibleEmployees = (employees || []).filter(isVisibleRecord);
             const getRekapShareLink = (rekap) => `${window.location.href.split('#')[0]}#rekap-gaji=${encodeURIComponent(rekap.id)}`;
             const visibleRekaps = (rekapKinerja || [])
@@ -7469,6 +7514,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     return matchesSearch([rekap.id, rekap.empName, emp?.name, rekap.division, rekap.dateProcessed, rekap.total, rekap.totalWage, itemText], searchTerm);
                 })
                 .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+            const { page: rekapPage, setPage: setRekapPage, totalPages: rekapTotalPages, paged: pagedRekaps, total: rekapTotal } = usePagination(visibleRekaps, 12);
 
             const copyRekapShareLink = async (rekap) => {
                 const link = getRekapShareLink(rekap);
@@ -7524,8 +7570,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID rekap, karyawan, order, instansi, tahap..." />
                     </Card>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {visibleRekaps.map(rekap => {
+                        {pagedRekaps.map(rekap => {
                             const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
+                            const expanded = !!expandedRekapIds[rekap.id];
                             return (
                                 <div key={rekap.id} className="bg-white border border-green-200 rounded-xl shadow-sm overflow-hidden">
                                     <div className="p-4 bg-green-50 border-b border-green-100 flex flex-col md:flex-row md:items-start md:justify-between gap-3">
@@ -7541,15 +7588,21 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                         </div>
                                     </div>
                                     <div className="p-4 space-y-3">
-                                        <div className="max-h-40 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
-                                            {(rekap.items || []).map((item, idx) => (
-                                                <div key={`${rekap.id}-${idx}`} className="p-3 text-sm">
-                                                    <div className="font-bold text-gray-800">{item.orderId} - {item.client}</div>
-                                                    <div className="text-xs text-gray-500">{item.type} | {item.stageLabel || item.stage} | {item.sizes}</div>
-                                                    <div className="text-xs font-bold text-green-700 mt-1">{item.qty || 0} pcs - {formatRupiah(item.wageTotal || 0)}</div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                        <button onClick={() => toggleRekapExpand(rekap.id)} className="w-full text-left text-xs font-bold text-gray-500 hover:text-gray-700 flex items-center justify-between py-1">
+                                            <span>{(rekap.items || []).length} item pekerjaan</span>
+                                            <span>{expanded ? '▲ Sembunyikan' : '▼ Lihat Rincian'}</span>
+                                        </button>
+                                        {expanded && (
+                                            <div className="max-h-48 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+                                                {(rekap.items || []).map((item, idx) => (
+                                                    <div key={`${rekap.id}-${idx}`} className="p-3 text-sm">
+                                                        <div className="font-bold text-gray-800">{item.orderId} - {item.client}</div>
+                                                        <div className="text-xs text-gray-500">{item.type} | {item.stageLabel || item.stage} | {item.sizes}</div>
+                                                        <div className="text-xs font-bold text-green-700 mt-1">{item.qty || 0} pcs — {formatRupiah(item.wageTotal || 0)}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                         <div className="flex flex-wrap justify-end gap-2">
                                             <a href={getRekapShareLink(rekap)} target="_blank" className="text-blue-600 hover:text-white hover:bg-blue-600 p-2 border border-blue-200 rounded bg-white flex items-center gap-1 text-xs font-bold transition-colors" title="Buka Preview"><IconDocument /> Buka</a>
                                             <button onClick={() => copyRekapShareLink(rekap)} className="text-green-700 hover:text-white hover:bg-green-600 p-2 border border-green-200 rounded bg-white flex items-center gap-1 text-xs font-bold transition-colors" title="Salin Link Share"><IconCheckCircle /> Salin Link</button>
@@ -7563,6 +7616,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     {visibleRekaps.length === 0 && (
                         <Card className="p-8 text-center text-gray-500 italic border-dashed border-2">
                             {searchTerm ? 'Tidak ada riwayat rekap yang cocok dengan pencarian.' : 'Belum ada riwayat rekap kinerja.'}
+                        </Card>
+                    )}
+                    {visibleRekaps.length > 0 && (
+                        <Card>
+                            <Paginator page={rekapPage} setPage={setRekapPage} totalPages={rekapTotalPages} total={rekapTotal} pageSize={12} label="rekap kinerja" />
                         </Card>
                     )}
                     {deleteRekapConfirmId && (
@@ -7585,6 +7643,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [searchTerm, setSearchTerm] = useState('');
             const finishedOrders = (orders || []).filter(o => isVisibleOrder(o) && o?.isArchived);
             const filteredFinishedOrders = finishedOrders.filter(order => matchesSearch(orderSearchFields(order), searchTerm));
+            const { page, setPage, totalPages, paged: pagedOrders, total } = usePagination(filteredFinishedOrders, 25);
 
             return (
                 <div className="space-y-6">
@@ -7609,11 +7668,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredFinishedOrders.map(order => {
+                                    {pagedOrders.map(order => {
                                         const sizesDetails = sortSizeKeys(Object.keys(order.sizes || {}))
                                             .map((size) => `${size}(${order.sizes[size]})`)
                                             .join(', ');
-                                            
+
                                         return (
                                             <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                                                 <td className="p-3 text-sm text-gray-600">{order.date}</td>
@@ -7623,7 +7682,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                 <td className="p-3 text-sm text-gray-600">{sizesDetails}</td>
                                                 <td className="p-3 text-sm font-bold text-green-600 bg-green-50/50">{order.total} pcs</td>
                                                 <td className="p-3 text-center">
-                                                    <button 
+                                                    <button
                                                         onClick={() => {
                                                             setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, isArchived: false } : o));
                                                             showToast("Order dikembalikan ke proses aktif.", "success");
@@ -7647,6 +7706,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 </tbody>
                             </table>
                         </div>
+                        <Paginator page={page} setPage={setPage} totalPages={totalPages} total={total} pageSize={25} label="order selesai" />
                     </Card>
                 </div>
             );
