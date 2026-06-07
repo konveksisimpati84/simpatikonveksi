@@ -7086,8 +7086,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
 
             const handleOpenRekapModal = (empId, items) => {
+                const emp = visibleEmployees.find(e => String(e.id) === String(empId));
                 const selectedKeys = new Set((items || []).map(getRekapItemKey));
-                setModalData({ empId, allItems: items || [], selectedKeys });
+                const allDailyLogs = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId);
+                const selectedDailyKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0).map(log => String(log.id || log.date)));
+                const selectedOvertimeKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => String(log.id || log.date)));
+                const mktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0);
+                const selectedMarketingKeys = new Set(mktInvoices.map(inv => String(inv.id)));
+                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys });
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
             };
@@ -7110,6 +7116,28 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const allSelected = allKeys.length > 0 && allKeys.every(key => prev.selectedKeys?.has(key));
                     return { ...prev, selectedKeys: allSelected ? new Set() : new Set(allKeys) };
                 });
+            };
+
+            const toggleModalDailyItem = (log) => {
+                const key = String(log.id || log.date);
+                setModalData(prev => { if (!prev) return prev; const next = new Set(prev.selectedDailyKeys); next.has(key) ? next.delete(key) : next.add(key); return { ...prev, selectedDailyKeys: next }; });
+            };
+            const toggleAllModalDailyItems = (logs) => {
+                setModalData(prev => { if (!prev) return prev; const keys = logs.map(l => String(l.id || l.date)); const allSel = keys.every(k => prev.selectedDailyKeys?.has(k)); return { ...prev, selectedDailyKeys: allSel ? new Set([...prev.selectedDailyKeys].filter(k => !keys.includes(k))) : new Set([...(prev.selectedDailyKeys || []), ...keys]) }; });
+            };
+            const toggleModalOvertimeItem = (log) => {
+                const key = String(log.id || log.date);
+                setModalData(prev => { if (!prev) return prev; const next = new Set(prev.selectedOvertimeKeys); next.has(key) ? next.delete(key) : next.add(key); return { ...prev, selectedOvertimeKeys: next }; });
+            };
+            const toggleAllModalOvertimeItems = (logs) => {
+                setModalData(prev => { if (!prev) return prev; const keys = logs.map(l => String(l.id || l.date)); const allSel = keys.every(k => prev.selectedOvertimeKeys?.has(k)); return { ...prev, selectedOvertimeKeys: allSel ? new Set([...prev.selectedOvertimeKeys].filter(k => !keys.includes(k))) : new Set([...(prev.selectedOvertimeKeys || []), ...keys]) }; });
+            };
+            const toggleModalMarketingItem = (inv) => {
+                const key = String(inv.id);
+                setModalData(prev => { if (!prev) return prev; const next = new Set(prev.selectedMarketingKeys); next.has(key) ? next.delete(key) : next.add(key); return { ...prev, selectedMarketingKeys: next }; });
+            };
+            const toggleAllModalMarketingItems = (invs) => {
+                setModalData(prev => { if (!prev) return prev; const keys = invs.map(i => String(i.id)); const allSel = keys.every(k => prev.selectedMarketingKeys?.has(k)); return { ...prev, selectedMarketingKeys: allSel ? new Set([...prev.selectedMarketingKeys].filter(k => !keys.includes(k))) : new Set([...(prev.selectedMarketingKeys || []), ...keys]) }; });
             };
 
             const executeRekapAndPrint = () => {
@@ -7135,11 +7163,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const selectedWage = printOptions.production ? selectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0) : 0;
 
                 const empForRekap = visibleEmployees.find(e => String(e.id) === String(modalData.empId));
-                const dailySalaryLogsForRekap = getEmployeeDailySalaryLogs(empForRekap).filter(log => !log.rekapId);
-                const dailySalary = printOptions.daily ? dailySalaryLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0) : 0;
-                const overtimeSalary = printOptions.overtime ? dailySalaryLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0) : 0;
-                const marketingInvoicesForRekap = printOptions.marketing ? safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(empForRekap?.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0) : [];
-                const marketingCommission = printOptions.marketing ? marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0) : 0;
+                const allUnrekapedLogs = getEmployeeDailySalaryLogs(empForRekap).filter(log => !log.rekapId);
+                const dailySalaryLogsForRekap = printOptions.daily ? allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id || log.date))) : [];
+                const overtimeLogsForRekap = printOptions.overtime ? allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id || log.date))) : [];
+                const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap].map(l => [String(l.id || l.date), l])).values()];
+                const dailySalary = dailySalaryLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
+                const overtimeSalary = overtimeLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
+                const allMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(empForRekap?.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0);
+                const marketingInvoicesForRekap = printOptions.marketing ? allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id))) : [];
+                const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
                 const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission;
                 const empCashAdvanceSummary = getEmployeeCashAdvanceSummary(empForRekap);
                 const deduction = Math.min(safeMoney(cashAdvanceDeduction), grossSalary, empCashAdvanceSummary.remaining);
@@ -7165,7 +7197,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     productionSalary: selectedWage,
                     dailySalary,
                     overtimeSalary,
-                    dailySalaryLogs: dailySalaryLogsForRekap,
+                    dailySalaryLogs: allLogsForRekap,
                     marketingCommission,
                     marketingInvoiceIds: marketingInvoicesForRekap.map(inv => inv.id),
                     printOptions: { ...printOptions },
@@ -7178,7 +7210,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 
                 setRekapKinerja(prev => [...(prev || []), newRekap]);
                 const manualItemsInRekap = selectedItems.filter(item => item.isManual);
-                if ((deduction > 0 || ((printOptions.daily || printOptions.overtime) && dailySalaryLogsForRekap.length > 0) || manualItemsInRekap.length > 0) && empForRekap) {
+                if ((deduction > 0 || allLogsForRekap.length > 0 || manualItemsInRekap.length > 0) && empForRekap) {
                     const now = new Date().toISOString();
                     setEmployees(prev => (prev || []).map(emp => {
                         if (String(emp.id) !== String(empForRekap.id)) return emp;
@@ -7200,7 +7232,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             };
                             return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
                         });
-                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => ((printOptions.daily || printOptions.overtime) && dailySalaryLogsForRekap.some(row => String(row.id) === String(log.id))) ? { ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : log);
+                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => allLogsForRekap.some(row => String(row.id || row.date) === String(log.id || log.date)) ? { ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : log);
                         const manualLogIdsToMark = selectedItems.filter(item => item.isManual).map(item => item.manualLogId);
                         const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => manualLogIdsToMark.includes(String(log.id)) ? { ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : log);
                         return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
@@ -7374,10 +7406,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const modalSelectedWage = modalSelectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0);
             const modalEmployee = modalData ? visibleEmployees.find(emp => String(emp.id) === String(modalData.empId)) : null;
             const modalDailySalaryLogs = getEmployeeDailySalaryLogs(modalEmployee).filter(log => !log.rekapId);
-            const modalDailySalary = modalDailySalaryLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
-            const modalOvertimeSalary = modalDailySalaryLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
+            const modalAllDailyLogs = modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
+            const modalAllOvertimeLogs = modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
+            const selectedDailyLogs = modalAllDailyLogs.filter(log => modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
+            const selectedOvertimeLogs = modalAllOvertimeLogs.filter(log => modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
+            const modalDailySalary = selectedDailyLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
+            const modalOvertimeSalary = selectedOvertimeLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
             const modalMarketingInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(modalEmployee?.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0);
-            const modalMarketingCommission = modalMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
+            const selectedMarketingInvoices = modalMarketingInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
+            const modalMarketingCommission = selectedMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
             const modalPrintableGross = (printOptions.production ? modalSelectedWage : 0) + (printOptions.daily ? modalDailySalary : 0) + (printOptions.overtime ? modalOvertimeSalary : 0) + (printOptions.marketing ? modalMarketingCommission : 0);
             const modalGrossSalary = modalPrintableGross;
@@ -7967,34 +8004,34 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     )}
 
                                     {/* Rincian Gaji Harian */}
-                                    {modalDailySalaryLogs.filter(log=>getDailySalaryLogTotal(log).daily>0).length>0 && (
+                                    {modalAllDailyLogs.length>0 && (
                                         <div className="border border-indigo-200 rounded-lg overflow-hidden">
                                             <div className="bg-indigo-600 text-white px-4 py-2 flex items-center justify-between">
                                                 <span className="font-black text-sm">Rincian Gaji Harian</span>
                                                 <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalDailySalary)}</span>
                                             </div>
                                             <table className="w-full text-xs">
-                                                <thead className="bg-indigo-50 text-indigo-900"><tr><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Hari Masuk</th><th className="py-2 px-3 text-right">Gaji Harian</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
+                                                <thead className="bg-indigo-50 text-indigo-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalAllDailyLogs.length>0&&modalAllDailyLogs.every(l=>modalData?.selectedDailyKeys?.has(String(l.id||l.date)))} onChange={()=>toggleAllModalDailyItems(modalAllDailyLogs)}/></th><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Hari Masuk</th><th className="py-2 px-3 text-right">Gaji Harian</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
                                                 <tbody>
-                                                    {modalDailySalaryLogs.filter(log=>getDailySalaryLogTotal(log).daily>0).map((log,idx)=>{const t=getDailySalaryLogTotal(log);return(<tr key={`daily-${idx}`} className="border-t"><td className="py-2 px-3">{log.date||'-'}</td><td className="py-2 px-3">{log.note||'Masuk Kerja'}</td><td className="py-2 px-3 text-right">{log.workDays||0} hari</td><td className="py-2 px-3 text-right">{formatRupiah(log.dailySalary)}</td><td className="py-2 px-3 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>);})}
-                                                    <tr className="bg-indigo-100 font-bold border-t-2"><td colSpan="4" className="py-2 px-3 text-right">Total Gaji Harian</td><td className="py-2 px-3 text-right text-indigo-800">{formatRupiah(modalDailySalary)}</td></tr>
+                                                    {modalAllDailyLogs.map((log,idx)=>{const t=getDailySalaryLogTotal(log);const isSel=modalData?.selectedDailyKeys?.has(String(log.id||log.date));return(<tr key={`daily-${idx}`} className={`border-t ${isSel?'bg-indigo-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalDailyItem(log)}/></td><td className="py-2 px-3">{log.date||'-'}</td><td className="py-2 px-3">{log.note||'Masuk Kerja'}</td><td className="py-2 px-3 text-right">{log.workDays||0} hari</td><td className="py-2 px-3 text-right">{formatRupiah(log.dailySalary)}</td><td className="py-2 px-3 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>);})}
+                                                    <tr className="bg-indigo-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Gaji Harian</td><td className="py-2 px-3 text-right text-indigo-800">{formatRupiah(modalDailySalary)}</td></tr>
                                                 </tbody>
                                             </table>
                                         </div>
                                     )}
 
                                     {/* Rincian Gaji Lembur */}
-                                    {modalDailySalaryLogs.filter(log=>getDailySalaryLogTotal(log).overtime>0).length>0 && (
+                                    {modalAllOvertimeLogs.length>0 && (
                                         <div className="border border-sky-200 rounded-lg overflow-hidden">
                                             <div className="bg-sky-600 text-white px-4 py-2 flex items-center justify-between">
                                                 <span className="font-black text-sm">Rincian Gaji Lembur</span>
                                                 <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalOvertimeSalary)}</span>
                                             </div>
                                             <table className="w-full text-xs">
-                                                <thead className="bg-sky-50 text-sky-900"><tr><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Jumlah Lembur</th><th className="py-2 px-3 text-right">Nominal Lembur</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
+                                                <thead className="bg-sky-50 text-sky-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalAllOvertimeLogs.length>0&&modalAllOvertimeLogs.every(l=>modalData?.selectedOvertimeKeys?.has(String(l.id||l.date)))} onChange={()=>toggleAllModalOvertimeItems(modalAllOvertimeLogs)}/></th><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Jumlah Lembur</th><th className="py-2 px-3 text-right">Nominal Lembur</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
                                                 <tbody>
-                                                    {modalDailySalaryLogs.filter(log=>getDailySalaryLogTotal(log).overtime>0).map((log,idx)=>{const t=getDailySalaryLogTotal(log);return(<tr key={`ot-${idx}`} className="border-t"><td className="py-2 px-3">{log.date||'-'}</td><td className="py-2 px-3">{log.note||'Lembur'}</td><td className="py-2 px-3 text-right">{log.overtimeCount||0}x</td><td className="py-2 px-3 text-right">{formatRupiah(log.overtimeRate)}</td><td className="py-2 px-3 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td></tr>);})}
-                                                    <tr className="bg-sky-100 font-bold border-t-2"><td colSpan="4" className="py-2 px-3 text-right">Total Gaji Lembur</td><td className="py-2 px-3 text-right text-sky-800">{formatRupiah(modalOvertimeSalary)}</td></tr>
+                                                    {modalAllOvertimeLogs.map((log,idx)=>{const t=getDailySalaryLogTotal(log);const isSel=modalData?.selectedOvertimeKeys?.has(String(log.id||log.date));return(<tr key={`ot-${idx}`} className={`border-t ${isSel?'bg-sky-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalOvertimeItem(log)}/></td><td className="py-2 px-3">{log.date||'-'}</td><td className="py-2 px-3">{log.note||'Lembur'}</td><td className="py-2 px-3 text-right">{log.overtimeCount||0}x</td><td className="py-2 px-3 text-right">{formatRupiah(log.overtimeRate)}</td><td className="py-2 px-3 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td></tr>);})}
+                                                    <tr className="bg-sky-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Gaji Lembur</td><td className="py-2 px-3 text-right text-sky-800">{formatRupiah(modalOvertimeSalary)}</td></tr>
                                                 </tbody>
                                             </table>
                                         </div>
@@ -8008,10 +8045,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                 <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalMarketingCommission)}</span>
                                             </div>
                                             <table className="w-full text-xs">
-                                                <thead className="bg-purple-50 text-purple-900"><tr><th className="py-2 px-3 text-left">Invoice / Order</th><th className="py-2 px-3 text-left">Nama Klien</th><th className="py-2 px-3 text-right">Nilai Transaksi</th><th className="py-2 px-3 text-right">Komisi</th></tr></thead>
+                                                <thead className="bg-purple-50 text-purple-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalMarketingInvoices.length>0&&modalMarketingInvoices.every(i=>modalData?.selectedMarketingKeys?.has(String(i.id)))} onChange={()=>toggleAllModalMarketingItems(modalMarketingInvoices)}/></th><th className="py-2 px-3 text-left">Invoice / Order</th><th className="py-2 px-3 text-left">Nama Klien</th><th className="py-2 px-3 text-right">Nilai Transaksi</th><th className="py-2 px-3 text-right">Komisi</th></tr></thead>
                                                 <tbody>
-                                                    {modalMarketingInvoices.map((inv,idx)=><tr key={`mkt-${idx}`} className="border-t"><td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-500 font-normal">{inv.date||'-'}</div></td><td className="py-2 px-3">{inv.customer||'-'}</td><td className="py-2 px-3 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td><td className="py-2 px-3 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td></tr>)}
-                                                    <tr className="bg-purple-100 font-bold border-t-2"><td colSpan="3" className="py-2 px-3 text-right">Total Komisi Marketing</td><td className="py-2 px-3 text-right text-purple-800">{formatRupiah(modalMarketingCommission)}</td></tr>
+                                                    {modalMarketingInvoices.map((inv,idx)=>{const isSel=modalData?.selectedMarketingKeys?.has(String(inv.id));return(<tr key={`mkt-${idx}`} className={`border-t ${isSel?'bg-purple-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalMarketingItem(inv)}/></td><td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-500 font-normal">{inv.date||'-'}</div></td><td className="py-2 px-3">{inv.customer||'-'}</td><td className="py-2 px-3 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td><td className="py-2 px-3 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td></tr>);})}
+                                                    <tr className="bg-purple-100 font-bold border-t-2"><td colSpan="4" className="py-2 px-3 text-right">Total Komisi Marketing</td><td className="py-2 px-3 text-right text-purple-800">{formatRupiah(modalMarketingCommission)}</td></tr>
                                                 </tbody>
                                             </table>
                                         </div>
