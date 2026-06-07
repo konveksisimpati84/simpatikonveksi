@@ -6770,7 +6770,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [activeReportTab, setActiveReportTab] = useState('input');
             const [cashAdvanceDeduction, setCashAdvanceDeduction] = useState('');
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
-            const [printOptions, setPrintOptions] = useState({ marketing: true, production: true, daily: true, overtime: true });
+            // printOptions dihapus — pilihan direkap kini langsung dikontrol oleh selectedKeys per kategori
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const [expandedInputIds, setExpandedInputIds] = useState({});
             const [showOnlyReady, setShowOnlyReady] = useState(false);
@@ -7143,8 +7143,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const executeRekapAndPrint = () => {
                 if(!modalData) return;
                 const selectedItems = (modalData.allItems || []).filter(item => modalData.selectedKeys?.has(getRekapItemKey(item)));
-                if(selectedItems.length === 0 && printOptions.production) {
-                    showToast("Pilih minimal 1 pekerjaan untuk direkap.", "error");
+                const hasAnyDailySelected = (modalData?.selectedDailyKeys?.size || 0) > 0;
+                const hasAnyOvertimeSelected = (modalData?.selectedOvertimeKeys?.size || 0) > 0;
+                const hasAnyMarketingSelected = (modalData?.selectedMarketingKeys?.size || 0) > 0;
+                if (selectedItems.length === 0 && !hasAnyDailySelected && !hasAnyOvertimeSelected && !hasAnyMarketingSelected) {
+                    showToast("Pilih minimal 1 item untuk direkap.", "error");
                     return;
                 }
                 // Guard: cek apakah ada item yang sudah direkap (isReported) sejak modal dibuka
@@ -7159,18 +7162,18 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     showToast("Beberapa item sudah pernah direkap. Tutup modal dan coba lagi.", "error");
                     return;
                 }
-                const selectedTotal = printOptions.production ? selectedItems.reduce((sum, item) => sum + (parseInt(item.qty) || 0), 0) : 0;
-                const selectedWage = printOptions.production ? selectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0) : 0;
+                const selectedTotal = selectedItems.reduce((sum, item) => sum + (parseInt(item.qty) || 0), 0);
+                const selectedWage = selectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0);
 
                 const empForRekap = visibleEmployees.find(e => String(e.id) === String(modalData.empId));
                 const allUnrekapedLogs = getEmployeeDailySalaryLogs(empForRekap).filter(log => !log.rekapId);
-                const dailySalaryLogsForRekap = printOptions.daily ? allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id || log.date))) : [];
-                const overtimeLogsForRekap = printOptions.overtime ? allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id || log.date))) : [];
+                const dailySalaryLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
+                const overtimeLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
                 const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap].map(l => [String(l.id || l.date), l])).values()];
                 const dailySalary = dailySalaryLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
                 const overtimeSalary = overtimeLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
                 const allMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(empForRekap?.name) && !inv.commissionRekapId && getInvoicePaidTotal(inv) > 0);
-                const marketingInvoicesForRekap = printOptions.marketing ? allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id))) : [];
+                const marketingInvoicesForRekap = allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
                 const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
                 const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission;
                 const empCashAdvanceSummary = getEmployeeCashAdvanceSummary(empForRekap);
@@ -7200,7 +7203,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     dailySalaryLogs: allLogsForRekap,
                     marketingCommission,
                     marketingInvoiceIds: marketingInvoicesForRekap.map(inv => inv.id),
-                    printOptions: { ...printOptions },
+
                     cashAdvanceDeduction: deduction,
                     cashAdvanceDeductionNote: cashAdvanceDeductionNote || '',
                     netSalary,
@@ -7416,7 +7419,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const selectedMarketingInvoices = modalMarketingInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
             const modalMarketingCommission = selectedMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
-            const modalPrintableGross = (printOptions.production ? modalSelectedWage : 0) + (printOptions.daily ? modalDailySalary : 0) + (printOptions.overtime ? modalOvertimeSalary : 0) + (printOptions.marketing ? modalMarketingCommission : 0);
+            const modalPrintableGross = modalSelectedWage + modalDailySalary + modalOvertimeSalary + modalMarketingCommission;
             const modalGrossSalary = modalPrintableGross;
             const modalDeduction = Math.min(safeMoney(cashAdvanceDeduction), modalGrossSalary, modalCashAdvanceSummary.remaining);
             const modalHasPrintableIncome = modalPrintableGross > 0;
@@ -7943,16 +7946,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     </div>
                                 </div>
                                 <div className="p-5 overflow-y-auto space-y-4">
-                                    {/* Pilihan cetak */}
+                                    {/* Pilihan cetak — master toggle per kategori */}
                                     <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                                        <h4 className="font-black text-slate-800 mb-2 text-sm">Pilihan Data yang Akan Dicetak</h4>
+                                        <h4 className="font-black text-slate-800 mb-2 text-sm">Pilihan Data yang Akan Direkap &amp; Dicetak</h4>
+                                        <p className="text-xs text-slate-500 mb-3">Centang kategori untuk pilih semua, atau buka rincian untuk pilih per item.</p>
                                         <div className="flex flex-wrap gap-2">
-                                            {[['production','Gaji Produksi'],['daily','Gaji Harian'],['overtime','Lembur'],['marketing','Komisi Marketing']].map(([key, label]) => (
-                                                <label key={key} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 cursor-pointer">
-                                                    <input type="checkbox" className="w-4 h-4 rounded text-blue-600" checked={!!printOptions[key]} onChange={e => setPrintOptions(prev => ({ ...prev, [key]: e.target.checked }))} />
-                                                    {label}
-                                                </label>
-                                            ))}
+                                            {(modalData?.allItems||[]).length > 0 && (() => { const allSel=(modalData.allItems||[]).every(i=>modalData.selectedKeys?.has(getRekapItemKey(i))); const hasSome=(modalData.selectedKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-green-100 border-green-400 text-green-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={toggleAllModalRekapItems}/>Gaji Produksi {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
+                                            {modalAllDailyLogs.length > 0 && (() => { const allSel=modalAllDailyLogs.every(l=>modalData?.selectedDailyKeys?.has(String(l.id||l.date))); const hasSome=(modalData?.selectedDailyKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-indigo-100 border-indigo-400 text-indigo-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalDailyItems(modalAllDailyLogs)}/>Gaji Harian {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
+                                            {modalAllOvertimeLogs.length > 0 && (() => { const allSel=modalAllOvertimeLogs.every(l=>modalData?.selectedOvertimeKeys?.has(String(l.id||l.date))); const hasSome=(modalData?.selectedOvertimeKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-sky-100 border-sky-400 text-sky-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalOvertimeItems(modalAllOvertimeLogs)}/>Lembur {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
+                                            {modalMarketingInvoices.length > 0 && (() => { const allSel=modalMarketingInvoices.every(i=>modalData?.selectedMarketingKeys?.has(String(i.id))); const hasSome=(modalData?.selectedMarketingKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-purple-100 border-purple-400 text-purple-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalMarketingItems(modalMarketingInvoices)}/>Komisi Marketing {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
                                         </div>
                                     </div>
 
