@@ -5003,9 +5003,10 @@
                 const itemRows = getInvoiceItems(inv).map((item, idx) => {
                     const sizes = Array.isArray(item.sizes) ? item.sizes : [];
                     const qty = sizes.reduce((sum, size) => sum + safeMoney(size.qty), 0);
-                    const total = sizes.reduce((sum, size) => sum + getInvoiceSizeTotal(size).total, 0);
-                    const sizeDetails = sizes.map(size => `<div class="size-line"><span class="sz">${safe(size.size || '-')}</span><span class="sq">${safeMoney(size.qty)} pcs &times; ${formatRupiah(size.pricePerPcs)}</span><span class="st">${formatRupiah(getInvoiceSizeTotal(size).total)}</span></div>`).join('');
-                    return `<tr><td class="c">${idx + 1}</td><td><b>${safe(item.productionType || '-')}</b></td><td>${sizeDetails || '-'}</td><td class="c">${qty} pcs</td><td class="r"><b>${formatRupiah(total)}</b></td></tr>`;
+                    const subtotal = sizes.reduce((sum, size) => sum + getInvoiceSizeTotal(size).total, 0);
+                    const sizeBreakdown = sizes.filter(s => safeMoney(s.qty) > 0 || s.size).map(s => `${safe(s.size || '-')}: ${safeMoney(s.qty)} pcs`).join('<br/>');
+                    const pricePerPcs = qty > 0 ? Math.round(subtotal / qty) : 0;
+                    return `<tr><td class="c">${idx + 1}</td><td><b>${safe(item.productionType || '-')}</b></td><td class="sz-col">${sizeBreakdown || '-'}</td><td class="c">${qty} pcs</td><td class="r">${formatRupiah(pricePerPcs)}</td><td class="r"><b>${formatRupiah(subtotal)}</b></td></tr>`;
                 }).join('');
                 const remaining = Math.max(0, totals.total - paid);
                 const dp = getInvoiceDpAmount(inv);
@@ -5042,11 +5043,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .items-section tbody td{padding:8px 10px;font-size:12px;vertical-align:top;border-bottom:1px solid #e2e8f0}
 .items-section tbody td.r{text-align:right}
 .items-section tbody td.c{text-align:center}
-.size-line{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px dashed #e2e8f0;font-size:10px;gap:6px}
-.size-line:last-child{border:none}
-.size-line .sz{font-weight:700;color:#1e3a5f;min-width:28px}
-.size-line .sq{color:#64748b;flex:1}
-.size-line .st{font-weight:700;color:#374151;white-space:nowrap}
+.sz-col{font-size:11px;color:#374151;line-height:1.8}
 .totals-section{display:grid;grid-template-columns:1fr 0.65fr;gap:16px;margin-top:6mm;page-break-inside:avoid;break-inside:avoid}
 .note-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px}
 .note-label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:6px}
@@ -5096,10 +5093,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 </div>
 <div class="items-section">
   <table>
-    <thead><tr><th style="width:36px" class="c">No.</th><th>Jenis Produksi</th><th>Rincian Ukuran & Qty</th><th style="width:90px" class="c">Total Qty</th><th style="width:120px" class="r">Subtotal</th></tr></thead>
+    <thead><tr><th style="width:30px" class="c">No.</th><th style="width:120px">Jenis Produksi</th><th>Rincian Ukuran</th><th style="width:75px" class="c">Qty Total</th><th style="width:90px" class="r">Harga/Pcs</th><th style="width:110px" class="r">Subtotal</th></tr></thead>
     <tbody>
-      ${itemRows || '<tr><td colspan="5" class="c" style="padding:20px;color:#94a3b8">Tidak ada item.</td></tr>'}
-      <tr style="background:#f1f5f9;font-weight:700"><td colspan="2"></td><td class="r" style="font-size:11px;color:#64748b">Total Keseluruhan</td><td class="c" style="font-weight:900">${getInvoicePcsTotal(inv)} pcs</td><td class="r" style="font-weight:900">${formatRupiah(totals.subtotal)}</td></tr>
+      ${itemRows || '<tr><td colspan="6" class="c" style="padding:20px;color:#94a3b8">Tidak ada item.</td></tr>'}
+      <tr style="background:#1e3a5f;color:#fff;font-weight:700"><td colspan="3" class="r" style="font-size:11px;padding:9px 10px">Total Keseluruhan</td><td class="c" style="font-weight:900;padding:9px 10px">${getInvoicePcsTotal(inv)} pcs</td><td></td><td class="r" style="font-weight:900;padding:9px 10px">${formatRupiah(totals.subtotal)}</td></tr>
     </tbody>
   </table>
 </div>
