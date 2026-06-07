@@ -529,6 +529,10 @@
             return Array.isArray(employee?.dailySalaryLogs) ? employee.dailySalaryLogs.filter(item => !item?.isDeleted) : [];
         };
 
+        const getEmployeeManualProductionLogs = (employee) => {
+            return Array.isArray(employee?.manualProductionLogs) ? employee.manualProductionLogs.filter(item => !item?.isDeleted) : [];
+        };
+
         const getDailySalaryLogTotal = (log) => {
             const daily = safeMoney(log?.workDays) * safeMoney(log?.dailySalary);
             const overtime = safeMoney(log?.overtimeCount) * safeMoney(log?.overtimeRate);
@@ -6770,6 +6774,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const [expandedInputIds, setExpandedInputIds] = useState({});
             const [showOnlyReady, setShowOnlyReady] = useState(false);
+            const [manualProdForm, setManualProdForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), description: '', qty: '', unitPrice: '' });
             const safeOrdersForReport = Array.isArray(orders) ? orders : [];
             const safeEmployeesForReport = Array.isArray(employees) ? employees : [];
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
@@ -6790,7 +6795,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     });
                     const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => !log.rekapId && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
                     const hasMarketing = safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
-                    if (hasProd || hasDailyOvertime || hasMarketing) ids.add(String(emp.id));
+                    const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => !log.rekapId && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
+                    if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd) ids.add(String(emp.id));
                 });
                 return ids;
             }, [visibleEmployees.length, safeOrdersForReport.length, safeInvoicesForReport.length, rekapKinerja?.length]);
@@ -7054,6 +7060,31 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const getRekapItemKey = (item) => `${item.orderId}-${item.stage}`;
 
+            const handleSaveManualProd = (empId) => {
+                const { date, description, qty, unitPrice } = manualProdForm;
+                if (!description.trim()) { showToast('Keterangan pekerjaan wajib diisi.', 'error'); return; }
+                if (!qty || parseFloat(qty) <= 0) { showToast('Qty harus lebih dari 0.', 'error'); return; }
+                if (!unitPrice || parseFloat(unitPrice) <= 0) { showToast('Harga satuan harus lebih dari 0.', 'error'); return; }
+                const now = new Date().toISOString();
+                const newLog = { id: genId('mprod-'), date: date || now.slice(0,10), description: description.trim(), qty: parseFloat(qty), unitPrice: parseFloat(unitPrice), isDeleted: false, rekapId: '', createdAt: now, _syncUpdatedAt: now };
+                setEmployees(prev => (prev || []).map(emp => {
+                    if (String(emp.id) !== String(empId)) return emp;
+                    return { ...emp, manualProductionLogs: [...(emp.manualProductionLogs || []), newLog], _syncUpdatedAt: now };
+                }));
+                setManualProdForm(prev => ({ ...prev, empId: null, description: '', qty: '', unitPrice: '' }));
+                showToast('Gaji produksi manual berhasil ditambahkan.', 'success');
+            };
+
+            const handleDeleteManualProd = (empId, logId) => {
+                if (!window.confirm('Hapus entri gaji produksi manual ini?')) return;
+                const now = new Date().toISOString();
+                setEmployees(prev => (prev || []).map(emp => {
+                    if (String(emp.id) !== String(empId)) return emp;
+                    return { ...emp, manualProductionLogs: (emp.manualProductionLogs || []).map(log => String(log.id) === String(logId) ? { ...log, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : log), _syncUpdatedAt: now };
+                }));
+                showToast('Entri dihapus.', 'success');
+            };
+
             const handleOpenRekapModal = (empId, items) => {
                 const selectedKeys = new Set((items || []).map(getRekapItemKey));
                 setModalData({ empId, allItems: items || [], selectedKeys });
@@ -7146,7 +7177,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 };
                 
                 setRekapKinerja(prev => [...(prev || []), newRekap]);
-                if ((deduction > 0 || ((printOptions.daily || printOptions.overtime) && dailySalaryLogsForRekap.length > 0)) && empForRekap) {
+                const manualItemsInRekap = selectedItems.filter(item => item.isManual);
+                if ((deduction > 0 || ((printOptions.daily || printOptions.overtime) && dailySalaryLogsForRekap.length > 0) || manualItemsInRekap.length > 0) && empForRekap) {
                     const now = new Date().toISOString();
                     setEmployees(prev => (prev || []).map(emp => {
                         if (String(emp.id) !== String(empForRekap.id)) return emp;
@@ -7169,7 +7201,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
                         });
                         const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => ((printOptions.daily || printOptions.overtime) && dailySalaryLogsForRekap.some(row => String(row.id) === String(log.id))) ? { ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : log);
-                        return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, _syncUpdatedAt: now };
+                        const manualLogIdsToMark = selectedItems.filter(item => item.isManual).map(item => item.manualLogId);
+                        const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => manualLogIdsToMark.includes(String(log.id)) ? { ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : log);
+                        return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
                     }));
                 }
                 if (marketingInvoicesForRekap.length > 0 && setInvoices) {
@@ -7324,7 +7358,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         return removedAmount > 0 ? { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) } : item;
                     });
                     const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => String(log.rekapId) === String(rekap.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
-                    return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, _syncUpdatedAt: now };
+                    const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => String(log.rekapId) === String(rekap.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                    return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
                 }));
                 if (Array.isArray(rekap.marketingInvoiceIds) && setInvoices) {
                     setInvoices(prev => (prev || []).map(inv => rekap.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: '', commissionRekapDate: '', _syncUpdatedAt: now } : inv));
@@ -7385,14 +7420,17 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         }
                     });
                 });
+                const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId);
+                const manualProdWage = manualProdRows.reduce((s, l) => s + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
+                const totalProdWage = prodWage + manualProdWage;
                 const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
                 const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
                 const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
                 const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                 const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                 const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
-                const total = prodWage + harian + lembur + komisi;
-                return { produksi: acc.produksi + prodWage, harian: acc.harian + harian, lembur: acc.lembur + lembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
+                const total = totalProdWage + harian + lembur + komisi;
+                return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian, lembur: acc.lembur + lembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
             }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 });
 
             return (
@@ -7491,6 +7529,24 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     }
                                 });
 
+                                // Manual production logs (permak, ganti label, dll)
+                                const unrekapedManualLogs = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId);
+                                unrekapedManualLogs.forEach(log => {
+                                    const unitPrice = safeMoney(log.unitPrice);
+                                    const qty = safeMoney(log.qty);
+                                    const wageTotal = qty * unitPrice;
+                                    if (wageTotal <= 0) return;
+                                    unsettledItems.push({
+                                        orderId: `manual-${log.id}`, client: '-', type: 'Manual',
+                                        stage: 'manual', stageLabel: log.description || 'Pekerjaan Manual',
+                                        sizes: `${qty} pcs`, qty, unitPrice, wageTotal,
+                                        isManual: true, manualLogId: log.id, manualDate: log.date,
+                                        logIds: []
+                                    });
+                                    totalUnsettled += qty;
+                                    totalUnsettledWage += wageTotal;
+                                });
+
                                 const myHistory = safeArray(rekapKinerja).filter(r => !r.isDeleted && String(r.empId) === String(emp.id)).reverse();
                                 const dailySalaryRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
                                 const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
@@ -7536,11 +7592,30 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
                                             {expandedInputIds[emp.id] && <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                                                 <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                                    <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Gaji Produksi</div>
+                                                    <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
+                                                        <span className="font-black text-xs text-gray-700">Gaji Produksi</span>
+                                                        <button onClick={() => setManualProdForm(prev => ({ ...prev, empId: prev.empId === emp.id ? null : emp.id, description: '', qty: '', unitPrice: '', date: new Date().toISOString().slice(0,10) }))} className="text-xs px-2 py-1 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors">+ Tambah Manual</button>
+                                                    </div>
+                                                    {manualProdForm.empId === emp.id && (
+                                                        <div className="bg-green-50 border-b border-green-200 p-3 space-y-2">
+                                                            <div className="text-xs font-bold text-green-800 mb-1">Input Gaji Produksi Manual (Permak, Ganti Label, dll)</div>
+                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                                                <div><label className="text-xs text-gray-600">Tanggal</label><input type="date" value={manualProdForm.date} onChange={e => setManualProdForm(prev => ({...prev, date: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                                <div className="md:col-span-1"><label className="text-xs text-gray-600">Keterangan Pekerjaan</label><input type="text" placeholder="cth: Permak celana, Ganti label..." value={manualProdForm.description} onChange={e => setManualProdForm(prev => ({...prev, description: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                                <div><label className="text-xs text-gray-600">Qty (pcs)</label><input type="number" min="0" placeholder="0" value={manualProdForm.qty} onChange={e => setManualProdForm(prev => ({...prev, qty: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                                <div><label className="text-xs text-gray-600">Harga/pcs (Rp)</label><input type="number" min="0" placeholder="0" value={manualProdForm.unitPrice} onChange={e => setManualProdForm(prev => ({...prev, unitPrice: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                            </div>
+                                                            {manualProdForm.qty > 0 && manualProdForm.unitPrice > 0 && <div className="text-xs text-green-800 font-bold">Subtotal: {formatRupiah(parseFloat(manualProdForm.qty || 0) * parseFloat(manualProdForm.unitPrice || 0))}</div>}
+                                                            <div className="flex gap-2">
+                                                                <button onClick={() => handleSaveManualProd(emp.id)} className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700">Simpan</button>
+                                                                <button onClick={() => setManualProdForm(prev => ({...prev, empId: null}))} className="text-xs px-3 py-1.5 bg-white text-gray-600 border border-gray-300 rounded-lg font-bold hover:bg-gray-50">Batal</button>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     <div className="overflow-x-auto">
                                                         <table className="w-full text-xs">
-                                                            <thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Nomor Order</th><th className="p-2 text-left">Jenis Produksi</th><th className="p-2 text-left">Tahap</th><th className="p-2 text-right">Qty</th><th className="p-2 text-right">Harga Produksi</th><th className="p-2 text-right">Subtotal</th></tr></thead>
-                                                            <tbody>{unsettledItems.map((item, idx) => <tr key={`${emp.id}-prod-${item.orderId}-${item.stage}-${idx}`} className="border-t"><td className="p-2 font-bold text-blue-700">{safeText(item.orderId)}</td><td className="p-2">{safeText(item.type)}</td><td className="p-2">{safeText(item.stageLabel || item.stage)}</td><td className="p-2 text-right">{safeNumber(item.qty)} pcs</td><td className="p-2 text-right">{formatRupiah(item.unitPrice)}</td><td className="p-2 text-right font-black text-green-700">{formatRupiah(item.wageTotal)}</td></tr>)}{unsettledItems.length === 0 && <tr><td colSpan="6" className="p-4 text-center text-gray-500 italic">Belum ada gaji produksi.</td></tr>}</tbody>
+                                                            <thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Order / Keterangan</th><th className="p-2 text-left">Jenis</th><th className="p-2 text-left">Tahap / Tgl</th><th className="p-2 text-right">Qty</th><th className="p-2 text-right">Harga/pcs</th><th className="p-2 text-right">Subtotal</th><th className="p-2"></th></tr></thead>
+                                                            <tbody>{unsettledItems.map((item, idx) => <tr key={`${emp.id}-prod-${item.orderId}-${item.stage}-${idx}`} className={`border-t ${item.isManual ? 'bg-green-50' : ''}`}><td className="p-2 font-bold text-blue-700">{item.isManual ? <span className="flex items-center gap-1"><span className="bg-green-200 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-black">MANUAL</span><span className="text-gray-800">{safeText(item.stageLabel)}</span></span> : safeText(item.orderId)}</td><td className="p-2">{safeText(item.type)}</td><td className="p-2">{item.isManual ? safeText(item.manualDate || '-') : safeText(item.stageLabel || item.stage)}</td><td className="p-2 text-right">{safeNumber(item.qty)} pcs</td><td className="p-2 text-right">{formatRupiah(item.unitPrice)}</td><td className="p-2 text-right font-black text-green-700">{formatRupiah(item.wageTotal)}</td><td className="p-2 text-center">{item.isManual && <button onClick={() => handleDeleteManualProd(emp.id, item.manualLogId)} className="text-red-400 hover:text-red-600 font-bold">✕</button>}</td></tr>)}{unsettledItems.length === 0 && <tr><td colSpan="7" className="p-4 text-center text-gray-500 italic">Belum ada gaji produksi.</td></tr>}</tbody>
                                                         </table>
                                                     </div>
                                                 </div>
