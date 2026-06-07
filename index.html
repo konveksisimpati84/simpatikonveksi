@@ -7334,6 +7334,29 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 net: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.netSalary ?? r.totalWage), 0)
             };
 
+            const readyToRekapSummary = filteredReportEmployees.reduce((acc, emp) => {
+                let prodWage = 0;
+                safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
+                    if (!order.progress) return;
+                    Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
+                        if (!getActiveProductionStageIds(order).includes(stage)) return;
+                        const empLogs = safeArray(data?.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
+                        if (empLogs.length > 0) {
+                            const qty = empLogs.reduce((s, l) => s + getWorkLogSubmittedQty(l), 0);
+                            prodWage += qty * getProductionUnitPrice(order, stage);
+                        }
+                    });
+                });
+                const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
+                const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
+                const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
+                const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
+                const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
+                const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
+                const total = prodWage + harian + lembur + komisi;
+                return { produksi: acc.produksi + prodWage, harian: acc.harian + harian, lembur: acc.lembur + lembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
+            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 });
+
             return (
                 <div className="space-y-6">
                     <div>
@@ -7350,6 +7373,38 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     </Card>
                     {activeReportTab === 'input' ? (
                     <div className="space-y-6">
+                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                            <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-sm">
+                                <div className="text-xs font-bold text-green-100 mb-1 uppercase tracking-wide">Gaji Produksi</div>
+                                <div className="text-base font-black leading-tight">{formatRupiah(readyToRekapSummary.produksi)}</div>
+                                <div className="text-xs text-green-200 mt-1">Siap Direkap</div>
+                            </div>
+                            <div className="bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl p-4 text-white shadow-sm">
+                                <div className="text-xs font-bold text-indigo-100 mb-1 uppercase tracking-wide">Gaji Harian</div>
+                                <div className="text-base font-black leading-tight">{formatRupiah(readyToRekapSummary.harian)}</div>
+                                <div className="text-xs text-indigo-200 mt-1">Siap Direkap</div>
+                            </div>
+                            <div className="bg-gradient-to-br from-sky-500 to-sky-700 rounded-xl p-4 text-white shadow-sm">
+                                <div className="text-xs font-bold text-sky-100 mb-1 uppercase tracking-wide">Gaji Lembur</div>
+                                <div className="text-base font-black leading-tight">{formatRupiah(readyToRekapSummary.lembur)}</div>
+                                <div className="text-xs text-sky-200 mt-1">Siap Direkap</div>
+                            </div>
+                            <div className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-xl p-4 text-white shadow-sm">
+                                <div className="text-xs font-bold text-purple-100 mb-1 uppercase tracking-wide">Komisi Marketing</div>
+                                <div className="text-base font-black leading-tight">{formatRupiah(readyToRekapSummary.komisi)}</div>
+                                <div className="text-xs text-purple-200 mt-1">Siap Direkap</div>
+                            </div>
+                            <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-xl p-4 text-white shadow-sm">
+                                <div className="text-xs font-bold text-blue-100 mb-1 uppercase tracking-wide">Total Gaji</div>
+                                <div className="text-base font-black leading-tight">{formatRupiah(readyToRekapSummary.total)}</div>
+                                <div className="text-xs text-blue-200 mt-1">Siap Direkap</div>
+                            </div>
+                            <div className="bg-gradient-to-br from-orange-500 to-orange-700 rounded-xl p-4 text-white shadow-sm">
+                                <div className="text-xs font-bold text-orange-100 mb-1 uppercase tracking-wide">Karyawan</div>
+                                <div className="text-3xl font-black leading-tight">{readyToRekapSummary.karyawan}</div>
+                                <div className="text-xs text-orange-200 mt-1">Siap Direkap</div>
+                            </div>
+                        </div>
                         <div className="space-y-8">
                             {pagedReportEmployees.map(emp => {
                                 const unsettledItems = [];
