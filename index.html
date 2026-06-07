@@ -5348,6 +5348,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
             const [divisionFilter, setDivisionFilter] = useState('Semua');
             const [cashAdvanceStatusFilter, setCashAdvanceStatusFilter] = useState('Semua');
+            const [activeFinanceTab, setActiveFinanceTab] = useState('dashboard');
             const safeOrders = (Array.isArray(orders) ? orders : []).filter(isVisibleOrder);
             const safeFinanceEmployees = Array.isArray(employees) ? employees : [];
             const safeFinanceRekaps = Array.isArray(rekapKinerja) ? rekapKinerja : [];
@@ -5516,6 +5517,27 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const totalIncomeAll = totalInvoiceIncome + totalClientDpIncome + totalManualIncome;
             const totalExpense = totalMaterial + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
             const netBalance = totalIncomeAll - totalExpense;
+
+            // AKUNTANSI STANDAR
+            // Pendapatan = pembayaran invoice + pemasukan manual (BUKAN saldo DP)
+            const totalPendapatan = totalInvoiceIncome + totalManualIncome;
+
+            // Kewajiban: Saldo DP Klien (liability - uang muka yang belum dipakai)
+            const totalSaldoDpMasukAll = (clients || []).filter(isVisibleRecord)
+                .flatMap(c => (Array.isArray(c.clientDpPayments) ? c.clientDpPayments : []).filter(isVisibleRecord).filter(dp => !dp.invoiceId))
+                .reduce((sum, dp) => sum + safeMoney(dp.amount), 0);
+            const totalSaldoDpDipakaiAll = safeFinanceInvoices.filter(isVisibleRecord)
+                .reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0);
+            const sisaSaldoDpKewajiban = Math.max(0, totalSaldoDpMasukAll - totalSaldoDpDipakaiAll);
+
+            // Beban
+            const totalBeban = totalMaterial + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
+            const labaBersih = totalPendapatan - totalBeban;
+            const labaKotor = totalPendapatan - totalMaterial;
+
+            // Piutang (for balance sheet)
+            const totalPiutangInvoice = safeFinanceInvoices.filter(isVisibleRecord)
+                .reduce((sum, inv) => sum + Math.max(0, getInvoiceTotals(inv).total - getInvoicePaidTotal(inv)), 0);
             const materialBillingRows = safeOrders
                 .filter(order => Array.isArray(order.materials) && getActiveMaterials(order).length > 0)
                 .map(order => {
@@ -5670,16 +5692,199 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 }
             };
 
+            const handlePrintPL = () => {
+                const periodLabel = period ? new Date(`${period}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : 'Semua Periode';
+                const printedDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                const plContent = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Laporan Laba Rugi</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; padding: 20px; color: #000; font-size: 13px; }
+                            .header { text-align: center; border-bottom: 3px solid #1e3a5f; padding-bottom: 12px; margin-bottom: 20px; position: relative; }
+                            .header-logo { position: absolute; left: 0; top: 0; max-height: 60px; }
+                            h1 { margin: 0 0 4px 0; font-size: 22px; color: #1e3a5f; }
+                            h2 { margin: 0 0 4px 0; font-size: 16px; color: #1e3a5f; text-transform: uppercase; letter-spacing: 1px; }
+                            .periode { color: #555; margin: 4px 0; }
+                            table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+                            th { background: #1e3a5f; color: #fff; padding: 8px 10px; text-align: left; }
+                            td { padding: 7px 10px; border-bottom: 1px solid #e5e7eb; }
+                            .section-header { background: #f1f5f9; font-weight: bold; color: #1e3a5f; }
+                            .total-row { border-top: 2px solid #1e3a5f; font-weight: bold; }
+                            .laba-row { background: #1e3a5f; color: #fff; font-size: 15px; font-weight: bold; }
+                            .text-right { text-align: right; }
+                            .separator { border-top: 1px solid #1e3a5f; }
+                            .footer { text-align: right; margin-top: 20px; color: #888; font-size: 11px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            ${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo" />` : ''}
+                            <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
+                            <h2>Laporan Laba Rugi</h2>
+                            <p class="periode">Periode: ${periodLabel}</p>
+                        </div>
+                        <table>
+                            <thead><tr><th>Uraian</th><th class="text-right">Jumlah (Rp)</th></tr></thead>
+                            <tbody>
+                                <tr class="section-header"><td colspan="2">PENDAPATAN</td></tr>
+                                <tr><td>&nbsp;&nbsp;Pendapatan Invoice</td><td class="text-right">${formatRupiah(totalInvoiceIncome)}</td></tr>
+                                <tr><td>&nbsp;&nbsp;Pemasukan Lain</td><td class="text-right">${formatRupiah(totalManualIncome)}</td></tr>
+                                <tr class="total-row"><td>TOTAL PENDAPATAN</td><td class="text-right">${formatRupiah(totalPendapatan)}</td></tr>
+                                <tr><td colspan="2">&nbsp;</td></tr>
+                                <tr class="section-header"><td colspan="2">BEBAN OPERASIONAL</td></tr>
+                                <tr><td>&nbsp;&nbsp;Pembelian Bahan</td><td class="text-right">${formatRupiah(totalMaterial)}</td></tr>
+                                <tr><td>&nbsp;&nbsp;Gaji Bersih Produksi</td><td class="text-right">${formatRupiah(totalWage)}</td></tr>
+                                <tr><td>&nbsp;&nbsp;Kasbon Diberikan</td><td class="text-right">${formatRupiah(totalCashAdvanceGiven)}</td></tr>
+                                <tr><td>&nbsp;&nbsp;Biaya Operasional</td><td class="text-right">${formatRupiah(totalOperationalExpense)}</td></tr>
+                                <tr><td>&nbsp;&nbsp;Komisi Marketing</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>
+                                <tr class="total-row"><td>TOTAL BEBAN</td><td class="text-right">${formatRupiah(totalBeban)}</td></tr>
+                                <tr><td colspan="2">&nbsp;</td></tr>
+                                <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
+                            </tbody>
+                        </table>
+                        <div class="footer">Dicetak pada: ${printedDate}</div>
+                    </body>
+                    </html>
+                `;
+                const pw = window.open('', '_blank');
+                if (pw) { pw.document.open(); pw.document.write(plContent); pw.document.close(); pw.focus(); setTimeout(() => pw.print(), 250); }
+                else { showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); }
+            };
+
+            const handlePrintCashBook = () => {
+                const periodLabel = period ? new Date(`${period}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : 'Semua Periode';
+                const printedDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                const kasmasukRows = [
+                    ...invoiceRows.map(inv => ({
+                        date: inv.date || '-',
+                        ref: inv.id || '-',
+                        sumber: 'Invoice',
+                        ket: inv.customer || '-',
+                        nominal: getInvoicePaid(inv)
+                    })),
+                    ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({
+                        date: r.date || '-',
+                        ref: r.id || '-',
+                        sumber: 'Pemasukan',
+                        ket: r.category || r.note || '-',
+                        nominal: safeMoney(r.amount)
+                    }))
+                ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+                const kaskeluarRows = [
+                    ...materialRows.map(r => ({
+                        date: r.date || '-',
+                        ref: r.orderId || r.id || '-',
+                        sumber: 'Pembelian Bahan',
+                        ket: r.client + ' — ' + r.vendors.join(', '),
+                        nominal: r.total
+                    })),
+                    ...wageRows.map(r => ({
+                        date: r.date || '-',
+                        ref: r.id || '-',
+                        sumber: 'Gaji',
+                        ket: r.empName,
+                        nominal: r.netSalary
+                    })),
+                    ...cashAdvanceRows.map(r => ({
+                        date: r.date || '-',
+                        ref: r.id || '-',
+                        sumber: 'Kasbon',
+                        ket: r.empName,
+                        nominal: r.amount
+                    })),
+                    ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({
+                        date: r.date || '-',
+                        ref: r.id || '-',
+                        sumber: 'Biaya Operasional',
+                        ket: r.category || r.note || '-',
+                        nominal: safeMoney(r.amount)
+                    }))
+                ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+                const totalKasMasuk = kasmasukRows.reduce((s, r) => s + r.nominal, 0);
+                const totalKasKeluar = kaskeluarRows.reduce((s, r) => s + r.nominal, 0);
+                const renderRows = (rows) => rows.map(r => `<tr><td>${r.date}</td><td>${r.ref}</td><td>${r.sumber}</td><td>${r.ket}</td><td class="text-right">${formatRupiah(r.nominal)}</td></tr>`).join('') || '<tr><td colspan="5" class="text-center" style="color:#999;font-style:italic;">Tidak ada data.</td></tr>';
+                const cbContent = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Buku Kas</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; padding: 20px; color: #000; font-size: 12px; }
+                            .header { text-align: center; border-bottom: 3px solid #1e3a5f; padding-bottom: 12px; margin-bottom: 20px; position: relative; }
+                            .header-logo { position: absolute; left: 0; top: 0; max-height: 60px; }
+                            h1 { margin: 0 0 4px 0; font-size: 20px; color: #1e3a5f; }
+                            h2 { margin: 0 0 4px 0; font-size: 15px; color: #1e3a5f; text-transform: uppercase; letter-spacing: 1px; }
+                            h3 { margin: 16px 0 6px 0; font-size: 13px; color: #1e3a5f; border-left: 4px solid #1e3a5f; padding-left: 8px; }
+                            .periode { color: #555; margin: 4px 0; }
+                            table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; }
+                            th { background: #1e3a5f; color: #fff; padding: 7px 8px; text-align: left; }
+                            td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
+                            .total-row { font-weight: bold; border-top: 2px solid #1e3a5f; }
+                            .text-right { text-align: right; }
+                            .footer { text-align: right; margin-top: 20px; color: #888; font-size: 11px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            ${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo" />` : ''}
+                            <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
+                            <h2>Buku Kas</h2>
+                            <p class="periode">Periode: ${periodLabel}</p>
+                        </div>
+                        <h3>KAS MASUK</h3>
+                        <table>
+                            <thead><tr><th>Tanggal</th><th>Referensi</th><th>Sumber</th><th>Keterangan</th><th class="text-right">Nominal (Rp)</th></tr></thead>
+                            <tbody>
+                                ${renderRows(kasmasukRows)}
+                                <tr class="total-row"><td colspan="4">TOTAL KAS MASUK</td><td class="text-right">${formatRupiah(totalKasMasuk)}</td></tr>
+                            </tbody>
+                        </table>
+                        <h3>KAS KELUAR</h3>
+                        <table>
+                            <thead><tr><th>Tanggal</th><th>Referensi</th><th>Sumber</th><th>Keterangan</th><th class="text-right">Nominal (Rp)</th></tr></thead>
+                            <tbody>
+                                ${renderRows(kaskeluarRows)}
+                                <tr class="total-row"><td colspan="4">TOTAL KAS KELUAR</td><td class="text-right">${formatRupiah(totalKasKeluar)}</td></tr>
+                            </tbody>
+                        </table>
+                        <div class="footer">Dicetak pada: ${printedDate}</div>
+                    </body>
+                    </html>
+                `;
+                const pw = window.open('', '_blank');
+                if (pw) { pw.document.open(); pw.document.write(cbContent); pw.document.close(); pw.focus(); setTimeout(() => pw.print(), 250); }
+                else { showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); }
+            };
+
+            const financeTabList = [
+                { id: 'dashboard', label: 'Dashboard' },
+                { id: 'laba-rugi', label: 'Laporan L/R' },
+                { id: 'buku-kas', label: 'Buku Kas' },
+                { id: 'detail', label: 'Detail' },
+            ];
+
             return (
                 <div className="space-y-6">
                     <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
                         <div>
                             <h2 className="text-2xl font-bold text-gray-800">Laporan Keuangan</h2>
-                            <p className="text-gray-500 text-sm mt-1">Ringkasan biaya dari pembelian bahan dan gaji produksi karyawan.</p>
+                            <p className="text-gray-500 text-sm mt-1">Standar akuntansi UMKM — terhubung otomatis dari semua modul.</p>
                         </div>
-                        <button onClick={handlePrint} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 text-sm">
-                            <IconPrinter /> Cetak
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={handlePrintPL} className="bg-[#1e3a5f] hover:bg-[#16304f] text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Laba Rugi</button>
+                            <button onClick={handlePrintCashBook} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Buku Kas</button>
+                            <button onClick={handlePrint} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Biaya Order</button>
+                        </div>
+                    </div>
+                    <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                        {financeTabList.map(tab => (
+                            <button key={tab.id} onClick={() => setActiveFinanceTab(tab.id)}
+                                className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeFinanceTab === tab.id ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
+                                {tab.label}
+                            </button>
+                        ))}
                     </div>
 
                     <Card>
@@ -5719,232 +5924,404 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         </div>
                     </Card>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Card className="border-l-4 border-l-green-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Uang Masuk</h3>
-                            <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalIncomeAll)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Invoice + input uang masuk</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-red-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Uang Keluar</h3>
-                            <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(totalExpense)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Bahan, gaji, kasbon, biaya, komisi</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-blue-500">
-                            <h3 className="text-sm font-bold text-gray-500">Saldo Bersih</h3>
-                            <p className={`text-2xl font-black mt-2 ${netBalance >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{formatRupiah(netBalance)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Uang masuk dikurangi uang keluar</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-yellow-500">
-                            <h3 className="text-sm font-bold text-gray-500">Piutang Invoice</h3>
-                            <p className="text-2xl font-black text-yellow-700 mt-2">{formatRupiah(totalInvoiceReceivable)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Sisa tagihan customer</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-slate-500">
-                            <h3 className="text-sm font-bold text-gray-500">Biaya Operasional</h3>
-                            <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalOperationalExpense)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Dari menu Biaya</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-purple-500">
-                            <h3 className="text-sm font-bold text-gray-500">Komisi Marketing</h3>
-                            <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalMarketingCommission)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Dihitung dari invoice</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-emerald-500">
-                            <h3 className="text-sm font-bold text-gray-500">Saldo Klien Masuk</h3>
-                            <p className="text-2xl font-black text-emerald-700 mt-2">{formatRupiah(totalClientDpIncome)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Uang diterima dari klien sebagai saldo</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-green-500">
-                            <h3 className="text-sm font-bold text-gray-500">Pembayaran Invoice</h3>
-                            <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalInvoiceIncome)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Pembayaran langsung invoice (tunai/transfer)</p>
-                        </Card>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Card className="border-l-4 border-l-red-500">
-                            <h3 className="text-sm font-bold text-gray-500">Pembelian Bahan</h3>
-                            <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(totalMaterial)}</p>
-                            <p className="text-xs text-gray-500 mt-1">{materialRows.length} order pembelian</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-green-500">
-                            <h3 className="text-sm font-bold text-gray-500">Gaji Produksi</h3>
-                            <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalWage)}</p>
-                            <p className="text-xs text-gray-500 mt-1">{wageRows.length} rekap kinerja</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-blue-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Pengeluaran</h3>
-                            <p className="text-2xl font-black text-blue-700 mt-2">{formatRupiah(totalExpense)}</p>
-                            <p className="text-xs text-gray-500 mt-1">{orderCostRows.length} order tercatat</p>
-                        </Card>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Card className="border-l-4 border-l-orange-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Kasbon Diberikan</h3>
-                            <p className="text-2xl font-black text-orange-700 mt-2">{formatRupiah(totalCashAdvanceGiven)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Uang keluar untuk kasbon karyawan</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-emerald-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Kasbon Dipotong</h3>
-                            <p className="text-2xl font-black text-emerald-700 mt-2">{formatRupiah(totalCashAdvanceDeducted)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Akumulasi potongan dari rekap gaji</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-yellow-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Sisa Kasbon</h3>
-                            <p className="text-2xl font-black text-yellow-700 mt-2">{formatRupiah(totalCashAdvanceRemaining)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Piutang internal karyawan</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-purple-500">
-                            <h3 className="text-sm font-bold text-gray-500">Potongan Kasbon Periode</h3>
-                            <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalCashAdvanceDeductionInPeriod)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Berdasarkan periode rekap gaji</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-green-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Gaji Bruto</h3>
-                            <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalGrossWage)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Sebelum potongan kasbon</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-blue-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Gaji Bersih</h3>
-                            <p className="text-2xl font-black text-blue-700 mt-2">{formatRupiah(totalWage)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Setelah potongan kasbon</p>
-                        </Card>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Card className="border-l-4 border-l-slate-500">
-                            <h3 className="text-sm font-bold text-gray-500">Total Tagihan Vendor</h3>
-                            <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalMaterialBill)}</p>
-                            <p className="text-xs text-gray-500 mt-1">{materialBillingRows.length} nota/order bahan</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-emerald-500">
-                            <h3 className="text-sm font-bold text-gray-500">Sudah Dibayar Vendor</h3>
-                            <p className="text-2xl font-black text-emerald-700 mt-2">{formatRupiah(totalVendorPaid)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Akumulasi termin pembayaran</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-orange-500">
-                            <h3 className="text-sm font-bold text-gray-500">Sisa Hutang Vendor</h3>
-                            <p className="text-2xl font-black text-orange-700 mt-2">{formatRupiah(totalVendorDebt)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Tagihan dikurangi termin</p>
-                        </Card>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <Card className="border-l-4 border-l-green-500">
-                            <h3 className="text-sm font-bold text-gray-500">Pembelian Lunas</h3>
-                            <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalPaidOffPurchase)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Tagihan vendor yang sudah lunas</p>
-                        </Card>
-                        <Card className="border-l-4 border-l-yellow-500">
-                            <h3 className="text-sm font-bold text-gray-500">Pembelian Belum Lunas</h3>
-                            <p className="text-2xl font-black text-yellow-700 mt-2">{formatRupiah(totalUnpaidPurchase)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Sisa pembayaran vendor</p>
-                        </Card>
-                    </div>
-
-                    <Card>
-                        <h3 className="text-lg font-bold text-gray-800 mb-4">Grafik Uang Masuk vs Uang Keluar</h3>
-                        {[
-                            { label: 'Uang Masuk', value: totalIncomeAll, color: 'bg-green-600' },
-                            { label: 'Uang Keluar', value: totalExpense, color: 'bg-red-600' },
-                            { label: 'Saldo Bersih', value: Math.max(0, netBalance), color: 'bg-blue-600' }
-                        ].map(row => {
-                            const maxVal = Math.max(totalIncomeAll, totalExpense, Math.abs(netBalance), 1);
-                            const width = Math.max(4, Math.round((row.value / maxVal) * 100));
-                            return (
-                                <div key={row.label} className="mb-3">
-                                    <div className="flex justify-between text-sm font-bold mb-1"><span>{row.label}</span><span>{formatRupiah(row.value)}</span></div>
-                                    <div className="h-5 bg-gray-100 rounded overflow-hidden"><div className={`h-full ${row.color}`} style={{ width: `${width}%` }}></div></div>
+                    {/* Tab: Dashboard */}
+                    {activeFinanceTab === 'dashboard' && (
+                        <>
+                            {/* PENDAPATAN */}
+                            <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+                                <h3 className="text-base font-black text-green-800 mb-3 uppercase tracking-wide">Pendapatan</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <Card className="border-l-4 border-l-green-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Pendapatan Invoice</h3>
+                                        <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalInvoiceIncome)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Pembayaran tunai/transfer invoice</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-teal-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Pemasukan Lain</h3>
+                                        <p className="text-2xl font-black text-teal-700 mt-2">{formatRupiah(totalManualIncome)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Dari input manual menu Biaya</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-green-700 bg-green-100">
+                                        <h3 className="text-xs font-black text-green-800">TOTAL PENDAPATAN</h3>
+                                        <p className="text-2xl font-black text-green-800 mt-2">{formatRupiah(totalPendapatan)}</p>
+                                        <p className="text-xs text-green-700 mt-1">Invoice + pemasukan lain</p>
+                                    </Card>
                                 </div>
-                            );
-                        })}
-                    </Card>
+                            </div>
 
-                    <Card>
-                        <h3 className="text-lg font-bold text-gray-800 mb-4">Biaya per Order</h3>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-gray-50 border-b border-gray-200">
-                                        <th className="p-3 text-sm font-semibold text-gray-600">Order</th>
-                                        <th className="p-3 text-sm font-semibold text-gray-600">Instansi</th>
-                                        <th className="p-3 text-sm font-semibold text-gray-600">Jenis Produksi</th>
-                                        <th className="p-3 text-sm font-semibold text-gray-600">Tanggal</th>
-                                        <th className="p-3 text-sm font-semibold text-gray-600 text-right">Bahan</th>
-                                        <th className="p-3 text-sm font-semibold text-gray-600 text-right">Gaji</th>
-                                        <th className="p-3 text-sm font-semibold text-gray-600 text-right">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {orderCostRows.map(row => (
-                                        <tr key={row.orderId} className="border-b border-gray-100 hover:bg-gray-50">
-                                            <td className="p-3 text-sm font-bold text-blue-600">{row.orderId}</td>
-                                            <td className="p-3 text-sm text-gray-800">{row.client}</td>
-                                            <td className="p-3 text-sm text-gray-600">{row.type}</td>
-                                            <td className="p-3 text-sm text-gray-500">{formatDate(row.date)}</td>
-                                            <td className="p-3 text-sm text-right text-red-600 font-bold">{formatRupiah(row.materialCost)}</td>
-                                            <td className="p-3 text-sm text-right text-green-700 font-bold">{formatRupiah(row.wageCost)}</td>
-                                            <td className="p-3 text-sm text-right text-blue-700 font-black">{formatRupiah(row.totalCost)}</td>
-                                        </tr>
-                                    ))}
-                                    {orderCostRows.length === 0 && (
-                                        <tr><td colSpan="7" className="p-6 text-center text-gray-500 italic">Belum ada data keuangan pada periode ini.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
+                            {/* KEWAJIBAN */}
+                            <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
+                                <h3 className="text-base font-black text-orange-800 mb-1 uppercase tracking-wide">Kewajiban — Uang Muka Customer (Saldo DP)</h3>
+                                <p className="text-xs text-orange-700 mb-3">Saldo DP bukan pendapatan. Dicatat sebagai kewajiban hingga invoice diterbitkan.</p>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <Card className="border-l-4 border-l-orange-400">
+                                        <h3 className="text-xs font-bold text-gray-500">Total Saldo DP Masuk</h3>
+                                        <p className="text-2xl font-black text-orange-700 mt-2">{formatRupiah(totalSaldoDpMasukAll)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Seluruh uang muka diterima</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-amber-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Total Saldo DP Dipakai</h3>
+                                        <p className="text-2xl font-black text-amber-700 mt-2">{formatRupiah(totalSaldoDpDipakaiAll)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Sudah dikaitkan ke invoice</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-orange-700 bg-orange-100">
+                                        <h3 className="text-xs font-black text-orange-800">SISA KEWAJIBAN</h3>
+                                        <p className="text-2xl font-black text-orange-800 mt-2">{formatRupiah(sisaSaldoDpKewajiban)}</p>
+                                        <p className="text-xs text-orange-700 mt-1">Belum diselesaikan ke invoice</p>
+                                    </Card>
+                                </div>
+                            </div>
 
-                    <Card>
-                        <h3 className="text-lg font-bold text-gray-800 mb-4">Riwayat Saldo Klien</h3>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50">
-                                    <tr><th className="p-3">Tanggal</th><th className="p-3">Klien</th><th className="p-3">Order</th><th className="p-3 text-right">Nominal Saldo</th><th className="p-3">Metode</th><th className="p-3 text-center">Status</th><th className="p-3">Keterangan</th></tr>
-                                </thead>
-                                <tbody>
-                                    {allClientDpRows.map(dp => <tr key={dp.id || dp.date} className="border-t"><td className="p-3">{dp.date || '-'}</td><td className="p-3 font-bold">{dp.clientName}</td><td className="p-3 font-mono text-xs">{dp.orderId || '-'}</td><td className="p-3 text-right font-black text-green-700">{formatRupiah(dp.amount)}</td><td className="p-3">{dp.method || '-'}</td><td className="p-3 text-center"><span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">Aktif</span></td><td className="p-3 text-sm text-gray-600">{dp.note || '-'}</td></tr>)}
-                                    {allClientDpRows.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500 italic">Belum ada data saldo klien pada periode ini.</td></tr>}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
+                            {/* BEBAN */}
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+                                <h3 className="text-base font-black text-red-800 mb-3 uppercase tracking-wide">Beban Operasional</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <Card className="border-l-4 border-l-red-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Pembelian Bahan</h3>
+                                        <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(totalMaterial)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">{materialRows.length} order pembelian</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-rose-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Gaji Bersih Produksi</h3>
+                                        <p className="text-2xl font-black text-rose-700 mt-2">{formatRupiah(totalWage)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">{wageRows.length} rekap kinerja</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-orange-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Kasbon Diberikan</h3>
+                                        <p className="text-2xl font-black text-orange-700 mt-2">{formatRupiah(totalCashAdvanceGiven)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Uang keluar kasbon karyawan</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-slate-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Biaya Operasional</h3>
+                                        <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalOperationalExpense)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Dari menu Biaya (uang keluar)</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-purple-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Komisi Marketing</h3>
+                                        <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalMarketingCommission)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Dihitung dari invoice</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-red-700 bg-red-100">
+                                        <h3 className="text-xs font-black text-red-800">TOTAL BEBAN</h3>
+                                        <p className="text-2xl font-black text-red-800 mt-2">{formatRupiah(totalBeban)}</p>
+                                        <p className="text-xs text-red-700 mt-1">Semua beban operasional</p>
+                                    </Card>
+                                </div>
+                            </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <Card>
-                            <h3 className="text-lg font-bold text-gray-800 mb-4">Pembelian per Vendor</h3>
-                            <div className="space-y-3">
-                                {vendorSummary.slice(0, 10).map(vendor => (
-                                    <div key={vendor.name} className="flex items-center justify-between border border-gray-100 rounded-lg p-3 bg-gray-50">
-                                        <div>
-                                            <div className="font-bold text-gray-800">{vendor.name}</div>
-                                            <div className="text-xs text-gray-500">{vendor.items} item bahan</div>
+                            {/* LABA BERSIH */}
+                            <div className={`rounded-xl p-6 border-2 ${labaBersih >= 0 ? 'bg-blue-50 border-blue-300' : 'bg-red-50 border-red-300'}`}>
+                                <h3 className={`text-base font-black uppercase tracking-wide mb-1 ${labaBersih >= 0 ? 'text-blue-800' : 'text-red-800'}`}>Laba Bersih</h3>
+                                <p className={`text-4xl font-black mt-1 ${labaBersih >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{formatRupiah(labaBersih)}</p>
+                                <p className={`text-sm mt-2 ${labaBersih >= 0 ? 'text-blue-600' : 'text-red-600'}`}>Total Pendapatan ({formatRupiah(totalPendapatan)}) dikurangi Total Beban ({formatRupiah(totalBeban)})</p>
+                            </div>
+
+                            {/* POSISI KEUANGAN */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
+                                    <h3 className="text-base font-black text-blue-800 mb-3 uppercase tracking-wide">Aset</h3>
+                                    <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between border-b border-blue-100 pb-2">
+                                            <span className="text-gray-700">Piutang Invoice (belum dibayar)</span>
+                                            <span className="font-black text-blue-700">{formatRupiah(totalPiutangInvoice)}</span>
                                         </div>
-                                        <div className="font-black text-red-600">{formatRupiah(vendor.total)}</div>
+                                        <p className="text-xs text-blue-600 italic">Kas tidak dihitung otomatis — perlu rekonsiliasi manual.</p>
                                     </div>
-                                ))}
-                                {vendorSummary.length === 0 && <div className="text-sm text-gray-500 italic text-center p-6">Belum ada pembelian bahan.</div>}
+                                </div>
+                                <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
+                                    <h3 className="text-base font-black text-orange-800 mb-3 uppercase tracking-wide">Kewajiban</h3>
+                                    <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between border-b border-orange-100 pb-2">
+                                            <span className="text-gray-700">Saldo DP Customer (belum diselesaikan)</span>
+                                            <span className="font-black text-orange-700">{formatRupiah(sisaSaldoDpKewajiban)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Grafik */}
+                            <Card>
+                                <h3 className="text-lg font-bold text-gray-800 mb-4">Grafik Pendapatan vs Beban</h3>
+                                {[
+                                    { label: 'Total Pendapatan', value: totalPendapatan, color: 'bg-green-600' },
+                                    { label: 'Total Beban', value: totalBeban, color: 'bg-red-600' },
+                                    { label: 'Laba Bersih', value: Math.max(0, labaBersih), color: 'bg-blue-600' }
+                                ].map(row => {
+                                    const maxVal = Math.max(totalPendapatan, totalBeban, Math.abs(labaBersih), 1);
+                                    const width = Math.max(4, Math.round((row.value / maxVal) * 100));
+                                    return (
+                                        <div key={row.label} className="mb-3">
+                                            <div className="flex justify-between text-sm font-bold mb-1"><span>{row.label}</span><span>{formatRupiah(row.value)}</span></div>
+                                            <div className="h-5 bg-gray-100 rounded overflow-hidden"><div className={`h-full ${row.color}`} style={{ width: `${width}%` }}></div></div>
+                                        </div>
+                                    );
+                                })}
+                            </Card>
+                        </>
+                    )}
+
+                    {/* Tab: Laporan L/R */}
+                    {activeFinanceTab === 'laba-rugi' && (
+                        <Card>
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Laba Rugi</h3>
+                            <div className="space-y-1 font-mono text-sm max-w-2xl">
+                                <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">PENDAPATAN</div>
+                                <div className="flex justify-between px-3 py-1"><span>Pendapatan Invoice</span><span className="font-bold">{formatRupiah(totalInvoiceIncome)}</span></div>
+                                <div className="flex justify-between px-3 py-1"><span>Pemasukan Lain</span><span className="font-bold">{formatRupiah(totalManualIncome)}</span></div>
+                                <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-green-800 bg-green-50 rounded"><span>TOTAL PENDAPATAN</span><span>{formatRupiah(totalPendapatan)}</span></div>
+                                <div className="py-1"></div>
+                                <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">BEBAN OPERASIONAL</div>
+                                <div className="flex justify-between px-3 py-1"><span>Pembelian Bahan</span><span className="font-bold">{formatRupiah(totalMaterial)}</span></div>
+                                <div className="flex justify-between px-3 py-1"><span>Gaji Bersih Produksi</span><span className="font-bold">{formatRupiah(totalWage)}</span></div>
+                                <div className="flex justify-between px-3 py-1"><span>Kasbon Diberikan</span><span className="font-bold">{formatRupiah(totalCashAdvanceGiven)}</span></div>
+                                <div className="flex justify-between px-3 py-1"><span>Biaya Operasional</span><span className="font-bold">{formatRupiah(totalOperationalExpense)}</span></div>
+                                <div className="flex justify-between px-3 py-1"><span>Komisi Marketing</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>
+                                <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-red-800 bg-red-50 rounded"><span>TOTAL BEBAN</span><span>{formatRupiah(totalBeban)}</span></div>
+                                <div className="py-1"></div>
+                                <div className={`flex justify-between px-3 py-2 border-t-4 border-double border-gray-600 font-black text-lg rounded ${labaBersih >= 0 ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'}`}><span>LABA BERSIH</span><span>{formatRupiah(labaBersih)}</span></div>
+                            </div>
+                            <hr className="my-5" />
+                            <h4 className="font-bold text-gray-700 mb-2 text-sm">Informasi Tambahan (tidak masuk L/R):</h4>
+                            <div className="space-y-1 font-mono text-sm max-w-2xl">
+                                <div className="flex justify-between px-3 py-1 bg-yellow-50 rounded"><span className="text-gray-600">Piutang Invoice (belum dibayar)</span><span className="font-bold text-yellow-700">{formatRupiah(totalPiutangInvoice)}</span></div>
+                                <div className="flex justify-between px-3 py-1 bg-orange-50 rounded"><span className="text-gray-600">Saldo DP Customer (kewajiban)</span><span className="font-bold text-orange-700">{formatRupiah(sisaSaldoDpKewajiban)}</span></div>
                             </div>
                         </Card>
+                    )}
 
-                        <Card>
-                            <h3 className="text-lg font-bold text-gray-800 mb-4">Gaji per Karyawan</h3>
-                            <div className="space-y-3">
-                                {employeeSummary.slice(0, 10).map(emp => (
-                                    <div key={`${emp.name}-${emp.division}`} className="flex items-center justify-between border border-gray-100 rounded-lg p-3 bg-gray-50">
-                                        <div>
-                                            <div className="font-bold text-gray-800">{emp.name}</div>
-                                            <div className="text-xs text-gray-500">{emp.division} | {emp.pcs} pcs | {emp.rekap} rekap</div>
-                                        </div>
-                                        <div className="font-black text-green-700">{formatRupiah(emp.total)}</div>
+                    {/* Tab: Buku Kas */}
+                    {activeFinanceTab === 'buku-kas' && (
+                        <>
+                            <Card>
+                                <h3 className="text-lg font-bold text-gray-800 mb-4">Buku Kas Masuk</h3>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-[#1e3a5f] text-white">
+                                                <th className="p-3">Tanggal</th>
+                                                <th className="p-3">Referensi</th>
+                                                <th className="p-3">Sumber</th>
+                                                <th className="p-3">Keterangan</th>
+                                                <th className="p-3 text-right">Nominal</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {[
+                                                ...invoiceRows.map(inv => ({ date: inv.date || '-', ref: inv.id || '-', sumber: 'Invoice', ket: inv.customer || '-', nominal: getInvoicePaid(inv) })),
+                                                ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
+                                            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                                <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td className="p-3">{r.date}</td>
+                                                    <td className="p-3 font-mono text-xs">{r.ref}</td>
+                                                    <td className="p-3"><span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">{r.sumber}</span></td>
+                                                    <td className="p-3">{r.ket}</td>
+                                                    <td className="p-3 text-right font-black text-green-700">{formatRupiah(r.nominal)}</td>
+                                                </tr>
+                                            ))}
+                                            {invoiceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Masuk').length === 0 && (
+                                                <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas masuk pada periode ini.</td></tr>
+                                            )}
+                                            <tr className="bg-green-50 font-black border-t-2 border-green-400">
+                                                <td colSpan="4" className="p-3 text-green-800">TOTAL KAS MASUK</td>
+                                                <td className="p-3 text-right text-green-800">{formatRupiah(invoiceRows.reduce((s, inv) => s + getInvoicePaid(inv), 0) + expenseRows.filter(r => r.type === 'Uang Masuk').reduce((s, r) => s + safeMoney(r.amount), 0))}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                            <Card>
+                                <h3 className="text-lg font-bold text-gray-800 mb-4">Buku Kas Keluar</h3>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-[#1e3a5f] text-white">
+                                                <th className="p-3">Tanggal</th>
+                                                <th className="p-3">Referensi</th>
+                                                <th className="p-3">Sumber</th>
+                                                <th className="p-3">Keterangan</th>
+                                                <th className="p-3 text-right">Nominal</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {[
+                                                ...materialRows.map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
+                                                ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
+                                                ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
+                                                ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
+                                            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                                <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td className="p-3">{r.date}</td>
+                                                    <td className="p-3 font-mono text-xs">{r.ref}</td>
+                                                    <td className="p-3"><span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800">{r.sumber}</span></td>
+                                                    <td className="p-3">{r.ket}</td>
+                                                    <td className="p-3 text-right font-black text-red-700">{formatRupiah(r.nominal)}</td>
+                                                </tr>
+                                            ))}
+                                            {materialRows.length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
+                                                <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas keluar pada periode ini.</td></tr>
+                                            )}
+                                            <tr className="bg-red-50 font-black border-t-2 border-red-400">
+                                                <td colSpan="4" className="p-3 text-red-800">TOTAL KAS KELUAR</td>
+                                                <td className="p-3 text-right text-red-800">{formatRupiah(totalBeban)}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                        </>
+                    )}
+
+                    {/* Tab: Detail */}
+                    {activeFinanceTab === 'detail' && (
+                        <>
+                            <Card>
+                                <h3 className="text-lg font-bold text-gray-800 mb-4">Biaya per Order</h3>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-gray-50 border-b border-gray-200">
+                                                <th className="p-3 text-sm font-semibold text-gray-600">Order</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600">Instansi</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600">Jenis Produksi</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600">Tanggal</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600 text-right">Bahan</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600 text-right">Gaji</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600 text-right">Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {orderCostRows.map(row => (
+                                                <tr key={row.orderId} className="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td className="p-3 text-sm font-bold text-blue-600">{row.orderId}</td>
+                                                    <td className="p-3 text-sm text-gray-800">{row.client}</td>
+                                                    <td className="p-3 text-sm text-gray-600">{row.type}</td>
+                                                    <td className="p-3 text-sm text-gray-500">{formatDate(row.date)}</td>
+                                                    <td className="p-3 text-sm text-right text-red-600 font-bold">{formatRupiah(row.materialCost)}</td>
+                                                    <td className="p-3 text-sm text-right text-green-700 font-bold">{formatRupiah(row.wageCost)}</td>
+                                                    <td className="p-3 text-sm text-right text-blue-700 font-black">{formatRupiah(row.totalCost)}</td>
+                                                </tr>
+                                            ))}
+                                            {orderCostRows.length === 0 && (
+                                                <tr><td colSpan="7" className="p-6 text-center text-gray-500 italic">Belum ada data keuangan pada periode ini.</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+
+                            <Card>
+                                <h3 className="text-lg font-bold text-gray-800 mb-4">Riwayat Saldo Klien</h3>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-gray-50">
+                                            <tr><th className="p-3">Tanggal</th><th className="p-3">Klien</th><th className="p-3">Order</th><th className="p-3 text-right">Nominal Saldo</th><th className="p-3">Metode</th><th className="p-3 text-center">Status</th><th className="p-3">Keterangan</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {allClientDpRows.map(dp => <tr key={dp.id || dp.date} className="border-t"><td className="p-3">{dp.date || '-'}</td><td className="p-3 font-bold">{dp.clientName}</td><td className="p-3 font-mono text-xs">{dp.orderId || '-'}</td><td className="p-3 text-right font-black text-green-700">{formatRupiah(dp.amount)}</td><td className="p-3">{dp.method || '-'}</td><td className="p-3 text-center"><span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">Aktif</span></td><td className="p-3 text-sm text-gray-600">{dp.note || '-'}</td></tr>)}
+                                            {allClientDpRows.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500 italic">Belum ada data saldo klien pada periode ini.</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <Card>
+                                    <h3 className="text-lg font-bold text-gray-800 mb-4">Pembelian per Vendor</h3>
+                                    <div className="space-y-3">
+                                        {vendorSummary.slice(0, 10).map(vendor => (
+                                            <div key={vendor.name} className="flex items-center justify-between border border-gray-100 rounded-lg p-3 bg-gray-50">
+                                                <div>
+                                                    <div className="font-bold text-gray-800">{vendor.name}</div>
+                                                    <div className="text-xs text-gray-500">{vendor.items} item bahan</div>
+                                                </div>
+                                                <div className="font-black text-red-600">{formatRupiah(vendor.total)}</div>
+                                            </div>
+                                        ))}
+                                        {vendorSummary.length === 0 && <div className="text-sm text-gray-500 italic text-center p-6">Belum ada pembelian bahan.</div>}
                                     </div>
-                                ))}
-                                {employeeSummary.length === 0 && <div className="text-sm text-gray-500 italic text-center p-6">Belum ada rekap gaji produksi.</div>}
+                                </Card>
+                                <Card>
+                                    <h3 className="text-lg font-bold text-gray-800 mb-4">Gaji per Karyawan</h3>
+                                    <div className="space-y-3">
+                                        {employeeSummary.slice(0, 10).map(emp => (
+                                            <div key={`${emp.name}-${emp.division}`} className="flex items-center justify-between border border-gray-100 rounded-lg p-3 bg-gray-50">
+                                                <div>
+                                                    <div className="font-bold text-gray-800">{emp.name}</div>
+                                                    <div className="text-xs text-gray-500">{emp.division} | {emp.pcs} pcs | {emp.rekap} rekap</div>
+                                                </div>
+                                                <div className="font-black text-green-700">{formatRupiah(emp.total)}</div>
+                                            </div>
+                                        ))}
+                                        {employeeSummary.length === 0 && <div className="text-sm text-gray-500 italic text-center p-6">Belum ada rekap gaji produksi.</div>}
+                                    </div>
+                                </Card>
                             </div>
-                        </Card>
-                    </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <Card className="border-l-4 border-l-orange-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Total Kasbon Diberikan</h3>
+                                    <p className="text-2xl font-black text-orange-700 mt-2">{formatRupiah(totalCashAdvanceGiven)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Uang keluar untuk kasbon karyawan</p>
+                                </Card>
+                                <Card className="border-l-4 border-l-emerald-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Total Kasbon Dipotong</h3>
+                                    <p className="text-2xl font-black text-emerald-700 mt-2">{formatRupiah(totalCashAdvanceDeducted)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Akumulasi potongan dari rekap gaji</p>
+                                </Card>
+                                <Card className="border-l-4 border-l-yellow-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Total Sisa Kasbon</h3>
+                                    <p className="text-2xl font-black text-yellow-700 mt-2">{formatRupiah(totalCashAdvanceRemaining)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Piutang internal karyawan</p>
+                                </Card>
+                                <Card className="border-l-4 border-l-purple-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Potongan Kasbon Periode</h3>
+                                    <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalCashAdvanceDeductionInPeriod)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Berdasarkan periode rekap gaji</p>
+                                </Card>
+                                <Card className="border-l-4 border-l-green-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Total Gaji Bruto</h3>
+                                    <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalGrossWage)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Sebelum potongan kasbon</p>
+                                </Card>
+                                <Card className="border-l-4 border-l-blue-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Total Gaji Bersih</h3>
+                                    <p className="text-2xl font-black text-blue-700 mt-2">{formatRupiah(totalWage)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Setelah potongan kasbon</p>
+                                </Card>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <Card className="border-l-4 border-l-slate-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Total Tagihan Vendor</h3>
+                                    <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalMaterialBill)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">{materialBillingRows.length} nota/order bahan</p>
+                                </Card>
+                                <Card className="border-l-4 border-l-emerald-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Sudah Dibayar Vendor</h3>
+                                    <p className="text-2xl font-black text-emerald-700 mt-2">{formatRupiah(totalVendorPaid)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Akumulasi termin pembayaran</p>
+                                </Card>
+                                <Card className="border-l-4 border-l-orange-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Sisa Hutang Vendor</h3>
+                                    <p className="text-2xl font-black text-orange-700 mt-2">{formatRupiah(totalVendorDebt)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Tagihan dikurangi termin</p>
+                                </Card>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Card className="border-l-4 border-l-green-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Pembelian Lunas</h3>
+                                    <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalPaidOffPurchase)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Tagihan vendor yang sudah lunas</p>
+                                </Card>
+                                <Card className="border-l-4 border-l-yellow-500">
+                                    <h3 className="text-sm font-bold text-gray-500">Pembelian Belum Lunas</h3>
+                                    <p className="text-2xl font-black text-yellow-700 mt-2">{formatRupiah(totalUnpaidPurchase)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Sisa pembayaran vendor</p>
+                                </Card>
+                            </div>
+                        </>
+                    )}
                 </div>
             );
         };
