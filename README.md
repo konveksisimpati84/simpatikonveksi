@@ -1,39 +1,46 @@
 # Simpati Konveksi — Sistem Manajemen Produksi
 
-Aplikasi web untuk manajemen operasional pabrik konveksi, dibangun sebagai Single-Page Application (SPA) berbasis React.
+Aplikasi web manajemen operasional pabrik konveksi, dibangun sebagai Single-Page Application (SPA) berbasis React 18 + Supabase.
+
+---
 
 ## Fitur Utama
 
 | Menu | Deskripsi |
 |------|-----------|
 | Dashboard | Ringkasan status order, progres produksi, dan AI Insight |
-| Input Order | Form input order baru dengan rincian ukuran, desain, dan alur proses |
-| Monitor Antrean | Tampilan antrean produksi terurut deadline, support Mode Layar TV (fullscreen) |
-| Pembelian Bahan | Manajemen kebutuhan bahan baku per order, rekap vendor, dan pembayaran |
+| Input Order | Form order baru: ukuran, desain, alur tahap produksi |
+| Monitor Antrean | Antrean produksi terurut deadline, Mode Layar TV |
+| Pembelian Bahan | Manajemen bahan baku per order, rekap vendor, pembayaran |
 | Proses Produksi | Log kerja per tahap (Cutting, Sablon, Jahit, Kancing, Finishing) |
-| Pengiriman | Surat Jalan otomatis, riwayat pengiriman, dan pembatalan |
+| Pengiriman | Surat Jalan otomatis, accordion per instansi, riwayat |
 | Biaya | Pencatatan biaya operasional |
-| Invoice | Pembuatan dan pengelolaan invoice klien dengan termin pembayaran |
-| Klien / Instansi | Database klien dan riwayat transaksi |
-| Tracking Instansi | Status order per instansi untuk customer tracking |
-| Laporan Kinerja | Rekap gaji karyawan per produksi, unduh PDF |
-| Laporan Keuangan | Ringkasan pemasukan, pengeluaran, dan laba rugi |
+| Invoice | Invoice multi jenis/size, saldo klien, komisi marketing |
+| Klien / Instansi | Database klien, riwayat transaksi, saldo DP |
+| Tracking Instansi | Status order per instansi untuk customer |
+| Laporan Kinerja | Rekap gaji produksi/harian/lembur/komisi, summary siap rekap |
+| Laporan Keuangan | Dashboard keuangan, Laba Rugi, Buku Kas (standar akuntansi) |
 | Laporan Per Order | Detail biaya dan keuntungan per order |
-| Data Karyawan | Manajemen karyawan, kasbon, dan gaji harian |
-| Pengaturan Cetak | Kustomisasi kop surat, tanda tangan, dan logo perusahaan |
-| Master Akun | Manajemen akun pengguna dan hak akses menu |
+| Data Karyawan | Manajemen karyawan, kasbon, gaji harian, filter divisi |
+| Pengaturan Cetak | Kop surat, tanda tangan, logo perusahaan |
+| Master Akun | Akun pengguna dan hak akses menu per role |
+
+---
 
 ## Arsitektur
 
-- **Frontend**: React 18 (via CDN) + Tailwind CSS
-- **Backend/DB**: Supabase (PostgreSQL) — sync real-time antar perangkat
-- **Storage lokal**: localStorage sebagai cache offline
-- **Transpiler**: Babel Standalone (browser-side JSX)
-- **AI**: Google Gemini API (opsional, untuk fitur AI Insight)
+| Layer | Teknologi |
+|-------|-----------|
+| Frontend | React 18 (CDN) + Tailwind CSS (CDN) + Babel Standalone |
+| Backend / DB | Supabase (PostgreSQL) |
+| Cache Offline | localStorage |
+| AI (opsional) | Google Gemini API |
 
-## Struktur Tabel Supabase
+---
 
-Buat satu tabel dengan nama `app_data`:
+## Setup Supabase
+
+### 1. Buat Tabel `app_data`
 
 ```sql
 create table app_data (
@@ -41,34 +48,54 @@ create table app_data (
   data jsonb,
   updated_at timestamptz default now()
 );
-
--- Nonaktifkan RLS agar aplikasi bisa akses langsung dengan anon key
-alter table app_data disable row level security;
 ```
 
-Data yang disimpan di tabel ini (berdasarkan kolom `id`):
-- `accounts` — data akun pengguna
-- `employees` — data karyawan
-- `orders` — data order produksi
-- `rekapKinerja` — rekap kinerja karyawan
-- `riwayatPengiriman` — riwayat surat jalan
-- `expenses` — biaya operasional
-- `invoices` — invoice klien
-- `clients` — data klien/instansi
-- `templates` — pengaturan cetak & kop surat
+### 2. Konfigurasi RLS
+
+Untuk **single-organisasi** (satu tim internal), opsi paling aman adalah membatasi anon key hanya bisa read/write ke tabel ini dengan restrict pada kolom `id` yang dikenal:
+
+```sql
+-- Aktifkan RLS
+alter table app_data enable row level security;
+
+-- Izinkan anon key hanya akses row dengan id yang dikenal aplikasi
+create policy "allow_anon_access" on app_data
+  for all
+  using (id in (
+    'accounts','employees','orders','rekapKinerja',
+    'riwayatPengiriman','expenses','invoices','clients','templates'
+  ))
+  with check (id in (
+    'accounts','employees','orders','rekapKinerja',
+    'riwayatPengiriman','expenses','invoices','clients','templates'
+  ));
+```
+
+> **Catatan:** Jika ingin lebih sederhana (tim kecil terpercaya), bisa nonaktifkan RLS dan batasi akses via Supabase Dashboard → API → Allowed Origins (whitelist domain Netlify Anda).
+
+### 3. Edit Konfigurasi di `index.html`
+
+Cari dan ganti dua baris ini di bagian atas `index.html`:
+
+```js
+const SUPABASE_URL = 'https://XXXXX.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJ...';
+```
+
+---
 
 ## Deploy ke Netlify
 
-### Cara 1: Netlify Drop
+### Cara Termudah: Netlify Drop
 
-1. Buka [netlify.com/drop](https://netlify.com/drop)
-2. Seret folder proyek ke halaman tersebut
+1. Buka **[netlify.com/drop](https://netlify.com/drop)**
+2. Seret **folder proyek** (berisi `index.html`, `netlify.toml`, `_redirects`, `README.md`) ke halaman tersebut
 3. Selesai — aplikasi langsung online
 
-### Cara 2: GitHub + Netlify
+### Cara 2: GitHub + Netlify (Auto-Deploy)
 
 1. Push repository ini ke GitHub
-2. Login ke Netlify > **Add new site** > **Import an existing project**
+2. Login ke Netlify → **Add new site** → **Import an existing project**
 3. Pilih repository ini
 4. Build settings:
    - **Build command**: *(kosongkan)*
@@ -82,18 +109,24 @@ npm install -g netlify-cli
 netlify deploy --prod --dir .
 ```
 
-## Konfigurasi Supabase
+---
 
-Edit bagian berikut di dalam `index.html`:
+## Checklist Sebelum Go-Live
 
-```js
-const SUPABASE_URL = 'https://XXXXX.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJ...';
-```
+- [ ] Ganti `SUPABASE_URL` dan `SUPABASE_ANON_KEY` di `index.html`
+- [ ] Buat tabel `app_data` di Supabase
+- [ ] Konfigurasi RLS atau Allowed Origins di Supabase
+- [ ] Login pertama dan ganti **semua password default** di menu Master Akun
+- [ ] Upload logo perusahaan di menu Pengaturan Cetak
+- [ ] Isi nama perusahaan, subtitle, dan kontak di Pengaturan Cetak
+- [ ] Test buka di 2 perangkat berbeda dan pastikan data sync
+- [ ] Test cetak invoice dan surat jalan (pastikan pop-up browser diizinkan)
 
-Ganti dengan URL dan anon key dari project Supabase Anda.
+---
 
-## Akun Default (Ganti Setelah Login Pertama!)
+## Akun Default
+
+> **WAJIB DIGANTI segera setelah login pertama!**
 
 | Username | Password | Role |
 |----------|----------|------|
@@ -101,22 +134,60 @@ Ganti dengan URL dan anon key dari project Supabase Anda.
 | mandor   | 123      | Mandor |
 | kasir    | 123      | Kasir |
 
-> **PENTING**: Segera ganti password default melalui menu **Master Akun** setelah deploy pertama.
+Ganti password di: **Master Akun → pilih akun → Edit**
+
+---
+
+## Hak Akses Per Role
+
+| Menu | Admin | Mandor | Kasir | Karyawan |
+|------|:-----:|:------:|:-----:|:--------:|
+| Dashboard | ✅ | ✅ | ✅ | ✅ |
+| Input Order | ✅ | ✅ | ✅ | — |
+| Monitor Antrean | ✅ | ✅ | ✅ | ✅ |
+| Pembelian Bahan | ✅ | ✅ | ✅ | — |
+| Proses Produksi | ✅ | ✅ | — | ✅ |
+| Pengiriman | ✅ | ✅ | ✅ | — |
+| Biaya | ✅ | — | ✅ | — |
+| Invoice | ✅ | — | ✅ | — |
+| Klien / Instansi | ✅ | — | ✅ | — |
+| Laporan Kinerja | ✅ | ✅ | ✅ | ✅* |
+| Laporan Keuangan | ✅ | — | ✅ | — |
+| Data Karyawan | ✅ | ✅ | — | — |
+| Master Akun | ✅ | — | — | — |
+
+*Karyawan hanya melihat rekap gaji mereka sendiri
+
+---
 
 ## Fitur AI (Opsional)
 
-Fitur AI Insight di Dashboard menggunakan Google Gemini API. Untuk mengaktifkannya:
+Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
 
-1. Buka Google AI Studio dan buat API Key baru
-2. Masukkan API Key saat diminta oleh aplikasi (tersimpan di localStorage)
+1. Buka [Google AI Studio](https://aistudio.google.com/) → Get API Key
+2. Masukkan API Key saat diminta di halaman Dashboard
+3. API Key tersimpan di localStorage (tidak dikirim ke server selain Google)
 
-## Keamanan Produksi
+---
 
-- Ganti semua password default segera setelah deploy
-- Aktifkan HTTPS (Netlify menyediakan ini secara otomatis)
-- Jaga kerahasiaan Supabase Anon Key
-- Review hak akses menu per role di Master Akun
+## Catatan Teknis
 
-## Browser yang Didukung
+- **Sync**: Data otomatis tersync setiap 15 detik dan saat tab browser aktif kembali
+- **Offline**: Aplikasi tetap bisa digunakan saat offline; data tersimpan di localStorage dan sync saat kembali online
+- **Print**: Fitur cetak menggunakan `window.open()` — pastikan browser mengizinkan pop-up dari domain Netlify Anda
+- **Browser**: Chrome/Edge 90+, Firefox 88+, Safari 14+. Tidak mendukung Internet Explorer
 
-Chrome / Edge 90+, Firefox 88+, Safari 14+. Tidak mendukung Internet Explorer.
+---
+
+## Changelog Versi Terbaru
+
+- ✅ Fix: Komisi marketing tidak lagi menghitung saldo klien yang di-link ke invoice
+- ✅ Fix: ID record menggunakan suffix random untuk mencegah collision multi-user
+- ✅ Fix: Guard anti-double-rekap di Laporan Kinerja
+- ✅ Tambah: Summary Cards "Gaji Siap Direkap" di tab Input Laporan Kinerja
+- ✅ Tambah: Accordion expand/collapse per instansi di menu Pengiriman
+- ✅ Tambah: Pagination di Invoice, Pembelian Bahan, Riwayat Produksi, Rekap Kinerja
+- ✅ Tambah: Filter Divisi di menu Karyawan
+- ✅ Redesign: Tampilan Invoice lebih modern dengan gradient cards dan progress bar
+- ✅ Fix: Cetak invoice — catatan & tanda tangan mengikuti panjang tabel
+- ✅ Redesign: Laporan Keuangan standar akuntansi (DP = Kewajiban, bukan Pendapatan)

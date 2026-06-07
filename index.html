@@ -437,6 +437,8 @@
             </div>
         );
 
+        const genId = (prefix = '') => `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
         const usePagination = (items, pageSize = 20) => {
             const [page, setPage] = React.useState(1);
             React.useEffect(() => { setPage(1); }, [items.length]);
@@ -591,7 +593,7 @@
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
             if (type.includes('pcs')) return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
             if (type === 'rupiah' || type === 'nominal') return safeMoney(invoice?.commissionValue);
-            return getInvoicePaidTotal(invoice) * safeMoney(invoice?.commissionValue) / 100;
+            return (getInvoicePaidTotal(invoice) - getInvoiceLinkedDpAmount(invoice)) * safeMoney(invoice?.commissionValue) / 100;
         };
 
         const Toast = ({ message, type, onClose }) => {
@@ -1272,7 +1274,7 @@
             const handleAdd = (e) => {
                 e.preventDefault();
                 const now = new Date().toISOString();
-                setEmployees(prev => [...(prev||[]), { ...newEmp, id: Date.now(), _syncUpdatedAt: now }]);
+                setEmployees(prev => [...(prev||[]), { ...newEmp, id: genId('EMP-'), _syncUpdatedAt: now }]);
                 setShowForm(false);
                 setNewEmp({ name: '', division: 'Cutting', phone: '', status: 'Aktif', salaryType: 'Produksi', dailySalary: '' });
                 showToast("Karyawan ditambahkan!", "success");
@@ -1319,7 +1321,7 @@
                     if (String(emp.id) !== String(activeCashAdvanceEmp.id)) return emp;
                     const currentAdvances = Array.isArray(emp.cashAdvances) ? emp.cashAdvances : [];
                     const nextAdvance = {
-                        id: editingCashAdvanceId || `KAS-${Date.now()}`,
+                        id: editingCashAdvanceId || genId('KAS-'),
                         date: cashAdvanceForm.date || now.slice(0, 10),
                         amount,
                         note: String(cashAdvanceForm.note || '').trim(),
@@ -1380,7 +1382,7 @@
                 if (!activeDailySalaryEmp) return;
                 const now = new Date().toISOString();
                 const row = {
-                    id: editingDailySalaryId || `DAY-${Date.now()}`,
+                    id: editingDailySalaryId || genId('DAY-'),
                     date: dailySalaryForm.date || now.slice(0, 10),
                     workDays: safeMoney(dailySalaryForm.workDays),
                     dailySalary: safeMoney(dailySalaryForm.dailySalary),
@@ -3165,7 +3167,7 @@
                 clientOrders.forEach(o => delete newInputs[o.id]);
                 setShippingInputs(newInputs);
 
-                const sjId = `SJ-${Date.now()}`;
+                const sjId = genId('SJ-');
                 
                 const newHistoryRecord = {
                     id: sjId,
@@ -3670,7 +3672,7 @@
                 const existingActiveMaterials = getActiveMaterials(order);
                 const existingMaterials = existingActiveMaterials.length > 0 
                     ? [...existingActiveMaterials] 
-                    : [{ id: Date.now(), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }];
+                    : [{ id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }];
                 setMaterials(existingMaterials);
             };
 
@@ -3681,7 +3683,7 @@
             };
 
             const addMaterialRow = () => {
-                setMaterials([...materials, { id: Date.now(), name: '', spec: '', qty: '', unit: 'Meter', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }]);
+                setMaterials([...materials, { id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Meter', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }]);
             };
 
             const removeMaterialRow = (idToRemove) => {
@@ -3782,7 +3784,7 @@
                     const nextPayments = { ...(o.materialPayments || {}) };
                     nextPayments[batchKey] = [
                         ...(nextPayments[batchKey] || []),
-                        { id: `PAY-${Date.now()}`, date: payDate, amount, method, note, vendor: vendorKey, batchDateKey, createdAt: now }
+                        { id: genId('PAY-'), date: payDate, amount, method, note, vendor: vendorKey, batchDateKey, createdAt: now }
                     ];
                     const checkOrder = { ...o, materialPayments: nextPayments };
                     const allSettled = areAllOrderMaterialsSettled(checkOrder);
@@ -4847,7 +4849,7 @@
                 const amount = safeMoney(form.amount);
                 if (amount <= 0) return showToast("Nominal harus lebih dari 0.", "error");
                 const now = new Date().toISOString();
-                const row = { ...form, amount, id: editId || `EXP-${Date.now()}`, _syncUpdatedAt: now };
+                const row = { ...form, amount, id: editId || genId('EXP-'), _syncUpdatedAt: now };
                 setExpenses(prev => editId ? (prev || []).map(item => String(item.id) === String(editId) ? row : item) : [row, ...(prev || [])]);
                 setForm(emptyForm); setEditId(null);
                 showToast(editId ? "Data biaya diperbarui." : "Data biaya ditambahkan.", "success");
@@ -4916,11 +4918,11 @@
             const saveInvoice = (e) => {
                 e.preventDefault();
                 const calc = invoiceTotal(form);
-                const firstPayment = safeMoney(form.paymentAmount) > 0 ? [{ id: `PAY-${Date.now()}`, date: form.date, amount: safeMoney(form.paymentAmount), method: form.paymentMethod, note: form.paymentNote }] : [];
+                const firstPayment = safeMoney(form.paymentAmount) > 0 ? [{ id: genId('PAY-'), date: form.date, amount: safeMoney(form.paymentAmount), method: form.paymentMethod, note: form.paymentNote }] : [];
                 const payments = editId ? (form.payments || firstPayment) : firstPayment;
                 const paid = payments.reduce((sum, pay) => sum + safeMoney(pay.amount), 0);
                 const status = paid <= 0 ? 'Belum Dibayar' : (paid >= calc.total ? 'Lunas' : 'Termin');
-                const row = { ...form, id: editId || `INV-${Date.now()}`, qty: safeMoney(form.qty), price: safeMoney(form.price), discountPerPcs: safeMoney(form.discountPerPcs), discountPercent: safeMoney(form.discountPercent), payments, paymentStatus: status, _syncUpdatedAt: new Date().toISOString() };
+                const row = { ...form, id: editId || genId('INV-'), qty: safeMoney(form.qty), price: safeMoney(form.price), discountPerPcs: safeMoney(form.discountPerPcs), discountPercent: safeMoney(form.discountPercent), payments, paymentStatus: status, _syncUpdatedAt: new Date().toISOString() };
                 setInvoices(prev => editId ? (prev || []).map(inv => String(inv.id) === String(editId) ? row : inv) : [row, ...(prev || [])]);
                 setForm(emptyInvoice); setEditId(null); showToast(editId ? "Invoice diperbarui." : "Invoice dibuat.", "success");
             };
@@ -4988,7 +4990,7 @@
             const saveClient = (e) => {
                 e.preventDefault();
                 const now = new Date().toISOString();
-                const row = { ...form, id: editId || `CLI-${Date.now()}`, clientDpPayments: form.clientDpPayments || [], _syncUpdatedAt: now };
+                const row = { ...form, id: editId || genId('CLI-'), clientDpPayments: form.clientDpPayments || [], _syncUpdatedAt: now };
                 setClients(prev => {
                     const list = Array.isArray(prev) ? prev : [];
                     return editId ? list.map(item => String(item.id) === String(editId) ? row : item) : [row, ...list];
@@ -5000,7 +5002,7 @@
                 e.preventDefault();
                 if (!selectedClient) return;
                 const now = new Date().toISOString();
-                const row = { ...dpForm, id: editDpId || `DP-${Date.now()}`, amount: safeMoney(dpForm.amount), _syncUpdatedAt: now };
+                const row = { ...dpForm, id: editDpId || genId('DP-'), amount: safeMoney(dpForm.amount), _syncUpdatedAt: now };
                 setClients(prev => (Array.isArray(prev) ? prev : []).map(client => {
                     if (String(client.id) !== String(selectedClient.id)) return client;
                     const rows = Array.isArray(client.clientDpPayments) ? client.clientDpPayments : [];
@@ -5094,7 +5096,7 @@
                     if (existing) {
                         return list.map(client => String(client.id) !== String(existing.id) ? client : { ...client, address: client.address || invoice.address || '', _syncUpdatedAt: now });
                     }
-                    return [{ id: `CLI-${Date.now()}`, name: invoice.customer, address: invoice.address || '', phone: '', pic: '', note: '', clientDpPayments: [], _syncUpdatedAt: now }, ...list];
+                    return [{ id: genId('CLI-'), name: invoice.customer, address: invoice.address || '', phone: '', pic: '', note: '', clientDpPayments: [], _syncUpdatedAt: now }, ...list];
                 });
             };
             const saveInvoice = (e) => {
@@ -5107,7 +5109,7 @@
                 const marketingEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.marketing));
                 const empCommType = marketingEmp?.commissionType || 'Persen';
                 const empCommValue = safeMoney(marketingEmp?.commissionValue || 0);
-                const row = { ...form, id: editId || `INV-${Date.now()}`, invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeMoney(form.invoiceDp?.amount) }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), paymentStatus: getInvoicePaymentStatus({ ...form, invoiceItems: cleanedItems }), _syncUpdatedAt: now };
+                const row = { ...form, id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeMoney(form.invoiceDp?.amount) }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), paymentStatus: getInvoicePaymentStatus({ ...form, invoiceItems: cleanedItems }), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 setInvoices(prev => {
                     const list = Array.isArray(prev) ? prev : [];
@@ -5604,7 +5606,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const saveClient = (e) => {
                 e.preventDefault();
                 const now = new Date().toISOString();
-                const row = { ...form, id: editId || `CLI-${Date.now()}`, name: form.name || form.clientName || '-', clientDpPayments: Array.isArray(form.clientDpPayments) ? form.clientDpPayments : [], _syncUpdatedAt: now };
+                const row = { ...form, id: editId || genId('CLI-'), name: form.name || form.clientName || '-', clientDpPayments: Array.isArray(form.clientDpPayments) ? form.clientDpPayments : [], _syncUpdatedAt: now };
                 setClients(prev => {
                     const list = Array.isArray(prev) ? prev : [];
                     return editId ? list.map(item => String(item.id) === String(editId) ? row : item) : [row, ...list];
@@ -7062,6 +7064,18 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     showToast("Pilih minimal 1 pekerjaan untuk direkap.", "error");
                     return;
                 }
+                // Guard: cek apakah ada item yang sudah direkap (isReported) sejak modal dibuka
+                const alreadyReported = selectedItems.some(item =>
+                    (item.logIds || []).some(l => {
+                        const order = safeArray(safeOrdersForReport).find(o => String(o.id) === String(item.orderId));
+                        const log = order?.progress?.[l.stageId]?.workLogs?.find(wl => String(wl.id) === String(l.logId));
+                        return log?.isReported === true;
+                    })
+                );
+                if (alreadyReported) {
+                    showToast("Beberapa item sudah pernah direkap. Tutup modal dan coba lagi.", "error");
+                    return;
+                }
                 const selectedTotal = printOptions.production ? selectedItems.reduce((sum, item) => sum + (parseInt(item.qty) || 0), 0) : 0;
                 const selectedWage = printOptions.production ? selectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0) : 0;
 
@@ -7084,7 +7098,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 }
                 const netSalary = Math.max(0, grossSalary - deduction);
                 const newRekap = {
-                    id: `RKP-${Date.now()}`,
+                    id: genId('RKP-'),
                     empId: modalData.empId,
                     empName: empForRekap?.name || '',
                     division: empForRekap?.division || '',
@@ -8941,7 +8955,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 }
                 
                 const now = new Date().toISOString();
-                setAccounts(prev => [...(prev||[]), { ...newAcc, id: Date.now(), _syncUpdatedAt: now }]);
+                setAccounts(prev => [...(prev||[]), { ...newAcc, id: genId('ACC-'), _syncUpdatedAt: now }]);
                 setShowForm(false);
                 setNewAcc({ username: '', password: '', name: '', role: 'Mandor', linkedEmpId: '', menuAccess: getDefaultMenuAccess('Mandor') });
                 showToast("Akun ditambahkan!", "success");
