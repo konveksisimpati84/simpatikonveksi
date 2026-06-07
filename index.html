@@ -1256,8 +1256,13 @@
             const [dailySalaryForm, setDailySalaryForm] = useState({ date: new Date().toISOString().slice(0, 10), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
             const [editingDailySalaryId, setEditingDailySalaryId] = useState(null);
 
+            const [divisionFilter, setDivisionFilter] = useState('Semua');
             const safeEmployees = (employees || []).filter(isVisibleRecord);
-            const filteredEmployees = safeEmployees.filter(emp => matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm));
+            const allDivisions = [...new Set(safeEmployees.map(emp => emp.division).filter(Boolean))].sort();
+            const filteredEmployees = safeEmployees.filter(emp =>
+                (divisionFilter === 'Semua' || emp.division === divisionFilter) &&
+                matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm)
+            );
             const activeCashAdvanceEmp = cashAdvanceEmp ? safeEmployees.find(emp => String(emp.id) === String(cashAdvanceEmp.id)) || cashAdvanceEmp : null;
             const activeCashAdvanceSummary = getEmployeeCashAdvanceSummary(activeCashAdvanceEmp);
             const activeDailySalaryEmp = dailySalaryEmp ? safeEmployees.find(emp => String(emp.id) === String(dailySalaryEmp.id)) || dailySalaryEmp : null;
@@ -1467,8 +1472,17 @@
                     )}
 
                     <Card>
-                        <div className="mb-4 max-w-md">
-                            <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari nama, divisi, no HP, status..." />
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                            <div className="md:col-span-2">
+                                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari nama, divisi, no HP, status..." />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Filter Divisi</label>
+                                <select className="w-full p-3 border border-gray-300 rounded-lg text-sm" value={divisionFilter} onChange={e => setDivisionFilter(e.target.value)}>
+                                    <option value="Semua">Semua Divisi</option>
+                                    {allDivisions.map(div => <option key={div} value={div}>{div}</option>)}
+                                </select>
+                            </div>
                         </div>
                         <table className="w-full text-left border-collapse">
                             <thead><tr className="bg-gray-50 border-b">
@@ -3605,6 +3619,9 @@
             };
             const filteredActiveOrders = activeOrders.filter(filterOrder);
             const filteredRekapOrders = rekapOrders.filter(filterOrder);
+            const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
+            const toggleMatOrder = (id) => setExpandedMatOrderIds(prev => ({ ...prev, [id]: !prev[id] }));
+            const { page: bahanPage, setPage: setBahanPage, totalPages: bahanTotalPages, paged: pagedActiveOrders, total: bahanTotal } = usePagination(filteredActiveOrders, 20);
             const materialNameSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.name || '').trim()).filter(Boolean)))].sort();
             const vendorSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.vendor || '').trim()).filter(Boolean)))].sort();
             const specSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.spec || mat.color || '').trim()).filter(Boolean)))].sort();
@@ -4253,26 +4270,53 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredActiveOrders.map(order => {
+                                {pagedActiveOrders.map(order => {
                                     const matStatus = order.materialStatus || 'Belum';
+                                    const mats = getActiveMaterials(order);
+                                    const isExpanded = !!expandedMatOrderIds[order.id];
                                     return (
-                                        <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                            <td className="p-3 align-middle">{renderOrderDesignPreview(order, true)}</td>
-                                            <td className="p-3 text-sm font-medium text-blue-600">{order.id}</td>
-                                            <td className="p-3 text-sm font-bold text-gray-800">{order.client}</td>
-                                            <td className="p-3 text-sm text-gray-600">{order.type} <span className="font-bold">({order.total} pcs)</span></td>
-                                            <td className="p-3">
-                                                <Badge status={getMaterialStatusLabel(matStatus)} />
-                                            </td>
-                                            <td className="p-3 text-center">
-                                                <button 
-                                                    onClick={() => openMaterialModal(order)} 
-                                                    className="text-sm bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1 mx-auto"
-                                                >
-                                                    <IconEdit /> Rincian Bahan
-                                                </button>
-                                            </td>
-                                        </tr>
+                                        <React.Fragment key={order.id}>
+                                            <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                                <td className="p-3 align-middle">{renderOrderDesignPreview(order, true)}</td>
+                                                <td className="p-3 text-sm font-medium text-blue-600">{order.id}</td>
+                                                <td className="p-3 text-sm font-bold text-gray-800">{order.client}</td>
+                                                <td className="p-3 text-sm text-gray-600">
+                                                    {order.type} <span className="font-bold">({order.total} pcs)</span>
+                                                    {mats.length > 0 && (
+                                                        <button onClick={() => toggleMatOrder(order.id)} className="ml-2 text-xs text-blue-600 hover:underline">
+                                                            {isExpanded ? '▲ tutup' : `▼ ${mats.length} bahan`}
+                                                        </button>
+                                                    )}
+                                                </td>
+                                                <td className="p-3">
+                                                    <Badge status={getMaterialStatusLabel(matStatus)} />
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    <button
+                                                        onClick={() => openMaterialModal(order)}
+                                                        className="text-sm bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1 mx-auto"
+                                                    >
+                                                        <IconEdit /> Rincian Bahan
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            {isExpanded && mats.length > 0 && (
+                                                <tr className="bg-blue-50/40">
+                                                    <td colSpan="6" className="px-6 py-3">
+                                                        <div className="text-xs font-bold text-gray-500 mb-2">Bahan yang sudah diinput:</div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                            {mats.map((mat, i) => (
+                                                                <div key={mat.id || i} className="bg-white border border-blue-100 rounded-lg p-2 text-xs">
+                                                                    <div className="font-bold text-gray-800">{mat.name || '-'} <span className="text-gray-400">({mat.spec || '-'})</span></div>
+                                                                    <div className="text-gray-600">{mat.qty || 0} {mat.unit || ''} × {formatRupiah(mat.price || 0)}</div>
+                                                                    <div className="text-blue-700 font-bold">{mat.vendor || 'Tanpa Vendor'}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
                                     )
                                 })}
                                 {filteredActiveOrders.length === 0 && (
@@ -4281,6 +4325,7 @@
                             </tbody>
                         </table>
                     </div>
+                    <Paginator page={bahanPage} setPage={setBahanPage} totalPages={bahanTotalPages} total={bahanTotal} pageSize={20} label="order pembelian" />
                 </Card>
             );
 
@@ -4986,6 +5031,7 @@
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.address, inv.marketing, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)], searchTerm);
             }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+            const { page: invPage, setPage: setInvPage, totalPages: invTotalPages, paged: pagedInvoices, total: invTotal } = usePagination(visibleInvoices, 20);
             const totalInvoice = visibleInvoices.reduce((sum, inv) => sum + getInvoiceTotals(inv).total, 0);
             const totalPaid = visibleInvoices.reduce((sum, inv) => sum + getInvoicePaidTotal(inv), 0);
             const totalDp = visibleInvoices.reduce((sum, inv) => sum + getInvoiceDpAmount(inv), 0);
@@ -5175,7 +5221,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     <div><h2 className="text-2xl font-bold text-gray-800">Invoice</h2><p className="text-sm text-gray-500 mt-1">Invoice multi jenis produksi, multi size, saldo klien, dan komisi marketing.</p></div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4"><Card><h3 className="text-sm font-bold text-gray-500">Total Invoice</h3><p className="text-2xl font-black text-blue-700">{formatRupiah(totalInvoice)}</p></Card><Card><h3 className="text-sm font-bold text-gray-500">Saldo Klien Dipakai</h3><p className="text-2xl font-black text-green-700">{formatRupiah(visibleInvoices.reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0))}</p></Card><Card><h3 className="text-sm font-bold text-gray-500">Sudah Dibayar</h3><p className="text-2xl font-black text-green-700">{formatRupiah(totalPaid)}</p></Card><Card><h3 className="text-sm font-bold text-gray-500">Piutang</h3><p className="text-2xl font-black text-red-700">{formatRupiah(totalRemaining)}</p></Card></div>
                     <Card><form onSubmit={saveInvoice} className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-4 gap-3"><input type="date" className="p-2 border rounded" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}/><input list="client-list-invoice" className="p-2 border rounded" placeholder="Nama instansi/customer" value={form.customer} onChange={e => { const _c = e.target.value; const _avail = getFormAvailableDp(_c, editId); const _total = getInvoiceTotals(form).total; setForm({ ...form, customer: _c, linkedDpAmount: _avail > 0 ? String(Math.min(_avail, _total)) : '' }); }} required/><datalist id="client-list-invoice">{safeClientRows.filter(isVisibleRecord).map(client => <option key={client.id} value={client.name}/>)}</datalist><input list="client-address-list" className="p-2 border rounded" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/><datalist id="client-address-list">{clientAddressSuggestions.map((a,i)=><option key={i} value={a}/>)}</datalist><input list="marketing-list-enhanced" className="p-2 border rounded" placeholder="Marketing" value={form.marketing} onChange={e => setForm({ ...form, marketing: e.target.value })}/><datalist id="marketing-list-enhanced">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist></div>{getInvoiceItems(form).map((item, itemIndex) => <div key={item.id} className="border rounded-lg p-4 bg-gray-50"><div className="flex gap-2 mb-3"><input list="invoice-type-list" className="flex-1 p-2 border rounded" placeholder={`Jenis produksi ${itemIndex + 1}`} value={item.productionType || ''} onChange={e => patchItem(item.id, { productionType: e.target.value })}/><datalist id="invoice-type-list">{uniqueInvoiceTypes.map((t,i)=><option key={i} value={t}/>)}</datalist>{getInvoiceItems(form).length > 1 && <button type="button" onClick={() => removeProductionItem(item.id)} className="px-3 py-2 bg-red-50 text-red-700 rounded font-bold">Hapus Jenis</button>}</div><div className="space-y-2">{(item.sizes || []).map(size => <div key={size.id} className="grid grid-cols-1 md:grid-cols-7 gap-2 items-center"><input className="p-2 border rounded" placeholder="Size" value={size.size || ''} onChange={e => patchSize(item.id, size.id, { size: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Qty" value={size.qty} onChange={e => patchSize(item.id, size.id, { qty: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Harga/pcs" value={size.pricePerPcs} onChange={e => patchSize(item.id, size.id, { pricePerPcs: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Diskon/pcs" value={size.discountPerPcs} onChange={e => patchSize(item.id, size.id, { discountPerPcs: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Diskon %" value={size.discountPercent} onChange={e => patchSize(item.id, size.id, { discountPercent: e.target.value })}/><div className="text-right font-black text-blue-700">{formatRupiah(getInvoiceSizeTotal(size).total)}</div>{(item.sizes || []).length > 1 && <button type="button" onClick={() => removeSize(item.id, size.id)} className="text-red-600 bg-red-50 p-2 rounded"><IconTrash /></button>}</div>)}</div><button type="button" onClick={() => addSize(item.id)} className="mt-3 text-sm font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded">Tambah Size</button></div>)}<button type="button" onClick={addProductionItem} className="text-sm font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded">Tambah Jenis Produksi</button>{availableDpForForm > 0 && (<div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4"><h4 className="font-bold text-emerald-800 mb-3">Saldo Klien Tersedia</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><div className="bg-white border border-emerald-200 rounded p-3 text-center"><div className="text-xs text-gray-500 mb-1">Saldo Tersedia</div><div className="font-black text-emerald-700">{formatRupiah(availableDpForForm)}</div></div><div><label className="text-xs font-bold text-gray-600 block mb-1">Saldo Dipakai</label><input type="number" min="0" max={Math.min(availableDpForForm, currentInvoiceTotal)} className="w-full p-2 border border-emerald-300 rounded text-right focus:ring-1 focus:ring-emerald-500" placeholder="0" value={form.linkedDpAmount || ''} onChange={e => { const v = Math.min(safeMoney(e.target.value), availableDpForForm, currentInvoiceTotal); setForm({ ...form, linkedDpAmount: v || '' }); }}/></div><div className="bg-white border border-emerald-200 rounded p-3 text-center"><div className="text-xs text-gray-500 mb-1">Sisa Saldo Klien</div><div className="font-black text-blue-700">{formatRupiah(availableDpForForm - safeMoney(form.linkedDpAmount || 0))}</div></div></div><div className="mt-2 flex gap-2"><button type="button" className="text-xs font-bold bg-emerald-600 text-white px-3 py-1.5 rounded" onClick={() => setForm({ ...form, linkedDpAmount: Math.min(availableDpForForm, currentInvoiceTotal) })}>Pakai Semua Saldo</button><button type="button" className="text-xs font-bold bg-gray-200 text-gray-700 px-3 py-1.5 rounded" onClick={() => setForm({ ...form, linkedDpAmount: '' })}>Reset Saldo</button></div></div>)}{!availableDpForForm && form.customer && (<div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-500">Saldo klien: <b>Rp 0</b> — Klien belum memiliki saldo. Tambah saldo di menu Klien / Instansi.</div>)}<div><div className="text-xs font-bold text-gray-600 mb-2">Pembayaran Invoice (Tunai / Transfer Langsung)</div><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><input type="number" className="p-2 border rounded text-right" placeholder="Nominal Pembayaran" value={form.invoiceDp?.amount || ''} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), amount: e.target.value } })}/><input type="date" className="p-2 border rounded" value={form.invoiceDp?.date || form.date} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), date: e.target.value } })}/><select className="p-2 border rounded" value={form.invoiceDp?.method || 'Transfer'} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), method: e.target.value } })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select></div></div><input list="invoice-note-list" className="p-2 border rounded" placeholder="Catatan invoice" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/><datalist id="invoice-note-list">{[...new Set(safeInvoiceRows.filter(isVisibleRecord).map(inv=>String(inv.note||'').trim()).filter(Boolean))].sort().map((n,i)=><option key={i} value={n}/>)}</datalist><div className="bg-blue-50 border border-blue-100 rounded p-3 text-sm">Subtotal: <b>{formatRupiah(getInvoiceTotals(form).subtotal)}</b> | Diskon: <b>{formatRupiah(getInvoiceTotals(form).discount)}</b> | Total: <b>{formatRupiah(getInvoiceTotals(form).total)}</b> | Status: <b>{getInvoicePaymentStatus(form)}</b></div><div className="flex justify-end gap-2"><button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editId ? 'Simpan Edit' : 'Buat Invoice'}</button></div></form></Card>
-                    <Card><div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari customer, marketing, jenis, status..." /><select className="p-3 border rounded-lg mt-5" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>Semua</option><option>Belum Dibayar</option><option>Termin</option><option>Lunas</option></select></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">Invoice</th><th className="p-2 text-left">Customer</th><th className="p-2 text-right">Pcs</th><th className="p-2 text-right">Total</th><th className="p-2 text-center">Status</th><th className="p-2 text-center">Aksi</th></tr></thead><tbody>{visibleInvoices.map(inv => { const totals = getInvoiceTotals(inv); return <React.Fragment key={inv.id}><tr className="border-t"><td className="p-2 font-bold text-blue-700">{inv.id}<div className="text-xs text-gray-500">{inv.date}</div></td><td className="p-2">{inv.customer}<div className="text-xs text-gray-500">{inv.marketing || '-'}</div></td><td className="p-2 text-right font-bold">{getInvoicePcsTotal(inv)}</td><td className="p-2 text-right font-black">{formatRupiah(totals.total)}</td><td className="p-2 text-center"><span className={`px-2 py-1 rounded-full text-xs font-bold ${statusClass(getInvoicePaymentStatus(inv))}`}>{getInvoicePaymentStatus(inv)}</span></td><td className="p-2"><div className="flex justify-center flex-wrap gap-1"><button onClick={() => setExpandedIds(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))} className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">{expandedIds[inv.id] ? 'Sembunyikan' : 'Rincian'}</button><button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: getInvoiceItems(inv), invoiceDp: getInvoiceDp(inv) }); }} className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">Edit</button><button onClick={() => printInvoice(inv)} className="text-xs bg-gray-50 text-slate-700 px-2 py-1 rounded">Cetak</button><button onClick={() => deleteInvoice(inv.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>{expandedIds[inv.id] && <tr className="bg-gray-50"><td colSpan="6" className="p-3 text-xs">Pembayaran: <b>{formatRupiah(getInvoiceDpAmount(inv))}</b>{getInvoiceLinkedDpAmount(inv) > 0 && <> | Saldo Klien Dipakai: <b className="text-emerald-700">{formatRupiah(getInvoiceLinkedDpAmount(inv))}</b></>} | Dibayar: <b>{formatRupiah(getInvoicePaidTotal(inv))}</b> | Sisa: <b>{formatRupiah(Math.max(0, totals.total - getInvoicePaidTotal(inv)))}</b> | Komisi: <b>{formatRupiah(getInvoiceCommissionTotal(inv))}</b><br/>{getInvoiceItems(inv).map(item => `${item.productionType || '-'}: ${(item.sizes || []).map(size => `${size.size || '-'} ${size.qty || 0}pcs`).join(', ')}`).join(' | ')}</td></tr>}</React.Fragment>; })}{visibleInvoices.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-gray-500 italic">Belum ada invoice.</td></tr>}</tbody></table></div></Card>
+                    <Card><div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari customer, marketing, jenis, status..." /><select className="p-3 border rounded-lg mt-5" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>Semua</option><option>Belum Dibayar</option><option>Termin</option><option>Lunas</option></select></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">Invoice</th><th className="p-2 text-left">Customer</th><th className="p-2 text-right">Pcs</th><th className="p-2 text-right">Total</th><th className="p-2 text-center">Status</th><th className="p-2 text-center">Aksi</th></tr></thead><tbody>{pagedInvoices.map(inv => { const totals = getInvoiceTotals(inv); return <React.Fragment key={inv.id}><tr className="border-t"><td className="p-2 font-bold text-blue-700">{inv.id}<div className="text-xs text-gray-500">{inv.date}</div></td><td className="p-2">{inv.customer}<div className="text-xs text-gray-500">{inv.marketing || '-'}</div></td><td className="p-2 text-right font-bold">{getInvoicePcsTotal(inv)}</td><td className="p-2 text-right font-black">{formatRupiah(totals.total)}</td><td className="p-2 text-center"><span className={`px-2 py-1 rounded-full text-xs font-bold ${statusClass(getInvoicePaymentStatus(inv))}`}>{getInvoicePaymentStatus(inv)}</span></td><td className="p-2"><div className="flex justify-center flex-wrap gap-1"><button onClick={() => setExpandedIds(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))} className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">{expandedIds[inv.id] ? 'Sembunyikan' : 'Rincian'}</button><button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: getInvoiceItems(inv), invoiceDp: getInvoiceDp(inv) }); }} className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">Edit</button><button onClick={() => printInvoice(inv)} className="text-xs bg-gray-50 text-slate-700 px-2 py-1 rounded">Cetak</button><button onClick={() => deleteInvoice(inv.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>{expandedIds[inv.id] && <tr className="bg-gray-50"><td colSpan="6" className="p-3 text-xs">Pembayaran: <b>{formatRupiah(getInvoiceDpAmount(inv))}</b>{getInvoiceLinkedDpAmount(inv) > 0 && <> | Saldo Klien Dipakai: <b className="text-emerald-700">{formatRupiah(getInvoiceLinkedDpAmount(inv))}</b></>} | Dibayar: <b>{formatRupiah(getInvoicePaidTotal(inv))}</b> | Sisa: <b>{formatRupiah(Math.max(0, totals.total - getInvoicePaidTotal(inv)))}</b> | Komisi: <b>{formatRupiah(getInvoiceCommissionTotal(inv))}</b><br/>{getInvoiceItems(inv).map(item => `${item.productionType || '-'}: ${(item.sizes || []).map(size => `${size.size || '-'} ${size.qty || 0}pcs`).join(', ')}`).join(' | ')}</td></tr>}</React.Fragment>; })}{visibleInvoices.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-gray-500 italic">Belum ada invoice.</td></tr>}</tbody></table></div><Paginator page={invPage} setPage={setInvPage} totalPages={invTotalPages} total={invTotal} pageSize={20} label="invoice" /></Card>
                 </div>
             );
         };
