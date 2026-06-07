@@ -4893,17 +4893,14 @@
                 invoiceDp: { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' },
                 note: '',
                 commissionType: 'Persen',
-                commissionValue: '5',
-                linkedDpAmount: '',
-                commissionLocked: false
+                commissionValue: '0',
+                linkedDpAmount: ''
             };
             const [form, setForm] = useState(emptyInvoice);
             const [editId, setEditId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [statusFilter, setStatusFilter] = useState('Semua');
             const [expandedIds, setExpandedIds] = useState({});
-            const [showCommissionModal, setShowCommissionModal] = useState(false);
-            const [commissionModalMode, setCommissionModalMode] = useState('confirm'); // 'confirm' | 'edit'
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
@@ -4933,7 +4930,6 @@
             const resetForm = () => {
                 setForm({ ...emptyInvoice, invoiceItems: [newItem()], invoiceDp: { ...emptyInvoice.invoiceDp } });
                 setEditId(null);
-                setShowCommissionModal(false);
             };
             const patchItem = (itemId, patch) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) === String(itemId) ? { ...item, ...patch } : item) }));
             const patchSize = (itemId, sizeId, patch) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) === String(itemId) ? { ...item, sizes: (item.sizes || []).map(size => String(size.id) === String(sizeId) ? { ...size, ...patch } : size) } : item) }));
@@ -4953,12 +4949,17 @@
                     return [{ id: `CLI-${Date.now()}`, name: invoice.customer, address: invoice.address || '', phone: '', pic: '', note: '', clientDpPayments: [], _syncUpdatedAt: now }, ...list];
                 });
             };
-            const doSaveInvoice = () => {
+            const saveInvoice = (e) => {
+                e.preventDefault();
                 const cleanedItems = getInvoiceItems(form).map(item => ({ ...item, sizes: (item.sizes || []).map(size => ({ ...size, qty: safeMoney(size.qty), pricePerPcs: safeMoney(size.pricePerPcs), discountPerPcs: safeMoney(size.discountPerPcs), discountPercent: safeMoney(size.discountPercent) })).filter(size => size.qty > 0 || size.size || size.pricePerPcs > 0) })).filter(item => item.productionType || item.sizes.length > 0);
+                if (!form.customer || cleanedItems.length === 0) return showToast("Nama customer dan item invoice wajib diisi.", "error");
                 const now = new Date().toISOString();
                 const cleanedTotal = getInvoiceTotals({ ...form, invoiceItems: cleanedItems }).total;
-                const hasCommission = form.marketing && safeMoney(form.commissionValue) > 0;
-                const row = { ...form, id: editId || `INV-${Date.now()}`, invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeMoney(form.invoiceDp?.amount) }, commissionValue: safeMoney(form.commissionValue), linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), commissionLocked: hasCommission ? true : form.commissionLocked, paymentStatus: getInvoicePaymentStatus({ ...form, invoiceItems: cleanedItems }), _syncUpdatedAt: now };
+                // Auto-calculate commission from employee settings
+                const marketingEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.marketing));
+                const empCommType = marketingEmp?.commissionType || 'Persen';
+                const empCommValue = safeMoney(marketingEmp?.commissionValue || 0);
+                const row = { ...form, id: editId || `INV-${Date.now()}`, invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeMoney(form.invoiceDp?.amount) }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), paymentStatus: getInvoicePaymentStatus({ ...form, invoiceItems: cleanedItems }), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 setInvoices(prev => {
                     const list = Array.isArray(prev) ? prev : [];
@@ -4967,17 +4968,6 @@
                 syncClientFromInvoice(row);
                 resetForm();
                 showToast(editId ? "Invoice diperbarui." : "Invoice dibuat.", "success");
-            };
-            const handleSaveInvoice = (e) => {
-                e.preventDefault();
-                const cleanedItems = getInvoiceItems(form).map(item => ({ ...item, sizes: (item.sizes || []).map(size => ({ ...size, qty: safeMoney(size.qty), pricePerPcs: safeMoney(size.pricePerPcs), discountPerPcs: safeMoney(size.discountPerPcs), discountPercent: safeMoney(size.discountPercent) })).filter(size => size.qty > 0 || size.size || size.pricePerPcs > 0) })).filter(item => item.productionType || item.sizes.length > 0);
-                if (!form.customer || cleanedItems.length === 0) return showToast("Nama customer dan item invoice wajib diisi.", "error");
-                if (form.marketing && safeMoney(form.commissionValue) > 0 && !form.commissionLocked) {
-                    setCommissionModalMode('confirm');
-                    setShowCommissionModal(true);
-                    return;
-                }
-                doSaveInvoice();
             };
             const deleteInvoice = (id) => setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => String(inv.id) === String(id) ? { ...inv, isDeleted: true, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : inv));
             const printInvoice = (inv) => {
