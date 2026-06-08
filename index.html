@@ -5921,7 +5921,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, manualPurchases = [] }) => {
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
@@ -5975,25 +5975,40 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 return rows;
             };
 
-            const allMaterialRows = safeOrders
-                .filter(order => Array.isArray(order.materials) && getActiveMaterials(order).length > 0)
-                .flatMap(order => {
-                    const paymentRows = getOrderPaymentRows(order);
-                    if (paymentRows.length > 0) return paymentRows;
-                    if (order.materialStatus !== 'Selesai') return [];
-                    return [{
-                        id: order.id,
-                        orderId: order.id,
-                        date: getMaterialDate(order),
-                        client: order.client || '-',
-                        type: order.type || '-',
-                        totalPcs: parseInt(order.total) || 0,
-                        total: getFinanceOrderMaterialTotal(order),
-                        vendors: [...new Set(getActiveMaterials(order).map(item => String(item.vendor || 'Tanpa Vendor').trim() || 'Tanpa Vendor'))],
-                        materials: getActiveMaterials(order),
-                        isPayment: false
-                    }];
-                });
+            const allMaterialRows = [
+                ...safeOrders
+                    .filter(order => Array.isArray(order.materials) && getActiveMaterials(order).length > 0)
+                    .flatMap(order => {
+                        const paymentRows = getOrderPaymentRows(order);
+                        if (paymentRows.length > 0) return paymentRows;
+                        if (order.materialStatus !== 'Selesai') return [];
+                        return [{
+                            id: order.id,
+                            orderId: order.id,
+                            date: getMaterialDate(order),
+                            client: order.client || '-',
+                            type: order.type || '-',
+                            totalPcs: parseInt(order.total) || 0,
+                            total: getFinanceOrderMaterialTotal(order),
+                            vendors: [...new Set(getActiveMaterials(order).map(item => String(item.vendor || 'Tanpa Vendor').trim() || 'Tanpa Vendor'))],
+                            materials: getActiveMaterials(order),
+                            isPayment: false
+                        }];
+                    }),
+                ...safeArray(manualPurchases).filter(isVisibleRecord).map(mp => ({
+                    id: mp.id,
+                    orderId: null,
+                    date: mp.purchaseDate || new Date().toISOString().slice(0, 10),
+                    client: '-',
+                    type: 'Pembelian Manual',
+                    totalPcs: 0,
+                    total: getMaterialLineTotal(mp),
+                    vendors: [String(mp.vendor || 'Tanpa Vendor').trim()],
+                    materials: [mp],
+                    isPayment: false,
+                    isManual: true
+                }))
+            ];
 
             const allWageRows = safeFinanceRekaps
                 .filter(isVisibleRecord)
@@ -6029,7 +6044,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const materialRows = allMaterialRows.filter(row => {
                 if (!isInPeriod(row.date)) return false;
                 if (!normalizedSearch) return true;
-                return [row.id, row.client, row.type, ...row.vendors, ...row.materials.map(item => item.name)].join(' ').toLowerCase().includes(normalizedSearch);
+                return [row.id, row.client, row.type, ...row.vendors, ...(row.materials || []).map(item => item.name)].join(' ').toLowerCase().includes(normalizedSearch);
             });
 
             const wageRows = allWageRows.filter(row => {
@@ -10740,7 +10755,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} />}
+                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'tracking_instansi' && canOpen('tracking_instansi') && <TrackingInstansiView orders={orders} templates={templates} showToast={showToast} />}
                                 {activeTab === 'pengiriman' && canOpen('pengiriman') && <PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} />}
