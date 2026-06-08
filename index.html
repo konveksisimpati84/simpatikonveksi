@@ -425,6 +425,13 @@
             }
         };
 
+        const getInvestorShareTokenFromHash = () => {
+            const hash = window.location.hash || '';
+            const prefix = '#investor-share=';
+            if (!hash.startsWith(prefix)) return '';
+            try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
+        };
+
         const SearchField = ({ value, onChange, placeholder = "Cari data..." }) => (
             <div className="print:hidden">
                 <label className="block text-xs font-bold text-gray-600 mb-1">Cari</label>
@@ -6076,6 +6083,126 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             );
         };
 
+        const InvestorPublicView = ({ token }) => {
+            const [investor, setInvestor] = useState(null);
+            const [records, setRecords] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState('');
+            const [lastUpdate, setLastUpdate] = useState(null);
+            const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
+
+            const fetchData = React.useCallback(async () => {
+                setLoading(true);
+                try {
+                    let investorsList = [];
+                    let bhList = [];
+                    if (supabaseClient) {
+                        const [invRes, bhRes] = await Promise.all([
+                            supabaseClient.from('app_data').select('data').eq('id', 'investors').single(),
+                            supabaseClient.from('app_data').select('data').eq('id', 'investorBagiHasil').single()
+                        ]);
+                        investorsList = invRes.data?.data || [];
+                        bhList = bhRes.data?.data || [];
+                    }
+                    const found = investorsList.find(inv => !inv.isDeleted && inv.shareToken === token);
+                    if (!found) { setError('Link tidak valid atau laporan tidak ditemukan.'); setLoading(false); return; }
+                    setInvestor(found);
+                    setRecords((bhList || []).filter(r => !r.isDeleted && r.investorId === found.id));
+                    setLastUpdate(new Date());
+                } catch (err) {
+                    setError('Gagal memuat data. Silakan refresh halaman.');
+                }
+                setLoading(false);
+            }, [token]);
+
+            React.useEffect(() => {
+                fetchData();
+                const interval = setInterval(fetchData, 5 * 60 * 1000);
+                return () => clearInterval(interval);
+            }, [fetchData]);
+
+            if (loading) return (
+                <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-indigo-50 to-slate-100">
+                    <div className="text-center">
+                        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="text-gray-600 font-medium">Memuat laporan investasi...</p>
+                    </div>
+                </div>
+            );
+            if (error) return (
+                <div className="flex items-center justify-center min-h-screen bg-gray-50">
+                    <div className="text-center bg-white rounded-xl p-8 shadow max-w-sm">
+                        <div className="text-5xl mb-4">⚠️</div>
+                        <p className="text-gray-700 font-bold">{error}</p>
+                    </div>
+                </div>
+            );
+            if (!investor) return null;
+
+            const modal = parseFloat(investor.modalMasuk) || 0;
+            const totalBH = records.reduce((s, r) => s + (parseFloat(r.totalBagiHasil) || 0), 0);
+            const totalKewajiban = modal + totalBH;
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-slate-100 p-4">
+                    <div className="max-w-2xl mx-auto space-y-4">
+                        <div className="bg-white rounded-2xl shadow-sm border border-indigo-100 p-6">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="text-xs font-bold text-indigo-500 uppercase tracking-wider">Laporan Investasi — Simpati Konveksi</div>
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${investor.isLunas ? 'bg-green-100 text-green-800' : 'bg-indigo-100 text-indigo-800'}`}>{investor.isLunas ? 'LUNAS' : 'AKTIF'}</span>
+                            </div>
+                            <h1 className="text-2xl font-black text-gray-800">{investor.name}</h1>
+                            <p className="text-sm text-gray-500 mt-1">Mulai investasi: {investor.tanggalMulai || '-'} · Bagi hasil {fmtRp(investor.bagiHasilPerPcs)}/pcs</p>
+                            {investor.catatan && <p className="text-xs text-gray-400 italic mt-1">"{investor.catatan}"</p>}
+                            {investor.isLunas && investor.tanggalLunas && <p className="text-xs font-bold text-green-600 mt-1">Lunas pada: {investor.tanggalLunas}</p>}
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-white rounded-xl p-4 text-center border border-indigo-100 shadow-sm">
+                                <div className="text-xs text-indigo-600 font-bold mb-1">Modal Masuk</div>
+                                <div className="font-black text-indigo-800 text-sm md:text-base">{fmtRp(modal)}</div>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 text-center border border-green-100 shadow-sm">
+                                <div className="text-xs text-green-600 font-bold mb-1">+ Bagi Hasil</div>
+                                <div className="font-black text-green-700 text-sm md:text-base">{fmtRp(totalBH)}</div>
+                                <div className="text-xs text-gray-400">{records.length} order</div>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 text-center border border-orange-100 shadow-sm">
+                                <div className="text-xs text-orange-600 font-bold mb-1">= Total Dikembalikan</div>
+                                <div className="font-black text-orange-700 text-sm md:text-base">{fmtRp(totalKewajiban)}</div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                            <h2 className="font-bold text-gray-700 mb-3 text-sm uppercase tracking-wide">Riwayat Bagi Hasil ({records.length} transaksi)</h2>
+                            {records.length === 0 ? (
+                                <p className="text-gray-400 italic text-sm text-center py-6">Belum ada catatan bagi hasil.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {records.slice().sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || '')).map(r => (
+                                        <div key={r.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-2">
+                                            <div className="min-w-0">
+                                                <div className="text-sm font-bold text-gray-700 truncate">{r.invoiceId} — {r.invoiceCustomer}</div>
+                                                <div className="text-xs text-gray-400">{r.tanggal} · {r.pcs} pcs × {fmtRp(r.bagiHasilPerPcs)}</div>
+                                                {r.note && <div className="text-xs text-gray-400 italic">"{r.note}"</div>}
+                                            </div>
+                                            <div className="font-black text-green-700 text-sm shrink-0">{fmtRp(r.totalBagiHasil)}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="text-center text-xs text-gray-400 pb-4 space-y-1">
+                            <p>Data diperbarui otomatis setiap 5 menit</p>
+                            {lastUpdate && <p>Terakhir diperbarui: {lastUpdate.toLocaleTimeString('id-ID')}</p>}
+                            <button onClick={fetchData} className="text-indigo-500 hover:text-indigo-700 font-bold mt-1">↻ Perbarui Sekarang</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const printLaporanInvestor = (investor, records, templates) => {
             const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
             const modal = parseFloat(investor.modalMasuk) || 0;
@@ -6182,6 +6309,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [deleteConfirm, setDeleteConfirm] = useState(null);
             const [deleteBHConfirm, setDeleteBHConfirm] = useState(null);
             const [lunasConfirm, setLunasConfirm] = useState(null);
+            const [shareModal, setShareModal] = useState(null);
 
             const getBagiHasilByInvestor = (investorId) => safeBagiHasil.filter(r => r.investorId === investorId);
             const getTotalBH = (investorId) => getBagiHasilByInvestor(investorId).reduce((s,r) => s + (parseFloat(r.totalBagiHasil)||0), 0);
@@ -6212,6 +6340,18 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 setInvestors(prev => safeArray(prev).map(inv => inv.id === id ? { ...inv, isLunas: lunas, tanggalLunas: lunas ? new Date().toISOString().slice(0,10) : null, _syncUpdatedAt: now() } : inv));
                 setLunasConfirm(null);
                 showToast(lunas ? 'Investor ditandai Lunas' : 'Status dikembalikan ke Aktif', 'success');
+            };
+
+            const getOrCreateShareToken = (investorId) => {
+                const inv = safeInvestors.find(i => i.id === investorId);
+                if (inv?.shareToken) return inv.shareToken;
+                const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+                setInvestors(prev => safeArray(prev).map(i => i.id === investorId ? { ...i, shareToken: token, _syncUpdatedAt: now() } : i));
+                return token;
+            };
+
+            const revokeShareToken = (investorId) => {
+                setInvestors(prev => safeArray(prev).map(i => i.id === investorId ? { ...i, shareToken: null, _syncUpdatedAt: now() } : i));
             };
 
             const deleteInvestor = (id) => {
@@ -6319,6 +6459,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                         : <button onClick={() => tandaiLunas(investor.id, false)} className="text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200 px-2.5 py-1.5 rounded-lg">Batalkan Lunas</button>
                                                     }
                                                     <button onClick={() => printLaporanInvestor(investor, records, templates)} className="text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1"><IconPrinter /> Cetak</button>
+                                                    <button onClick={() => { const t = getOrCreateShareToken(investor.id); setShareModal({ investor, token: t }); }} className="text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2.5 py-1.5 rounded-lg">🔗 Bagikan</button>
                                                     <button onClick={() => { setEditId(investor.id); setForm({ name:investor.name, modalMasuk:String(investor.modalMasuk), bagiHasilPerPcs:String(investor.bagiHasilPerPcs), tanggalMulai:investor.tanggalMulai||'', catatan:investor.catatan||'' }); setShowForm(true); }} className="text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg"><IconEdit /></button>
                                                     <button onClick={() => setDeleteConfirm(investor.id)} className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"><IconTrash /></button>
                                                 </div>
@@ -6432,6 +6573,32 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             </div>
                         </div>
                     )}
+
+                    {/* Modal bagikan link investor */}
+                    {shareModal && (() => {
+                        const shareUrl = `${window.location.origin}${window.location.pathname}#investor-share=${shareModal.token}`;
+                        return (
+                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                                <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl">
+                                    <h3 className="font-bold text-gray-800 mb-1">🔗 Link Laporan Investor</h3>
+                                    <p className="text-sm text-gray-500 mb-4">Bagikan link ini kepada <strong>{shareModal.investor.name}</strong> agar dapat memantau laporan investasinya secara real-time.</p>
+                                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
+                                        <p className="text-xs font-bold text-purple-600 mb-1 uppercase">Link Laporan:</p>
+                                        <p className="text-xs text-purple-800 break-all font-mono leading-relaxed">{shareUrl}</p>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 mb-4">
+                                        <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
+                                        <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Halo, berikut link laporan investasi Anda di Simpati Konveksi:\n' + shareUrl)}`, '_blank')} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Kirim WhatsApp</button>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang memiliki link ini dapat melihat laporan investasi. Cabut akses jika tidak diperlukan lagi.</p>
+                                    <div className="flex justify-between items-center">
+                                        <button onClick={() => { revokeShareToken(shareModal.investor.id); setShareModal(null); showToast('Akses link berhasil dicabut', 'success'); }} className="text-xs text-red-500 hover:text-red-700 font-medium">Cabut Akses Link</button>
+                                        <button onClick={() => setShareModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Tutup</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* Confirm delete investor */}
                     {deleteConfirm && (
@@ -9988,6 +10155,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [templates, setTemplates] = useState({});
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
+            const [investorShareToken, setInvestorShareToken] = useState(getInvestorShareTokenFromHash());
             
             const [toast, setToast] = useState(null);
             const toastTimerRef = useRef(null);
@@ -11228,6 +11396,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             rekapKinerja={rekapKinerja}
                             templates={templates}
                         />
+                        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    </>
+                );
+            }
+
+            if (investorShareToken) {
+                return (
+                    <>
+                        <InvestorPublicView token={investorShareToken} />
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     </>
                 );
