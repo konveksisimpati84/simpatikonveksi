@@ -691,6 +691,54 @@
             );
         };
 
+        const printStickerRevisi = (client, type, revisiItem, showToast) => {
+            const { size, qty, worker, note } = revisiItem;
+            const stickerDate = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            const clientFS = (client||'').length <= 12 ? '18px' : (client||'').length <= 22 ? '14px' : '11px';
+            const typeFS = (type||'').length <= 15 ? '12px' : '10px';
+            const workerFS = (worker||'').length <= 20 ? '10px' : '8px';
+            const qStr = String(qty || 0);
+            const qtyFS = qStr.length > 3 ? Math.max(12, Math.floor(24 * (3.5 / qStr.length))) + 'px' : '24px';
+            const noteText = note ? (note.length > 28 ? note.slice(0, 28) + '…' : note) : '-';
+            const printContent = `<!DOCTYPE html><html><head><title>Stiker Revisi - ${client}</title>
+            <style>
+                @page { size: 60mm 40mm; margin: 0; }
+                body { font-family: Arial, sans-serif; margin: 0; padding: 2mm 3mm; width: 60mm; height: 40mm; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; text-align: center; background: #fff; color: #000; }
+                .revisi-badge { background: #dc2626; color: #fff; font-size: 9px; font-weight: 900; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; margin-bottom: 1px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                .client { font-size: ${clientFS}; font-weight: 900; text-transform: uppercase; line-height: 1.05; margin-bottom: 1px; width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+                .type { font-size: ${typeFS}; font-weight: bold; margin-bottom: 1px; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .worker { font-size: ${workerFS}; font-weight: bold; border-bottom: 1px dashed #000; padding-bottom: 2px; margin-bottom: 2px; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+                .details { display: flex; gap: 4px; justify-content: center; width: 100%; align-items: stretch; flex-grow: 1; }
+                .box { border: 2px solid #000; border-radius: 4px; width: 50%; display: flex; flex-direction: column; overflow: hidden; }
+                .box-title { font-size: 10px; font-weight: bold; text-transform: uppercase; border-bottom: 2px solid #000; background: #fee2e2; -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 2px 0; color: #dc2626; }
+                .box-val { font-size: ${qtyFS}; font-weight: 900; flex-grow: 1; display: flex; align-items: center; justify-content: center; line-height: 1; }
+                .note-row { width: 100%; font-size: 8px; color: #92400e; margin-top: 1px; border-top: 1px solid #f97316; padding-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+                .date { width: 100%; margin-top: 1px; font-size: 8px; font-weight: 900; text-align: right; }
+            </style></head>
+            <body>
+                <div class="revisi-badge">⚠ REVISI</div>
+                <div class="client">${client || '-'}</div>
+                <div class="type">${type || '-'}</div>
+                <div class="worker">Worker: ${worker || '-'}</div>
+                <div class="details">
+                    <div class="box"><div class="box-title">Size</div><div class="box-val">${size || '-'}</div></div>
+                    <div class="box"><div class="box-title" style="color:#dc2626">Pcs</div><div class="box-val">${qty || 0}</div></div>
+                </div>
+                <div class="note-row">Ket: ${noteText}</div>
+                <div class="date">Tgl: ${stickerDate}</div>
+            </body></html>`;
+            const printWindow = window.open('', '_blank');
+            if (printWindow) {
+                printWindow.document.open();
+                printWindow.document.write(printContent);
+                printWindow.document.close();
+                printWindow.focus();
+                setTimeout(() => { printWindow.print(); }, 250);
+            } else {
+                if (showToast) showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
+            }
+        };
+
         const DashboardView = ({ orders, setOrders, showToast }) => {
             const safeOrders = (orders || []).filter(isVisibleOrder);
             const totalOrders = safeOrders.filter(o => !o?.isArchived).length;
@@ -1034,7 +1082,7 @@
                                                         <input type="text" className="col-span-3 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="Nama worker" value={item.worker} onChange={e => { const r=[...(editOrder.revisiItems||[])]; r[idx]={...r[idx],worker:e.target.value}; setEditOrder(p=>({...p,revisiItems:r})); }} />
                                                         <input type="text" className="col-span-3 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="jahitan lepas, dll..." value={item.note} onChange={e => { const r=[...(editOrder.revisiItems||[])]; r[idx]={...r[idx],note:e.target.value}; setEditOrder(p=>({...p,revisiItems:r})); }} />
                                                         <div className="col-span-2 flex gap-1 justify-center">
-                                                            <button type="button" onClick={() => printStickerRevisi(editOrder.client, editOrder.type, item)} className="text-orange-700 bg-orange-100 hover:bg-orange-200 border border-orange-300 p-1 rounded text-xs font-bold" title="Cetak Stiker Revisi"><IconPrinter /></button>
+                                                            <button type="button" onClick={() => printStickerRevisi(editOrder.client, editOrder.type, item, showToast)} className="text-orange-700 bg-orange-100 hover:bg-orange-200 border border-orange-300 p-1 rounded text-xs font-bold" title="Cetak Stiker Revisi"><IconPrinter /></button>
                                                             <button type="button" onClick={() => setEditOrder(p=>({...p,revisiItems:(p.revisiItems||[]).filter((_,i)=>i!==idx)}))} className="text-red-500 hover:text-red-700 font-bold text-sm flex justify-center px-1">&times;</button>
                                                         </div>
                                                     </div>
@@ -2027,7 +2075,7 @@
                                                 <input type="text" className="col-span-3 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="Nama worker" value={item.worker} onChange={e => { const r=[...(newOrder.revisiItems||[])]; r[idx]={...r[idx],worker:e.target.value}; setNewOrder(p=>({...p,revisiItems:r})); }} />
                                                 <input type="text" className="col-span-3 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="jahitan lepas, dll..." value={item.note} onChange={e => { const r=[...(newOrder.revisiItems||[])]; r[idx]={...r[idx],note:e.target.value}; setNewOrder(p=>({...p,revisiItems:r})); }} />
                                                 <div className="col-span-2 flex gap-1 justify-center">
-                                                    <button type="button" onClick={() => printStickerRevisi(newOrder.client, newOrder.type, item)} className="text-orange-700 bg-orange-100 hover:bg-orange-200 border border-orange-300 p-1 rounded text-xs font-bold" title="Cetak Stiker Revisi"><IconPrinter /></button>
+                                                    <button type="button" onClick={() => printStickerRevisi(newOrder.client, newOrder.type, item, showToast)} className="text-orange-700 bg-orange-100 hover:bg-orange-200 border border-orange-300 p-1 rounded text-xs font-bold" title="Cetak Stiker Revisi"><IconPrinter /></button>
                                                     <button type="button" onClick={() => setNewOrder(p=>({...p,revisiItems:(p.revisiItems||[]).filter((_,i)=>i!==idx)}))} className="col-span-1 text-red-500 hover:text-red-700 font-bold text-sm flex justify-center px-1">&times;</button>
                                                 </div>
                                             </div>
@@ -2564,61 +2612,6 @@ ${templates?.spkNote ? `<p class="spk-note">* ${templates.spkNote}</p>` : ''}
                 }
             };
 
-            const printStickerRevisi = (client, type, revisiItem) => {
-                const { size, qty, worker, note } = revisiItem;
-                const stickerDate = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                const clientFS = (client||'').length <= 12 ? '18px' : (client||'').length <= 22 ? '14px' : '11px';
-                const typeFS = (type||'').length <= 15 ? '12px' : '10px';
-                const workerFS = (worker||'').length <= 20 ? '10px' : '8px';
-                const qStr = String(qty || 0);
-                const qtyFS = qStr.length > 3 ? Math.max(12, Math.floor(24 * (3.5 / qStr.length))) + 'px' : '24px';
-                const noteText = note ? (note.length > 28 ? note.slice(0, 28) + '…' : note) : '-';
-
-                const printContent = `<!DOCTYPE html><html><head><title>Stiker Revisi - ${client}</title>
-                <style>
-                    @page { size: 60mm 40mm; margin: 0; }
-                    body { font-family: Arial, sans-serif; margin: 0; padding: 2mm 3mm; width: 60mm; height: 40mm; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; text-align: center; background: #fff; color: #000; }
-                    .revisi-badge { background: #dc2626; color: #fff; font-size: 9px; font-weight: 900; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; margin-bottom: 1px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .client { font-size: ${clientFS}; font-weight: 900; text-transform: uppercase; line-height: 1.05; margin-bottom: 1px; width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-                    .type { font-size: ${typeFS}; font-weight: bold; margin-bottom: 1px; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                    .worker { font-size: ${workerFS}; font-weight: bold; border-bottom: 1px dashed #000; padding-bottom: 2px; margin-bottom: 2px; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
-                    .details { display: flex; gap: 4px; justify-content: center; width: 100%; align-items: stretch; flex-grow: 1; }
-                    .box { border: 2px solid #000; border-radius: 4px; width: 50%; display: flex; flex-direction: column; overflow: hidden; }
-                    .box-title { font-size: 10px; font-weight: bold; text-transform: uppercase; border-bottom: 2px solid #000; background: #fee2e2; -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 2px 0; color: #dc2626; }
-                    .box-val { font-size: ${qtyFS}; font-weight: 900; flex-grow: 1; display: flex; align-items: center; justify-content: center; line-height: 1; }
-                    .note-row { width: 100%; font-size: 8px; color: #92400e; margin-top: 1px; border-top: 1px solid #f97316; padding-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-                    .date { width: 100%; margin-top: 1px; font-size: 8px; font-weight: 900; text-align: right; }
-                </style></head>
-                <body>
-                    <div class="revisi-badge">⚠ REVISI</div>
-                    <div class="client">${client || '-'}</div>
-                    <div class="type">${type || '-'}</div>
-                    <div class="worker">Worker: ${worker || '-'}</div>
-                    <div class="details">
-                        <div class="box">
-                            <div class="box-title">Size</div>
-                            <div class="box-val">${size || '-'}</div>
-                        </div>
-                        <div class="box">
-                            <div class="box-title" style="color:#dc2626">Pcs</div>
-                            <div class="box-val">${qty || 0}</div>
-                        </div>
-                    </div>
-                    <div class="note-row">Ket: ${noteText}</div>
-                    <div class="date">Tgl: ${stickerDate}</div>
-                </body></html>`;
-
-                const printWindow = window.open('', '_blank');
-                if (printWindow) {
-                    printWindow.document.open();
-                    printWindow.document.write(printContent);
-                    printWindow.document.close();
-                    printWindow.focus();
-                    setTimeout(() => { printWindow.print(); }, 250);
-                } else {
-                    showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
-                }
-            };
 
             if (activeProductionTab === 'riwayat') {
                 return (
