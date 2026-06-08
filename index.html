@@ -10166,9 +10166,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
         const TemplateView = ({ templates, setTemplates, showToast }) => {
             const [localTemplates, setLocalTemplates] = useState(templates || initialTemplates);
-            
+            const loadedOnce = React.useRef(false);
+
             useEffect(() => {
-                if (templates) setLocalTemplates(templates);
+                if (templates && Object.keys(templates).length > 0 && !loadedOnce.current) {
+                    setLocalTemplates(templates);
+                    loadedOnce.current = true;
+                }
             }, [templates]);
 
             const handleChange = (e) => {
