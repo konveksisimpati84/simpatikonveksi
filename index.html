@@ -6212,7 +6212,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (!bhForm.invoiceId) { showToast('Pilih invoice terlebih dahulu', 'error'); return; }
                 const inv = safeInvoices.find(i => i.id === bhForm.invoiceId);
                 if (!inv) return;
-                const pcs = parseInt(inv.qty) || 0;
+                const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
                 if (pcs <= 0) { showToast('Invoice tidak memiliki qty pcs', 'error'); return; }
                 const bh = pcs * (parseFloat(investor.bagiHasilPerPcs) || 0);
                 const newRecord = {
@@ -6366,7 +6366,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         if (!investor) return null;
                         const avail = availableInvoices(showBHModal);
                         const selInv = avail.find(i => i.id === bhForm.invoiceId);
-                        const previewPcs = selInv ? (parseInt(selInv.qty)||0) : 0;
+                        const previewPcs = selInv ? (getInvoicePcsTotal(selInv) || parseInt(selInv.qty) || 0) : 0;
                         const previewBH = previewPcs * (parseFloat(investor.bagiHasilPerPcs)||0);
                         return (
                             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
@@ -6378,7 +6378,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                             <label className="block text-xs font-bold text-gray-600 mb-1">Pilih Invoice Lunas *</label>
                                             <select className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={bhForm.invoiceId} onChange={e => setBhForm({...bhForm, invoiceId: e.target.value})}>
                                                 <option value="">-- Pilih Invoice --</option>
-                                                {avail.map(inv => <option key={inv.id} value={inv.id}>{inv.id} — {inv.customer} ({inv.qty} pcs)</option>)}
+                                                {avail.map(inv => <option key={inv.id} value={inv.id}>{inv.id} — {inv.customer} ({getInvoicePcsTotal(inv) || inv.qty || 0} pcs)</option>)}
                                             </select>
                                             {avail.length === 0 && <p className="text-xs text-orange-500 mt-1">Tidak ada invoice lunas yang tersedia untuk investor ini.</p>}
                                         </div>
