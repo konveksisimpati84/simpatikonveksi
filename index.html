@@ -6156,7 +6156,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const safeInvestors = safeArray(investors).filter(isVisibleRecord);
             const safeBagiHasil = safeArray(investorBagiHasil).filter(isVisibleRecord);
             const safeInvoices = safeArray(invoices).filter(isVisibleRecord);
-            const paidInvoices = safeInvoices.filter(inv => getInvoicePaymentStatus(inv) === 'Lunas');
+            const paidInvoices = safeInvoices.filter(inv => {
+                const stored = String(inv.paymentStatus || '').toLowerCase();
+                if (stored === 'lunas') return true;
+                const total = getInvoiceTotals(inv).total;
+                const paid = getInvoicePaidTotal(inv);
+                return total > 0 && paid >= total;
+            });
 
             const [showForm, setShowForm] = useState(false);
             const [editId, setEditId] = useState(null);
