@@ -876,8 +876,8 @@
                                             <td className="p-3 text-sm text-gray-800">{order.client}</td>
                                             <td className="p-3 text-sm text-gray-600">
                                                 {order.type} ({order.total} pcs)
-                                                {parseInt(order.revisiQty) > 0 && (
-                                                    <span className="ml-1 inline-flex items-center bg-orange-100 text-orange-700 text-xs font-bold px-1.5 py-0.5 rounded" title={order.revisiNote || ''}>⚠ {order.revisiQty} pcs revisi</span>
+                                                {((order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)) > 0 && (
+                                                    <span className="ml-1 inline-flex items-center bg-orange-100 text-orange-700 text-xs font-bold px-1.5 py-0.5 rounded">⚠ {(order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)} pcs revisi</span>
                                                 )}
                                             </td>
                                             <td className="p-3"><Badge status={order.status} /></td>
@@ -1011,17 +1011,35 @@
                                     </div>
 
                                     <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
-                                        <label className="block text-sm font-semibold text-orange-900 mb-3">Revisi / Barang Rusak (Opsional)</label>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                            <div>
-                                                <label className="block text-xs font-bold text-orange-800 mb-1">Jumlah Pcs Revisi</label>
-                                                <input type="number" min="0" className="w-full p-2 border border-orange-200 rounded-lg focus:ring-orange-400 bg-white" placeholder="0" value={editOrder.revisiQty || ''} onChange={e => setEditOrder({...editOrder, revisiQty: e.target.value})} />
-                                            </div>
-                                            <div className="md:col-span-2">
-                                                <label className="block text-xs font-bold text-orange-800 mb-1">Keterangan Kerusakan</label>
-                                                <input type="text" className="w-full p-2 border border-orange-200 rounded-lg focus:ring-orange-400 bg-white" placeholder="Contoh: jahitan lepas, sablon blobor, dll..." value={editOrder.revisiNote || ''} onChange={e => setEditOrder({...editOrder, revisiNote: e.target.value})} />
-                                            </div>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <label className="block text-sm font-semibold text-orange-900">Revisi / Barang Rusak (Opsional)</label>
+                                            <button type="button" onClick={() => setEditOrder(prev => ({ ...prev, revisiItems: [...(prev.revisiItems || []), { id: Date.now(), size: '', qty: '', worker: '', note: '' }] }))} className="text-xs font-bold text-orange-700 bg-orange-100 hover:bg-orange-200 border border-orange-300 px-2.5 py-1 rounded-lg">+ Tambah Baris</button>
                                         </div>
+                                        {(editOrder.revisiItems || []).length === 0 ? (
+                                            <p className="text-xs text-orange-500 italic">Belum ada data revisi. Klik "+ Tambah Baris" jika ada barang rusak.</p>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <div className="grid grid-cols-12 gap-1.5 text-xs font-bold text-orange-800 px-1">
+                                                    <div className="col-span-2">Ukuran</div>
+                                                    <div className="col-span-2">Pcs</div>
+                                                    <div className="col-span-3">Nama Worker</div>
+                                                    <div className="col-span-4">Keterangan Kerusakan</div>
+                                                    <div className="col-span-1"></div>
+                                                </div>
+                                                {(editOrder.revisiItems || []).map((item, idx) => (
+                                                    <div key={item.id} className="grid grid-cols-12 gap-1.5 items-center">
+                                                        <input type="text" className="col-span-2 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="M / XL" value={item.size} onChange={e => { const r=[...(editOrder.revisiItems||[])]; r[idx]={...r[idx],size:e.target.value}; setEditOrder(p=>({...p,revisiItems:r})); }} />
+                                                        <input type="number" min="0" className="col-span-2 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="0" value={item.qty} onChange={e => { const r=[...(editOrder.revisiItems||[])]; r[idx]={...r[idx],qty:e.target.value}; setEditOrder(p=>({...p,revisiItems:r})); }} />
+                                                        <input type="text" className="col-span-3 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="Nama worker" value={item.worker} onChange={e => { const r=[...(editOrder.revisiItems||[])]; r[idx]={...r[idx],worker:e.target.value}; setEditOrder(p=>({...p,revisiItems:r})); }} />
+                                                        <input type="text" className="col-span-4 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="jahitan lepas, dll..." value={item.note} onChange={e => { const r=[...(editOrder.revisiItems||[])]; r[idx]={...r[idx],note:e.target.value}; setEditOrder(p=>({...p,revisiItems:r})); }} />
+                                                        <button type="button" onClick={() => setEditOrder(p=>({...p,revisiItems:(p.revisiItems||[]).filter((_,i)=>i!==idx)}))} className="col-span-1 text-red-500 hover:text-red-700 font-bold text-sm flex justify-center">&times;</button>
+                                                    </div>
+                                                ))}
+                                                <div className="text-xs font-bold text-orange-800 text-right pt-1">
+                                                    Total revisi: {(editOrder.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)} pcs
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="flex justify-end space-x-3 pt-4 border-t">
@@ -1150,10 +1168,9 @@
                                         "{order.notes}"
                                     </p>
                                 )}
-                                {parseInt(order.revisiQty) > 0 && (
+                                {((order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)) > 0 && (
                                     <div className="mt-2 inline-flex items-center gap-1.5 bg-orange-100 border border-orange-300 text-orange-800 text-xs font-bold px-2.5 py-1 rounded-full">
-                                        <span>⚠ Revisi: {order.revisiQty} pcs</span>
-                                        {order.revisiNote && <span className="font-normal">— {order.revisiNote}</span>}
+                                        ⚠ Revisi: {(order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)} pcs ({(order.revisiItems||[]).length} ukuran)
                                     </div>
                                 )}
                             </div>
@@ -1984,17 +2001,35 @@
                             </div>
 
                             <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
-                                <label className="block text-sm font-semibold text-orange-900 mb-3">Revisi / Barang Rusak (Opsional)</label>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                    <div>
-                                        <label className="block text-xs font-bold text-orange-800 mb-1">Jumlah Pcs Revisi</label>
-                                        <input type="number" min="0" className="w-full p-2 border border-orange-200 rounded-lg focus:ring-orange-400 bg-white" placeholder="0" value={newOrder.revisiQty || ''} onChange={e => setNewOrder({...newOrder, revisiQty: e.target.value})} />
-                                    </div>
-                                    <div className="md:col-span-2">
-                                        <label className="block text-xs font-bold text-orange-800 mb-1">Keterangan Kerusakan</label>
-                                        <input type="text" className="w-full p-2 border border-orange-200 rounded-lg focus:ring-orange-400 bg-white" placeholder="Contoh: jahitan lepas, sablon blobor, dll..." value={newOrder.revisiNote || ''} onChange={e => setNewOrder({...newOrder, revisiNote: e.target.value})} />
-                                    </div>
+                                <div className="flex items-center justify-between mb-3">
+                                    <label className="block text-sm font-semibold text-orange-900">Revisi / Barang Rusak (Opsional)</label>
+                                    <button type="button" onClick={() => setNewOrder(prev => ({ ...prev, revisiItems: [...(prev.revisiItems || []), { id: Date.now(), size: '', qty: '', worker: '', note: '' }] }))} className="text-xs font-bold text-orange-700 bg-orange-100 hover:bg-orange-200 border border-orange-300 px-2.5 py-1 rounded-lg">+ Tambah Baris</button>
                                 </div>
+                                {(newOrder.revisiItems || []).length === 0 ? (
+                                    <p className="text-xs text-orange-500 italic">Belum ada data revisi. Klik "+ Tambah Baris" jika ada barang rusak.</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        <div className="grid grid-cols-12 gap-1.5 text-xs font-bold text-orange-800 px-1">
+                                            <div className="col-span-2">Ukuran</div>
+                                            <div className="col-span-2">Pcs</div>
+                                            <div className="col-span-3">Nama Worker</div>
+                                            <div className="col-span-4">Keterangan Kerusakan</div>
+                                            <div className="col-span-1"></div>
+                                        </div>
+                                        {(newOrder.revisiItems || []).map((item, idx) => (
+                                            <div key={item.id} className="grid grid-cols-12 gap-1.5 items-center">
+                                                <input type="text" className="col-span-2 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="M / XL" value={item.size} onChange={e => { const r=[...(newOrder.revisiItems||[])]; r[idx]={...r[idx],size:e.target.value}; setNewOrder(p=>({...p,revisiItems:r})); }} />
+                                                <input type="number" min="0" className="col-span-2 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="0" value={item.qty} onChange={e => { const r=[...(newOrder.revisiItems||[])]; r[idx]={...r[idx],qty:e.target.value}; setNewOrder(p=>({...p,revisiItems:r})); }} />
+                                                <input type="text" className="col-span-3 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="Nama worker" value={item.worker} onChange={e => { const r=[...(newOrder.revisiItems||[])]; r[idx]={...r[idx],worker:e.target.value}; setNewOrder(p=>({...p,revisiItems:r})); }} />
+                                                <input type="text" className="col-span-4 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="jahitan lepas, dll..." value={item.note} onChange={e => { const r=[...(newOrder.revisiItems||[])]; r[idx]={...r[idx],note:e.target.value}; setNewOrder(p=>({...p,revisiItems:r})); }} />
+                                                <button type="button" onClick={() => setNewOrder(p=>({...p,revisiItems:(p.revisiItems||[]).filter((_,i)=>i!==idx)}))} className="col-span-1 text-red-500 hover:text-red-700 font-bold text-sm flex justify-center">&times;</button>
+                                            </div>
+                                        ))}
+                                        <div className="text-xs font-bold text-orange-800 text-right pt-1">
+                                            Total revisi: {(newOrder.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)} pcs
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex justify-end pt-4">
@@ -2391,13 +2426,28 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <div style="font-size:13px;white-space:pre-wrap;margin-top:4px;color:#374151">${order.notes || '- Tidak ada catatan -'}</div>
 </div>
 
-${parseInt(order.revisiQty) > 0 ? `
-<div class="notes-box" style="border-left:4px solid #f97316;background:#fff7ed;margin-top:6px">
-  <div class="lbl" style="color:#c2410c">⚠ Revisi / Barang Rusak</div>
-  <div style="font-size:13px;margin-top:4px;color:#9a3412">
-    <strong>${order.revisiQty} pcs</strong> dikembalikan untuk diperbaiki.
-    ${order.revisiNote ? `<br/>Keterangan: ${order.revisiNote}` : ''}
-  </div>
+${(Array.isArray(order.revisiItems) && order.revisiItems.length > 0) ? `
+<div style="border-left:4px solid #f97316;background:#fff7ed;border-radius:6px;padding:10px 12px;margin-top:6px">
+  <div style="font-size:11px;font-weight:800;color:#c2410c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⚠ Revisi / Barang Rusak — ${order.revisiItems.reduce((s,i)=>s+(parseInt(i.qty)||0),0)} pcs total</div>
+  <table style="width:100%;border-collapse:collapse;font-size:11px">
+    <thead>
+      <tr style="background:#fed7aa">
+        <th style="padding:4px 6px;text-align:left;font-weight:700;color:#9a3412;border:1px solid #fdba74">Ukuran</th>
+        <th style="padding:4px 6px;text-align:center;font-weight:700;color:#9a3412;border:1px solid #fdba74">Pcs</th>
+        <th style="padding:4px 6px;text-align:left;font-weight:700;color:#9a3412;border:1px solid #fdba74">Nama Worker</th>
+        <th style="padding:4px 6px;text-align:left;font-weight:700;color:#9a3412;border:1px solid #fdba74">Keterangan Kerusakan</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${order.revisiItems.map((item,i) => `
+      <tr style="background:${i%2===0?'#fff':'#fff7ed'}">
+        <td style="padding:4px 6px;border:1px solid #fdba74;font-weight:700">${item.size || '-'}</td>
+        <td style="padding:4px 6px;border:1px solid #fdba74;text-align:center;font-weight:700;color:#c2410c">${item.qty || 0}</td>
+        <td style="padding:4px 6px;border:1px solid #fdba74">${item.worker || '-'}</td>
+        <td style="padding:4px 6px;border:1px solid #fdba74;color:#78350f">${item.note || '-'}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
 </div>` : ''}
 
 <div class="images-section">
