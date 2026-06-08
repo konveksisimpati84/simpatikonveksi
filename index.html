@@ -2076,7 +2076,7 @@
                                                 <input type="text" className="col-span-3 p-1.5 border border-orange-200 rounded text-xs bg-white" placeholder="jahitan lepas, dll..." value={item.note} onChange={e => { const r=[...(newOrder.revisiItems||[])]; r[idx]={...r[idx],note:e.target.value}; setNewOrder(p=>({...p,revisiItems:r})); }} />
                                                 <div className="col-span-2 flex gap-1 justify-center">
                                                     <button type="button" onClick={() => printStickerRevisi(newOrder.client, newOrder.type, item, showToast)} className="text-orange-700 bg-orange-100 hover:bg-orange-200 border border-orange-300 p-1 rounded text-xs font-bold" title="Cetak Stiker Revisi"><IconPrinter /></button>
-                                                    <button type="button" onClick={() => setNewOrder(p=>({...p,revisiItems:(p.revisiItems||[]).filter((_,i)=>i!==idx)}))} className="col-span-1 text-red-500 hover:text-red-700 font-bold text-sm flex justify-center px-1">&times;</button>
+                                                    <button type="button" onClick={() => setNewOrder(p=>({...p,revisiItems:(p.revisiItems||[]).filter((_,i)=>i!==idx)}))} className="text-red-500 hover:text-red-700 font-bold text-sm flex justify-center px-1">&times;</button>
                                                 </div>
                                             </div>
                                         ))}
