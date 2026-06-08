@@ -5213,10 +5213,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .amount-row:last-child{border:none}.amount-row.total-final{font-size:15px;font-weight:900;color:${ac};padding-top:8px;border-top:2px solid ${ac};margin-top:4px;border-bottom:none}
 .amount-row .label{color:#64748b}.amount-row .val{font-weight:700}
 .footer-section{display:flex;justify-content:space-between;margin-top:auto;padding-top:6mm;border-top:1px solid #e2e8f0;page-break-inside:avoid;break-inside:avoid}
-.sign-box{width:185px}.sign-date{font-size:9.5px;color:#94a3b8;margin-bottom:8px}.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:2px}
-.sign-org{font-size:9.5px;color:#475569;font-style:italic;margin-bottom:0}
-.sign-img{max-height:60px;max-width:130px;object-fit:contain;display:block;margin:6px 0 2px 0}
-.sign-space{height:50px}.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}.sign-name{font-size:11px;font-weight:700;color:${ac}}.sign-sub{font-size:10px;color:#94a3b8}
+.sign-box{text-align:center;width:200px}.sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:12px}
+.sign-img{max-height:85px;max-width:160px;object-fit:contain;display:block;margin:0 auto 10px}
+.sign-space{height:65px}.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}.sign-name{font-size:12px;font-weight:700;color:${ac};text-decoration:underline;text-underline-offset:3px}.sign-sub{font-size:10px;color:#64748b;margin-top:3px}
 @media print{.page{padding:10mm 12mm}}
 </style></head><body><div class="page">
 <div class="header">
@@ -5258,11 +5257,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
     <div class="sign-sub">${isKeluar?'Penerima':'Penyerah'}</div>
   </div>
   <div class="sign-box">
-    <div class="sign-date">${safe(item.date||'-')}</div>
     <div class="sign-title">Hormat Kami,</div>
-    <div class="sign-org">${safe(templates?.companyName||'Simpati Konveksi')}</div>
     ${templates?.signatureImage?`<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>`:'<div class="sign-space"></div>'}
-    <div class="sign-line"></div>
     <div class="sign-name">${safe(templates?.companyName||'Simpati Konveksi')}</div>
     <div class="sign-sub">Administration</div>
   </div>
@@ -5805,15 +5801,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .amount-row .label{color:#64748b}
 .amount-row .val{font-weight:700}
 .footer-section{display:flex;justify-content:flex-end;margin-top:5mm;padding-top:4mm;border-top:1px solid #e2e8f0;page-break-inside:avoid;break-inside:avoid}
-.sign-box{width:210px}
-.sign-date{font-size:9.5px;color:#94a3b8;margin-bottom:8px}
-.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:2px}
-.sign-org{font-size:9.5px;color:#475569;font-style:italic;margin-bottom:0}
-.sign-img{max-height:60px;max-width:140px;object-fit:contain;display:block;margin:6px 0 2px 0}
-.sign-space{height:50px}
+.sign-box{text-align:center;width:210px}
+.sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:12px}
+.sign-img{max-height:85px;max-width:165px;object-fit:contain;display:block;margin:0 auto 10px}
+.sign-space{height:65px}
 .sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}
-.sign-name{font-size:11px;font-weight:700;color:#1e3a5f}
-.sign-sub{font-size:10px;color:#94a3b8}
+.sign-name{font-size:12px;font-weight:700;color:#1e3a5f;text-decoration:underline;text-underline-offset:3px}
+.sign-sub{font-size:10px;color:#64748b;margin-top:3px}
 @media print{.page{padding:10mm 12mm}}
 </style></head><body><div class="page">
 <div class="header">
@@ -5871,11 +5865,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 </div>
 <div class="footer-section">
   <div class="sign-box">
-    <div class="sign-date">${safe(inv.date||'-')}</div>
     <div class="sign-title">Hormat Kami,</div>
-    <div class="sign-org">${safe(templates?.companyName||'Simpati Konveksi')}</div>
     ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
-    <div class="sign-line"></div>
     <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
     <div class="sign-sub">Administration</div>
   </div>
