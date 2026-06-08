@@ -802,7 +802,8 @@
                             marketing: editOrder.marketing,
                             processFlow: { ...getDefaultOrderProcessFlow(), ...(editOrder.processFlow || {}) },
                             productionPrices: { ...getDefaultProductionPrices(), ...(editOrder.productionPrices || {}) },
-                            materialStatus: editOrder.materialStatus || ((editOrder.processFlow || {}).materials === false ? 'Tidak Perlu' : o.materialStatus)
+                            materialStatus: editOrder.materialStatus || ((editOrder.processFlow || {}).materials === false ? 'Tidak Perlu' : o.materialStatus),
+                            revisiItems: editOrder.revisiItems || []
                         };
                     }
                     return o;
