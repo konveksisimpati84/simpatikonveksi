@@ -10196,7 +10196,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 reader.readAsDataURL(file);
             };
 
-            const handleTtdUpload = (e) => {
+          const handleTtdUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
                 const reader = new FileReader();
@@ -10204,14 +10204,18 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const img = new Image();
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        let width = img.width, height = img.height;
-                        if (height > 120) { width = Math.round(width * (120 / height)); height = 120; }
-                        if (width > 300) { height = Math.round(height * (300 / width)); width = 300; }
-                        canvas.width = width; canvas.height = height;
+                        let w = img.width || 1, h = img.height || 1;
+                        const maxW = 320, maxH = 160;
+                        const ratio = Math.min(maxW / w, maxH / h, 1);
+                        w = Math.max(1, Math.round(w * ratio));
+                        h = Math.max(1, Math.round(h * ratio));
+                        canvas.width = w; canvas.height = h;
                         const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, width, height);
+                        ctx.drawImage(img, 0, 0, w, h);
                         setLocalTemplates(prev => ({ ...prev, signatureImage: canvas.toDataURL('image/png') }));
+                        showToast('Gambar TTD berhasil dimuat. Klik Simpan Pengaturan untuk menyimpan.', 'success');
                     };
+                    img.onerror = () => showToast('Gagal memuat gambar. Coba format PNG atau JPG.', 'error');
                     img.src = event.target.result;
                 };
                 reader.readAsDataURL(file);
