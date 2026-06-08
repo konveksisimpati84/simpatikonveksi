@@ -4501,152 +4501,121 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                             const productionTypes = [...new Set(orderGroups.map(group => group.type || '-'))].join(', ');
                             const isExpanded = !!expandedPurchaseKeys[purchaseKey];
 
+                            const accentBar = paymentStatus === 'Lunas' ? 'bg-green-500' : paymentStatus === 'Termin / Bayar Sebagian' ? 'bg-orange-400' : 'bg-red-400';
                             return (
                                 <Card key={`${vendor}-${batchDateKey}`} className="overflow-hidden p-0">
-                                    <div className="p-4 overflow-x-auto">
-                                        <table className="w-full text-sm text-left">
-                                            <thead>
-                                                <tr className="border-b-2 border-gray-200 text-gray-600 bg-gray-50">
-                                                    <th className="p-3 font-semibold">Nomor Nota</th>
-                                                    <th className="p-3 font-semibold">Tanggal</th>
-                                                    <th className="p-3 font-semibold">Vendor</th>
-                                                    <th className="p-3 font-semibold">Instansi / Customer</th>
-                                                    <th className="p-3 font-semibold">Jenis Produksi</th>
-                                                    <th className="p-3 font-semibold text-right">Total Tagihan</th>
-                                                    <th className="p-3 font-semibold text-right">Total Dibayar</th>
-                                                    <th className="p-3 font-semibold text-right">Sisa Pembayaran</th>
-                                                    <th className="p-3 font-semibold text-center">Status Pembayaran</th>
-                                                    <th className="p-3 font-semibold text-center">Aksi</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr className="border-b border-gray-100 align-top">
-                                                    <td className="p-3 font-bold text-blue-700">{noteNumber}</td>
-                                                    <td className="p-3">{formatMaterialBatchDate(batchDateKey)}</td>
-                                                    <td className="p-3 font-bold text-gray-800">{vendor}</td>
-                                                    <td className="p-3 text-gray-700 max-w-xs">{clients}</td>
-                                                    <td className="p-3 text-gray-700 max-w-xs">{productionTypes}</td>
-                                                    <td className="p-3 text-right font-black text-red-600">{formatRupiah(totalEst)}</td>
-                                                    <td className="p-3 text-right font-bold text-green-700">{formatRupiah(paidTotal)}</td>
-                                                    <td className={`p-3 text-right font-black ${remainingTotal <= 0 ? 'text-green-700' : 'text-orange-700'}`}>{formatRupiah(remainingTotal)}</td>
-                                                    <td className="p-3 text-center"><Badge status={paymentStatus} /></td>
-                                                    <td className="p-3">
-                                                        <div className="flex flex-wrap gap-2 justify-center">
-                                                            <button
-                                                                onClick={() => setExpandedPurchaseKeys(prev => ({ ...prev, [purchaseKey]: !prev[purchaseKey] }))}
-                                                                className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg"
-                                                            >
-                                                                {isExpanded ? 'Sembunyikan Rincian' : 'Lihat Rincian'}
-                                                            </button>
-                                                            <button
-                                                                onClick={() => printDaftarBelanjaVendor(vendor, items)}
-                                                                className="text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1"
-                                                            >
-                                                                <IconPrinter /> Cetak Nota
-                                                            </button>
-                                                            <button
-                                                                onClick={() => openDeletePurchaseConfirm(groupedVendor)}
-                                                                className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"
-                                                                title="Hapus nota"
-                                                            >
-                                                                <IconTrash />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                        {isExpanded && (
-                                            <div className="mt-4 space-y-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
-                                                <div className="bg-white border border-orange-200 rounded-lg p-4">
-                                                    <div className="flex flex-col lg:flex-row lg:items-end gap-3">
-                                                        <div className="flex-1">
-                                                            <div className="text-sm font-black text-orange-900 mb-2">Pembayaran Termin Vendor / Nota</div>
-                                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                                                                <input type="date" className="w-full p-2 border rounded text-xs" value={paymentInputs[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]?.date || new Date().toISOString().slice(0, 10)} onChange={e => setPaymentInputs(prev => ({ ...prev, [`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]: { ...(prev[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`] || {}), date: e.target.value } }))} />
-                                                                <input type="number" min="0" className="w-full p-2 border rounded text-xs text-right" placeholder="Nominal bayar vendor" value={paymentInputs[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]?.amount || ''} onChange={e => setPaymentInputs(prev => ({ ...prev, [`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]: { ...(prev[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`] || {}), amount: e.target.value } }))} />
-                                                                <select className="w-full p-2 border rounded text-xs" value={paymentInputs[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]?.method || 'Transfer'} onChange={e => setPaymentInputs(prev => ({ ...prev, [`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]: { ...(prev[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`] || {}), method: e.target.value } }))}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
-                                                                <input type="text" className="w-full p-2 border rounded text-xs" placeholder="Catatan termin vendor" value={paymentInputs[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]?.note || ''} onChange={e => setPaymentInputs(prev => ({ ...prev, [`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]: { ...(prev[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`] || {}), note: e.target.value } }))} />
-                                                            </div>
-                                                        </div>
-                                                        <button onClick={() => addVendorGroupPayment(vendor, batchDateKey, orderGroups)} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold">Tambah Termin Vendor</button>
-                                                    </div>
+                                    {/* Accent bar */}
+                                    <div className={`h-1.5 w-full ${accentBar}`} />
+
+                                    {/* ── HEADER CARD COMPACT ── */}
+                                    <div className="p-4">
+                                        <div className="flex items-start justify-between gap-3 mb-3">
+                                            <div className="min-w-0">
+                                                <div className="font-black text-gray-800 text-sm leading-tight truncate">{noteNumber}</div>
+                                                <div className="text-xs font-semibold text-indigo-700 mt-0.5">{vendor}</div>
+                                                <div className="text-xs text-gray-400 mt-0.5">{formatMaterialBatchDate(batchDateKey)}{clients ? ` · ${clients}` : ''}</div>
+                                                {productionTypes && <div className="text-xs text-gray-400">{productionTypes}</div>}
+                                            </div>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                <Badge status={paymentStatus} />
+                                                <button onClick={() => setExpandedPurchaseKeys(prev => ({ ...prev, [purchaseKey]: !prev[purchaseKey] }))} className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1.5 rounded-lg">
+                                                    {isExpanded ? '▲ Tutup' : '▼ Rincian'}
+                                                </button>
+                                                <button onClick={() => printDaftarBelanjaVendor(vendor, items)} className="text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1">
+                                                    <IconPrinter /> Cetak
+                                                </button>
+                                                <button onClick={() => openDeletePurchaseConfirm(groupedVendor)} className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg" title="Hapus nota">
+                                                    <IconTrash />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {/* 3 key numbers */}
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <div className="bg-red-50 border border-red-100 rounded-lg px-3 py-2 text-center">
+                                                <div className="text-xs text-red-400 font-semibold mb-0.5">Total Tagihan</div>
+                                                <div className="font-black text-red-600 text-sm">{formatRupiah(totalEst)}</div>
+                                            </div>
+                                            <div className="bg-green-50 border border-green-100 rounded-lg px-3 py-2 text-center">
+                                                <div className="text-xs text-green-500 font-semibold mb-0.5">Dibayar</div>
+                                                <div className="font-black text-green-700 text-sm">{formatRupiah(paidTotal)}</div>
+                                            </div>
+                                            <div className={`border rounded-lg px-3 py-2 text-center ${remainingTotal <= 0 ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
+                                                <div className={`text-xs font-semibold mb-0.5 ${remainingTotal <= 0 ? 'text-green-500' : 'text-orange-400'}`}>Sisa</div>
+                                                <div className={`font-black text-sm ${remainingTotal <= 0 ? 'text-green-700' : 'text-orange-600'}`}>{formatRupiah(remainingTotal)}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* ── EXPANDED SECTION ── */}
+                                    {isExpanded && (
+                                        <div className="border-t border-gray-100 bg-gray-50 p-4 space-y-3">
+                                            {/* Form bayar termin */}
+                                            <div className="bg-white border border-orange-200 rounded-xl p-3">
+                                                <div className="text-xs font-black text-orange-800 mb-2">Tambah Termin Pembayaran Vendor</div>
+                                                <div className="flex flex-col lg:flex-row gap-2">
+                                                    <input type="date" className="p-2 border rounded text-xs" value={paymentInputs[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]?.date || new Date().toISOString().slice(0, 10)} onChange={e => setPaymentInputs(prev => ({ ...prev, [`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]: { ...(prev[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`] || {}), date: e.target.value } }))} />
+                                                    <input type="number" min="0" className="p-2 border rounded text-xs text-right flex-1" placeholder="Nominal bayar" value={paymentInputs[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]?.amount || ''} onChange={e => setPaymentInputs(prev => ({ ...prev, [`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]: { ...(prev[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`] || {}), amount: e.target.value } }))} />
+                                                    <select className="p-2 border rounded text-xs" value={paymentInputs[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]?.method || 'Transfer'} onChange={e => setPaymentInputs(prev => ({ ...prev, [`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]: { ...(prev[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`] || {}), method: e.target.value } }))}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
+                                                    <input type="text" className="p-2 border rounded text-xs flex-1" placeholder="Catatan" value={paymentInputs[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]?.note || ''} onChange={e => setPaymentInputs(prev => ({ ...prev, [`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`]: { ...(prev[`${getMaterialBatchKey(vendor, batchDateKey)}__GROUP`] || {}), note: e.target.value } }))} />
+                                                    <button onClick={() => addVendorGroupPayment(vendor, batchDateKey, orderGroups)} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0">Simpan Bayar</button>
                                                 </div>
-                                                {orderGroups.map(group => {
-                                                    const order = group.order;
-                                                    const batchPaymentKey = getMaterialBatchKey(vendor, batchDateKey);
-                                                    const paymentKey = `${batchPaymentKey}__${group.orderId}`;
-                                                    const payments = order ? getVendorPayments(order, vendor, batchDateKey) : [];
-                                                    return (
-                                                        <div key={group.orderId} className="bg-white border border-gray-200 rounded-lg p-3">
-                                                            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-3">
-                                                                <div className="flex gap-3">
-                                                                    <div className="w-16 h-14 rounded border border-gray-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
-                                                                        {group.designImage1 ? <img src={group.designImage1} className="w-full h-full object-cover" /> : <IconImage />}
-                                                                    </div>
-                                                                    <div>
-                                                                        <div className="font-bold text-blue-600">{group.orderId}</div>
-                                                                        <div className="text-xs font-semibold text-gray-700">{group.type || '-'}</div>
-                                                                        <div className="text-xs text-gray-500">{group.client}</div>
-                                                                    </div>
+                                            </div>
+
+                                            {/* Per-order sub-cards — compact */}
+                                            {orderGroups.map(group => {
+                                                const order = group.order;
+                                                const payments = order ? getVendorPayments(order, vendor, batchDateKey) : [];
+                                                const groupSubtotal = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                                return (
+                                                    <div key={group.orderId} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                                                        {/* Order header strip */}
+                                                        <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border-b border-indigo-100">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-9 h-9 rounded-lg border border-indigo-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
+                                                                    {group.designImage1 ? <img src={group.designImage1} className="w-full h-full object-cover" /> : <IconImage />}
                                                                 </div>
-                                                                <button
-                                                                    onClick={() => order && openMaterialModal(order)}
-                                                                    className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg"
-                                                                >
-                                                                    Edit
-                                                                </button>
+                                                                <div>
+                                                                    <span className="font-black text-indigo-700 text-xs">{group.orderId}</span>
+                                                                    <span className="text-xs text-gray-500 ml-2">{group.type || '-'} · {group.client || '-'}</span>
+                                                                </div>
                                                             </div>
-                                                            <div className="overflow-x-auto">
-                                                                <table className="w-full text-xs text-left">
-                                                                    <thead>
-                                                                        <tr className="border-b border-gray-200 text-gray-500">
-                                                                            <th className="py-2 pr-2">Bahan</th>
-                                                                            <th className="py-2 pr-2">Qty</th>
-                                                                            <th className="py-2 pr-2">Unit</th>
-                                                                            <th className="py-2 pr-2 text-right">Harga</th>
-                                                                            <th className="py-2 pr-2 text-right">Subtotal</th>
-                                                                            <th className="py-2 pr-2">Catatan</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {group.items.map((item, itemIdx) => (
-                                                                            <tr key={item.id || itemIdx} className="border-b border-gray-100">
-                                                                                <td className="py-2 pr-2 font-bold text-gray-700">{item.name}</td>
-                                                                                <td className="py-2 pr-2">{item.qty || '-'}</td>
-                                                                                <td className="py-2 pr-2">{item.unit || '-'}</td>
-                                                                                <td className="py-2 pr-2 text-right">{formatRupiah(item.price || 0)}</td>
-                                                                                <td className="py-2 pr-2 text-right font-bold text-red-600">{formatRupiah(getMaterialLineTotal(item))}</td>
-                                                                                <td className="py-2 pr-2">{item.note || '-'}</td>
-                                                                            </tr>
-                                                                        ))}
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-4">
-                                                                <div className="bg-green-50 border border-green-100 rounded-lg p-3 text-xs">
-                                                                    <div className="font-black text-green-800 mb-2">Termin Pembayaran</div>
-                                                                    {payments.length > 0 ? (
-                                                                        <div className="space-y-2">
-                                                                            {payments.map((pay, payIdx) => (
-                                                                                <div key={pay.id || payIdx} className="flex items-start justify-between gap-2 bg-white border border-green-100 rounded p-2">
-                                                                                    <span><span className="font-bold">Termin {payIdx + 1}:</span> {formatRupiah(pay.amount || 0)} ({pay.method || '-'}) {pay.date ? `- ${pay.date}` : ''} {pay.note ? `- ${pay.note}` : ''}</span>
-                                                                                    <span className="flex gap-2 shrink-0">
-                                                                                        <button onClick={() => editVendorPayment(group.orderId, vendor, batchDateKey, pay)} className="text-blue-600 font-bold">Edit</button>
-                                                                                        <button onClick={() => deleteVendorPayment(group.orderId, vendor, batchDateKey, pay.id)} className="text-red-600 font-bold">Hapus</button>
-                                                                                    </span>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : <div className="text-gray-500 italic">Belum ada termin pembayaran.</div>}
-                                                                </div>
-                                                                <div className="bg-orange-50 border border-orange-100 rounded-lg p-3 text-xs text-orange-800 font-bold">
-                                                                    Pembayaran termin dicatat satu kali di level vendor/nota melalui panel "Pembayaran Termin Vendor" di atas rincian ini.
-                                                                </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-bold text-xs text-indigo-700">{formatRupiah(groupSubtotal)}</span>
+                                                                <button onClick={() => order && openMaterialModal(order)} className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg">Edit</button>
                                                             </div>
                                                         </div>
-                                                    );
-                                                })}
+                                                        {/* Item rows — compact nota style */}
+                                                        <div className="px-3 py-2 divide-y divide-gray-50">
+                                                            {group.items.map((item, ii) => (
+                                                                <div key={item.id || ii} className="flex items-center justify-between py-1.5 gap-2 text-xs">
+                                                                    <div className="min-w-0">
+                                                                        <span className="font-semibold text-gray-800">{item.name}</span>
+                                                                        {item.spec && <span className="text-gray-400"> · {item.spec}</span>}
+                                                                        {item.note && <span className="text-gray-400 italic"> ({item.note})</span>}
+                                                                    </div>
+                                                                    <div className="text-gray-500 shrink-0">{item.qty} {item.unit} × {formatRupiah(item.price || 0)}</div>
+                                                                    <div className="font-bold text-red-600 shrink-0">{formatRupiah(getMaterialLineTotal(item))}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {/* Payment history — compact */}
+                                                        {payments.length > 0 && (
+                                                            <div className="px-3 py-2 bg-green-50 border-t border-green-100 space-y-1">
+                                                                {payments.map((pay, pi) => (
+                                                                    <div key={pay.id || pi} className="flex items-center justify-between text-xs gap-2">
+                                                                        <span className="text-green-700"><span className="font-bold">Termin {pi+1}:</span> {pay.date} · {pay.method}{pay.note ? ` · ${pay.note}` : ''}</span>
+                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                            <span className="font-bold text-green-700">{formatRupiah(pay.amount || 0)}</span>
+                                                                            <button onClick={() => editVendorPayment(group.orderId, vendor, batchDateKey, pay)} className="text-blue-600 font-bold">Edit</button>
+                                                                            <button onClick={() => deleteVendorPayment(group.orderId, vendor, batchDateKey, pay.id)} className="text-red-500 font-bold">Hapus</button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
 
                                                 {/* ── SECTION BAHAN MANUAL ── */}
                                                 <div className="bg-white border border-blue-200 rounded-lg p-3">
@@ -4684,41 +4653,25 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                     )}
 
                                                     {manualItems.length > 0 ? (
-                                                        <div className="overflow-x-auto">
-                                                            <table className="w-full text-xs text-left">
-                                                                <thead>
-                                                                    <tr className="border-b border-blue-100 text-gray-500">
-                                                                        <th className="py-2 pr-2">Bahan</th>
-                                                                        <th className="py-2 pr-2">Spec</th>
-                                                                        <th className="py-2 pr-2">Qty</th>
-                                                                        <th className="py-2 pr-2">Unit</th>
-                                                                        <th className="py-2 pr-2 text-right">Harga</th>
-                                                                        <th className="py-2 pr-2 text-right">Subtotal</th>
-                                                                        <th className="py-2 pr-2">Catatan</th>
-                                                                        <th className="py-2"></th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    {manualItems.map((item, idx) => (
-                                                                        <tr key={item.id || idx} className="border-b border-blue-50">
-                                                                            <td className="py-2 pr-2 font-bold text-blue-700">{item.name}</td>
-                                                                            <td className="py-2 pr-2 text-gray-500">{item.spec || '-'}</td>
-                                                                            <td className="py-2 pr-2">{item.qty || '-'}</td>
-                                                                            <td className="py-2 pr-2">{item.unit || '-'}</td>
-                                                                            <td className="py-2 pr-2 text-right">{formatRupiah(item.price || 0)}</td>
-                                                                            <td className="py-2 pr-2 text-right font-bold text-red-600">{formatRupiah(getMaterialLineTotal(item))}</td>
-                                                                            <td className="py-2 pr-2 text-gray-500">{item.note || '-'}</td>
-                                                                            <td className="py-2 flex gap-2 shrink-0">
-                                                                                <button onClick={() => { setEditManualId(item.id); setManualFormRow({ name: item.name || '', spec: item.spec || '', qty: item.qty || '', unit: item.unit || 'Meter', price: item.price || '', note: item.note || '', purchaseStatus: item.purchaseStatus || 'Sudah Dibeli' }); setManualFormOpen(purchaseKey); }} className="text-blue-600 font-bold">Edit</button>
-                                                                                <button onClick={() => deleteManualPurchase(item.id)} className="text-red-600 font-bold">Hapus</button>
-                                                                            </td>
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
+                                                        <div className="divide-y divide-blue-50">
+                                                            {manualItems.map((item, idx) => (
+                                                                <div key={item.id || idx} className="flex items-center justify-between py-1.5 gap-2 text-xs">
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <span className="font-semibold text-blue-700">{item.name}</span>
+                                                                        {item.spec && <span className="text-gray-400"> · {item.spec}</span>}
+                                                                        {item.note && <span className="text-gray-400 italic"> ({item.note})</span>}
+                                                                    </div>
+                                                                    <div className="text-gray-500 shrink-0">{item.qty} {item.unit} × {formatRupiah(item.price || 0)}</div>
+                                                                    <div className="font-bold text-red-600 shrink-0">{formatRupiah(getMaterialLineTotal(item))}</div>
+                                                                    <div className="flex gap-2 shrink-0">
+                                                                        <button onClick={() => { setEditManualId(item.id); setManualFormRow({ name: item.name || '', spec: item.spec || '', qty: item.qty || '', unit: item.unit || 'Meter', price: item.price || '', note: item.note || '', purchaseStatus: item.purchaseStatus || 'Sudah Dibeli' }); setManualFormOpen(purchaseKey); }} className="text-blue-600 font-bold">Edit</button>
+                                                                        <button onClick={() => deleteManualPurchase(item.id)} className="text-red-500 font-bold">Hapus</button>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
                                                         </div>
                                                     ) : (
-                                                        <div className="text-xs text-gray-400 italic py-2">Belum ada bahan manual untuk nota ini. Klik "+ Tambah Bahan Manual" untuk menambahkan.</div>
+                                                        <div className="text-xs text-gray-400 italic py-2">Belum ada bahan manual. Klik "+ Tambah Bahan Manual" untuk menambahkan.</div>
                                                     )}
 
                                                     {manualItems.length > 0 && (
@@ -4748,7 +4701,6 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                 </div>
                                             </div>
                                         )}
-                                    </div>
                                 </Card>
                             )
                         })}
