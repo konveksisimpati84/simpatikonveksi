@@ -82,6 +82,7 @@
         const initialTemplates = {
             companyName: 'SIMPATI KONVEKSI',
             companyLogo: '',
+            signatureImage: '',
             companySubtitle: 'Sistem Manajemen Produksi',
             companyContact: 'Telp: 0812-3456-7890',
             suratJalanNote: '*Mohon diperiksa kembali. Barang yang sudah diterima dengan baik tidak dapat dikembalikan.',
@@ -5212,7 +5213,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .amount-row:last-child{border:none}.amount-row.total-final{font-size:15px;font-weight:900;color:${ac};padding-top:8px;border-top:2px solid ${ac};margin-top:4px;border-bottom:none}
 .amount-row .label{color:#64748b}.amount-row .val{font-weight:700}
 .footer-section{display:flex;justify-content:space-between;margin-top:auto;padding-top:6mm;border-top:1px solid #e2e8f0;page-break-inside:avoid;break-inside:avoid}
-.sign-box{text-align:center;width:180px}.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:38px}
+.sign-box{text-align:center;width:180px}.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px}
+.sign-img{max-height:65px;max-width:160px;object-fit:contain;display:block;margin:0 auto 4px}
 .sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}.sign-name{font-size:11px;font-weight:700;color:${ac}}.sign-sub{font-size:10px;color:#94a3b8}
 @media print{.page{padding:10mm 12mm}}
 </style></head><body><div class="page">
@@ -5248,7 +5250,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 </div>
 <div class="footer-section">
   <div class="sign-box"><div class="sign-title">${isKeluar?'Yang Menerima,':'Yang Menyerahkan,'}</div><div class="sign-line"></div><div class="sign-name">( ........................ )</div><div class="sign-sub">${isKeluar?'Penerima':'Penyerah'}</div></div>
-  <div class="sign-box"><div class="sign-title">Hormat Kami,</div><div class="sign-line"></div><div class="sign-name">${safe(templates?.companyName||'Simpati Konveksi')}</div><div class="sign-sub">Administration</div></div>
+  <div class="sign-box"><div class="sign-title">Hormat Kami,</div>${templates?.signatureImage?`<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>`:'<div style="height:55px"></div>'}<div class="sign-line"></div><div class="sign-name">${safe(templates?.companyName||'Simpati Konveksi')}</div><div class="sign-sub">Administration</div></div>
 </div>
 </div></body></html>`;
                 const w = window.open('', '_blank');
@@ -5789,7 +5791,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .amount-row .val{font-weight:700}
 .footer-section{display:flex;justify-content:flex-end;margin-top:5mm;padding-top:4mm;border-top:1px solid #e2e8f0;page-break-inside:avoid;break-inside:avoid}
 .sign-box{text-align:center;width:200px}
-.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:38px}
+.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px}
+.sign-img{max-height:65px;max-width:180px;object-fit:contain;display:block;margin:0 auto 4px}
 .sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}
 .sign-name{font-size:11px;font-weight:700;color:#1e3a5f}
 .sign-sub{font-size:10px;color:#94a3b8}
@@ -5851,6 +5854,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 <div class="footer-section">
   <div class="sign-box">
     <div class="sign-title">Dibuat oleh,</div>
+    ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div style="height:55px"></div>'}
     <div class="sign-line"></div>
     <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
     <div class="sign-sub">Administration</div>
@@ -10192,6 +10196,27 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 reader.readAsDataURL(file);
             };
 
+            const handleTtdUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width, height = img.height;
+                        if (height > 120) { width = Math.round(width * (120 / height)); height = 120; }
+                        if (width > 300) { height = Math.round(height * (300 / width)); width = 300; }
+                        canvas.width = width; canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        setLocalTemplates(prev => ({ ...prev, signatureImage: canvas.toDataURL('image/png') }));
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            };
+
             const handleSubmit = (e) => {
                 e.preventDefault();
                 setTemplates(prev => ({...prev, ...localTemplates}));
@@ -10238,6 +10263,19 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="md:col-span-2"><label className="block text-sm mb-1">Catatan Bawah (Opsional)</label><input type="text" name="spkNote" className="w-full p-2 border rounded" value={localTemplates.spkNote || ''} onChange={handleChange} /></div>
                                 <div className="md:col-span-2"><label className="block text-sm mb-1">Nama Direktur</label><input type="text" name="spkDirectorName" className="w-full p-2 border rounded" value={localTemplates.spkDirectorName || ''} onChange={handleChange} placeholder="Masukkan nama direktur" /></div>
+                            </div>
+                        </Card>
+                        <Card>
+                            <h3 className="font-bold border-b pb-2 mb-4">Tanda Tangan / Stempel</h3>
+                            <p className="text-xs text-gray-500 mb-3">Gambar ini akan muncul di area TTD &quot;Hormat Kami&quot; pada cetak Invoice dan Bukti Transaksi. Gunakan PNG transparan untuk hasil terbaik.</p>
+                            <div className="flex items-center gap-4">
+                                {localTemplates.signatureImage
+                                    ? <img src={localTemplates.signatureImage} className="h-20 border rounded p-1 bg-gray-50" alt="TTD" />
+                                    : <div className="w-32 h-20 border border-dashed flex items-center justify-center text-xs text-gray-400 rounded">Belum ada</div>}
+                                <div className="space-y-2">
+                                    <input type="file" accept="image/*" onChange={handleTtdUpload} className="text-sm border p-1 rounded" />
+                                    {localTemplates.signatureImage && <button type="button" onClick={() => setLocalTemplates(prev => ({ ...prev, signatureImage: '' }))} className="block text-red-500 border p-1 text-sm rounded">Hapus Gambar</button>}
+                                </div>
                             </div>
                         </Card>
                         <button type="submit" className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold float-right">Simpan Pengaturan</button>
