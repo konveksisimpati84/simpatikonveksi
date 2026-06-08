@@ -874,7 +874,12 @@
                                         <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                                             <td className="p-3 text-sm font-medium text-blue-600">{order.id}</td>
                                             <td className="p-3 text-sm text-gray-800">{order.client}</td>
-                                            <td className="p-3 text-sm text-gray-600">{order.type} ({order.total} pcs)</td>
+                                            <td className="p-3 text-sm text-gray-600">
+                                                {order.type} ({order.total} pcs)
+                                                {parseInt(order.revisiQty) > 0 && (
+                                                    <span className="ml-1 inline-flex items-center bg-orange-100 text-orange-700 text-xs font-bold px-1.5 py-0.5 rounded" title={order.revisiNote || ''}>⚠ {order.revisiQty} pcs revisi</span>
+                                                )}
+                                            </td>
                                             <td className="p-3"><Badge status={order.status} /></td>
                                             <td className="p-3 text-sm text-gray-600">{order.deadline}</td>
                                             <td className="p-3 text-center flex justify-center space-x-2">
@@ -1005,6 +1010,20 @@
                                         <textarea rows="3" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.notes} onChange={e => setEditOrder({...editOrder, notes: e.target.value})}></textarea>
                                     </div>
 
+                                    <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+                                        <label className="block text-sm font-semibold text-orange-900 mb-3">Revisi / Barang Rusak (Opsional)</label>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-orange-800 mb-1">Jumlah Pcs Revisi</label>
+                                                <input type="number" min="0" className="w-full p-2 border border-orange-200 rounded-lg focus:ring-orange-400 bg-white" placeholder="0" value={editOrder.revisiQty || ''} onChange={e => setEditOrder({...editOrder, revisiQty: e.target.value})} />
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold text-orange-800 mb-1">Keterangan Kerusakan</label>
+                                                <input type="text" className="w-full p-2 border border-orange-200 rounded-lg focus:ring-orange-400 bg-white" placeholder="Contoh: jahitan lepas, sablon blobor, dll..." value={editOrder.revisiNote || ''} onChange={e => setEditOrder({...editOrder, revisiNote: e.target.value})} />
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div className="flex justify-end space-x-3 pt-4 border-t">
                                         <button type="button" onClick={() => setEditOrder(null)} className="px-5 py-2 font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Batal</button>
                                         <button type="submit" className="px-5 py-2 font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors">Simpan Perubahan</button>
@@ -1130,6 +1149,12 @@
                                     <p className={`mt-2 text-sm italic border-l-2 pl-2 py-0.5 ${isDark ? 'border-slate-500 text-slate-400' : 'border-gray-300 text-gray-500'}`}>
                                         "{order.notes}"
                                     </p>
+                                )}
+                                {parseInt(order.revisiQty) > 0 && (
+                                    <div className="mt-2 inline-flex items-center gap-1.5 bg-orange-100 border border-orange-300 text-orange-800 text-xs font-bold px-2.5 py-1 rounded-full">
+                                        <span>⚠ Revisi: {order.revisiQty} pcs</span>
+                                        {order.revisiNote && <span className="font-normal">— {order.revisiNote}</span>}
+                                    </div>
                                 )}
                             </div>
 
@@ -1958,6 +1983,20 @@
                                 <textarea rows="3" className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500" placeholder="Detail desain, warna sablon, bordir, dll..." value={newOrder.notes} onChange={e => setNewOrder({...newOrder, notes: e.target.value})}></textarea>
                             </div>
 
+                            <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+                                <label className="block text-sm font-semibold text-orange-900 mb-3">Revisi / Barang Rusak (Opsional)</label>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-bold text-orange-800 mb-1">Jumlah Pcs Revisi</label>
+                                        <input type="number" min="0" className="w-full p-2 border border-orange-200 rounded-lg focus:ring-orange-400 bg-white" placeholder="0" value={newOrder.revisiQty || ''} onChange={e => setNewOrder({...newOrder, revisiQty: e.target.value})} />
+                                    </div>
+                                    <div className="md:col-span-2">
+                                        <label className="block text-xs font-bold text-orange-800 mb-1">Keterangan Kerusakan</label>
+                                        <input type="text" className="w-full p-2 border border-orange-200 rounded-lg focus:ring-orange-400 bg-white" placeholder="Contoh: jahitan lepas, sablon blobor, dll..." value={newOrder.revisiNote || ''} onChange={e => setNewOrder({...newOrder, revisiNote: e.target.value})} />
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="flex justify-end pt-4">
                                 <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-bold text-lg shadow-md transition-colors">Simpan Order Masuk</button>
                             </div>
@@ -2351,6 +2390,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <div class="lbl">Catatan Tambahan &amp; Spesifikasi</div>
   <div style="font-size:13px;white-space:pre-wrap;margin-top:4px;color:#374151">${order.notes || '- Tidak ada catatan -'}</div>
 </div>
+
+${parseInt(order.revisiQty) > 0 ? `
+<div class="notes-box" style="border-left:4px solid #f97316;background:#fff7ed;margin-top:6px">
+  <div class="lbl" style="color:#c2410c">⚠ Revisi / Barang Rusak</div>
+  <div style="font-size:13px;margin-top:4px;color:#9a3412">
+    <strong>${order.revisiQty} pcs</strong> dikembalikan untuk diperbaiki.
+    ${order.revisiNote ? `<br/>Keterangan: ${order.revisiNote}` : ''}
+  </div>
+</div>` : ''}
 
 <div class="images-section">
   ${(order.designImage1 || order.designImage2) ? imagesHtml : ''}
