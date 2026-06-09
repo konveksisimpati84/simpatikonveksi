@@ -5202,7 +5202,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const visibleExpenses = (expenses || []).filter(isVisibleRecord).filter(item => {
                 if (typeFilter !== 'Semua' && item.type !== typeFilter) return false;
                 if (payStatusFilter !== 'Semua' && getExpenseStatus(item) !== payStatusFilter) return false;
-                return matchesSearch([item.date, item.type, item.category, item.amount, item.method, item.party, item.note], searchTerm);
+                return matchesSearch([item.date, item.type, item.category, item.amount, item.method, item.party, item.note, ...(item.items || []).map(it => it.desc), ...(item.items || []).map(it => it.unit)], searchTerm);
             }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
             const totalIn = visibleExpenses.filter(item => item.type === 'Uang Masuk').reduce((sum, item) => sum + safeMoney(item.amount), 0);
             const totalOut = visibleExpenses.filter(item => item.type === 'Uang Keluar').reduce((sum, item) => sum + safeMoney(item.amount), 0);
