@@ -1389,7 +1389,7 @@
 
         const KaryawanView = ({ employees, setEmployees, showToast }) => {
             const [showForm, setShowForm] = useState(false);
-            const [newEmp, setNewEmp] = useState({ name: '', division: 'Cutting', phone: '', status: 'Aktif', salaryType: 'Produksi', dailySalary: '' });
+            const [newEmp, setNewEmp] = useState({ name: '', division: 'Cutting', phone: '', status: 'Aktif', salaryTypes: ['Produksi'], dailySalary: '' });
             
             const [editEmp, setEditEmp] = useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -1419,7 +1419,7 @@
                 const now = new Date().toISOString();
                 setEmployees(prev => [...(prev||[]), { ...newEmp, id: genId('EMP-'), _syncUpdatedAt: now }]);
                 setShowForm(false);
-                setNewEmp({ name: '', division: 'Cutting', phone: '', status: 'Aktif', salaryType: 'Produksi', dailySalary: '' });
+                setNewEmp({ name: '', division: 'Cutting', phone: '', status: 'Aktif', salaryTypes: ['Produksi'], dailySalary: '' });
                 showToast("Karyawan ditambahkan!", "success");
             };
 
@@ -1597,9 +1597,9 @@
                                 </div>
                                 <div><label className="block text-sm mb-1 font-semibold">No HP</label><input type="text" className="w-full p-2 border rounded" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Status</label><select className="w-full p-2 border rounded" value={newEmp.status} onChange={e => setNewEmp({...newEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
-                                <div><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><select className="w-full p-2 border rounded" value={newEmp.salaryType} onChange={e => setNewEmp({...newEmp, salaryType: e.target.value})}><option>Produksi</option><option>Harian</option><option>Marketing</option><option>Campuran</option></select></div>
+                                <div className="md:col-span-2"><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(newEmp.salaryTypes||['Produksi']).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(newEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setNewEmp({...newEmp, salaryTypes: (newEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(newEmp.salaryTypes||['Produksi']).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setNewEmp({...newEmp, salaryTypes: [...(newEmp.salaryTypes||['Produksi']), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(newEmp.salaryTypes||['Produksi']).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
                                 <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={newEmp.dailySalary} onChange={e => setNewEmp({...newEmp, dailySalary: e.target.value})} /></div>
-                                {(newEmp.division === 'Marketing' || newEmp.salaryType === 'Marketing' || newEmp.salaryType === 'Campuran') && (
+                                {((newEmp.salaryTypes||['Produksi']).includes('Marketing') || newEmp.division === 'Marketing') && (
                                   <div className="md:col-span-2 bg-purple-50 border border-purple-200 rounded-lg p-4">
                                     <div className="text-sm font-bold text-purple-800 mb-3">Pengaturan Komisi Marketing</div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1642,7 +1642,7 @@
                                         <tr key={emp.id} className="border-b hover:bg-gray-50 transition-colors">
                                             <td className="p-3 text-sm font-medium text-gray-800">{emp.name}</td>
                                             <td className="p-3 text-sm text-gray-600">{emp.division}</td>
-                                            <td className="p-3 text-sm text-gray-600">{emp.salaryType || 'Produksi'}</td>
+                                            <td className="p-3 text-sm text-gray-600">{getEmployeeSalaryTypes(emp).join(', ')}</td>
                                             <td className="p-3 text-sm font-bold text-green-700">{totalUnrekapedSalary > 0 ? formatRupiah(totalUnrekapedSalary) : <span className="text-gray-400 font-normal">-</span>}</td>
                                             <td className="p-3 text-sm">
                                                 <div className="font-bold text-red-700">{formatRupiah(kasbonSummary.remaining)}</div>
@@ -1653,7 +1653,7 @@
                                                 <div className="flex justify-center flex-wrap gap-2">
                                                     <button onClick={() => openCashAdvanceModal(emp)} className="text-orange-600 hover:text-orange-800 bg-orange-50 px-2 py-1.5 rounded text-xs font-bold" title="Kasbon Karyawan">Kasbon</button>
                                                     <button onClick={() => openDailySalaryModal(emp)} className="text-green-700 hover:text-green-900 bg-green-50 px-2 py-1.5 rounded text-xs font-bold" title="Gaji Harian">Gaji Harian</button>
-                                                    <button onClick={() => setEditEmp({...emp, status: emp.status || 'Aktif'})} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-1.5 rounded" title="Edit Karyawan"><IconEdit /></button>
+                                                    <button onClick={() => setEditEmp({...emp, status: emp.status || 'Aktif', salaryTypes: getEmployeeSalaryTypes(emp)})} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-1.5 rounded" title="Edit Karyawan"><IconEdit /></button>
                                                     <button onClick={() => setDeleteConfirmId(emp.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded" title="Hapus Karyawan"><IconTrash /></button>
                                                 </div>
                                             </td>
@@ -1816,8 +1816,8 @@
                                     </div>
                                     <div><label className="block text-sm mb-1 font-semibold">Nomor HP</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.phone} onChange={e => setEditEmp({...editEmp, phone: e.target.value})} /></div>
                                     <div><label className="block text-sm mb-1 font-semibold">Status Pekerja</label><select className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.status} onChange={e => setEditEmp({...editEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
-                                    <div><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><select className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.salaryType || 'Produksi'} onChange={e => setEditEmp({...editEmp, salaryType: e.target.value})}><option>Produksi</option><option>Harian</option><option>Marketing</option><option>Campuran</option></select></div>
-                                    {(editEmp.division === 'Marketing' || editEmp.salaryType === 'Marketing' || editEmp.salaryType === 'Campuran') && (
+                                    <div className="md:col-span-2"><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(editEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setEditEmp({...editEmp, salaryTypes: (editEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, salaryTypes: [...(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
+                                    {((editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes('Marketing') || editEmp.division === 'Marketing') && (
                                       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                                         <div className="text-sm font-bold text-purple-800 mb-3">Pengaturan Komisi Marketing</div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
