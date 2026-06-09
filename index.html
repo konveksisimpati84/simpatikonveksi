@@ -7992,6 +7992,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 { id: 'laba-rugi', label: 'Laporan L/R' },
                 { id: 'buku-kas', label: 'Buku Kas' },
                 { id: 'detail', label: 'Detail' },
+                { id: 'komisi-marketing', label: 'Komisi Marketing' },
             ];
 
             return (
@@ -8451,6 +8452,69 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             </div>
                         </>
                     )}
+
+
+                    {activeFinanceTab === 'komisi-marketing' && (() => {
+                        const safeInvForComm = (Array.isArray(invoices) ? invoices : []).filter(inv => !inv.isDeleted);
+                        const filtered = safeInvForComm.filter(inv => {
+                            if (!inv.marketing) return false;
+                            if (getInvoiceCommissionTotal(inv) <= 0) return false;
+                            if (period && inv.date && !inv.date.startsWith(period)) return false;
+                            return true;
+                        });
+                        const commByMarketing = Object.values(filtered.reduce((acc, inv) => {
+                            const key = inv.marketing;
+                            if (!acc[key]) acc[key] = { marketing: key, invoices: [], totalSales: 0, totalCommission: 0 };
+                            acc[key].invoices.push(inv);
+                            acc[key].totalSales += getInvoiceTotals(inv).total;
+                            acc[key].totalCommission += getInvoiceCommissionTotal(inv);
+                            return acc;
+                        }, {})).sort((a, b) => b.totalCommission - a.totalCommission);
+                        const grandTotalComm = commByMarketing.reduce((sum, row) => sum + row.totalCommission, 0);
+                        return (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <Card><h3 className="text-xs font-bold text-gray-500">Total Marketing</h3><p className="text-xl font-black">{commByMarketing.length}</p></Card>
+                                    <Card><h3 className="text-xs font-bold text-gray-500">Total Invoice Berkomisi</h3><p className="text-xl font-black">{filtered.length}</p></Card>
+                                    <Card><h3 className="text-xs font-bold text-gray-500">Total Komisi</h3><p className="text-xl font-black text-purple-700">{formatRupiah(grandTotalComm)}</p></Card>
+                                </div>
+                                {commByMarketing.map(row => (
+                                    <Card key={row.marketing}>
+                                        <div className="flex justify-between items-center mb-3">
+                                            <div>
+                                                <h3 className="font-bold text-lg text-gray-800">{row.marketing}</h3>
+                                                <p className="text-xs text-gray-500">{row.invoices.length} invoice · Total Penjualan: {formatRupiah(row.totalSales)}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xs text-gray-500">Total Komisi</div>
+                                                <div className="text-lg font-black text-purple-700">{formatRupiah(row.totalCommission)}</div>
+                                            </div>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-purple-50"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Invoice ID</th><th className="p-2 text-left">Klien</th><th className="p-2 text-right">Nilai Invoice</th><th className="p-2 text-right">Tipe Komisi</th><th className="p-2 text-right">Nilai Komisi</th><th className="p-2 text-right">Nominal Komisi</th></tr></thead>
+                                                <tbody>
+                                                    {row.invoices.sort((a,b) => String(b.date||'').localeCompare(String(a.date||''))).map(inv => (
+                                                        <tr key={inv.id} className="border-t">
+                                                            <td className="p-2">{inv.date || '-'}</td>
+                                                            <td className="p-2 font-bold text-blue-700">{inv.id}</td>
+                                                            <td className="p-2">{inv.customer || '-'}</td>
+                                                            <td className="p-2 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td>
+                                                            <td className="p-2 text-right">{inv.commissionType || 'Persen'}</td>
+                                                            <td className="p-2 text-right">{String(inv.commissionType||'').toLowerCase() === 'rupiah' ? formatRupiah(inv.commissionValue || 0) : `${inv.commissionValue || 0}%`}</td>
+                                                            <td className="p-2 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td>
+                                                        </tr>
+                                                    ))}
+                                                    <tr className="bg-purple-50 font-bold border-t-2"><td colSpan="6" className="p-2 text-right">Total Komisi {row.marketing}</td><td className="p-2 text-right text-purple-800">{formatRupiah(row.totalCommission)}</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </Card>
+                                ))}
+                                {commByMarketing.length === 0 && <Card className="p-8 text-center text-gray-500 italic border-dashed border-2">{period ? `Tidak ada data komisi marketing untuk periode ${period}.` : 'Belum ada data komisi marketing.'}</Card>}
+                            </div>
+                        );
+                    })()}
                 </div>
             );
         };
@@ -9176,7 +9240,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     <div className="flex gap-4 border-b border-gray-200 pb-2">
                         <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Input / Laporan Kinerja</button>
                         <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
-                        <button onClick={() => setActiveReportTab('komisi')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'komisi' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Komisi Marketing</button>
+                        
                     </div>
                     <Card>
                         <div className="flex flex-col sm:flex-row gap-3">
@@ -9534,62 +9598,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         </div>
                     </div>
                     ) : null}
-
-                    {activeReportTab === 'komisi' && (() => {
-                        const allInvoicesForComm = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => inv.marketing && getInvoiceCommissionTotal(inv) > 0);
-                        const commByMarketing = Object.values(allInvoicesForComm.reduce((acc, inv) => {
-                            const key = inv.marketing;
-                            if (!acc[key]) acc[key] = { marketing: key, invoices: [], totalSales: 0, totalCommission: 0 };
-                            acc[key].invoices.push(inv);
-                            acc[key].totalSales += getInvoiceTotals(inv).total;
-                            acc[key].totalCommission += getInvoiceCommissionTotal(inv);
-                            return acc;
-                        }, {})).sort((a, b) => b.totalCommission - a.totalCommission);
-                        const grandTotalComm = commByMarketing.reduce((sum, row) => sum + row.totalCommission, 0);
-                        return (
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <Card><h3 className="text-xs font-bold text-gray-500">Total Marketing</h3><p className="text-xl font-black">{commByMarketing.length}</p></Card>
-                                    <Card><h3 className="text-xs font-bold text-gray-500">Total Invoice</h3><p className="text-xl font-black">{allInvoicesForComm.length}</p></Card>
-                                    <Card><h3 className="text-xs font-bold text-gray-500">Total Komisi</h3><p className="text-xl font-black text-purple-700">{formatRupiah(grandTotalComm)}</p></Card>
-                                </div>
-                                {commByMarketing.map(row => (
-                                    <Card key={row.marketing}>
-                                        <div className="flex justify-between items-center mb-3">
-                                            <div>
-                                                <h3 className="font-bold text-lg text-gray-800">{row.marketing}</h3>
-                                                <p className="text-xs text-gray-500">{row.invoices.length} invoice · Total Penjualan: {formatRupiah(row.totalSales)}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="text-xs text-gray-500">Total Komisi</div>
-                                                <div className="text-lg font-black text-purple-700">{formatRupiah(row.totalCommission)}</div>
-                                            </div>
-                                        </div>
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-sm">
-                                                <thead className="bg-purple-50"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Invoice ID</th><th className="p-2 text-left">Klien</th><th className="p-2 text-right">Nilai Invoice</th><th className="p-2 text-right">Tipe Komisi</th><th className="p-2 text-right">Nilai Komisi</th><th className="p-2 text-right">Nominal Komisi</th></tr></thead>
-                                                <tbody>
-                                                    {row.invoices.sort((a,b) => String(b.date||'').localeCompare(String(a.date||''))).map(inv => (
-                                                        <tr key={inv.id} className="border-t">
-                                                            <td className="p-2">{inv.date || '-'}</td>
-                                                            <td className="p-2 font-bold text-blue-700">{inv.id}</td>
-                                                            <td className="p-2">{inv.customer || '-'}</td>
-                                                            <td className="p-2 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td>
-                                                            <td className="p-2 text-right">{inv.commissionType || 'Persen'}</td>
-                                                            <td className="p-2 text-right">{inv.commissionType === 'Nominal' || String(inv.commissionType||'').toLowerCase() === 'rupiah' ? formatRupiah(inv.commissionValue || 0) : `${inv.commissionValue || 0}%`}</td>
-                                                            <td className="p-2 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td>
-                                                        </tr>
-                                                    ))}
-                                                    <tr className="bg-purple-50 font-bold border-t-2"><td colSpan="6" className="p-2 text-right">Total Komisi {row.marketing}</td><td className="p-2 text-right text-purple-800">{formatRupiah(row.totalCommission)}</td></tr>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </Card>
-                                ))}
-                                {commByMarketing.length === 0 && <Card className="p-8 text-center text-gray-500 italic border-dashed border-2">Belum ada data komisi marketing. Pastikan invoice memiliki nama marketing dan karyawan marketing sudah diatur komisinya.</Card>}
-                            </div>
-                        );
-                    })()}
 
                     {selectionConfirm && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
