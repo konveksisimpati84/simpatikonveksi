@@ -9435,7 +9435,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             </Card>
                         )}
                     </div>
-                    ) : (
+                    ) : activeReportTab === 'rekap' ? (
                     <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                             <Card><h3 className="text-xs font-bold text-gray-500">Total Karyawan Direkap</h3><p className="text-xl font-black text-blue-700">{rekapSummary.employees}</p></Card>
@@ -9533,7 +9533,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             </table>
                         </div>
                     </div>
-                    )}
+                    ) : null}
 
                     {activeReportTab === 'komisi' && (() => {
                         const allInvoicesForComm = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => inv.marketing && getInvoiceCommissionTotal(inv) > 0);
