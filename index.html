@@ -775,6 +775,34 @@
                 }
             };
 
+            const duplicateOrder = (order) => {
+                const allOrds = orders || [];
+                let maxIdNum = 0;
+                allOrds.forEach(o => {
+                    if (o.id) {
+                        const match = String(o.id).match(/ORD-(\d+)/);
+                        if (match) { const num = parseInt(match[1], 10); if (!isNaN(num) && num > maxIdNum) maxIdNum = num; }
+                    }
+                });
+                let nextNum = maxIdNum + 1;
+                let newId = `ORD-${String(nextNum).padStart(3, '0')}`;
+                while (allOrds.some(o => o.id === newId)) { nextNum++; newId = `ORD-${String(nextNum).padStart(3, '0')}`; }
+                const today = new Date().toISOString().split('T')[0];
+                const now = new Date().toISOString();
+                const duped = {
+                    ...order,
+                    id: newId,
+                    date: today,
+                    status: 'Pending',
+                    isArchived: false,
+                    isDeleted: false,
+                    _syncUpdatedAt: now,
+                    progress: Object.fromEntries(Object.entries(order.progress || {}).map(([k, v]) => [k, { ...v, status: 'Belum', workLogs: [] }])),
+                    materialStatus: (order.processFlow || {}).materials === false ? 'Tidak Perlu' : 'Belum',
+                };
+                setOrders(prev => [duped, ...(prev || [])]);
+                showToast(`Order ${newId} berhasil dibuat sebagai duplikat dari ${order.id}`, 'success');
+            };
             const openEditModal = (order) => {
                 setEditOrder({
                     ...order,
@@ -944,6 +972,7 @@
                                                 <button onClick={() => openEditModal(order)} className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-md transition-colors" title="Edit Order">
                                                     <IconEdit />
                                                 </button>
+                                                <button onClick={() => duplicateOrder(order)} className="text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-2 py-1.5 rounded-md transition-colors text-xs font-bold" title="Duplikat Order">Duplikat</button>
                                                 <button onClick={() => setDeleteConfirmId(order.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-md transition-colors" title="Hapus Order">
                                                     <IconTrash />
                                                 </button>
