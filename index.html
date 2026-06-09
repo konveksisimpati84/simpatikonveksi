@@ -6688,6 +6688,104 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             if (w) { w.document.open(); w.document.write(content); w.document.close(); w.focus(); setTimeout(() => w.print(), 300); }
         };
 
+        const printSertifikat = (investor, tmpl) => {
+            const safe = (v) => String(v ?? '-').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+            const today = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+            const tglMulai = investor.tanggalMulai ? new Date(investor.tanggalMulai).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) : '-';
+            const invType = investor.bagiHasilType || 'per_pcs';
+            const tarifLabel = invType === 'persen' ? `${investor.bagiHasilPersen || 0}% dari Total Invoice` : `${formatRupiah(investor.bagiHasilPerPcs)} / pcs`;
+            const tarifSub = invType === 'persen' ? 'Persentase per invoice' : 'Per unit produksi';
+            const statusLabel = investor.isLunas ? 'Lunas ✦' : 'Aktif ✦';
+            const logoHtml = (tmpl||{}).companyLogo
+                ? `<img src="${(tmpl||{}).companyLogo}" style="height:28px;max-width:90px;object-fit:contain"/>`
+                : `<div class="banner-icon">SK</div>`;
+            const coNm = safe((tmpl||{}).companyName || 'SIMPATI KONVEKSI');
+            const coSub = safe((tmpl||{}).companySubtitle || 'Konveksi Profesional');
+            const signHtml = (tmpl||{}).signatureImage
+                ? `<img src="${(tmpl||{}).signatureImage}" style="max-height:28px;max-width:100px;object-fit:contain;display:block;margin:0 auto"/>`
+                : '';
+            const printContent = `<!DOCTYPE html><html><head><title>Sertifikat Investasi - ${safe(investor.name)}</title><style>
+@page{size:A4 landscape;margin:0}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,Helvetica,sans-serif;background:#fffef8;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.sheet{width:297mm;height:210mm;background:#fffef8;position:relative;overflow:hidden}
+.bg-gradient{position:absolute;inset:0;background:radial-gradient(ellipse at 15% 50%,rgba(184,150,12,0.06) 0%,transparent 55%),radial-gradient(ellipse at 85% 50%,rgba(30,58,95,0.06) 0%,transparent 55%),radial-gradient(ellipse at 50% 100%,rgba(184,150,12,0.04) 0%,transparent 50%);z-index:0}
+.guilloche{position:absolute;inset:0;z-index:1;opacity:0.4;background-image:repeating-radial-gradient(circle at 0% 0%,transparent 0,transparent 8px,rgba(184,150,12,0.08) 8px,rgba(184,150,12,0.08) 9px),repeating-radial-gradient(circle at 100% 100%,transparent 0,transparent 8px,rgba(30,58,95,0.06) 8px,rgba(30,58,95,0.06) 9px)}
+.border-outer{position:absolute;inset:6mm;border:3px solid #b8960c;z-index:5;pointer-events:none}
+.border-inner{position:absolute;inset:9mm;border:0.75px solid rgba(184,150,12,0.5);z-index:5;pointer-events:none}
+.corner{position:absolute;width:18mm;height:18mm;border-color:#b8960c;border-style:solid;z-index:6}
+.c-tl{top:5mm;left:5mm;border-width:3px 0 0 3px}.c-tr{top:5mm;right:5mm;border-width:3px 3px 0 0}.c-bl{bottom:5mm;left:5mm;border-width:0 0 3px 3px}.c-br{bottom:5mm;right:5mm;border-width:0 3px 3px 0}
+.watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:56px;font-weight:900;color:rgba(30,58,95,0.04);letter-spacing:6px;text-transform:uppercase;transform:rotate(-28deg);pointer-events:none;z-index:2;white-space:nowrap;font-family:Arial}
+.content{position:absolute;inset:12mm;z-index:7;display:flex;flex-direction:column}
+.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #b8960c;padding-bottom:4mm;margin-bottom:3.5mm}
+.brand{display:flex;align-items:center;gap:8px}
+.banner-icon{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#1e3a5f,#2d5a8e);display:flex;align-items:center;justify-content:center;color:#b8960c;font-size:13px;font-weight:900;border:1.5px solid #b8960c}
+.brand-text .bn{font-size:15px;font-weight:900;color:#1e3a5f;letter-spacing:0.5px}
+.brand-text .bs{font-size:8px;color:#92680a;letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+.doc-right{text-align:right}
+.doc-right .title-main{font-size:24px;font-weight:900;color:#1e3a5f;letter-spacing:4px;text-transform:uppercase;line-height:1}
+.doc-right .title-sub{font-size:9px;letter-spacing:3px;color:#b8960c;font-weight:700;margin-top:3px;text-transform:uppercase}
+.doc-right .cert-no{font-size:9px;color:#94a3b8;margin-top:4px;font-family:'Courier New',monospace}
+.ribbon{height:2px;background:linear-gradient(90deg,transparent,#b8960c,#e8c547,#b8960c,transparent);margin-bottom:4mm}
+.certify-line{text-align:center;font-size:9px;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;margin-bottom:2.5mm}
+.investor-name{text-align:center;font-size:34px;font-weight:900;color:#1e3a5f;letter-spacing:2px;line-height:1;text-shadow:0 1px 0 rgba(184,150,12,0.2)}
+.name-deco{display:flex;align-items:center;justify-content:center;gap:3mm;margin:2mm 0 4mm}
+.nd-line{height:1px;width:35mm;background:linear-gradient(90deg,transparent,#b8960c)}
+.nd-line.r{background:linear-gradient(90deg,#b8960c,transparent)}
+.nd-dia{width:6px;height:6px;background:#b8960c;transform:rotate(45deg);flex-shrink:0}
+.details{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm;margin-bottom:3mm}
+.detail-box{border:1px solid #d4a017;border-radius:3px;padding:3mm 4mm;text-align:center;background:linear-gradient(135deg,rgba(184,150,12,0.06),rgba(255,255,255,0.8));position:relative}
+.detail-box::before{content:'';position:absolute;top:-1px;left:20%;right:20%;height:2px;background:linear-gradient(90deg,transparent,#b8960c,transparent)}
+.dl{font-size:7.5px;font-weight:700;letter-spacing:1.5px;color:#92680a;text-transform:uppercase;margin-bottom:2px}
+.dv{font-size:14px;font-weight:900;color:#1e3a5f;line-height:1.2}
+.ds{font-size:7.5px;color:#64748b;margin-top:2px}
+.clause-box{background:linear-gradient(135deg,rgba(30,58,95,0.03),rgba(184,150,12,0.03));border:1px dashed rgba(184,150,12,0.4);border-radius:3px;padding:2.5mm 4mm;text-align:center;font-size:8px;color:#64748b;line-height:1.7;margin-bottom:3mm}
+.footer{display:flex;justify-content:space-between;align-items:flex-end;margin-top:auto}
+.seal-wrap{display:flex;align-items:flex-end;gap:4mm}
+.seal{width:58px;height:58px;border-radius:50%;border:2.5px solid #b8960c;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:6.5px;font-weight:700;color:#b8960c;text-align:center;line-height:1.3;background:radial-gradient(circle,rgba(184,150,12,0.08),rgba(255,253,240,0.9));letter-spacing:0.5px;position:relative}
+.seal::before{content:'';position:absolute;inset:3.5px;border-radius:50%;border:0.75px dashed rgba(184,150,12,0.5)}
+.seal-star{font-size:11px;margin-bottom:1px}
+.seal-info .si1{font-size:8px;color:#64748b}.seal-info .si2{font-size:10px;color:#1e3a5f;font-weight:700}
+.sign-box{text-align:center}
+.sign-img-area{height:30px;width:130px;margin:0 auto;border-bottom:1.5px solid #1e3a5f;display:flex;align-items:flex-end;justify-content:center;margin-bottom:3px}
+.sign-name{font-size:11px;font-weight:900;color:#1e3a5f;letter-spacing:0.5px}
+.sign-sub{font-size:8px;color:#64748b;margin-top:1px}
+</style></head><body><div class="sheet">
+<div class="bg-gradient"></div><div class="guilloche"></div>
+<div class="border-outer"></div><div class="border-inner"></div>
+<div class="corner c-tl"></div><div class="corner c-tr"></div><div class="corner c-bl"></div><div class="corner c-br"></div>
+<div class="watermark">${coNm}</div>
+<div class="content">
+<div class="header">
+  <div class="brand">${logoHtml}<div class="brand-text"><div class="bn">${coNm}</div><div class="bs">${coSub}</div></div></div>
+  <div class="doc-right"><div class="title-main">Sertifikat</div><div class="title-sub">Investasi</div><div class="cert-no">No: ${safe(investor.id)}</div></div>
+</div>
+<div class="ribbon"></div>
+<div class="certify-line">✦ &nbsp; Dengan ini menyatakan bahwa &nbsp; ✦</div>
+<div class="investor-name">${safe(investor.name)}</div>
+<div class="name-deco"><div class="nd-line"></div><div class="nd-dia"></div><div class="nd-line r"></div></div>
+<div class="details">
+  <div class="detail-box"><div class="dl">Modal Investasi</div><div class="dv">${formatRupiah(investor.modalMasuk)}</div><div class="ds">${safe(terbilangRupiah(safeMoney(investor.modalMasuk)))}</div></div>
+  <div class="detail-box"><div class="dl">Skema Bagi Hasil</div><div class="dv">${safe(tarifLabel)}</div><div class="ds">${safe(tarifSub)}</div></div>
+  <div class="detail-box"><div class="dl">Tanggal Investasi</div><div class="dv">${safe(tglMulai)}</div><div class="ds">Status: ${safe(statusLabel)}</div></div>
+</div>
+<div class="clause-box">Telah menanamkan modal pada <strong>${coNm}</strong> sesuai perjanjian yang telah disepakati bersama.${investor.catatan ? ` <em>"${safe(investor.catatan)}"</em>` : ''}<br/>Bagi hasil dihitung dan dibayarkan berdasarkan skema di atas untuk setiap produksi yang telah diselesaikan.</div>
+<div class="footer">
+  <div class="seal-wrap">
+    <div class="seal"><div class="seal-star">✦</div>${coNm.split(' ').map(w=>w[0]).join('')}<br/>RESMI</div>
+    <div class="seal-info"><div class="si1">Diterbitkan pada</div><div class="si2">${today}</div></div>
+  </div>
+  <div class="sign-box">
+    <div class="sign-img-area">${signHtml}</div>
+    <div class="sign-name">${coNm}</div>
+    <div class="sign-sub">Pimpinan / Direktur</div>
+  </div>
+</div>
+</div>
+</div></body></html>`;
+            const w = window.open('', '_blank');
+            if (!w) return showToast('Gagal mencetak. Harap izinkan Pop-up!', 'error');
+            w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+        };
+
         const InvestorView = ({ investors, setInvestors, investorBagiHasil, setInvestorBagiHasil, invoices, showToast, templates }) => {
             const safeInvestors = safeArray(investors).filter(isVisibleRecord);
             const safeBagiHasil = safeArray(investorBagiHasil).filter(isVisibleRecord);
@@ -6865,7 +6963,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                         ? <button onClick={() => setLunasConfirm({ id: investor.id, lunas: true, kewajiban: totalKewajiban })} className="text-xs font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 px-2.5 py-1.5 rounded-lg">Tandai Lunas</button>
                                                         : <button onClick={() => tandaiLunas(investor.id, false)} className="text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200 px-2.5 py-1.5 rounded-lg">Batalkan Lunas</button>
                                                     }
-                                                    <button onClick={() => printLaporanInvestor(investor, records, templates)} className="text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1"><IconPrinter /> Cetak</button>
+                                                    <button onClick={() => printLaporanInvestor(investor, records, templates)} className="text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1"><IconPrinter /> Cetak</button><button onClick={() => printSertifikat(investor, templates)} className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded-lg">&#9733; Sertifikat</button>
                                                     <button onClick={() => { const t = getOrCreateShareToken(investor.id); setShareModal({ investor, token: t }); }} className="text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2.5 py-1.5 rounded-lg">🔗 Bagikan</button>
                                                     <button onClick={() => { setEditId(investor.id); setForm({ name:investor.name, modalMasuk:String(investor.modalMasuk), bagiHasilType:investor.bagiHasilType||'per_pcs', bagiHasilPerPcs:String(investor.bagiHasilPerPcs||''), bagiHasilPersen:String(investor.bagiHasilPersen||''), tanggalMulai:investor.tanggalMulai||'', catatan:investor.catatan||'' }); setShowForm(true); }} className="text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg"><IconEdit /></button>
                                                     <button onClick={() => setDeleteConfirm(investor.id)} className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"><IconTrash /></button>
