@@ -8392,11 +8392,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <div class="meta-row"><span class="meta-label">ID Rekap</span><span class="meta-value">${data.id}</span></div>
                         </div>
 
-                        ${sectionRows('Komisi Marketing', marketingRows)}
-                        ${sectionRows('Gaji Produksi', productionRows)}
-                        ${sectionRows('Gaji Harian', dailyRows)}
-                        ${sectionRows('Lembur', overtimeRows)}
-                        ${sectionRows('Potongan - Kasbon', [`<div class="item-row"><span><b>Bayar kasbon sekarang</b><small>Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</small></span><span>${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>`])}
+                        ${marketingRows.length > 0 ? sectionRows('Komisi Marketing', marketingRows) : ''}
+                        ${productionRows.length > 0 ? sectionRows('Gaji Produksi', productionRows) : ''}
+                        ${dailyRows.length > 0 ? sectionRows('Gaji Harian', dailyRows) : ''}
+                        ${overtimeRows.length > 0 ? sectionRows('Lembur', overtimeRows) : ''}
+                        ${safeMoney(data.cashAdvanceDeduction) > 0 ? sectionRows('Potongan - Kasbon', [`<div class="item-row"><span><b>Bayar kasbon sekarang</b><small>Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</small></span><span>${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>`]) : ''}
 
                         <div class="total-box">
                             <div class="total-row"><span>Total Pendapatan</span><span class="font-bold">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
