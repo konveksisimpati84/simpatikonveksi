@@ -5803,6 +5803,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [payInvId, setPayInvId] = useState(null);
             const [payForm, setPayForm] = useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
             const [mktShareModal, setMktShareModal] = useState(null);
+            const [activeInvoiceTab, setActiveInvoiceTab] = useState('invoice');
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
@@ -6132,6 +6133,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         </div>
                     </div>
 
+                    {/* Tab Nav */}
+                    <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                        <button onClick={() => setActiveInvoiceTab('invoice')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'invoice' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Daftar Invoice</button>
+                        <button onClick={() => setActiveInvoiceTab('marketing')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'marketing' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Laporan Marketing</button>
+                    </div>
+
+                    {activeInvoiceTab === 'invoice' && <>
                     {/* ── FORM CARD ── */}
                     <div className="rounded-2xl overflow-hidden shadow-md border border-gray-100">
                         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center gap-3">
@@ -6367,7 +6375,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <Paginator page={invPage} setPage={setInvPage} totalPages={invTotalPages} total={invTotal} pageSize={20} label="invoice" />
                         </div>
                     </div>
+                    </>
+                    }
+                    {activeInvoiceTab === 'marketing' && 
                     <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Marketing</h3><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-center">Share Link</th></tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing + (row.isSubMarketing ? ' sub' : '')} className="border-t"><td className="p-3 font-bold">{row.marketing}{row.isSubMarketing && <span className="ml-1 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">Sub</span>}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-center">{!row.isSubMarketing && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td></tr>); })}</tbody></table></div></Card>
+                    }
                 </div>
                 {payInvId && (() => {
                     const inv = safeInvoiceRows.find(i => String(i.id) === String(payInvId));
