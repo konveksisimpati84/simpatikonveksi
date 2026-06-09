@@ -433,6 +433,13 @@
             try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
         };
 
+        const getMarketingShareTokenFromHash = () => {
+            const hash = window.location.hash || '';
+            const prefix = '#marketing-share=';
+            if (!hash.startsWith(prefix)) return '';
+            try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
+        };
+
         const SearchField = ({ value, onChange, placeholder = "Cari data..." }) => (
             <div className="print:hidden">
                 <label className="block text-xs font-bold text-gray-600 mb-1">Cari</label>
@@ -5581,8 +5588,29 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         <Card><form onSubmit={saveInvoice} className="grid grid-cols-1 md:grid-cols-2 gap-3"><input type="date" className="p-2 border rounded" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}/><input className="p-2 border rounded" placeholder="Nama instansi/customer" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} required/><input className="p-2 border rounded md:col-span-2" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/><input className="p-2 border rounded" placeholder="Jenis produksi" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}/><input className="p-2 border rounded" placeholder="Size" value={form.size} onChange={e => setForm({ ...form, size: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Qty" value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Harga per pcs" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })}/><input list="marketing-list-invoice" className="p-2 border rounded" placeholder="Nama marketing" value={form.marketing} onChange={e => setForm({ ...form, marketing: e.target.value })}/><datalist id="marketing-list-invoice">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist><input type="number" className="p-2 border rounded text-right" placeholder="Diskon per pcs" value={form.discountPerPcs} onChange={e => setForm({ ...form, discountPerPcs: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Diskon persen" value={form.discountPercent} onChange={e => setForm({ ...form, discountPercent: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Pembayaran awal/termin" value={form.paymentAmount} onChange={e => setForm({ ...form, paymentAmount: e.target.value })}/><select className="p-2 border rounded" value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select><select className="p-2 border rounded" value={form.commissionType} onChange={e => setForm({ ...form, commissionType: e.target.value })}><option>Persen</option><option>Rupiah</option></select><input type="number" className="p-2 border rounded text-right" placeholder="Komisi marketing" value={form.commissionValue} onChange={e => setForm({ ...form, commissionValue: e.target.value })}/><input className="p-2 border rounded md:col-span-2" placeholder="Catatan invoice" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/><div className="md:col-span-2 bg-blue-50 border border-blue-100 rounded p-3 text-sm">Subtotal: <b>{formatRupiah(invoiceTotal(form).subtotal)}</b> | Diskon: <b>{formatRupiah(invoiceTotal(form).discount)}</b> | Total: <b>{formatRupiah(invoiceTotal(form).total)}</b></div><div className="md:col-span-2 flex justify-end gap-2"><button type="button" onClick={() => { setForm(emptyInvoice); setEditId(null); }} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editId ? 'Simpan Edit' : 'Buat Invoice'}</button></div></form></Card>
                         <Card><div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari customer, marketing, jenis, status..." /><select className="p-3 border rounded-lg mt-5" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>Semua</option><option>Belum Dibayar</option><option>Termin</option><option>Lunas</option></select></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">Invoice</th><th className="p-2 text-left">Customer</th><th className="p-2 text-right">Total</th><th className="p-2 text-center">Status</th><th className="p-2 text-center">Aksi</th></tr></thead><tbody>{visibleInvoices.map(inv => { const calc = invoiceTotal(inv); return <React.Fragment key={inv.id}><tr className="border-t"><td className="p-2 font-bold text-blue-700">{inv.id}<div className="text-xs text-gray-500">{inv.date}</div></td><td className="p-2">{inv.customer}<div className="text-xs text-gray-500">{inv.marketing || '-'}</div></td><td className="p-2 text-right font-black">{formatRupiah(calc.total)}</td><td className="p-2 text-center"><Badge status={inv.paymentStatus}/></td><td className="p-2"><div className="flex justify-center flex-wrap gap-1"><button onClick={() => setExpandedIds(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))} className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">{expandedIds[inv.id] ? 'Sembunyikan Rincian' : 'Lihat Rincian'}</button><button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, paymentAmount: '' }); }} className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">Edit</button><button onClick={() => printInvoice(inv)} className="text-xs bg-gray-50 text-slate-700 px-2 py-1 rounded">Cetak</button><button onClick={() => setDeleteConfirmId(inv.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>{expandedIds[inv.id] && <tr className="bg-gray-50"><td colSpan="5" className="p-3 text-xs">Jenis: <b>{inv.type}</b> | Size: {inv.size} | Qty: {inv.qty} | Dibayar: <b>{formatRupiah(paidTotal(inv))}</b> | Sisa: <b>{formatRupiah(Math.max(0, calc.total - paidTotal(inv)))}</b><br/>Catatan: {inv.note || '-'}</td></tr>}</React.Fragment>})}{visibleInvoices.length === 0 && <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada invoice.</td></tr>}</tbody></table></div></Card>
                     </div>
-                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Komisi Marketing</h3><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-right">Total Komisi</th><th className="p-3 text-center">Status</th></tr></thead><tbody>{commissionRows.map(row => <tr key={row.marketing + (row.isSubMarketing?' sub':'')} className="border-t"><td className="p-3 font-bold">{row.marketing}{row.isSubMarketing && <span className="ml-1 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">Sub</span>}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-black text-purple-700">{formatRupiah(row.commission)}</td><td className="p-3 text-center"><Badge status="Belum Dibayar" /></td></tr>)}</tbody></table></div></Card>
+                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Komisi Marketing</h3><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-right">Total Komisi</th><th className="p-3 text-center">Status</th><th className="p-3 text-center">Share Link</th></tr></thead><tbody>{commissionRows.map(row => { const emp = (safeEmployeeRows || []).find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return <tr key={row.marketing + (row.isSubMarketing?' sub':'')} className="border-t"><td className="p-3 font-bold">{row.marketing}{row.isSubMarketing && <span className="ml-1 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">Sub</span>}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-black text-purple-700">{formatRupiah(row.commission)}</td><td className="p-3 text-center"><Badge status="Belum Dibayar" /></td><td className="p-3 text-center">{!row.isSubMarketing && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td></tr>; })}</tbody></table></div></Card>
                 </div>
+                {mktShareModal && (() => {
+                    const shareUrl = `${window.location.origin}${window.location.pathname}#marketing-share=${encodeURIComponent(mktShareModal.token)}`;
+                    return (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+                                <h3 className="font-black text-gray-800 text-lg mb-1">Share Link Marketing</h3>
+                                <p className="text-sm text-gray-500 mb-4">{mktShareModal.marketing}</p>
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 break-all text-xs text-gray-600">{shareUrl}</div>
+                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                    <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
+                                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Halo, berikut link laporan invoice Anda:\n' + shareUrl)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
+                                </div>
+                                <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang punya link ini dapat melihat data invoice marketing ini.</p>
+                                <div className="flex justify-between items-center">
+                                    <button onClick={() => { revokeMktToken(mktShareModal.marketing); setMktShareModal(null); showToast('Akses link dicabut', 'success'); }} className="text-xs text-red-500 hover:text-red-700 font-medium">Cabut Akses Link</button>
+                                    <button onClick={() => setMktShareModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Tutup</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
                 {deleteConfirmId && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                         <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
@@ -5748,7 +5776,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             );
         };
 
-        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, showToast, templates }) => {
+        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates }) => {
             const newSize = () => ({ id: `SIZE-${Date.now()}-${Math.random()}`, size: '', qty: '', pricePerPcs: '', discountPerPcs: '', discountPercent: '' });
             const newItem = () => ({ id: `ITEM-${Date.now()}-${Math.random()}`, productionType: '', sizes: [newSize()] });
             const emptyInvoice = {
@@ -5774,6 +5802,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [deleteInvConfirmId, setDeleteInvConfirmId] = useState(null);
             const [payInvId, setPayInvId] = useState(null);
             const [payForm, setPayForm] = useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
+            const [mktShareModal, setMktShareModal] = useState(null);
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
@@ -5861,6 +5890,19 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 showToast('Pembayaran berhasil dicatat.', 'success');
                 setPayInvId(null);
                 setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
+            };
+            const getOrCreateMktToken = (empName) => {
+                const emp = (employees || []).find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(empName).toLowerCase().trim());
+                if (!emp) return null;
+                if (emp.marketingShareToken) return emp.marketingShareToken;
+                const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+                if (setEmployees) setEmployees(prev => (Array.isArray(prev) ? prev : []).map(e => String(e.id) === String(emp.id) ? { ...e, marketingShareToken: token, _syncUpdatedAt: new Date().toISOString() } : e));
+                return token;
+            };
+            const revokeMktToken = (empName) => {
+                const emp = (employees || []).find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(empName).toLowerCase().trim());
+                if (!emp || !setEmployees) return;
+                setEmployees(prev => (Array.isArray(prev) ? prev : []).map(e => String(e.id) === String(emp.id) ? { ...e, marketingShareToken: null, _syncUpdatedAt: new Date().toISOString() } : e));
             };
             const printInvoice = (inv) => {
                 const safe = (value) => String(value ?? '-').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -6701,6 +6743,178 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <p>Data diperbarui otomatis setiap 5 menit</p>
                             {lastUpdate && <p>Terakhir diperbarui: {lastUpdate.toLocaleTimeString('id-ID')}</p>}
                             <button onClick={fetchData} className="text-indigo-500 hover:text-indigo-700 font-bold mt-1">↻ Perbarui Sekarang</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const MarketingPublicView = ({ token }) => {
+            const [marketing, setMarketing] = useState(null);
+            const [invList, setInvList] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState('');
+            const [statusFilter, setStatusFilter] = useState('Semua');
+            const [lastUpdate, setLastUpdate] = useState(null);
+            const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
+
+            const fetchData = React.useCallback(async () => {
+                setLoading(true);
+                try {
+                    let empList = [];
+                    let rawInvoices = [];
+                    if (supabaseClient) {
+                        const [empRes, invRes] = await Promise.all([
+                            supabaseClient.from('app_data').select('data').eq('id', 'employees').single(),
+                            supabaseClient.from('app_data').select('data').eq('id', 'invoices').single()
+                        ]);
+                        empList = empRes.data?.data || [];
+                        rawInvoices = invRes.data?.data || [];
+                    }
+                    const found = empList.find(emp => !emp.isDeleted && emp.marketingShareToken === token);
+                    if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
+                    setMarketing(found);
+                    const normalize = (s) => String(s || '').toLowerCase().trim();
+                    const myInvoices = (rawInvoices || []).filter(inv => !inv.isDeleted && normalize(inv.marketing) === normalize(found.name));
+                    setInvList(myInvoices);
+                    setLastUpdate(new Date());
+                } catch (err) {
+                    setError('Gagal memuat data. Silakan refresh halaman.');
+                }
+                setLoading(false);
+            }, [token]);
+
+            React.useEffect(() => {
+                fetchData();
+                const interval = setInterval(fetchData, 5 * 60 * 1000);
+                return () => clearInterval(interval);
+            }, [fetchData]);
+
+            if (loading) return (
+                <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-green-50 to-slate-100">
+                    <div className="text-center">
+                        <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="text-gray-600 font-medium">Memuat laporan invoice...</p>
+                    </div>
+                </div>
+            );
+            if (error) return (
+                <div className="flex items-center justify-center min-h-screen bg-gray-50">
+                    <div className="text-center bg-white rounded-xl p-8 shadow max-w-sm">
+                        <div className="text-5xl mb-4">⚠️</div>
+                        <p className="text-gray-700 font-bold">{error}</p>
+                    </div>
+                </div>
+            );
+            if (!marketing) return null;
+
+            const getPayStatus = (inv) => {
+                if (!inv) return 'Belum Dibayar';
+                return inv.paymentStatus || 'Belum Dibayar';
+            };
+            const getTotal = (inv) => {
+                if (inv.invoiceItems && Array.isArray(inv.invoiceItems)) {
+                    return inv.invoiceItems.reduce((sum, item) => {
+                        if (!Array.isArray(item.sizes)) return sum;
+                        return sum + item.sizes.reduce((s2, sz) => {
+                            const qty = parseFloat(sz.qty) || 0;
+                            const price = parseFloat(sz.pricePerPcs) || 0;
+                            const discPcs = parseFloat(sz.discountPerPcs) || 0;
+                            const discPct = parseFloat(sz.discountPercent) || 0;
+                            const sub = qty * price;
+                            const disc = qty * discPcs + sub * discPct / 100;
+                            return s2 + Math.max(0, sub - disc);
+                        }, 0);
+                    }, 0);
+                }
+                const sub = (parseFloat(inv.qty) || 0) * (parseFloat(inv.price) || 0);
+                const disc = (parseFloat(inv.discountPerPcs) || 0) * (parseFloat(inv.qty) || 0) + sub * (parseFloat(inv.discountPercent) || 0) / 100;
+                return Math.max(0, sub - disc);
+            };
+
+            const filtered = statusFilter === 'Semua' ? invList : invList.filter(inv => getPayStatus(inv) === statusFilter);
+            const totalAll = invList.reduce((s, inv) => s + getTotal(inv), 0);
+            const countBelum = invList.filter(inv => getPayStatus(inv) === 'Belum Dibayar').length;
+            const totalBelum = invList.filter(inv => getPayStatus(inv) === 'Belum Dibayar').reduce((s, inv) => s + getTotal(inv), 0);
+            const countTermin = invList.filter(inv => getPayStatus(inv) === 'Termin').length;
+            const totalTermin = invList.filter(inv => getPayStatus(inv) === 'Termin').reduce((s, inv) => s + getTotal(inv), 0);
+            const countLunas = invList.filter(inv => getPayStatus(inv) === 'Lunas').length;
+            const totalLunas = invList.filter(inv => getPayStatus(inv) === 'Lunas').reduce((s, inv) => s + getTotal(inv), 0);
+
+            const statusColor = (s) => s === 'Lunas' ? 'bg-green-100 text-green-800' : s === 'Termin' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800';
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-green-50 to-slate-100 p-4">
+                    <div className="max-w-3xl mx-auto space-y-4">
+                        <div className="bg-white rounded-2xl shadow-sm border border-green-100 p-6">
+                            <div className="text-xs font-bold text-green-600 uppercase tracking-wider mb-2">Laporan Invoice Marketing — Simpati Konveksi</div>
+                            <h1 className="text-2xl font-black text-gray-800">{marketing.name}</h1>
+                            <p className="text-sm text-gray-500 mt-1">{marketing.division || 'Marketing'} &bull; {invList.length} invoice</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="bg-white rounded-xl p-4 text-center border border-gray-100 shadow-sm">
+                                <div className="text-xs text-gray-500 font-bold mb-1">Total</div>
+                                <div className="font-black text-gray-800 text-sm">{fmtRp(totalAll)}</div>
+                                <div className="text-xs text-gray-400">{invList.length} inv</div>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 text-center border border-red-100 shadow-sm">
+                                <div className="text-xs text-red-600 font-bold mb-1">Belum Bayar</div>
+                                <div className="font-black text-red-700 text-sm">{fmtRp(totalBelum)}</div>
+                                <div className="text-xs text-gray-400">{countBelum} inv</div>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 text-center border border-yellow-100 shadow-sm">
+                                <div className="text-xs text-yellow-600 font-bold mb-1">Termin</div>
+                                <div className="font-black text-yellow-700 text-sm">{fmtRp(totalTermin)}</div>
+                                <div className="text-xs text-gray-400">{countTermin} inv</div>
+                            </div>
+                            <div className="bg-white rounded-xl p-4 text-center border border-green-100 shadow-sm">
+                                <div className="text-xs text-green-600 font-bold mb-1">Lunas</div>
+                                <div className="font-black text-green-700 text-sm">{fmtRp(totalLunas)}</div>
+                                <div className="text-xs text-gray-400">{countLunas} inv</div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                            <div className="flex gap-2 mb-4 flex-wrap">
+                                {['Semua','Belum Dibayar','Termin','Lunas'].map(s => (
+                                    <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${statusFilter === s ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{s}</button>
+                                ))}
+                            </div>
+                            {filtered.length === 0 ? (
+                                <p className="text-gray-400 italic text-sm text-center py-8">Tidak ada invoice untuk filter ini.</p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="p-3 text-left font-bold text-gray-600">No Invoice</th>
+                                                <th className="p-3 text-left font-bold text-gray-600">Customer</th>
+                                                <th className="p-3 text-left font-bold text-gray-600">Tanggal</th>
+                                                <th className="p-3 text-right font-bold text-gray-600">Total</th>
+                                                <th className="p-3 text-center font-bold text-gray-600">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filtered.slice().sort((a,b) => (b.date||'').localeCompare(a.date||'')).map(inv => (
+                                                <tr key={inv.id} className="border-t">
+                                                    <td className="p-3 font-bold text-blue-700 font-mono text-xs">{inv.id}</td>
+                                                    <td className="p-3">{inv.customer || '-'}</td>
+                                                    <td className="p-3 text-gray-500">{inv.date || '-'}</td>
+                                                    <td className="p-3 text-right font-black">{fmtRp(getTotal(inv))}</td>
+                                                    <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-bold ${statusColor(getPayStatus(inv))}`}>{getPayStatus(inv)}</span></td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="text-center text-xs text-gray-400 pb-4 space-y-1">
+                            <p>Data diperbarui otomatis setiap 5 menit &bull; Read-only</p>
+                            {lastUpdate && <p>Terakhir diperbarui: {lastUpdate.toLocaleTimeString('id-ID')}</p>}
+                            <button onClick={fetchData} className="text-green-600 hover:text-green-800 font-bold mt-1">↻ Perbarui Sekarang</button>
                         </div>
                     </div>
                 </div>
@@ -10809,6 +11023,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
             const [investorShareToken, setInvestorShareToken] = useState(getInvestorShareTokenFromHash());
+            const [marketingShareToken] = useState(getMarketingShareTokenFromHash());
             
             const [toast, setToast] = useState(null);
             const toastTimerRef = useRef(null);
@@ -12063,6 +12278,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 );
             }
 
+            if (marketingShareToken) {
+                return (
+                    <>
+                        <MarketingPublicView token={marketingShareToken} />
+                        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    </>
+                );
+            }
+
             if (!authUser) {
                 return (
                     <>
@@ -12189,7 +12413,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} />}
-                                {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} showToast={showToast} templates={templates} />}
+                                {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
