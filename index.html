@@ -6702,7 +6702,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const [showForm, setShowForm] = useState(false);
             const [editId, setEditId] = useState(null);
-            const [form, setForm] = useState({ name: '', modalMasuk: '', bagiHasilPerPcs: '', tanggalMulai: new Date().toISOString().slice(0,10), catatan: '' });
+            const [form, setForm] = useState({ name: '', modalMasuk: '', bagiHasilType: 'per_pcs', bagiHasilPerPcs: '', bagiHasilPersen: '', tanggalMulai: new Date().toISOString().slice(0,10), catatan: '' });
             const [expandedId, setExpandedId] = useState(null);
             const [showBHModal, setShowBHModal] = useState(null);
             const [bhForm, setBhForm] = useState({ invoiceId: '', tanggal: new Date().toISOString().slice(0,10), note: '' });
@@ -6724,15 +6724,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 e.preventDefault();
                 if (!form.name.trim()) { showToast('Nama investor wajib diisi', 'error'); return; }
                 if (!(parseFloat(form.modalMasuk) > 0)) { showToast('Modal masuk harus lebih dari 0', 'error'); return; }
-                if (!(parseFloat(form.bagiHasilPerPcs) > 0)) { showToast('Bagi hasil per pcs harus lebih dari 0', 'error'); return; }
+                if (form.bagiHasilType === 'persen' ? !(parseFloat(form.bagiHasilPersen) > 0) : !(parseFloat(form.bagiHasilPerPcs) > 0)) { showToast(form.bagiHasilType === 'persen' ? 'Persentase bagi hasil harus lebih dari 0' : 'Bagi hasil per pcs harus lebih dari 0', 'error'); return; }
                 if (editId) {
-                    setInvestors(prev => safeArray(prev).map(inv => inv.id === editId ? { ...inv, ...form, modalMasuk: parseFloat(form.modalMasuk), bagiHasilPerPcs: parseFloat(form.bagiHasilPerPcs) } : inv));
+                    setInvestors(prev => safeArray(prev).map(inv => inv.id === editId ? { ...inv, ...form, modalMasuk: parseFloat(form.modalMasuk), bagiHasilType: form.bagiHasilType||'per_pcs', bagiHasilPerPcs: parseFloat(form.bagiHasilPerPcs)||0, bagiHasilPersen: parseFloat(form.bagiHasilPersen)||0 } : inv));
                     showToast('Data investor diperbarui', 'success');
                 } else {
-                    setInvestors(prev => [...safeArray(prev), { ...form, id: genId('INVST-'), modalMasuk: parseFloat(form.modalMasuk), bagiHasilPerPcs: parseFloat(form.bagiHasilPerPcs), isLunas: false, isDeleted: false, _syncUpdatedAt: now() }]);
+                    setInvestors(prev => [...safeArray(prev), { ...form, id: genId('INVST-'), modalMasuk: parseFloat(form.modalMasuk), bagiHasilType: form.bagiHasilType||'per_pcs', bagiHasilPerPcs: parseFloat(form.bagiHasilPerPcs)||0, bagiHasilPersen: parseFloat(form.bagiHasilPersen)||0, isLunas: false, isDeleted: false, _syncUpdatedAt: now() }]);
                     showToast('Investor berhasil ditambahkan', 'success');
                 }
-                setForm({ name: '', modalMasuk: '', bagiHasilPerPcs: '', tanggalMulai: new Date().toISOString().slice(0,10), catatan: '' });
+                setForm({ name: '', modalMasuk: '', bagiHasilType: 'per_pcs', bagiHasilPerPcs: '', bagiHasilPersen: '', tanggalMulai: new Date().toISOString().slice(0,10), catatan: '' });
                 setEditId(null); setShowForm(false);
             };
 
@@ -6768,12 +6768,19 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const inv = safeInvoices.find(i => i.id === bhForm.invoiceId);
                 if (!inv) return;
                 const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
-                if (pcs <= 0) { showToast('Invoice tidak memiliki qty pcs', 'error'); return; }
-                const bh = pcs * (parseFloat(investor.bagiHasilPerPcs) || 0);
+                const invType = investor.bagiHasilType || 'per_pcs';
+                if (invType === 'per_pcs' && pcs <= 0) { showToast('Invoice tidak memiliki qty pcs', 'error'); return; }
+                const invTotal = getInvoiceTotals(inv).total;
+                const bh = invType === 'persen'
+                    ? Math.round(invTotal * (parseFloat(investor.bagiHasilPersen) || 0) / 100)
+                    : pcs * (parseFloat(investor.bagiHasilPerPcs) || 0);
                 const newRecord = {
                     id: genId('BH-'), investorId: investor.id, invoiceId: inv.id,
                     invoiceCustomer: inv.customer || '-', invoiceType: inv.type || '-',
-                    tanggal: bhForm.tanggal, pcs, bagiHasilPerPcs: parseFloat(investor.bagiHasilPerPcs),
+                    tanggal: bhForm.tanggal, pcs, bagiHasilType: invType,
+                    bagiHasilPerPcs: invType === 'per_pcs' ? parseFloat(investor.bagiHasilPerPcs) : 0,
+                    bagiHasilPersen: invType === 'persen' ? parseFloat(investor.bagiHasilPersen) : 0,
+                    invoiceTotal: invType === 'persen' ? invTotal : 0,
                     totalBagiHasil: bh, note: bhForm.note, isDeleted: false, _syncUpdatedAt: now()
                 };
                 setInvestorBagiHasil(prev => [...safeArray(prev), newRecord]);
@@ -6799,7 +6806,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <h2 className="text-2xl font-bold text-gray-800">Manajemen Investor</h2>
                             <p className="text-sm text-gray-500 mt-0.5">Bagi hasil per pcs — modal + akumulasi bagi hasil dikembalikan ke investor</p>
                         </div>
-                        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ name:'', modalMasuk:'', bagiHasilPerPcs:'', tanggalMulai: new Date().toISOString().slice(0,10), catatan:'' }); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-sm">+ Tambah Investor</button>
+                        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ name:'', modalMasuk:'', bagiHasilType:'per_pcs', bagiHasilPerPcs:'', bagiHasilPersen:'', tanggalMulai: new Date().toISOString().slice(0,10), catatan:'' }); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-sm">+ Tambah Investor</button>
                     </div>
 
                     {/* Summary */}
@@ -6817,7 +6824,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 <div><label className="block text-xs font-bold text-gray-600 mb-1">Nama Investor *</label><input required type="text" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Nama lengkap investor" /></div>
                                 <div><label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Mulai Investasi *</label><input required type="date" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={form.tanggalMulai} onChange={e => setForm({...form, tanggalMulai: e.target.value})} /></div>
                                 <div><label className="block text-xs font-bold text-gray-600 mb-1">Modal Masuk (Rp) *</label><input required type="number" min="1" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={form.modalMasuk} onChange={e => setForm({...form, modalMasuk: e.target.value})} placeholder="50000000" /></div>
-                                <div><label className="block text-xs font-bold text-gray-600 mb-1">Bagi Hasil Per Pcs (Rp) *</label><input required type="number" min="1" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={form.bagiHasilPerPcs} onChange={e => setForm({...form, bagiHasilPerPcs: e.target.value})} placeholder="1500" /></div>
+                                <div><label className="block text-xs font-bold text-gray-600 mb-1">Tipe Bagi Hasil *</label><div className="flex rounded-lg border overflow-hidden"><button type="button" onClick={() => setForm({...form, bagiHasilType: 'per_pcs'})} className={`flex-1 py-2 text-xs font-bold transition-colors ${(form.bagiHasilType||'per_pcs')==='per_pcs' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Rp / PCS</button><button type="button" onClick={() => setForm({...form, bagiHasilType: 'persen'})} className={`flex-1 py-2 text-xs font-bold transition-colors ${form.bagiHasilType==='persen' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>% Invoice</button></div>{(form.bagiHasilType||'per_pcs')==='per_pcs' ? (<input required type="number" min="0.01" step="0.01" className="w-full mt-2 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={form.bagiHasilPerPcs} onChange={e => setForm({...form, bagiHasilPerPcs: e.target.value})} placeholder="Rp per pcs, misal: 1500" />) : (<input required type="number" min="0.01" max="100" step="0.01" className="w-full mt-2 p-2 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={form.bagiHasilPersen} onChange={e => setForm({...form, bagiHasilPersen: e.target.value})} placeholder="Persen dari total invoice, misal: 5" />)}</div>
                                 <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-600 mb-1">Catatan (Opsional)</label><input type="text" className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={form.catatan} onChange={e => setForm({...form, catatan: e.target.value})} placeholder="Perjanjian, syarat, dll..." /></div>
                                 <div className="md:col-span-2 flex justify-end gap-2">
                                     <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium">Batal</button>
@@ -6846,7 +6853,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                             <div className="flex items-start justify-between gap-3 mb-3">
                                                 <div>
                                                     <div className="font-black text-gray-800 text-base">{investor.name}</div>
-                                                    <div className="text-xs text-gray-400 mt-0.5">Mulai: {investor.tanggalMulai} · {formatRupiah(investor.bagiHasilPerPcs)}/pcs</div>
+                                                    <div className="text-xs text-gray-400 mt-0.5">Mulai: {investor.tanggalMulai} · {(investor.bagiHasilType||'per_pcs')==='persen' ? `${investor.bagiHasilPersen||0}% invoice` : `${formatRupiah(investor.bagiHasilPerPcs)}/pcs`}</div>
                                                     {investor.catatan && <div className="text-xs text-gray-400 italic mt-0.5">"{investor.catatan}"</div>}
                                                     {investor.isLunas && investor.tanggalLunas && <div className="text-xs text-green-600 font-bold mt-0.5">Lunas pada: {investor.tanggalLunas}</div>}
                                                 </div>
@@ -6860,7 +6867,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                     }
                                                     <button onClick={() => printLaporanInvestor(investor, records, templates)} className="text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1"><IconPrinter /> Cetak</button>
                                                     <button onClick={() => { const t = getOrCreateShareToken(investor.id); setShareModal({ investor, token: t }); }} className="text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2.5 py-1.5 rounded-lg">🔗 Bagikan</button>
-                                                    <button onClick={() => { setEditId(investor.id); setForm({ name:investor.name, modalMasuk:String(investor.modalMasuk), bagiHasilPerPcs:String(investor.bagiHasilPerPcs), tanggalMulai:investor.tanggalMulai||'', catatan:investor.catatan||'' }); setShowForm(true); }} className="text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg"><IconEdit /></button>
+                                                    <button onClick={() => { setEditId(investor.id); setForm({ name:investor.name, modalMasuk:String(investor.modalMasuk), bagiHasilType:investor.bagiHasilType||'per_pcs', bagiHasilPerPcs:String(investor.bagiHasilPerPcs||''), bagiHasilPersen:String(investor.bagiHasilPersen||''), tanggalMulai:investor.tanggalMulai||'', catatan:investor.catatan||'' }); setShowForm(true); }} className="text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg"><IconEdit /></button>
                                                     <button onClick={() => setDeleteConfirm(investor.id)} className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"><IconTrash /></button>
                                                 </div>
                                             </div>
@@ -6892,7 +6899,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                             <div key={r.id} className="bg-white border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-2">
                                                                 <div className="min-w-0">
                                                                     <div className="text-xs font-bold text-gray-700">{r.invoiceId} — {r.invoiceCustomer}</div>
-                                                                    <div className="text-xs text-gray-400">{r.tanggal} · {r.invoiceType} · {r.pcs} pcs × {formatRupiah(r.bagiHasilPerPcs)}</div>
+                                                                    <div className="text-xs text-gray-400">{r.tanggal} · {r.invoiceType} · {(r.bagiHasilType||'per_pcs')==='persen' ? `Total Invoice ${formatRupiah(r.invoiceTotal||0)} × ${r.bagiHasilPersen||0}%` : `${r.pcs} pcs × ${formatRupiah(r.bagiHasilPerPcs)}`}</div>
                                                                     {r.note && <div className="text-xs text-gray-400 italic">"{r.note}"</div>}
                                                                 </div>
                                                                 <div className="flex items-center gap-2 shrink-0">
@@ -6918,12 +6925,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const avail = availableInvoices(showBHModal);
                         const selInv = avail.find(i => i.id === bhForm.invoiceId);
                         const previewPcs = selInv ? (getInvoicePcsTotal(selInv) || parseInt(selInv.qty) || 0) : 0;
-                        const previewBH = previewPcs * (parseFloat(investor.bagiHasilPerPcs)||0);
+                        const previewInvTotal = selInv ? getInvoiceTotals(selInv).total : 0;
+                        const previewBH = (investor.bagiHasilType||'per_pcs')==='persen'
+                            ? Math.round(previewInvTotal * (parseFloat(investor.bagiHasilPersen)||0) / 100)
+                            : previewPcs * (parseFloat(investor.bagiHasilPerPcs)||0);
                         return (
                             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
                                 <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
                                     <h3 className="font-bold text-gray-800 mb-1">Catat Bagi Hasil</h3>
-                                    <p className="text-sm text-gray-500 mb-4">Investor: <strong>{investor.name}</strong> · {formatRupiah(investor.bagiHasilPerPcs)}/pcs</p>
+                                    <p className="text-sm text-gray-500 mb-4">Investor: <strong>{investor.name}</strong> · {(investor.bagiHasilType||'per_pcs')==='persen' ? `${investor.bagiHasilPersen||0}% dari total invoice` : `${formatRupiah(investor.bagiHasilPerPcs)}/pcs`}</p>
                                     <div className="space-y-3">
                                         <div>
                                             <label className="block text-xs font-bold text-gray-600 mb-1">Pilih Invoice Lunas *</label>
@@ -6944,8 +6954,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                         {selInv && (
                                             <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm space-y-1">
                                                 <div className="flex justify-between"><span className="text-gray-600">Jumlah pcs:</span><strong>{previewPcs} pcs</strong></div>
-                                                <div className="flex justify-between"><span className="text-gray-600">Bagi hasil per pcs:</span><strong>{formatRupiah(investor.bagiHasilPerPcs)}</strong></div>
-                                                <div className="flex justify-between pt-1 border-t border-indigo-200"><span className="font-bold text-indigo-700">Bagi hasil order ini:</span><strong className="text-indigo-700 text-base">{formatRupiah(previewBH)}</strong></div>
+                                                {(investor.bagiHasilType||'per_pcs')==='persen' ? (<><div className="flex justify-between"><span className="text-gray-600">Total invoice:</span><strong>{formatRupiah(previewInvTotal)}</strong></div><div className="flex justify-between"><span className="text-gray-600">Persentase bagi hasil:</span><strong>{investor.bagiHasilPersen||0}%</strong></div></>) : (<div className="flex justify-between"><span className="text-gray-600">Bagi hasil per pcs:</span><strong>{formatRupiah(investor.bagiHasilPerPcs)}</strong></div>)}<div className="flex justify-between pt-1 border-t border-indigo-200"><span className="font-bold text-indigo-700">Bagi hasil order ini:</span><strong className="text-indigo-700 text-base">{formatRupiah(previewBH)}</strong></div>
                                             </div>
                                         )}
                                         <div className="flex justify-end gap-2 pt-2">
