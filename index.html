@@ -602,6 +602,13 @@
             return paid >= total ? 'Lunas' : 'Termin';
         };
 
+        const getInvoiceSubMarketingCommissionTotal = (invoice) => {
+            if (!invoice?.subMarketing) return 0;
+            const type = String(invoice?.subMarketingCommissionType || 'Persen').toLowerCase();
+            if (type.includes('pcs')) return getInvoicePcsTotal(invoice) * safeMoney(invoice?.subMarketingCommissionValue);
+            if (type === 'rupiah' || type === 'nominal') return safeMoney(invoice?.subMarketingCommissionValue);
+            return getInvoicePaidTotal(invoice) * safeMoney(invoice?.subMarketingCommissionValue) / 100;
+        };
         const getInvoiceCommissionTotal = (invoice) => {
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
             if (type.includes('pcs')) return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
@@ -5572,7 +5579,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         <Card><form onSubmit={saveInvoice} className="grid grid-cols-1 md:grid-cols-2 gap-3"><input type="date" className="p-2 border rounded" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}/><input className="p-2 border rounded" placeholder="Nama instansi/customer" value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} required/><input className="p-2 border rounded md:col-span-2" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/><input className="p-2 border rounded" placeholder="Jenis produksi" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}/><input className="p-2 border rounded" placeholder="Size" value={form.size} onChange={e => setForm({ ...form, size: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Qty" value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Harga per pcs" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })}/><input list="marketing-list-invoice" className="p-2 border rounded" placeholder="Nama marketing" value={form.marketing} onChange={e => setForm({ ...form, marketing: e.target.value })}/><datalist id="marketing-list-invoice">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist><input type="number" className="p-2 border rounded text-right" placeholder="Diskon per pcs" value={form.discountPerPcs} onChange={e => setForm({ ...form, discountPerPcs: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Diskon persen" value={form.discountPercent} onChange={e => setForm({ ...form, discountPercent: e.target.value })}/><input type="number" className="p-2 border rounded text-right" placeholder="Pembayaran awal/termin" value={form.paymentAmount} onChange={e => setForm({ ...form, paymentAmount: e.target.value })}/><select className="p-2 border rounded" value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select><select className="p-2 border rounded" value={form.commissionType} onChange={e => setForm({ ...form, commissionType: e.target.value })}><option>Persen</option><option>Rupiah</option></select><input type="number" className="p-2 border rounded text-right" placeholder="Komisi marketing" value={form.commissionValue} onChange={e => setForm({ ...form, commissionValue: e.target.value })}/><input className="p-2 border rounded md:col-span-2" placeholder="Catatan invoice" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/><div className="md:col-span-2 bg-blue-50 border border-blue-100 rounded p-3 text-sm">Subtotal: <b>{formatRupiah(invoiceTotal(form).subtotal)}</b> | Diskon: <b>{formatRupiah(invoiceTotal(form).discount)}</b> | Total: <b>{formatRupiah(invoiceTotal(form).total)}</b></div><div className="md:col-span-2 flex justify-end gap-2"><button type="button" onClick={() => { setForm(emptyInvoice); setEditId(null); }} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editId ? 'Simpan Edit' : 'Buat Invoice'}</button></div></form></Card>
                         <Card><div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari customer, marketing, jenis, status..." /><select className="p-3 border rounded-lg mt-5" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>Semua</option><option>Belum Dibayar</option><option>Termin</option><option>Lunas</option></select></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">Invoice</th><th className="p-2 text-left">Customer</th><th className="p-2 text-right">Total</th><th className="p-2 text-center">Status</th><th className="p-2 text-center">Aksi</th></tr></thead><tbody>{visibleInvoices.map(inv => { const calc = invoiceTotal(inv); return <React.Fragment key={inv.id}><tr className="border-t"><td className="p-2 font-bold text-blue-700">{inv.id}<div className="text-xs text-gray-500">{inv.date}</div></td><td className="p-2">{inv.customer}<div className="text-xs text-gray-500">{inv.marketing || '-'}</div></td><td className="p-2 text-right font-black">{formatRupiah(calc.total)}</td><td className="p-2 text-center"><Badge status={inv.paymentStatus}/></td><td className="p-2"><div className="flex justify-center flex-wrap gap-1"><button onClick={() => setExpandedIds(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))} className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">{expandedIds[inv.id] ? 'Sembunyikan Rincian' : 'Lihat Rincian'}</button><button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, paymentAmount: '' }); }} className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded">Edit</button><button onClick={() => printInvoice(inv)} className="text-xs bg-gray-50 text-slate-700 px-2 py-1 rounded">Cetak</button><button onClick={() => setDeleteConfirmId(inv.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>{expandedIds[inv.id] && <tr className="bg-gray-50"><td colSpan="5" className="p-3 text-xs">Jenis: <b>{inv.type}</b> | Size: {inv.size} | Qty: {inv.qty} | Dibayar: <b>{formatRupiah(paidTotal(inv))}</b> | Sisa: <b>{formatRupiah(Math.max(0, calc.total - paidTotal(inv)))}</b><br/>Catatan: {inv.note || '-'}</td></tr>}</React.Fragment>})}{visibleInvoices.length === 0 && <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada invoice.</td></tr>}</tbody></table></div></Card>
                     </div>
-                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Komisi Marketing</h3><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-right">Total Komisi</th><th className="p-3 text-center">Status</th></tr></thead><tbody>{commissionRows.map(row => <tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-black text-purple-700">{formatRupiah(row.commission)}</td><td className="p-3 text-center"><Badge status="Belum Dibayar" /></td></tr>)}</tbody></table></div></Card>
+                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Komisi Marketing</h3><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-right">Total Komisi</th><th className="p-3 text-center">Status</th></tr></thead><tbody>{commissionRows.map(row => <tr key={row.marketing + (row.isSubMarketing?' sub':'')} className="border-t"><td className="p-3 font-bold">{row.marketing}{row.isSubMarketing && <span className="ml-1 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">Sub</span>}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-black text-purple-700">{formatRupiah(row.commission)}</td><td className="p-3 text-center"><Badge status="Belum Dibayar" /></td></tr>)}</tbody></table></div></Card>
                 </div>
                 {deleteConfirmId && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
@@ -5752,6 +5759,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 note: '',
                 commissionType: 'Persen',
                 commissionValue: '0',
+                subMarketing: '',
+                subMarketingCommissionType: 'Persen',
+                subMarketingCommissionValue: '0',
                 linkedDpAmount: ''
             };
             const [form, setForm] = useState(emptyInvoice);
@@ -5819,7 +5829,10 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const marketingEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.marketing));
                 const empCommType = marketingEmp?.commissionType || 'Persen';
                 const empCommValue = safeMoney(marketingEmp?.commissionValue || 0);
-                const row = { ...form, id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeMoney(form.invoiceDp?.amount) }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), paymentStatus: getInvoicePaymentStatus({ ...form, invoiceItems: cleanedItems }), _syncUpdatedAt: now };
+                const subMarketingEmp = form.subMarketing ? safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.subMarketing)) : null;
+                const subEmpCommType = subMarketingEmp?.commissionType || 'Persen';
+                const subEmpCommValue = safeMoney(subMarketingEmp?.commissionValue || 0);
+                const row = { ...form, id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeMoney(form.invoiceDp?.amount) }, commissionType: empCommType, commissionValue: empCommValue, subMarketing: form.subMarketing||'', subMarketingCommissionType: form.subMarketing ? subEmpCommType : 'Persen', subMarketingCommissionValue: form.subMarketing ? subEmpCommValue : 0, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), paymentStatus: getInvoicePaymentStatus({ ...form, invoiceItems: cleanedItems }), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 setInvoices(prev => {
                     const list = Array.isArray(prev) ? prev : [];
@@ -5964,8 +5977,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
             const commissionRows = Object.values(visibleInvoices.reduce((acc, inv) => {
                 const key = inv.marketing || 'Tanpa Marketing';
-                if (!acc[key]) acc[key] = { marketing: key, invoices: 0, pcs: 0, sales: 0, commission: 0 };
+                if (!acc[key]) acc[key] = { marketing: key, isSubMarketing: false, invoices: 0, pcs: 0, sales: 0, commission: 0 };
                 acc[key].invoices += 1; acc[key].pcs += getInvoicePcsTotal(inv); acc[key].sales += getInvoiceTotals(inv).total; acc[key].commission += getInvoiceCommissionTotal(inv);
+                if (inv.subMarketing) {
+                    const subKey = inv.subMarketing + ' (Sub)';
+                    if (!acc[subKey]) acc[subKey] = { marketing: inv.subMarketing, isSubMarketing: true, invoices: 0, pcs: 0, sales: 0, commission: 0 };
+                    acc[subKey].invoices += 1; acc[subKey].pcs += getInvoicePcsTotal(inv); acc[subKey].sales += getInvoiceTotals(inv).total; acc[subKey].commission += getInvoiceSubMarketingCommissionTotal(inv);
+                }
                 return acc;
             }, {}));
             const statusClass = (status) => status === 'Lunas' ? 'bg-green-100 text-green-800' : status === 'Termin' ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800';
@@ -6078,6 +6096,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                         <datalist id="client-address-list">{clientAddressSuggestions.map((a,i)=><option key={i} value={a}/>)}</datalist>
                                         <input list="marketing-list-enhanced" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Marketing" value={form.marketing} onChange={e => setForm({ ...form, marketing: e.target.value })}/>
                                         <datalist id="marketing-list-enhanced">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist>
+                                        <input list="sub-marketing-list-enhanced" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" placeholder="Sub Marketing (Opsional)" value={form.subMarketing||''} onChange={e => setForm({ ...form, subMarketing: e.target.value })}/>
+                                        <datalist id="sub-marketing-list-enhanced">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist>
                                     </div>
                                 </div>
 
@@ -6264,6 +6284,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                     <div className="bg-white rounded-xl p-3 border border-gray-100">
                                                         <div className="text-xs text-gray-400">Komisi Marketing</div>
                                                         <div className="font-black text-purple-700 text-sm">{formatRupiah(getInvoiceCommissionTotal(inv))}</div>
+                                                        {inv.subMarketing && <div className="text-xs text-gray-400 mt-1">Sub: {inv.subMarketing}</div>}
+                                                        {inv.subMarketing && <div className="font-bold text-purple-500 text-xs">{formatRupiah(getInvoiceSubMarketingCommissionTotal(inv))}</div>}
                                                     </div>
                                                 </div>
                                                 <div className="flex flex-wrap gap-1.5">
