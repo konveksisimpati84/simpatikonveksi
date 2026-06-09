@@ -6702,7 +6702,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const coNm = safe((tmpl||{}).companyName || 'SIMPATI KONVEKSI');
             const coSub = safe((tmpl||{}).companySubtitle || 'Konveksi Profesional');
             const signHtml = (tmpl||{}).signatureImage
-                ? `<img src="${(tmpl||{}).signatureImage}" style="max-height:28px;max-width:100px;object-fit:contain;display:block;margin:0 auto"/>`
+                ? `<img src="${(tmpl||{}).signatureImage}" style="max-height:55px;max-width:160px;object-fit:contain;display:block;margin:0 auto"/>`
                 : '';
             const printContent = `<!DOCTYPE html><html><head><title>Sertifikat Investasi - ${safe(investor.name)}</title><style>
 @page{size:A4 landscape;margin:0}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,Helvetica,sans-serif;background:#fffef8;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -6745,7 +6745,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .seal-star{font-size:11px;margin-bottom:1px}
 .seal-info .si1{font-size:8px;color:#64748b}.seal-info .si2{font-size:10px;color:#1e3a5f;font-weight:700}
 .sign-box{text-align:center}
-.sign-img-area{height:30px;width:130px;margin:0 auto;border-bottom:1.5px solid #1e3a5f;display:flex;align-items:flex-end;justify-content:center;margin-bottom:3px}
+.sign-img-area{height:60px;width:170px;margin:0 auto;border-bottom:1.5px solid #1e3a5f;display:flex;align-items:flex-end;justify-content:center;margin-bottom:3px}
 .sign-name{font-size:11px;font-weight:900;color:#1e3a5f;letter-spacing:0.5px}
 .sign-sub{font-size:8px;color:#64748b;margin-top:1px}
 </style></head><body><div class="sheet">
