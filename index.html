@@ -242,11 +242,13 @@
             if (savedKey) return savedKey;
             const inputKey = window.prompt("Masukkan Gemini API Key untuk mengaktifkan fitur AI:");
             if (inputKey && inputKey.trim()) {
-                localStorage.setItem('simpati_gemini_api_key', inputKey.trim());
+                safeLocalSet('simpati_gemini_api_key', inputKey.trim());
                 return inputKey.trim();
             }
             return "";
         };
+
+        const safeLocalSet = (k, v) => { try { window.safeLocalSet(k, v); } catch(e) { console.warn('[storage] quota exceeded, skip:', k); } };
 
         const dataUrlToInlinePart = (dataUrl) => {
             const match = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
@@ -11088,7 +11090,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const saveAuthSession = (user, lastActiveAt = new Date().toISOString()) => {
                 if (!user) return;
-                localStorage.setItem('simpati_auth_session', JSON.stringify({
+                safeLocalSet('simpati_auth_session', JSON.stringify({
                     user,
                     lastActiveAt
                 }));
@@ -11702,7 +11704,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
                     setAccounts(prevAccounts => {
                         const merged = mergeRecordLists(prevAccounts, remoteAccounts);
-                        localStorage.setItem('simpati_accounts_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
                         syncSavedAuthSession(merged.filter(isVisibleRecord));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteAccounts)) setTimeout(() => saveToSupabase('accounts', merged), 0);
                         return merged;
@@ -11711,7 +11713,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteEmployees)) {
                     setEmployees(prevEmployees => {
                         const merged = mergeRecordLists(sanitizeEmployees(prevEmployees), sanitizeEmployees(remoteEmployees));
-                        localStorage.setItem('simpati_employees_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_employees_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteEmployees)) setTimeout(() => saveToSupabase('employees', merged), 0);
                         return merged;
                     });
@@ -11719,7 +11721,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteOrders)) {
                     setOrders(prevOrders => {
                         const merged = mergeOrderLists(prevOrders, remoteOrders);
-                        localStorage.setItem('simpati_orders_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(patchOrders(remoteOrders))) {
                             setTimeout(() => saveToSupabase('orders', merged), 0);
                         }
@@ -11729,7 +11731,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteRekaps)) {
                     setRekapKinerja(prevRekaps => {
                         const merged = mergeRecordLists(prevRekaps, remoteRekaps);
-                        localStorage.setItem('simpati_rekap_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_rekap_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteRekaps)) setTimeout(() => saveToSupabase('rekapKinerja', merged), 0);
                         return merged;
                     });
@@ -11737,7 +11739,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteRiwayats)) {
                     setRiwayatPengiriman(prevRiwayats => {
                         const merged = mergeRecordLists(prevRiwayats, remoteRiwayats);
-                        localStorage.setItem('simpati_riwayat_sj_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteRiwayats)) setTimeout(() => saveToSupabase('riwayatPengiriman', merged), 0);
                         return merged;
                     });
@@ -11745,7 +11747,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteExpenses)) {
                     setExpenses(prevExpenses => {
                         const merged = mergeRecordLists(prevExpenses, remoteExpenses);
-                        localStorage.setItem('simpati_expenses_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_expenses_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteExpenses)) setTimeout(() => saveToSupabase('expenses', merged), 0);
                         return merged;
                     });
@@ -11753,7 +11755,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteInvoices)) {
                     setInvoices(prevInvoices => {
                         const merged = mergeRecordLists(prevInvoices, remoteInvoices);
-                        localStorage.setItem('simpati_invoices_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_invoices_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteInvoices)) setTimeout(() => saveToSupabase('invoices', merged), 0);
                         return merged;
                     });
@@ -11761,31 +11763,31 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteClients)) {
                     setClients(prevClients => {
                         const merged = mergeRecordLists(prevClients, remoteClients);
-                        localStorage.setItem('simpati_clients_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_clients_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteClients)) setTimeout(() => saveToSupabase('clients', merged), 0);
                         return merged;
                     });
                 }
                 if (remoteTemplates && typeof remoteTemplates === 'object') {
                     setTemplates(remoteTemplates);
-                    localStorage.setItem('simpati_templates_sync', JSON.stringify(remoteTemplates));
+                    safeLocalSet('simpati_templates_sync', JSON.stringify(remoteTemplates));
                 }
                 if (Array.isArray(remoteManualPurchases)) {
                     setManualPurchases(prev => {
                         const merged = mergeRecordLists(prev || [], remoteManualPurchases);
-                        localStorage.setItem('simpati_manual_purchases_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteManualPurchases)) setTimeout(() => saveToSupabase('manualPurchases', merged), 0);
                         return merged;
                     });
                 }
                 if (remoteManualVendorPayments && typeof remoteManualVendorPayments === 'object' && !Array.isArray(remoteManualVendorPayments)) {
                     setManualVendorPayments(remoteManualVendorPayments);
-                    localStorage.setItem('simpati_manual_vendor_payments_sync', JSON.stringify(remoteManualVendorPayments));
+                    safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(remoteManualVendorPayments));
                 }
                 if (Array.isArray(remoteInvestors)) {
                     setInvestors(prev => {
                         const merged = mergeRecordLists(prev || [], remoteInvestors);
-                        localStorage.setItem('simpati_investors_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_investors_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteInvestors)) setTimeout(() => saveToSupabase('investors', merged), 0);
                         return merged;
                     });
@@ -11793,7 +11795,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (Array.isArray(remoteInvestorBagiHasil)) {
                     setInvestorBagiHasil(prev => {
                         const merged = mergeRecordLists(prev || [], remoteInvestorBagiHasil);
-                        localStorage.setItem('simpati_investor_bagi_hasil_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteInvestorBagiHasil)) setTimeout(() => saveToSupabase('investorBagiHasil', merged), 0);
                         return merged;
                     });
@@ -11920,17 +11922,17 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             setExpenses(nextExpenses);
                             setInvoices(nextInvoices);
                             setClients(nextClients);
-                            localStorage.setItem('simpati_accounts_sync', JSON.stringify(nextAccounts));
-                            localStorage.setItem('simpati_employees_sync', JSON.stringify(nextEmployees));
-                            localStorage.setItem('simpati_orders_sync', JSON.stringify(nextOrders));
-                            if (shouldResetPurchases) localStorage.setItem('simpati_purchase_reset_version', PURCHASE_RESET_VERSION);
-                            localStorage.setItem('simpati_rekap_sync', JSON.stringify(nextRekaps));
-                            localStorage.setItem('simpati_riwayat_sj_sync', JSON.stringify(nextRiwayats));
-                            localStorage.setItem('simpati_expenses_sync', JSON.stringify(nextExpenses));
-                            localStorage.setItem('simpati_invoices_sync', JSON.stringify(nextInvoices));
-                            localStorage.setItem('simpati_clients_sync', JSON.stringify(nextClients));
-                            localStorage.setItem('simpati_manual_purchases_sync', JSON.stringify(nextManualPurchases));
-                            localStorage.setItem('simpati_manual_vendor_payments_sync', JSON.stringify(nextManualVendorPayments));
+                            safeLocalSet('simpati_accounts_sync', JSON.stringify(nextAccounts));
+                            safeLocalSet('simpati_employees_sync', JSON.stringify(nextEmployees));
+                            safeLocalSet('simpati_orders_sync', JSON.stringify(nextOrders));
+                            if (shouldResetPurchases) safeLocalSet('simpati_purchase_reset_version', PURCHASE_RESET_VERSION);
+                            safeLocalSet('simpati_rekap_sync', JSON.stringify(nextRekaps));
+                            safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(nextRiwayats));
+                            safeLocalSet('simpati_expenses_sync', JSON.stringify(nextExpenses));
+                            safeLocalSet('simpati_invoices_sync', JSON.stringify(nextInvoices));
+                            safeLocalSet('simpati_clients_sync', JSON.stringify(nextClients));
+                            safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(nextManualPurchases));
+                            safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(nextManualVendorPayments));
                             if (JSON.stringify(nextAccounts) !== JSON.stringify(Array.isArray(accs) ? accs : [])) setTimeout(() => saveToSupabase('accounts', nextAccounts), 0);
                             if (JSON.stringify(nextEmployees) !== JSON.stringify(Array.isArray(emps) ? emps : [])) setTimeout(() => saveToSupabase('employees', nextEmployees), 0);
                             if (JSON.stringify(nextOrders) !== JSON.stringify(patchOrders(Array.isArray(ords) ? ords : []))) {
@@ -11967,8 +11969,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     setAccounts(nextAccounts);
                     setEmployees(sanitizeEmployees(loadLocalData('simpati_employees_sync', initialEmployees)));
                     setOrders(nextOrders);
-                    localStorage.setItem('simpati_orders_sync', JSON.stringify(nextOrders));
-                    if (shouldResetPurchases) localStorage.setItem('simpati_purchase_reset_version', PURCHASE_RESET_VERSION);
+                    safeLocalSet('simpati_orders_sync', JSON.stringify(nextOrders));
+                    if (shouldResetPurchases) safeLocalSet('simpati_purchase_reset_version', PURCHASE_RESET_VERSION);
                     setRekapKinerja(loadLocalData('simpati_rekap_sync', []));
                     setRiwayatPengiriman(loadLocalData('simpati_riwayat_sj_sync', []));
                     setExpenses(loadLocalData('simpati_expenses_sync', []));
@@ -11993,7 +11995,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     applyRemoteDataSnapshot().catch(err => console.error('Gagal refresh data Supabase:', err));
                 };
 
-                const intervalId = setInterval(refresh, 15000);
+                const intervalId = setInterval(refresh, 60000);
                 const handleFocus = () => refresh();
                 const handleVisibility = () => {
                     if (!document.hidden) refresh();
@@ -12061,7 +12063,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const patched = patchOrders(stampChangedOrders(prev || [], nextVal));
                     setTimeout(async () => {
                         const merged = await mergeRemoteOrdersForSave(patched);
-                        localStorage.setItem('simpati_orders_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
                         saveToSupabase('orders', merged);
                         setOrders(current => {
                             const currentMerged = mergeOrderLists(current || [], merged);
@@ -12078,7 +12080,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = sanitizeEmployees(stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('employees', valid);
-                        localStorage.setItem('simpati_employees_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_employees_sync', JSON.stringify(merged));
                         saveToSupabase('employees', merged);
                         setEmployees(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
@@ -12095,7 +12097,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('accounts', valid);
-                        localStorage.setItem('simpati_accounts_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
                         saveToSupabase('accounts', merged);
                         syncSavedAuthSession(merged.filter(isVisibleRecord));
                         setAccounts(current => {
@@ -12113,7 +12115,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('rekapKinerja', valid);
-                        localStorage.setItem('simpati_rekap_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_rekap_sync', JSON.stringify(merged));
                         saveToSupabase('rekapKinerja', merged);
                         setRekapKinerja(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
@@ -12130,7 +12132,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('riwayatPengiriman', valid);
-                        localStorage.setItem('simpati_riwayat_sj_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(merged));
                         saveToSupabase('riwayatPengiriman', merged);
                         setRiwayatPengiriman(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
@@ -12147,7 +12149,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('expenses', valid);
-                        localStorage.setItem('simpati_expenses_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_expenses_sync', JSON.stringify(merged));
                         saveToSupabase('expenses', merged);
                         setExpenses(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
@@ -12164,7 +12166,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('invoices', valid);
-                        localStorage.setItem('simpati_invoices_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_invoices_sync', JSON.stringify(merged));
                         saveToSupabase('invoices', merged);
                         setInvoices(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
@@ -12181,7 +12183,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('clients', valid);
-                        localStorage.setItem('simpati_clients_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_clients_sync', JSON.stringify(merged));
                         saveToSupabase('clients', merged);
                         setClients(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
@@ -12198,7 +12200,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('manualPurchases', valid);
-                        localStorage.setItem('simpati_manual_purchases_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(merged));
                         saveToSupabase('manualPurchases', merged);
                         setManualPurchases(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
@@ -12214,7 +12216,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) ? nextVal : {};
                     setTimeout(() => {
-                        localStorage.setItem('simpati_manual_vendor_payments_sync', JSON.stringify(valid));
+                        safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(valid));
                         saveToSupabase('manualVendorPayments', valid);
                     }, 0);
                     return valid;
@@ -12227,7 +12229,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('investors', valid);
-                        localStorage.setItem('simpati_investors_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_investors_sync', JSON.stringify(merged));
                         saveToSupabase('investors', merged);
                         setInvestors(current => {
                             const m = mergeRecordLists(current || [], merged);
@@ -12244,7 +12246,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('investorBagiHasil', valid);
-                        localStorage.setItem('simpati_investor_bagi_hasil_sync', JSON.stringify(merged));
+                        safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(merged));
                         saveToSupabase('investorBagiHasil', merged);
                         setInvestorBagiHasil(current => {
                             const m = mergeRecordLists(current || [], merged);
@@ -12277,7 +12279,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object') ? nextVal : initialTemplates;
                     setTimeout(() => {
-                        localStorage.setItem('simpati_templates_sync', JSON.stringify(valid));
+                        safeLocalSet('simpati_templates_sync', JSON.stringify(valid));
                         saveToSupabase('templates', valid);
                     }, 0);
                     return valid;
@@ -12486,8 +12488,28 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             );
         };
 
+        class ErrorBoundary extends React.Component {
+            constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, info) { console.error('AppError:', error, info); }
+            render() {
+                if (this.state.hasError) {
+                    return React.createElement('div', { style: { display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'100vh', background:'#f8fafc', padding:'24px', fontFamily:'Arial,sans-serif' } },
+                        React.createElement('div', { style: { background:'white', borderRadius:'16px', padding:'32px', maxWidth:'480px', width:'100%', boxShadow:'0 4px 24px rgba(0,0,0,0.08)', textAlign:'center' } },
+                            React.createElement('div', { style: { fontSize:'40px', marginBottom:'12px' } }, '⚠️'),
+                            React.createElement('h2', { style: { color:'#dc2626', fontSize:'20px', fontWeight:'900', margin:'0 0 8px' } }, 'Terjadi Kesalahan'),
+                            React.createElement('p', { style: { color:'#64748b', fontSize:'14px', margin:'0 0 20px' } }, 'Aplikasi mengalami error. Klik tombol di bawah untuk memuat ulang halaman.'),
+                            React.createElement('button', { onClick: () => window.location.reload(), style: { background:'#2563eb', color:'white', border:'none', borderRadius:'8px', padding:'12px 28px', fontSize:'15px', fontWeight:'700', cursor:'pointer' } }, 'Muat Ulang Aplikasi'),
+                            this.state.error && React.createElement('div', { style: { marginTop:'16px', fontSize:'11px', color:'#94a3b8', background:'#f1f5f9', borderRadius:'6px', padding:'8px', textAlign:'left', wordBreak:'break-all' } }, String(this.state.error))
+                        )
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(<ErrorBoundary><App /></ErrorBoundary>);
     </script>
 </body>
 </html>
