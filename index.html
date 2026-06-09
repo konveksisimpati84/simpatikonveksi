@@ -6367,6 +6367,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <Paginator page={invPage} setPage={setInvPage} totalPages={invTotalPages} total={invTotal} pageSize={20} label="invoice" />
                         </div>
                     </div>
+                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Komisi Marketing</h3><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-right">Total Komisi</th><th className="p-3 text-center">Share Link</th></tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing + (row.isSubMarketing ? ' sub' : '')} className="border-t"><td className="p-3 font-bold">{row.marketing}{row.isSubMarketing && <span className="ml-1 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">Sub</span>}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-black text-purple-700">{formatRupiah(row.commission)}</td><td className="p-3 text-center">{!row.isSubMarketing && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td></tr>); })}</tbody></table></div></Card>
                 </div>
                 {payInvId && (() => {
                     const inv = safeInvoiceRows.find(i => String(i.id) === String(payInvId));
@@ -6413,6 +6414,27 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         </div>
                     </div>
                 )}
+                {mktShareModal && (() => {
+                    const shareUrl = `${window.location.origin}${window.location.pathname}#marketing-share=${encodeURIComponent(mktShareModal.token)}`;
+                    return (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+                                <h3 className="font-black text-gray-800 text-lg mb-1">Share Link Marketing</h3>
+                                <p className="text-sm text-gray-500 mb-4">{mktShareModal.marketing}</p>
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 break-all text-xs text-gray-600">{shareUrl}</div>
+                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                    <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
+                                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Halo, berikut link laporan invoice Anda:\n' + shareUrl)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
+                                </div>
+                                <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang punya link ini dapat melihat data invoice marketing ini.</p>
+                                <div className="flex justify-between items-center">
+                                    <button onClick={() => { revokeMktToken(mktShareModal.marketing); setMktShareModal(null); showToast('Akses link dicabut', 'success'); }} className="text-xs text-red-500 hover:text-red-700 font-medium">Cabut Akses Link</button>
+                                    <button onClick={() => setMktShareModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Tutup</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
                 </>
             );
         };
