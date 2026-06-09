@@ -5772,6 +5772,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [statusFilter, setStatusFilter] = useState('Semua');
             const [expandedIds, setExpandedIds] = useState({});
             const [deleteInvConfirmId, setDeleteInvConfirmId] = useState(null);
+            const [payInvId, setPayInvId] = useState(null);
+            const [payForm, setPayForm] = useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
@@ -5845,6 +5847,21 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 showToast(editId ? "Invoice diperbarui." : "Invoice dibuat.", "success");
             };
             const deleteInvoice = (id) => setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => String(inv.id) === String(id) ? { ...inv, isDeleted: true, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : inv));
+            const saveInvoicePayment = () => {
+                const amt = safeMoney(payForm.amount);
+                if (amt <= 0) return showToast('Isi nominal pembayaran.', 'error');
+                const now = new Date().toISOString();
+                setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => {
+                    if (String(inv.id) !== String(payInvId)) return inv;
+                    const newPayments = [...getInvoicePayments(inv), { id: genId('PAY-'), date: payForm.date, amount: amt, method: payForm.method, note: payForm.note }];
+                    const updated = { ...inv, payments: newPayments, _syncUpdatedAt: now };
+                    updated.paymentStatus = getInvoicePaymentStatus(updated);
+                    return updated;
+                }));
+                showToast('Pembayaran berhasil dicatat.', 'success');
+                setPayInvId(null);
+                setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
+            };
             const printInvoice = (inv) => {
                 const safe = (value) => String(value ?? '-').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
                 const totals = getInvoiceTotals(inv);
@@ -6260,6 +6277,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                 {/* Tombol aksi */}
                                                 <div className="flex gap-1.5 flex-wrap md:flex-nowrap">
                                                     <button onClick={() => setExpandedIds(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))} className="text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-100 transition-colors">{expandedIds[inv.id] ? 'Tutup' : 'Rincian'}</button>
+                                                    {status !== 'Lunas' && <button onClick={() => { setPayInvId(inv.id); setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' }); }} className="text-xs font-bold bg-green-50 hover:bg-green-100 text-green-700 px-3 py-1.5 rounded-lg border border-green-100 transition-colors">+ Bayar</button>}
                                                     <button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: getInvoiceItems(inv), invoiceDp: getInvoiceDp(inv) }); }} className="text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-100 transition-colors flex items-center gap-1"><IconEdit /><span>Edit</span></button>
                                                     <button onClick={() => printInvoice(inv)} className="text-xs font-bold bg-slate-50 hover:bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-100 transition-colors flex items-center gap-1"><IconPrinter /><span>Cetak</span></button>
                                                     <button onClick={() => setDeleteInvConfirmId(inv.id)} className="text-xs font-bold bg-red-50 hover:bg-red-100 text-red-600 p-1.5 rounded-lg border border-red-100 transition-colors"><IconTrash /></button>
@@ -6308,6 +6326,39 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         </div>
                     </div>
                 </div>
+                {payInvId && (() => {
+                    const inv = safeInvoiceRows.find(i => String(i.id) === String(payInvId));
+                    const totals = inv ? getInvoiceTotals(inv) : { total: 0 };
+                    const paid = inv ? getInvoicePaidTotal(inv) : 0;
+                    const sisa = Math.max(0, totals.total - paid);
+                    return (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
+                                <h3 className="font-black text-lg mb-1">Tambah Pembayaran</h3>
+                                <p className="text-sm text-gray-500 mb-1">{inv?.customer || '-'} · <span className="font-mono text-blue-600">{inv?.id}</span></p>
+                                <div className="flex justify-between text-sm mb-4 bg-gray-50 rounded-lg p-3">
+                                    <span className="text-gray-500">Total Invoice</span><span className="font-black">{formatRupiah(totals.total)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm mb-4 bg-gray-50 rounded-lg p-3">
+                                    <span className="text-gray-500">Sudah Dibayar</span><span className="font-bold text-green-700">{formatRupiah(paid)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm mb-4 bg-red-50 rounded-lg p-3">
+                                    <span className="text-gray-500">Sisa Tagihan</span><span className="font-black text-red-600">{formatRupiah(sisa)}</span>
+                                </div>
+                                <div className="space-y-3">
+                                    <div><label className="block text-xs font-bold text-gray-600 mb-1">Nominal Pembayaran *</label><input type="number" min="1" max={sisa} className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-green-400 text-right" placeholder="0" value={payForm.amount} onChange={e => setPayForm(p => ({ ...p, amount: e.target.value }))} autoFocus /></div>
+                                    <div><label className="block text-xs font-bold text-gray-600 mb-1">Tanggal</label><input type="date" className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-green-400" value={payForm.date} onChange={e => setPayForm(p => ({ ...p, date: e.target.value }))} /></div>
+                                    <div><label className="block text-xs font-bold text-gray-600 mb-1">Metode</label><select className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-green-400" value={payForm.method} onChange={e => setPayForm(p => ({ ...p, method: e.target.value }))}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select></div>
+                                    <div><label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label><input type="text" className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-green-400" placeholder="Opsional" value={payForm.note} onChange={e => setPayForm(p => ({ ...p, note: e.target.value }))} /></div>
+                                </div>
+                                <div className="flex gap-2 mt-5">
+                                    <button onClick={() => setPayInvId(null)} className="flex-1 py-2.5 bg-gray-100 rounded-xl font-bold text-sm">Batal</button>
+                                    <button onClick={saveInvoicePayment} className="flex-1 py-2.5 bg-green-600 text-white rounded-xl font-bold text-sm">Simpan Pembayaran</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
                 {deleteInvConfirmId && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                         <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
