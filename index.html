@@ -3234,8 +3234,14 @@ ${templates?.spkNote ? `<p class="spk-note">* ${templates.spkNote}</p>` : ''}
                 setSelectedOrders(prev => ({ ...prev, [orderId]: !prev[orderId] }));
             };
 
-            const handleUpdateShippingInput = (orderId, size, value) => {
-                setShippingInputs(prev => ({ ...prev, [orderId]: { ...prev[orderId], [size]: value } }));
+            const handleUpdateShippingInput = (orderId, size, value, max) => {
+                if (value === '') {
+                    setShippingInputs(prev => ({ ...prev, [orderId]: { ...prev[orderId], [size]: '' } }));
+                    return;
+                }
+                const parsed = parseInt(value) || 0;
+                const clamped = max !== undefined ? Math.max(0, Math.min(parsed, max)) : Math.max(0, parsed);
+                setShippingInputs(prev => ({ ...prev, [orderId]: { ...prev[orderId], [size]: String(clamped) } }));
             };
 
             const getAvailableToShip = (order, size) => {
@@ -3243,14 +3249,16 @@ ${templates?.spkNote ? `<p class="spk-note">* ${templates.spkNote}</p>` : ''}
                 const furthestStage = activeStages[activeStages.length - 1] || 'cutting';
 
                 let totalSetor = 0;
+                let hasAnyWorkLog = false;
                 const stageData = order.progress?.[furthestStage] || {};
-                if (stageData && stageData.workLogs) {
+                if (stageData && stageData.workLogs && stageData.workLogs.length > 0) {
+                    hasAnyWorkLog = true;
                     stageData.workLogs.forEach(log => {
                         if (!log.isDeleted && log.size === size && log.checkAfter) totalSetor += getWorkLogSubmittedQty(log);
                     });
                 }
-                // Fallback: jika tidak ada workLogs, gunakan ukuran order penuh
-                if (totalSetor === 0) totalSetor = (order.sizes && order.sizes[size]) || 0;
+                // Fallback hanya jika belum ada workLog sama sekali (order lama tanpa data produksi)
+                if (!hasAnyWorkLog) totalSetor = (order.sizes && order.sizes[size]) || 0;
                 const shippedCount = (order.shipped && order.shipped[size]) || 0;
                 return Math.max(0, totalSetor - shippedCount);
             };
@@ -3361,12 +3369,27 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             };
 
             const executeKirimGabungan = (client, clientOrders) => {
+                // Validasi: pastikan jumlah kirim tidak melebihi stok produksi
+                for (const order of clientOrders) {
+                    const currentOrderInputs = shippingInputs[order.id] || {};
+                    for (const size of Object.keys(order.sizes || {})) {
+                        const qtyToShip = parseInt(currentOrderInputs[size]) || 0;
+                        if (qtyToShip > 0) {
+                            const available = getAvailableToShip(order, size);
+                            if (qtyToShip > available) {
+                                showToast(`Order ${order.id} ukuran ${size}: stok tersedia ${available} pcs, tidak bisa kirim ${qtyToShip} pcs.`, "error");
+                                return;
+                            }
+                        }
+                    }
+                }
+
                 let anyShipped = false;
                 let processedItems = [];
 
                 setOrders(prevOrders => {
                     const updatedOrders = [...prevOrders];
-                    
+
                     clientOrders.forEach(order => {
                         const currentOrderInputs = shippingInputs[order.id] || {};
                         const newShipped = { ...order.shipped };
@@ -3594,7 +3617,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                                             placeholder={isCompleted ? "Lengkap" : "Kirim..."}
                                                                             className="w-full text-sm p-1.5 border rounded focus:ring-2 focus:ring-blue-500 disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed font-medium text-center"
                                                                             value={shippingInputs[order.id]?.[size] || ''}
-                                                                            onChange={(e) => handleUpdateShippingInput(order.id, size, e.target.value)}
+                                                                            onChange={(e) => handleUpdateShippingInput(order.id, size, e.target.value, avail)}
                                                                         />
                                                                     </div>
                                                                 )
