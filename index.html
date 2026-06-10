@@ -3543,7 +3543,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                                 if (!hasSJ) {
                                                                     const shipped = order.shipped || order.sizes || {};
                                                                     const shippedTotal = Object.values(shipped).reduce((s, q) => s + (parseInt(q) || 0), 0);
-                                                                    const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz}: ${shipped[sz]}`).join(', ');
+                                                                    const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz} (${shipped[sz]})`).join(', ');
                                                                     setRiwayatPengiriman(prev => [...(prev || []), { id: genId('SJ-'), date: new Date().toISOString().split('T')[0], client: order.client, items: [{ orderId: order.id, type: order.type || '-', details, total: shippedTotal || order.total || 0 }], total: shippedTotal || order.total || 0, _syncUpdatedAt: new Date().toISOString() }]);
                                                                 }
                                                                 setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, isArchived: true } : o));
@@ -3620,7 +3620,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const archivedAsSJ = archivedWithoutSJ.map(o => {
                 const shipped = o.shipped || o.sizes || {};
                 const shippedTotal = Object.values(shipped).reduce((s, q) => s + (parseInt(q) || 0), 0);
-                const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz}: ${shipped[sz]}`).join(', ');
+                const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz} (${shipped[sz]})`).join(', ');
                 return { id: o.id, date: o.deadline || '', client: o.client, items: [{ orderId: o.id, type: o.type || '-', details, total: shippedTotal || o.total || 0 }], total: shippedTotal || o.total || 0, _fromArchivedOrder: true };
             });
             const filteredRiwayatPengiriman = [...(riwayatPengiriman || []).filter(isVisibleRecord), ...archivedAsSJ]
@@ -3734,7 +3734,16 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
 
             const handleDeletePengiriman = () => {
                 const riwayatToDelete = (riwayatPengiriman || []).find(r => String(r.id) === String(deleteConfirmId));
-                if (!riwayatToDelete) return;
+                if (!riwayatToDelete) {
+                    // Virtual record: deleteConfirmId == order.id (archived without SJ)
+                    setOrders(prev => (prev || []).map(o => String(o.id) === String(deleteConfirmId)
+                        ? { ...o, isArchived: false, status: 'Siap Kirim', _syncUpdatedAt: new Date().toISOString() }
+                        : o
+                    ));
+                    setDeleteConfirmId(null);
+                    showToast("Order dipulihkan ke antrean pengiriman.", "success");
+                    return;
+                }
 
                 setOrders(prevOrders => {
                     const updatedOrders = [...(prevOrders || [])];
