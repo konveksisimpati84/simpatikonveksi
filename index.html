@@ -13135,7 +13135,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const initData = async () => {
                     if (supabaseClient) {
                         try {
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays] = await Promise.all([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap] = await Promise.all([
                                 fetchStoreData('accounts', initialAccounts),
                                 fetchStoreData('employees', initialEmployees),
                                 fetchStoreData('orders', initialOrders),
@@ -13146,7 +13146,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 fetchStoreData('clients', []),
                                 fetchStoreData('templates', initialTemplates),
                                 fetchStoreData('manualPurchases', []),
-                                fetchStoreData('manualVendorPayments', {})
+                                fetchStoreData('manualVendorPayments', {}),
+                                fetchStoreData('investors', []),
+                                fetchStoreData('investorBagiHasil', []),
+                                fetchStoreData('drivers', []),
+                                fetchStoreData('driverTarifs', []),
+                                fetchStoreData('driverTransactions', []),
+                                fetchStoreData('driverRekapGaji', [])
                             ]);
 
                             const localAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
@@ -13204,6 +13210,36 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             setRekapKinerja(nextRekaps);
                             setRiwayatPengiriman(nextRiwayats);
                             setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : loadLocalData('simpati_templates_sync', initialTemplates));
+                            if (Array.isArray(remInvestors)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_investors_sync', []), remInvestors);
+                                setInvestors(next); safeLocalSet('simpati_investors_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remInvestors)) setTimeout(() => saveToSupabase('investors', next), 0);
+                            }
+                            if (Array.isArray(remInvestorBH)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_investor_bagi_hasil_sync', []), remInvestorBH);
+                                setInvestorBagiHasil(next); safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remInvestorBH)) setTimeout(() => saveToSupabase('investorBagiHasil', next), 0);
+                            }
+                            if (Array.isArray(remDrivers)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_drivers_sync', []), remDrivers);
+                                setDrivers(next); safeLocalSet('simpati_drivers_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remDrivers)) setTimeout(() => saveToSupabase('drivers', next), 0);
+                            }
+                            if (Array.isArray(remDriverTarifs)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_driver_tarifs_sync', []), remDriverTarifs);
+                                setDriverTarifs(next); safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remDriverTarifs)) setTimeout(() => saveToSupabase('driverTarifs', next), 0);
+                            }
+                            if (Array.isArray(remDriverTrx)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_driver_trx_sync', []), remDriverTrx);
+                                setDriverTransactions(next); safeLocalSet('simpati_driver_trx_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remDriverTrx)) setTimeout(() => saveToSupabase('driverTransactions', next), 0);
+                            }
+                            if (Array.isArray(remDriverRekap)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_driver_rekap_gaji_sync', []), remDriverRekap);
+                                setDriverRekapGaji(next); safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remDriverRekap)) setTimeout(() => saveToSupabase('driverRekapGaji', next), 0);
+                            }
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
                         } catch (error) {
                             console.error("Gagal memuat dari Supabase, memakai data lokal.");
