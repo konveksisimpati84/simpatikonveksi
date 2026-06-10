@@ -116,7 +116,8 @@
             { id: 'investor', label: 'Investor' },
             { id: 'karyawan', label: 'Data Karyawan' },
             { id: 'pengaturan', label: 'Pengaturan Cetak' },
-            { id: 'master_akun', label: 'Master Akun' }
+            { id: 'master_akun', label: 'Master Akun' },
+            { id: 'ekspedisi', label: 'Driver / Ekspedisi' }
         ];
 
         const getDefaultMenuAccess = (role) => {
@@ -11054,6 +11055,620 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             );
         };
 
+        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, showToast, templates }) => {
+            const [activeSubTab, setActiveSubTab] = React.useState('driver');
+            const [activeRekapTab, setActiveRekapTab] = React.useState('rekap_pengiriman');
+            const [search, setSearch] = React.useState('');
+            const [showDriverForm, setShowDriverForm] = React.useState(false);
+            const [showTarifForm, setShowTarifForm] = React.useState(false);
+            const [showTrxForm, setShowTrxForm] = React.useState(false);
+            const [editDriver, setEditDriver] = React.useState(null);
+            const [editTarif, setEditTarif] = React.useState(null);
+            const [editTrx, setEditTrx] = React.useState(null);
+            const [filterDriver, setFilterDriver] = React.useState('');
+            const [filterStatus, setFilterStatus] = React.useState('');
+            const [dateFrom, setDateFrom] = React.useState('');
+            const [dateTo, setDateTo] = React.useState('');
+
+            const visibleDrivers = (drivers || []).filter(isVisibleRecord);
+            const visibleTarifs = (driverTarifs || []).filter(isVisibleRecord);
+            const visibleTrx = (driverTransactions || []).filter(isVisibleRecord);
+
+            const calcOngkir = (weight, tarifId) => {
+                const t = visibleTarifs.find(x => x.id === tarifId);
+                if (!t) return 0;
+                return Math.max(safeMoney(weight) * safeMoney(t.pricePerKg), safeMoney(t.minPrice));
+            };
+
+            // ----- DRIVER FORM -----
+            const [dForm, setDForm] = React.useState({ name:'', phone:'', address:'', vehicle:'', plateNumber:'', isActive:true });
+            const openDriverForm = (drv=null) => {
+                setEditDriver(drv);
+                setDForm(drv ? { name:drv.name||'', phone:drv.phone||'', address:drv.address||'', vehicle:drv.vehicle||'', plateNumber:drv.plateNumber||'', isActive:drv.isActive!==false } : { name:'', phone:'', address:'', vehicle:'', plateNumber:'', isActive:true });
+                setShowDriverForm(true);
+            };
+            const saveDriver = () => {
+                if (!dForm.name.trim()) { showToast('Nama driver wajib diisi', 'error'); return; }
+                if (editDriver) {
+                    setDrivers(prev => prev.map(d => d.id===editDriver.id ? {...d,...dForm,id:d.id} : d));
+                } else {
+                    setDrivers(prev => [...(prev||[]), { id:genId('DRV-'), ...dForm, _syncUpdatedAt: new Date().toISOString() }]);
+                }
+                setShowDriverForm(false);
+                showToast(editDriver ? 'Data driver diperbarui' : 'Driver baru ditambahkan', 'success');
+            };
+            const deleteDriver = (id) => {
+                setDrivers(prev => prev.map(d => d.id===id ? {...d, isDeleted:true, _syncUpdatedAt:new Date().toISOString()} : d));
+                showToast('Driver dihapus', 'success');
+            };
+
+            // ----- TARIF FORM -----
+            const [tForm, setTForm] = React.useState({ from:'', to:'', pricePerKg:'', minPrice:'', note:'' });
+            const openTarifForm = (tarif=null) => {
+                setEditTarif(tarif);
+                setTForm(tarif ? { from:tarif.from||'', to:tarif.to||'', pricePerKg:tarif.pricePerKg||'', minPrice:tarif.minPrice||'', note:tarif.note||'' } : { from:'', to:'', pricePerKg:'', minPrice:'', note:'' });
+                setShowTarifForm(true);
+            };
+            const saveTarif = () => {
+                if (!tForm.from.trim() || !tForm.to.trim()) { showToast('Asal dan Tujuan wajib diisi', 'error'); return; }
+                if (editTarif) {
+                    setDriverTarifs(prev => prev.map(t => t.id===editTarif.id ? {...t,...tForm,id:t.id} : t));
+                } else {
+                    setDriverTarifs(prev => [...(prev||[]), { id:genId('TRF-'), ...tForm, _syncUpdatedAt: new Date().toISOString() }]);
+                }
+                setShowTarifForm(false);
+                showToast(editTarif ? 'Tarif diperbarui' : 'Tarif baru ditambahkan', 'success');
+            };
+            const deleteTarif = (id) => {
+                setDriverTarifs(prev => prev.map(t => t.id===id ? {...t, isDeleted:true, _syncUpdatedAt:new Date().toISOString()} : t));
+                showToast('Tarif dihapus', 'success');
+            };
+
+            // ----- TRANSAKSI FORM -----
+            const [xForm, setXForm] = React.useState({ date: new Date().toISOString().slice(0,10), customer:'', phone:'', address:'', weight:'', driverId:'', tarifId:'', ongkir:'', status:'Menunggu', note:'' });
+            const openTrxForm = (trx=null) => {
+                setEditTrx(trx);
+                setXForm(trx ? { date:trx.date||'', customer:trx.customer||'', phone:trx.phone||'', address:trx.address||'', weight:trx.weight||'', driverId:trx.driverId||'', tarifId:trx.tarifId||'', ongkir:trx.ongkir||'', status:trx.status||'Menunggu', note:trx.note||'' } : { date: new Date().toISOString().slice(0,10), customer:'', phone:'', address:'', weight:'', driverId:'', tarifId:'', ongkir:'', status:'Menunggu', note:'' });
+                setShowTrxForm(true);
+            };
+            const handleXFormChange = (field, val) => {
+                setXForm(prev => {
+                    const updated = {...prev, [field]:val};
+                    if (field==='weight' || field==='tarifId') {
+                        updated.ongkir = calcOngkir(field==='weight'?val:prev.weight, field==='tarifId'?val:prev.tarifId);
+                    }
+                    return updated;
+                });
+            };
+            const saveTrx = () => {
+                if (!xForm.customer.trim()) { showToast('Nama customer wajib diisi', 'error'); return; }
+                if (!xForm.driverId) { showToast('Pilih driver', 'error'); return; }
+                const drv = visibleDrivers.find(d=>d.id===xForm.driverId);
+                const payload = { ...xForm, driverName: drv?drv.name:'', _syncUpdatedAt: new Date().toISOString() };
+                if (editTrx) {
+                    setDriverTransactions(prev => prev.map(t => t.id===editTrx.id ? {...t,...payload,id:t.id} : t));
+                } else {
+                    setDriverTransactions(prev => [...(prev||[]), { id:genId('XPDC-'), ...payload }]);
+                }
+                setShowTrxForm(false);
+                showToast(editTrx ? 'Transaksi diperbarui' : 'Transaksi baru ditambahkan', 'success');
+            };
+            const deleteTrx = (id) => {
+                setDriverTransactions(prev => prev.map(t => t.id===id ? {...t, isDeleted:true, _syncUpdatedAt:new Date().toISOString()} : t));
+                showToast('Transaksi dihapus', 'success');
+            };
+            const updateStatus = (id, status) => {
+                setDriverTransactions(prev => prev.map(t => t.id===id ? {...t, status, _syncUpdatedAt:new Date().toISOString()} : t));
+                showToast('Status diperbarui', 'success');
+            };
+
+            // ----- CETAK STRUK -----
+            const printStruk = (trx) => {
+                const drv = visibleDrivers.find(d=>d.id===trx.driverId);
+                const tarif = visibleTarifs.find(t=>t.id===trx.tarifId);
+                const w = window.open('','_blank','width=400,height=600');
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Struk Pengiriman</title><style>
+                    body{font-family:monospace;font-size:12px;width:80mm;margin:0 auto;padding:8px;}
+                    .center{text-align:center;} .bold{font-weight:bold;} hr{border:none;border-top:1px dashed #000;}
+                    table{width:100%;} td{padding:2px 0;} .right{text-align:right;}
+                </style></head><body>
+                <div class="center bold" style="font-size:14px">${templates?.companyName||'SIMPATI KONVEKSI'}</div>
+                <div class="center">${templates?.companySubtitle||''}</div>
+                <div class="center bold" style="margin:4px 0">STRUK PENGIRIMAN</div>
+                <hr/><table>
+                <tr><td>No Struk</td><td>: ${trx.id}</td></tr>
+                <tr><td>Tanggal</td><td>: ${trx.date}</td></tr>
+                <tr><td>Customer</td><td>: ${trx.customer}</td></tr>
+                <tr><td>No HP</td><td>: ${trx.phone||'-'}</td></tr>
+                <tr><td>Tujuan</td><td>: ${trx.address||'-'}</td></tr>
+                <tr><td>Driver</td><td>: ${drv?drv.name:(trx.driverName||'-')}</td></tr>
+                ${tarif?`<tr><td>Rute</td><td>: ${tarif.from} - ${tarif.to}</td></tr>`:''}
+                <tr><td>Berat</td><td>: ${trx.weight||0} kg</td></tr>
+                </table>
+                <hr/><table>
+                <tr><td class="bold">ONGKIR</td><td class="bold right">${formatRupiah(safeMoney(trx.ongkir))}</td></tr>
+                </table><hr/>
+                <div class="center">Status: <b>${trx.status||'Menunggu'}</b></div>
+                <div class="center" style="margin-top:8px;font-size:10px">Dicetak: ${new Date().toLocaleDateString('id-ID')}</div>
+                </body></html>`);
+                w.document.close();
+                setTimeout(()=>{ w.print(); w.close(); }, 500);
+            };
+
+            // ----- FILTER TRX -----
+            const filteredTrx = visibleTrx.filter(t => {
+                if (filterDriver && t.driverId !== filterDriver) return false;
+                if (filterStatus && t.status !== filterStatus) return false;
+                if (dateFrom && t.date < dateFrom) return false;
+                if (dateTo && t.date > dateTo) return false;
+                if (search && !matchesSearch([t.customer||'', t.address||'', t.driverName||'', t.id||''], search)) return false;
+                return true;
+            }).sort((a,b)=>((b.date||'')>(a.date||'')?1:-1));
+
+            const filteredDrivers = visibleDrivers.filter(d => !search || matchesSearch([d.name||'',d.phone||'',d.vehicle||'',d.plateNumber||''], search));
+            const filteredTarifs = visibleTarifs.filter(t => !search || matchesSearch([t.from||'',t.to||'',t.note||''], search));
+
+            // Pagination for transactions
+            const [trxPage, setTrxPage] = React.useState(1);
+            const TRX_PER_PAGE = 20;
+            const trxTotalPages = Math.max(1, Math.ceil(filteredTrx.length / TRX_PER_PAGE));
+            const pagedTrx = filteredTrx.slice((trxPage-1)*TRX_PER_PAGE, trxPage*TRX_PER_PAGE);
+
+            // ----- REKAP & LAPORAN -----
+            const rekapByDriver = visibleDrivers.map(drv => {
+                const trxList = visibleTrx.filter(t=>t.driverId===drv.id && t.status==='Terkirim');
+                const totalOngkir = trxList.reduce((s,t)=>s+safeMoney(t.ongkir),0);
+                return { ...drv, jumlahTrx: trxList.length, totalOngkir };
+            }).filter(d => d.jumlahTrx > 0 || true);
+
+            const filteredRekapTrx = visibleTrx.filter(t => {
+                if (filterDriver && t.driverId !== filterDriver) return false;
+                if (dateFrom && t.date < dateFrom) return false;
+                if (dateTo && t.date > dateTo) return false;
+                return true;
+            });
+
+            const totalPenghasilan = filteredRekapTrx.filter(t=>t.status==='Terkirim').reduce((s,t)=>s+safeMoney(t.ongkir),0);
+            const totalTrx = filteredRekapTrx.length;
+            const totalTerkirim = filteredRekapTrx.filter(t=>t.status==='Terkirim').length;
+            const totalMenunggu = filteredRekapTrx.filter(t=>t.status==='Menunggu').length;
+
+            const statusColor = (s) => {
+                if (s==='Terkirim') return 'bg-green-100 text-green-700';
+                if (s==='Dalam Perjalanan') return 'bg-blue-100 text-blue-700';
+                if (s==='Gagal') return 'bg-red-100 text-red-700';
+                return 'bg-yellow-100 text-yellow-700';
+            };
+
+            const subTabs = [
+                { id:'driver', label:'Data Driver' },
+                { id:'tarif', label:'Tarif Pengiriman' },
+                { id:'transaksi', label:'Transaksi Pengiriman' },
+                { id:'rekap', label:'Rekap & Laporan' },
+            ];
+
+            return (
+                <div>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-2xl font-bold text-slate-800">Driver / Ekspedisi</h2>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-4 border-b border-gray-200 pb-2">
+                        {subTabs.map(st => (
+                            <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);}}
+                                className={`px-4 py-2 rounded-t text-sm font-semibold transition-colors ${activeSubTab===st.id?'bg-blue-600 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                {st.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* DATA DRIVER */}
+                    {activeSubTab==='driver' && (
+                        <Card>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari driver..." className="border rounded px-3 py-2 text-sm w-56" />
+                                <button onClick={()=>openDriverForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">+ Tambah Driver</button>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="bg-gray-50 text-left">
+                                            <th className="px-3 py-2 font-semibold">No</th>
+                                            <th className="px-3 py-2 font-semibold">Nama</th>
+                                            <th className="px-3 py-2 font-semibold">No HP</th>
+                                            <th className="px-3 py-2 font-semibold">Kendaraan</th>
+                                            <th className="px-3 py-2 font-semibold">Plat Nomor</th>
+                                            <th className="px-3 py-2 font-semibold">Alamat</th>
+                                            <th className="px-3 py-2 font-semibold">Status</th>
+                                            <th className="px-3 py-2 font-semibold">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredDrivers.length===0 && <tr><td colSpan="8" className="text-center py-8 text-gray-400">Belum ada data driver</td></tr>}
+                                        {filteredDrivers.map((drv,i)=>(
+                                            <tr key={drv.id} className="border-t hover:bg-gray-50">
+                                                <td className="px-3 py-2 text-gray-500">{i+1}</td>
+                                                <td className="px-3 py-2 font-medium">{drv.name}</td>
+                                                <td className="px-3 py-2">{drv.phone||'-'}</td>
+                                                <td className="px-3 py-2">{drv.vehicle||'-'}</td>
+                                                <td className="px-3 py-2">{drv.plateNumber||'-'}</td>
+                                                <td className="px-3 py-2 text-xs text-gray-500">{drv.address||'-'}</td>
+                                                <td className="px-3 py-2">
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${drv.isActive!==false?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}`}>
+                                                        {drv.isActive!==false?'Aktif':'Nonaktif'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <div className="flex gap-2">
+                                                        <button onClick={()=>openDriverForm(drv)} className="text-blue-600 hover:underline text-xs">Edit</button>
+                                                        <button onClick={()=>deleteDriver(drv.id)} className="text-red-500 hover:underline text-xs">Hapus</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    )}
+
+                    {/* TARIF PENGIRIMAN */}
+                    {activeSubTab==='tarif' && (
+                        <Card>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari tarif..." className="border rounded px-3 py-2 text-sm w-56" />
+                                <button onClick={()=>openTarifForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">+ Tambah Tarif</button>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="bg-gray-50 text-left">
+                                            <th className="px-3 py-2 font-semibold">No</th>
+                                            <th className="px-3 py-2 font-semibold">Dari</th>
+                                            <th className="px-3 py-2 font-semibold">Tujuan</th>
+                                            <th className="px-3 py-2 font-semibold">Tarif/Kg</th>
+                                            <th className="px-3 py-2 font-semibold">Minimal</th>
+                                            <th className="px-3 py-2 font-semibold">Catatan</th>
+                                            <th className="px-3 py-2 font-semibold">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredTarifs.length===0 && <tr><td colSpan="7" className="text-center py-8 text-gray-400">Belum ada data tarif</td></tr>}
+                                        {filteredTarifs.map((t,i)=>(
+                                            <tr key={t.id} className="border-t hover:bg-gray-50">
+                                                <td className="px-3 py-2 text-gray-500">{i+1}</td>
+                                                <td className="px-3 py-2 font-medium">{t.from}</td>
+                                                <td className="px-3 py-2 font-medium">{t.to}</td>
+                                                <td className="px-3 py-2">{formatRupiah(safeMoney(t.pricePerKg))}/kg</td>
+                                                <td className="px-3 py-2">{formatRupiah(safeMoney(t.minPrice))}</td>
+                                                <td className="px-3 py-2 text-xs text-gray-500">{t.note||'-'}</td>
+                                                <td className="px-3 py-2">
+                                                    <div className="flex gap-2">
+                                                        <button onClick={()=>openTarifForm(t)} className="text-blue-600 hover:underline text-xs">Edit</button>
+                                                        <button onClick={()=>deleteTarif(t.id)} className="text-red-500 hover:underline text-xs">Hapus</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    )}
+
+                    {/* TRANSAKSI PENGIRIMAN */}
+                    {activeSubTab==='transaksi' && (
+                        <Card>
+                            <div className="flex flex-wrap items-center gap-2 mb-4">
+                                <input value={search} onChange={e=>{setSearch(e.target.value);setTrxPage(1);}} placeholder="Cari customer/tujuan..." className="border rounded px-3 py-2 text-sm w-48" />
+                                <select value={filterDriver} onChange={e=>{setFilterDriver(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm">
+                                    <option value="">Semua Driver</option>
+                                    {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                                </select>
+                                <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm">
+                                    <option value="">Semua Status</option>
+                                    {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
+                                </select>
+                                <input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm" />
+                                <input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm" />
+                                <button onClick={()=>openTrxForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold ml-auto">+ Transaksi Baru</button>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="bg-gray-50 text-left">
+                                            <th className="px-3 py-2 font-semibold">Tgl</th>
+                                            <th className="px-3 py-2 font-semibold">Customer</th>
+                                            <th className="px-3 py-2 font-semibold">Tujuan</th>
+                                            <th className="px-3 py-2 font-semibold">Driver</th>
+                                            <th className="px-3 py-2 font-semibold">Berat</th>
+                                            <th className="px-3 py-2 font-semibold">Ongkir</th>
+                                            <th className="px-3 py-2 font-semibold">Status</th>
+                                            <th className="px-3 py-2 font-semibold">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {pagedTrx.length===0 && <tr><td colSpan="8" className="text-center py-8 text-gray-400">Tidak ada transaksi ditemukan</td></tr>}
+                                        {pagedTrx.map((t)=>(
+                                            <tr key={t.id} className="border-t hover:bg-gray-50">
+                                                <td className="px-3 py-2 text-xs text-gray-500">{t.date}</td>
+                                                <td className="px-3 py-2 font-medium">{t.customer}</td>
+                                                <td className="px-3 py-2 text-xs">{t.address||'-'}</td>
+                                                <td className="px-3 py-2">{t.driverName||'-'}</td>
+                                                <td className="px-3 py-2">{t.weight||0} kg</td>
+                                                <td className="px-3 py-2 font-medium text-blue-700">{formatRupiah(safeMoney(t.ongkir))}</td>
+                                                <td className="px-3 py-2">
+                                                    <select value={t.status||'Menunggu'} onChange={e=>updateStatus(t.id,e.target.value)}
+                                                        className={`text-xs font-bold px-2 py-1 rounded border-0 cursor-pointer ${statusColor(t.status||'Menunggu')}`}>
+                                                        {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
+                                                    </select>
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <div className="flex gap-1 flex-wrap">
+                                                        <button onClick={()=>printStruk(t)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded">Struk</button>
+                                                        <button onClick={()=>openTrxForm(t)} className="text-blue-600 hover:underline text-xs">Edit</button>
+                                                        <button onClick={()=>deleteTrx(t.id)} className="text-red-500 hover:underline text-xs">Hapus</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {trxTotalPages>1 && (
+                                <div className="flex justify-center gap-2 mt-4">
+                                    <button disabled={trxPage===1} onClick={()=>setTrxPage(p=>p-1)} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Prev</button>
+                                    <span className="px-3 py-1 text-sm">{trxPage} / {trxTotalPages}</span>
+                                    <button disabled={trxPage===trxTotalPages} onClick={()=>setTrxPage(p=>p+1)} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Next</button>
+                                </div>
+                            )}
+                        </Card>
+                    )}
+
+                    {/* REKAP & LAPORAN */}
+                    {activeSubTab==='rekap' && (
+                        <div>
+                            <div className="flex flex-wrap gap-2 mb-4">
+                                {[{id:'rekap_pengiriman',label:'Rekap Pengiriman'},{id:'rekap_gaji',label:'Rekap Gaji Driver'},{id:'laporan_keuangan',label:'Laporan Keuangan'}].map(rt=>(
+                                    <button key={rt.id} onClick={()=>setActiveRekapTab(rt.id)}
+                                        className={`px-3 py-2 rounded text-sm font-semibold ${activeRekapTab===rt.id?'bg-slate-700 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                        {rt.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 mb-4">
+                                <select value={filterDriver} onChange={e=>setFilterDriver(e.target.value)} className="border rounded px-3 py-2 text-sm">
+                                    <option value="">Semua Driver</option>
+                                    {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                                </select>
+                                <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} className="border rounded px-3 py-2 text-sm" />
+                                <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} className="border rounded px-3 py-2 text-sm" />
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                                <div className="bg-blue-50 rounded-lg p-3 text-center"><div className="text-xs text-blue-500 font-semibold">Total Transaksi</div><div className="text-2xl font-bold text-blue-700">{totalTrx}</div></div>
+                                <div className="bg-green-50 rounded-lg p-3 text-center"><div className="text-xs text-green-500 font-semibold">Terkirim</div><div className="text-2xl font-bold text-green-700">{totalTerkirim}</div></div>
+                                <div className="bg-yellow-50 rounded-lg p-3 text-center"><div className="text-xs text-yellow-600 font-semibold">Menunggu</div><div className="text-2xl font-bold text-yellow-700">{totalMenunggu}</div></div>
+                                <div className="bg-purple-50 rounded-lg p-3 text-center"><div className="text-xs text-purple-500 font-semibold">Total Ongkir</div><div className="text-lg font-bold text-purple-700">{formatRupiah(totalPenghasilan)}</div></div>
+                            </div>
+
+                            {activeRekapTab==='rekap_pengiriman' && (
+                                <Card>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-gray-50 text-left">
+                                                    <th className="px-3 py-2">Tanggal</th>
+                                                    <th className="px-3 py-2">Customer</th>
+                                                    <th className="px-3 py-2">Driver</th>
+                                                    <th className="px-3 py-2">Tujuan</th>
+                                                    <th className="px-3 py-2">Berat</th>
+                                                    <th className="px-3 py-2">Ongkir</th>
+                                                    <th className="px-3 py-2">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {filteredRekapTrx.length===0 && <tr><td colSpan="7" className="text-center py-8 text-gray-400">Tidak ada data</td></tr>}
+                                                {filteredRekapTrx.map(t=>(
+                                                    <tr key={t.id} className="border-t hover:bg-gray-50">
+                                                        <td className="px-3 py-2 text-xs">{t.date}</td>
+                                                        <td className="px-3 py-2 font-medium">{t.customer}</td>
+                                                        <td className="px-3 py-2">{t.driverName||'-'}</td>
+                                                        <td className="px-3 py-2 text-xs">{t.address||'-'}</td>
+                                                        <td className="px-3 py-2">{t.weight||0} kg</td>
+                                                        <td className="px-3 py-2 font-medium">{formatRupiah(safeMoney(t.ongkir))}</td>
+                                                        <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${statusColor(t.status||'Menunggu')}`}>{t.status||'Menunggu'}</span></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </Card>
+                            )}
+
+                            {activeRekapTab==='rekap_gaji' && (
+                                <Card>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-gray-50 text-left">
+                                                    <th className="px-3 py-2">Driver</th>
+                                                    <th className="px-3 py-2">Kendaraan</th>
+                                                    <th className="px-3 py-2">Jml Antar (Terkirim)</th>
+                                                    <th className="px-3 py-2">Total Ongkir</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {rekapByDriver.filter(d=>!filterDriver||d.id===filterDriver).length===0 && <tr><td colSpan="4" className="text-center py-8 text-gray-400">Tidak ada data</td></tr>}
+                                                {rekapByDriver.filter(d=>!filterDriver||d.id===filterDriver).map(drv=>{
+                                                    const trxList = filteredRekapTrx.filter(t=>t.driverId===drv.id&&t.status==='Terkirim');
+                                                    const total = trxList.reduce((s,t)=>s+safeMoney(t.ongkir),0);
+                                                    return (
+                                                        <tr key={drv.id} className="border-t hover:bg-gray-50">
+                                                            <td className="px-3 py-2 font-medium">{drv.name}</td>
+                                                            <td className="px-3 py-2">{drv.vehicle||'-'} {drv.plateNumber?`(${drv.plateNumber})`:''}</td>
+                                                            <td className="px-3 py-2 text-center font-bold text-green-700">{trxList.length}</td>
+                                                            <td className="px-3 py-2 font-bold text-blue-700">{formatRupiah(total)}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </Card>
+                            )}
+
+                            {activeRekapTab==='laporan_keuangan' && (
+                                <Card>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h3 className="font-bold text-slate-700">Laporan Keuangan Ekspedisi</h3>
+                                        <button onClick={()=>{
+                                            const w=window.open('','_blank');
+                                            const rows = filteredRekapTrx.filter(t=>t.status==='Terkirim');
+                                            const total = rows.reduce((s,t)=>s+safeMoney(t.ongkir),0);
+                                            w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Laporan Keuangan Ekspedisi</title><style>
+                                                body{font-family:Arial,sans-serif;padding:24px;font-size:13px;}
+                                                h2{text-align:center;margin-bottom:4px;} .sub{text-align:center;color:#555;margin-bottom:16px;}
+                                                table{width:100%;border-collapse:collapse;margin-top:12px;} th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;}
+                                                th{background:#f3f4f6;font-weight:bold;} tfoot td{font-weight:bold;background:#f9fafb;}
+                                                .footer{margin-top:16px;text-align:right;font-size:11px;color:#888;}
+                                            </style></head><body>
+                                            <h2>${templates?.companyName||'SIMPATI KONVEKSI'}</h2>
+                                            <div class="sub">LAPORAN KEUANGAN EKSPEDISI</div>
+                                            <div>Periode: ${dateFrom||'Semua'} s/d ${dateTo||'Semua'} | Driver: ${filterDriver?visibleDrivers.find(d=>d.id===filterDriver)?.name||'-':'Semua'}</div>
+                                            <table><thead><tr><th>No</th><th>Tanggal</th><th>Customer</th><th>Driver</th><th>Tujuan</th><th>Berat (kg)</th><th>Ongkir</th></tr></thead>
+                                            <tbody>${rows.map((t,i)=>`<tr><td>${i+1}</td><td>${t.date}</td><td>${t.customer}</td><td>${t.driverName||'-'}</td><td>${t.address||'-'}</td><td>${t.weight||0}</td><td>${formatRupiah(safeMoney(t.ongkir))}</td></tr>`).join('')}</tbody>
+                                            <tfoot><tr><td colspan="6">TOTAL PENDAPATAN</td><td>${formatRupiah(total)}</td></tr></tfoot></table>
+                                            <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
+                                            </body></html>`);
+                                            w.document.close(); setTimeout(()=>{w.print();w.close();},500);
+                                        }} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-bold">Cetak Laporan</button>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 mb-4">
+                                        <div className="bg-green-50 p-3 rounded"><div className="text-xs text-green-600 font-semibold">Pendapatan Ongkir (Terkirim)</div><div className="text-xl font-bold text-green-700">{formatRupiah(totalPenghasilan)}</div></div>
+                                        <div className="bg-blue-50 p-3 rounded"><div className="text-xs text-blue-600 font-semibold">Jumlah Pengiriman Sukses</div><div className="text-xl font-bold text-blue-700">{totalTerkirim}</div></div>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead><tr className="bg-gray-50"><th className="px-3 py-2 text-left">Tanggal</th><th className="px-3 py-2 text-left">Customer</th><th className="px-3 py-2 text-left">Driver</th><th className="px-3 py-2 text-right">Ongkir</th></tr></thead>
+                                            <tbody>
+                                                {filteredRekapTrx.filter(t=>t.status==='Terkirim').length===0 && <tr><td colSpan="4" className="text-center py-6 text-gray-400">Tidak ada data</td></tr>}
+                                                {filteredRekapTrx.filter(t=>t.status==='Terkirim').map(t=>(
+                                                    <tr key={t.id} className="border-t"><td className="px-3 py-2 text-xs">{t.date}</td><td className="px-3 py-2">{t.customer}</td><td className="px-3 py-2">{t.driverName||'-'}</td><td className="px-3 py-2 text-right font-medium">{formatRupiah(safeMoney(t.ongkir))}</td></tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </Card>
+                            )}
+                        </div>
+                    )}
+
+                    {/* MODAL DRIVER FORM */}
+                    {showDriverForm && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+                                <div className="flex justify-between items-center p-4 border-b">
+                                    <h3 className="font-bold text-lg">{editDriver?'Edit Driver':'Tambah Driver'}</h3>
+                                    <button onClick={()=>setShowDriverForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                                </div>
+                                <div className="p-4 space-y-3">
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Nama Driver *</label><input value={dForm.name} onChange={e=>setDForm(p=>({...p,name:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Nama lengkap driver" /></div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">No HP</label><input value={dForm.phone} onChange={e=>setDForm(p=>({...p,phone:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="08xxx" /></div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Jenis Kendaraan</label><input value={dForm.vehicle} onChange={e=>setDForm(p=>({...p,vehicle:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Motor / Mobil / Pickup" /></div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Plat Nomor</label><input value={dForm.plateNumber} onChange={e=>setDForm(p=>({...p,plateNumber:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="B 1234 XYZ" /></div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Alamat</label><textarea value={dForm.address} onChange={e=>setDForm(p=>({...p,address:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" rows="2" /></div>
+                                    <div className="flex items-center gap-2"><input type="checkbox" id="drvActive" checked={dForm.isActive!==false} onChange={e=>setDForm(p=>({...p,isActive:e.target.checked}))} /><label htmlFor="drvActive" className="text-sm">Status Aktif</label></div>
+                                </div>
+                                <div className="flex justify-end gap-2 p-4 border-t">
+                                    <button onClick={()=>setShowDriverForm(false)} className="px-4 py-2 bg-gray-100 rounded text-sm">Batal</button>
+                                    <button onClick={saveDriver} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">Simpan</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL TARIF FORM */}
+                    {showTarifForm && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+                                <div className="flex justify-between items-center p-4 border-b">
+                                    <h3 className="font-bold text-lg">{editTarif?'Edit Tarif':'Tambah Tarif'}</h3>
+                                    <button onClick={()=>setShowTarifForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                                </div>
+                                <div className="p-4 space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Dari *</label><input value={tForm.from} onChange={e=>setTForm(p=>({...p,from:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Kota asal" /></div>
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tujuan *</label><input value={tForm.to} onChange={e=>setTForm(p=>({...p,to:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Kota tujuan" /></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tarif per Kg (Rp)</label><input type="number" value={tForm.pricePerKg} onChange={e=>setTForm(p=>({...p,pricePerKg:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="0" /></div>
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tarif Minimal (Rp)</label><input type="number" value={tForm.minPrice} onChange={e=>setTForm(p=>({...p,minPrice:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="0" /></div>
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Catatan</label><input value={tForm.note} onChange={e=>setTForm(p=>({...p,note:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Opsional" /></div>
+                                </div>
+                                <div className="flex justify-end gap-2 p-4 border-t">
+                                    <button onClick={()=>setShowTarifForm(false)} className="px-4 py-2 bg-gray-100 rounded text-sm">Batal</button>
+                                    <button onClick={saveTarif} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">Simpan</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL TRANSAKSI FORM */}
+                    {showTrxForm && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+                                <div className="flex justify-between items-center p-4 border-b">
+                                    <h3 className="font-bold text-lg">{editTrx?'Edit Transaksi':'Transaksi Baru'}</h3>
+                                    <button onClick={()=>setShowTrxForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                                </div>
+                                <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tanggal</label><input type="date" value={xForm.date} onChange={e=>handleXFormChange('date',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" /></div>
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Status</label>
+                                            <select value={xForm.status} onChange={e=>handleXFormChange('status',e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
+                                                {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Nama Customer *</label><input value={xForm.customer} onChange={e=>handleXFormChange('customer',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" /></div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">No HP</label><input value={xForm.phone} onChange={e=>handleXFormChange('phone',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" /></div>
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Berat (kg)</label><input type="number" value={xForm.weight} onChange={e=>handleXFormChange('weight',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" /></div>
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Alamat Tujuan</label><textarea value={xForm.address} onChange={e=>handleXFormChange('address',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" rows="2" /></div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Driver *</label>
+                                            <select value={xForm.driverId} onChange={e=>handleXFormChange('driverId',e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
+                                                <option value="">Pilih Driver</option>
+                                                {visibleDrivers.filter(d=>d.isActive!==false).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tarif Rute</label>
+                                            <select value={xForm.tarifId} onChange={e=>handleXFormChange('tarifId',e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
+                                                <option value="">Pilih Tarif</option>
+                                                {visibleTarifs.map(t=><option key={t.id} value={t.id}>{t.from} - {t.to} ({formatRupiah(safeMoney(t.pricePerKg))}/kg)</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Ongkir (Rp) - otomatis</label>
+                                        <input type="number" value={xForm.ongkir} onChange={e=>handleXFormChange('ongkir',e.target.value)} className="w-full border rounded px-3 py-2 text-sm bg-blue-50 font-bold" />
+                                        {xForm.tarifId && xForm.weight && <div className="text-xs text-gray-500 mt-1">Otomatis: max({xForm.weight||0} kg x {formatRupiah(safeMoney(visibleTarifs.find(t=>t.id===xForm.tarifId)?.pricePerKg))}, min {formatRupiah(safeMoney(visibleTarifs.find(t=>t.id===xForm.tarifId)?.minPrice))})</div>}
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Catatan</label><textarea value={xForm.note} onChange={e=>handleXFormChange('note',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" rows="2" /></div>
+                                </div>
+                                <div className="flex justify-end gap-2 p-4 border-t">
+                                    <button onClick={()=>setShowTrxForm(false)} className="px-4 py-2 bg-gray-100 rounded text-sm">Batal</button>
+                                    <button onClick={saveTrx} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">Simpan</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
         const App = () => {
             const [isReady, setIsReady] = useState(false);
             const [authUser, setAuthUser] = useState(null);
@@ -11072,6 +11687,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [manualVendorPayments, setManualVendorPayments] = useState({});
             const [investors, setInvestors] = useState([]);
             const [investorBagiHasil, setInvestorBagiHasil] = useState([]);
+            const [drivers, setDrivers] = useState([]);
+            const [driverTarifs, setDriverTarifs] = useState([]);
+            const [driverTransactions, setDriverTransactions] = useState([]);
             const [templates, setTemplates] = useState({});
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
@@ -11692,7 +12310,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const applyRemoteDataSnapshot = async () => {
                 if (!supabaseClient) return;
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -11705,7 +12323,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     fetchStoreData('manualPurchases', []),
                     fetchStoreData('manualVendorPayments', {}),
                     fetchStoreData('investors', []),
-                    fetchStoreData('investorBagiHasil', [])
+                    fetchStoreData('investorBagiHasil', []),
+                    fetchStoreData('drivers', []),
+                    fetchStoreData('driverTarifs', []),
+                    fetchStoreData('driverTransactions', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -11807,6 +12428,30 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         return merged;
                     });
                 }
+                if (Array.isArray(remoteDrivers)) {
+                    setDrivers(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteDrivers);
+                        safeLocalSet('simpati_drivers_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteDrivers)) setTimeout(() => saveToSupabase('drivers', merged), 0);
+                        return merged;
+                    });
+                }
+                if (Array.isArray(remoteDriverTarifs)) {
+                    setDriverTarifs(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteDriverTarifs);
+                        safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteDriverTarifs)) setTimeout(() => saveToSupabase('driverTarifs', merged), 0);
+                        return merged;
+                    });
+                }
+                if (Array.isArray(remoteDriverTrx)) {
+                    setDriverTransactions(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteDriverTrx);
+                        safeLocalSet('simpati_driver_trx_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteDriverTrx)) setTimeout(() => saveToSupabase('driverTransactions', merged), 0);
+                        return merged;
+                    });
+                }
             };
 
             useEffect(() => {
@@ -11874,6 +12519,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     }
                     if (e.key === 'simpati_investor_bagi_hasil_sync' && e.newValue) {
                         try { setInvestorBagiHasil(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
+                    if (e.key === 'simpati_drivers_sync' && e.newValue) {
+                        try { setDrivers(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
+                    if (e.key === 'simpati_driver_tarifs_sync' && e.newValue) {
+                        try { setDriverTarifs(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
+                    if (e.key === 'simpati_driver_trx_sync' && e.newValue) {
+                        try { setDriverTransactions(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
                 };
                 window.addEventListener('storage', handleStorageChange);
@@ -11988,6 +12642,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     setManualVendorPayments(loadLocalData('simpati_manual_vendor_payments_sync', {}));
                     setInvestors(loadLocalData('simpati_investors_sync', []));
                     setInvestorBagiHasil(loadLocalData('simpati_investor_bagi_hasil_sync', []));
+                    setDrivers(loadLocalData('simpati_drivers_sync', []));
+                    setDriverTarifs(loadLocalData('simpati_driver_tarifs_sync', []));
+                    setDriverTransactions(loadLocalData('simpati_driver_trx_sync', []));
                     syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
                     setIsReady(true);
                 };
@@ -12264,6 +12921,57 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 });
             };
 
+            const updateDrivers = (updater) => {
+                setDrivers(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('drivers', valid);
+                        safeLocalSet('simpati_drivers_sync', JSON.stringify(merged));
+                        saveToSupabase('drivers', merged);
+                        setDrivers(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
+            const updateDriverTarifs = (updater) => {
+                setDriverTarifs(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('driverTarifs', valid);
+                        safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(merged));
+                        saveToSupabase('driverTarifs', merged);
+                        setDriverTarifs(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
+            const updateDriverTransactions = (updater) => {
+                setDriverTransactions(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('driverTransactions', valid);
+                        safeLocalSet('simpati_driver_trx_sync', JSON.stringify(merged));
+                        saveToSupabase('driverTransactions', merged);
+                        setDriverTransactions(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             useEffect(() => {
                 const legacyTabRedirects = {
                     'riwayat_rekap_kinerja': 'laporan',
@@ -12395,6 +13103,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 { id: 'laporan_keuangan', label: 'Laporan Keuangan', icon: <IconBarChart /> },
                 { id: 'laporan_order', label: 'Laporan Per Order', icon: <IconDocument /> },
                 { id: 'investor', label: 'Investor', icon: <IconBarChart /> },
+                { id: 'ekspedisi', label: 'Driver / Ekspedisi', icon: <IconTruck /> },
                 { id: 'karyawan', label: 'Data Karyawan', icon: <IconUsers /> },
                 { id: 'pengaturan', label: 'Pengaturan Cetak', icon: <IconSettings /> },
                 { id: 'master_akun', label: 'Master Akun', icon: <IconKey /> },
@@ -12478,6 +13187,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
+                                {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} showToast={showToast} templates={templates} />}
                                 {activeTab === 'tracking_instansi' && canOpen('tracking_instansi') && <TrackingInstansiView orders={orders} templates={templates} showToast={showToast} />}
                                 {activeTab === 'pengiriman' && canOpen('pengiriman') && <PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} />}
                                 {activeTab === 'pengaturan' && canOpen('pengaturan') && <TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} />}
