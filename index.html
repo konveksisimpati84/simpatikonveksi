@@ -3540,7 +3540,10 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                     </div>
                                                 </div>
 
-                                                {order.status === 'Terkirim' ? (
+                                                {(() => {
+                                                    const allSizesShipped = Object.keys(order.sizes || {}).every(sz => (order.shipped?.[sz] || 0) >= order.sizes[sz]);
+                                                    const showArsipkan = order.status === 'Terkirim' || allSizesShipped;
+                                                    return showArsipkan ? (
                                                     <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 flex flex-col md:flex-row justify-between items-center gap-4">
                                                         <div className="text-purple-800 text-sm">
                                                             <span className="font-bold block">Pesanan Selesai Terkirim!</span>
@@ -3563,7 +3566,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                             <IconArchive /> Arsipkan Order
                                                         </button>
                                                     </div>
-                                                ) : (
+                                                    ) : (
                                                     isSelected && (
                                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 mt-4">
                                                             {sortSizeKeys(Object.keys(order.sizes || {})).map(size => {
@@ -3598,7 +3601,8 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                             })}
                                                         </div>
                                                     )
-                                                )}
+                                                    );
+                                                })()}
                                             </div>
                                         )})}
                                     </div>
