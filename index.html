@@ -450,6 +450,13 @@
             try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
         };
 
+        const getDriverRekapGajiFromHash = () => {
+            const hash = window.location.hash || '';
+            const prefix = '#driver-rekap-gaji=';
+            if (!hash.startsWith(prefix)) return '';
+            try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
+        };
+
         const SearchField = ({ value, onChange, placeholder = "Cari data..." }) => (
             <div className="print:hidden">
                 <label className="block text-xs font-bold text-gray-600 mb-1">Cari</label>
@@ -11062,7 +11069,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             );
         };
 
-        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, showToast, templates }) => {
+        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, showToast, templates }) => {
             const [activeSubTab, setActiveSubTab] = React.useState('driver');
             const [activeRekapTab, setActiveRekapTab] = React.useState('rekap_pengiriman');
             const [search, setSearch] = React.useState('');
@@ -11081,13 +11088,16 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const visibleTarifs = (driverTarifs || []).filter(isVisibleRecord);
             const visibleTrx = (driverTransactions || []).filter(isVisibleRecord);
 
-            const calcOngkir = (weight, distance, tarifId) => {
+            const calcOngkir = (weight, distance, tarifId, tripType) => {
                 const t = visibleTarifs.find(x => x.id === tarifId);
                 if (!t) return 0;
+                let base;
                 if (t.pricingType === 'per_km') {
-                    return Math.max(safeMoney(distance) * safeMoney(t.pricePerKm), safeMoney(t.minPrice));
+                    base = Math.max(safeMoney(distance) * safeMoney(t.pricePerKm), safeMoney(t.minPrice));
+                } else {
+                    base = Math.max(safeMoney(weight) * safeMoney(t.pricePerKg), safeMoney(t.minPrice));
                 }
-                return Math.max(safeMoney(weight) * safeMoney(t.pricePerKg), safeMoney(t.minPrice));
+                return tripType === 'pp' ? base * 2 : base;
             };
 
             const getTarifLabel = (t) => {
@@ -11166,20 +11176,21 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
 
             // ----- TRANSAKSI FORM -----
-            const [xForm, setXForm] = React.useState({ date: new Date().toISOString().slice(0,10), customer:'', phone:'', address:'', weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', status:'Menunggu', note:'' });
+            const [xForm, setXForm] = React.useState({ date: new Date().toISOString().slice(0,10), customer:'', phone:'', address:'', weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'' });
             const openTrxForm = (trx=null) => {
                 setEditTrx(trx);
-                setXForm(trx ? { date:trx.date||'', customer:trx.customer||'', phone:trx.phone||'', address:trx.address||'', weight:trx.weight||'', distance:trx.distance||'', driverId:trx.driverId||'', tarifId:trx.tarifId||'', ongkir:trx.ongkir||'', status:trx.status||'Menunggu', note:trx.note||'' } : { date: new Date().toISOString().slice(0,10), customer:'', phone:'', address:'', weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', status:'Menunggu', note:'' });
+                setXForm(trx ? { date:trx.date||'', customer:trx.customer||'', phone:trx.phone||'', address:trx.address||'', weight:trx.weight||'', distance:trx.distance||'', driverId:trx.driverId||'', tarifId:trx.tarifId||'', ongkir:trx.ongkir||'', tripType:trx.tripType||'sekali', status:trx.status||'Menunggu', note:trx.note||'' } : { date: new Date().toISOString().slice(0,10), customer:'', phone:'', address:'', weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'' });
                 setShowTrxForm(true);
             };
             const handleXFormChange = (field, val) => {
                 setXForm(prev => {
                     const updated = {...prev, [field]:val};
-                    if (field==='weight' || field==='distance' || field==='tarifId') {
+                    if (field==='weight' || field==='distance' || field==='tarifId' || field==='tripType') {
                         updated.ongkir = calcOngkir(
                             field==='weight'?val:prev.weight,
                             field==='distance'?val:prev.distance,
-                            field==='tarifId'?val:prev.tarifId
+                            field==='tarifId'?val:prev.tarifId,
+                            field==='tripType'?val:prev.tripType
                         );
                     }
                     return updated;
@@ -11189,7 +11200,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (!xForm.customer.trim()) { showToast('Nama customer wajib diisi', 'error'); return; }
                 if (!xForm.driverId) { showToast('Pilih driver', 'error'); return; }
                 const drv = visibleDrivers.find(d=>d.id===xForm.driverId);
-                const payload = { ...xForm, driverName: drv?drv.name:'', _syncUpdatedAt: new Date().toISOString() };
+                const payload = { ...xForm, tripType: xForm.tripType||'sekali', driverName: drv?drv.name:'', _syncUpdatedAt: new Date().toISOString() };
                 if (editTrx) {
                     setDriverTransactions(prev => prev.map(t => t.id===editTrx.id ? {...t,...payload,id:t.id} : t));
                 } else {
@@ -11230,6 +11241,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 ${tarif?`<tr><td>Rute</td><td>: ${tarif.from} - ${tarif.to}</td></tr>`:''}
                 ${trx.weight?`<tr><td>Berat</td><td>: ${trx.weight} kg</td></tr>`:''}
                 ${trx.distance?`<tr><td>Jarak</td><td>: ${trx.distance} km</td></tr>`:''}
+                <tr><td>Jenis</td><td>: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}</td></tr>
                 </table>
                 <hr/><table>
                 <tr><td class="bold">ONGKIR</td><td class="bold right">${formatRupiah(safeMoney(trx.ongkir))}</td></tr>
@@ -11239,6 +11251,101 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 </body></html>`);
                 w.document.close();
                 setTimeout(()=>{ w.print(); w.close(); }, 500);
+            };
+
+            // ----- REKAP GAJI -----
+            const [showRekapModal, setShowRekapModal] = React.useState(false);
+            const [rekapDriverId, setRekapDriverId] = React.useState('');
+            const [rekapNote, setRekapNote] = React.useState('');
+            const [selectedTripIds, setSelectedTripIds] = React.useState([]);
+
+            const visibleRekap = (driverRekapGaji||[]).filter(isVisibleRecord);
+
+            const getAvailableTrips = (driverId) => {
+                if (!driverId) return [];
+                const usedIds = new Set((driverRekapGaji||[]).filter(isVisibleRecord).flatMap(r=>r.tripIds||[]));
+                return visibleTrx.filter(t => t.driverId===driverId && t.status==='Terkirim' && !usedIds.has(t.id));
+            };
+
+            const openRekapModal = () => {
+                setRekapDriverId('');
+                setRekapNote('');
+                setSelectedTripIds([]);
+                setShowRekapModal(true);
+            };
+
+            const toggleTripSelect = (id) => {
+                setSelectedTripIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev,id]);
+            };
+
+            const buatRekap = () => {
+                if (!rekapDriverId) { showToast('Pilih driver terlebih dahulu', 'error'); return; }
+                if (selectedTripIds.length===0) { showToast('Pilih minimal 1 trip', 'error'); return; }
+                const drv = visibleDrivers.find(d=>d.id===rekapDriverId);
+                const trips = visibleTrx.filter(t=>selectedTripIds.includes(t.id));
+                const totalOngkir = trips.reduce((s,t)=>s+safeMoney(t.ongkir),0);
+                const newRekap = {
+                    id: genId('RGAJI-'),
+                    driverId: rekapDriverId,
+                    driverName: drv?drv.name:'',
+                    tripIds: selectedTripIds,
+                    totalOngkir,
+                    jumlahTrip: selectedTripIds.length,
+                    note: rekapNote,
+                    tanggalRekap: new Date().toISOString().slice(0,10),
+                    _syncUpdatedAt: new Date().toISOString()
+                };
+                setDriverRekapGaji(prev => [...(prev||[]), newRekap]);
+                setShowRekapModal(false);
+                showToast('Rekap gaji berhasil dibuat', 'success');
+            };
+
+            const deleteRekap = (id) => {
+                setDriverRekapGaji(prev => prev.map(r=>r.id===id?{...r,isDeleted:true,_syncUpdatedAt:new Date().toISOString()}:r));
+                showToast('Rekap dihapus', 'success');
+            };
+
+            const printRekapGaji = (rekap) => {
+                const drv = visibleDrivers.find(d=>d.id===rekap.driverId);
+                const trips = visibleTrx.filter(t=>(rekap.tripIds||[]).includes(t.id));
+                const w = window.open('','_blank','width=400,height=700');
+                const rows = trips.map((t,i)=>`<tr><td>${i+1}</td><td>${t.date}</td><td>${t.customer}</td><td>${t.address||'-'}</td><td style="text-align:right">${t.tripType==='pp'?'PP':'1x'}</td><td style="text-align:right">${formatRupiah(safeMoney(t.ongkir))}</td></tr>`).join('');
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rekap Gaji Driver</title><style>
+                    body{font-family:monospace;font-size:12px;width:80mm;margin:0 auto;padding:8px;}
+                    .center{text-align:center;} .bold{font-weight:bold;} hr{border:none;border-top:1px dashed #000;}
+                    table{width:100%;border-collapse:collapse;} td,th{padding:2px 4px;font-size:11px;} th{border-bottom:1px solid #000;}
+                    .right{text-align:right;}
+                </style></head><body>
+                <div class="center bold" style="font-size:14px">${templates?.companyName||'SIMPATI KONVEKSI'}</div>
+                <div class="center">${templates?.companySubtitle||''}</div>
+                <div class="center bold" style="margin:4px 0">REKAP GAJI DRIVER</div>
+                <hr/>
+                <table><tr><td>Driver</td><td>: <b>${rekap.driverName}</b></td></tr>
+                <tr><td>Kendaraan</td><td>: ${drv?.vehicle||'-'} ${drv?.plateNumber?'('+drv.plateNumber+')':''}</td></tr>
+                <tr><td>Tgl Rekap</td><td>: ${rekap.tanggalRekap}</td></tr>
+                <tr><td>No Rekap</td><td>: ${rekap.id}</td></tr>
+                ${rekap.note?`<tr><td>Catatan</td><td>: ${rekap.note}</td></tr>`:''}</table>
+                <hr/>
+                <table><thead><tr><th>#</th><th>Tgl</th><th>Customer</th><th>Tujuan</th><th class="right">PP</th><th class="right">Ongkir</th></tr></thead>
+                <tbody>${rows}</tbody>
+                <tfoot><tr><td colspan="5" class="bold">TOTAL (${rekap.jumlahTrip} trip)</td><td class="bold right">${formatRupiah(safeMoney(rekap.totalOngkir))}</td></tr></tfoot>
+                </table>
+                <hr/>
+                <div class="center" style="font-size:10px;margin-top:8px">Dicetak: ${new Date().toLocaleDateString('id-ID')}</div>
+                </body></html>`);
+                w.document.close();
+                setTimeout(()=>{w.print();w.close();},500);
+            };
+
+            const copyRekapGajiLink = async (rekap) => {
+                const base = window.location.origin + window.location.pathname;
+                const link = `${base}#driver-rekap-gaji=${encodeURIComponent(rekap.id)}`;
+                try {
+                    await navigator.clipboard.writeText(link);
+                    showToast('Link rekap gaji disalin!', 'success');
+                } catch(e) {
+                    showToast('Gagal salin link', 'error');
+                }
             };
 
             // ----- FILTER TRX -----
@@ -11451,7 +11558,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                             return (
                                             <tr key={t.id} className="border-t hover:bg-gray-50">
                                                 <td className="px-3 py-2 text-xs text-gray-500">{t.date}</td>
-                                                <td className="px-3 py-2 font-medium">{t.customer}</td>
+                                                <td className="px-3 py-2 font-medium">
+                                                    {t.customer}
+                                                    {t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-xs px-1.5 py-0.5 rounded font-bold">PP</span>}
+                                                </td>
                                                 <td className="px-3 py-2 text-xs">{t.address||'-'}</td>
                                                 <td className="px-3 py-2">{t.driverName||'-'}</td>
                                                 <td className="px-3 py-2 text-xs">
@@ -11544,23 +11654,38 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             )}
                             {activeRekapTab==='rekap_gaji' && (
                                 <Card>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                                        <h3 className="font-bold text-slate-700">Rekap Gaji Driver</h3>
+                                        <button onClick={openRekapModal} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">+ Buat Rekap</button>
+                                    </div>
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm">
                                             <thead><tr className="bg-gray-50 text-left">
-                                                <th className="px-3 py-2">Driver</th><th className="px-3 py-2">Kendaraan</th><th className="px-3 py-2">Jml Antar (Terkirim)</th><th className="px-3 py-2">Total Ongkir</th>
+                                                <th className="px-3 py-2">Tgl Rekap</th>
+                                                <th className="px-3 py-2">Driver</th>
+                                                <th className="px-3 py-2 text-center">Jml Trip</th>
+                                                <th className="px-3 py-2">Total Ongkir</th>
+                                                <th className="px-3 py-2">Catatan</th>
+                                                <th className="px-3 py-2">Aksi</th>
                                             </tr></thead>
                                             <tbody>
-                                                {rekapByDriver.filter(d=>!filterDriver||d.id===filterDriver).length===0 && <tr><td colSpan="4" className="text-center py-8 text-gray-400">Tidak ada data</td></tr>}
-                                                {rekapByDriver.filter(d=>!filterDriver||d.id===filterDriver).map(drv=>{
-                                                    const trxList = filteredRekapTrx.filter(t=>t.driverId===drv.id&&t.status==='Terkirim');
-                                                    const total = trxList.reduce((s,t)=>s+safeMoney(t.ongkir),0);
-                                                    return (<tr key={drv.id} className="border-t hover:bg-gray-50">
-                                                        <td className="px-3 py-2 font-medium">{drv.name}</td>
-                                                        <td className="px-3 py-2">{drv.vehicle||'-'} {drv.plateNumber?`(${drv.plateNumber})`:''}</td>
-                                                        <td className="px-3 py-2 text-center font-bold text-green-700">{trxList.length}</td>
-                                                        <td className="px-3 py-2 font-bold text-blue-700">{formatRupiah(total)}</td>
-                                                    </tr>);
-                                                })}
+                                                {visibleRekap.filter(r=>!filterDriver||r.driverId===filterDriver).length===0 && <tr><td colSpan="6" className="text-center py-8 text-gray-400">Belum ada rekap gaji. Klik "+ Buat Rekap" untuk memulai.</td></tr>}
+                                                {visibleRekap.filter(r=>!filterDriver||r.driverId===filterDriver).sort((a,b)=>((b.tanggalRekap||'')>(a.tanggalRekap||'')?1:-1)).map(rekap=>(
+                                                    <tr key={rekap.id} className="border-t hover:bg-gray-50">
+                                                        <td className="px-3 py-2 text-xs text-gray-500">{rekap.tanggalRekap}</td>
+                                                        <td className="px-3 py-2 font-medium">{rekap.driverName}</td>
+                                                        <td className="px-3 py-2 text-center font-bold text-green-700">{rekap.jumlahTrip}</td>
+                                                        <td className="px-3 py-2 font-bold text-blue-700">{formatRupiah(safeMoney(rekap.totalOngkir))}</td>
+                                                        <td className="px-3 py-2 text-xs text-gray-500">{rekap.note||'-'}</td>
+                                                        <td className="px-3 py-2">
+                                                            <div className="flex gap-1 flex-wrap">
+                                                                <button onClick={()=>printRekapGaji(rekap)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded">Cetak</button>
+                                                                <button onClick={()=>copyRekapGajiLink(rekap)} className="bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded">Link</button>
+                                                                <button onClick={()=>deleteRekap(rekap.id)} className="text-red-500 hover:underline text-xs">Hapus</button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
                                             </tbody>
                                         </table>
                                     </div>
@@ -11672,6 +11797,58 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         </div>
                     )}
 
+                    {/* MODAL REKAP GAJI */}
+                    {showRekapModal && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+                                <div className="flex justify-between items-center p-4 border-b">
+                                    <h3 className="font-bold text-lg">Buat Rekap Gaji Driver</h3>
+                                    <button onClick={()=>setShowRekapModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                                </div>
+                                <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Driver *</label>
+                                        <select value={rekapDriverId} onChange={e=>{setRekapDriverId(e.target.value);setSelectedTripIds([]);}} className="w-full border rounded px-3 py-2 text-sm">
+                                            <option value="">Pilih Driver</option>
+                                            {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                                        </select>
+                                    </div>
+                                    {rekapDriverId && (
+                                        <div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <label className="text-xs font-semibold text-gray-600">Pilih Trip (Status Terkirim, belum direkap) *</label>
+                                                <button onClick={()=>{const ids=getAvailableTrips(rekapDriverId).map(t=>t.id);setSelectedTripIds(ids);}} className="text-xs text-blue-600 hover:underline">Pilih Semua</button>
+                                            </div>
+                                            {getAvailableTrips(rekapDriverId).length===0 && <div className="text-sm text-gray-400 py-4 text-center">Tidak ada trip tersedia (sudah direkap atau belum Terkirim)</div>}
+                                            <div className="space-y-1 max-h-52 overflow-y-auto border rounded p-2">
+                                                {getAvailableTrips(rekapDriverId).map(t=>(
+                                                    <label key={t.id} className="flex items-center gap-2 text-sm p-1.5 hover:bg-gray-50 rounded cursor-pointer">
+                                                        <input type="checkbox" checked={selectedTripIds.includes(t.id)} onChange={()=>toggleTripSelect(t.id)} />
+                                                        <span className="flex-1">
+                                                            <span className="font-medium">{t.customer}</span>
+                                                            <span className="text-gray-400 text-xs ml-2">{t.date}</span>
+                                                            {t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-600 text-xs px-1 rounded">PP</span>}
+                                                        </span>
+                                                        <span className="font-bold text-blue-600">{formatRupiah(safeMoney(t.ongkir))}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            {selectedTripIds.length>0 && (
+                                                <div className="mt-2 bg-blue-50 rounded p-2 text-sm font-semibold text-blue-700 text-right">
+                                                    Total {selectedTripIds.length} trip: {formatRupiah(visibleTrx.filter(t=>selectedTripIds.includes(t.id)).reduce((s,t)=>s+safeMoney(t.ongkir),0))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Catatan</label><input value={rekapNote} onChange={e=>setRekapNote(e.target.value)} className="w-full border rounded px-3 py-2 text-sm" placeholder="Opsional (misal: gaji minggu ke-1 Juni)" /></div>
+                                </div>
+                                <div className="flex justify-end gap-2 p-4 border-t">
+                                    <button onClick={()=>setShowRekapModal(false)} className="px-4 py-2 bg-gray-100 rounded text-sm">Batal</button>
+                                    <button onClick={buatRekap} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">Buat Rekap</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* MODAL TRANSAKSI */}
                     {showTrxForm && (
                         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -11688,6 +11865,12 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                 {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
                                             </select>
                                         </div>
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Jenis Perjalanan</label>
+                                        <select value={xForm.tripType||'sekali'} onChange={e=>handleXFormChange('tripType',e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
+                                            <option value="sekali">Sekali Jalan (1x)</option>
+                                            <option value="pp">Pulang Pergi / PP (ongkir x2)</option>
+                                        </select>
                                     </div>
                                     <div><label className="block text-xs font-semibold text-gray-600 mb-1">Nama Customer *</label><input value={xForm.customer} onChange={e=>handleXFormChange('customer',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" /></div>
                                     <div className="grid grid-cols-2 gap-3">
@@ -11838,7 +12021,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     Lihat Lokasi di Google Maps
                                 </a>
                             )}
-                            {!isDone && !actionDone && (
+                            {!isDone && (
                                 <div className="space-y-2 pt-2">
                                     <p className="text-xs text-gray-500 text-center font-medium">Pilih tindakan:</p>
                                     {status === 'Menunggu' && (
@@ -11861,12 +12044,140 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     )}
                                 </div>
                             )}
-                            {(isDone || actionDone) && (
-                                <div className={`text-center py-4 rounded-xl font-bold text-lg ${actionDone==='Terkirim'||status==='Terkirim'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>
-                                    {actionDone==='Terkirim'||status==='Terkirim' ? 'Pengiriman Selesai!' : 'Order Dibatalkan'}
+                            {isDone && (
+                                <div className={`text-center py-4 rounded-xl font-bold text-lg ${status==='Terkirim'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>
+                                    {status==='Terkirim' ? 'Pengiriman Selesai!' : 'Order Dibatalkan'}
                                 </div>
                             )}
                             <p className="text-center text-xs text-gray-400 mt-2">ID: {trx.id}</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const DriverRekapGajiShareView = ({ rekapId }) => {
+            const [rekap, setRekap] = React.useState(null);
+            const [trips, setTrips] = React.useState([]);
+            const [driver, setDriver] = React.useState(null);
+            const [tpl, setTpl] = React.useState({});
+            const [loading, setLoading] = React.useState(true);
+
+            React.useEffect(() => {
+                const load = async () => {
+                    setLoading(true);
+                    try {
+                        if (supabaseClient) {
+                            const [rRes, tRes, dRes, tplRes] = await Promise.all([
+                                supabaseClient.from('app_data').select('data').eq('id','driverRekapGaji').single(),
+                                supabaseClient.from('app_data').select('data').eq('id','driverTransactions').single(),
+                                supabaseClient.from('app_data').select('data').eq('id','drivers').single(),
+                                supabaseClient.from('app_data').select('data').eq('id','templates').single(),
+                            ]);
+                            const allRekap = rRes.data?.data || [];
+                            const found = allRekap.find(r => r.id === rekapId && !r.isDeleted);
+                            setRekap(found || null);
+                            if (found) {
+                                const allTrx = tRes.data?.data || [];
+                                setTrips(allTrx.filter(t => (found.tripIds||[]).includes(t.id)));
+                                const allDrivers = dRes.data?.data || [];
+                                setDriver(allDrivers.find(d => d.id === found.driverId) || null);
+                            }
+                            setTpl(tplRes.data?.data || {});
+                        }
+                    } catch(e) { console.error(e); }
+                    setLoading(false);
+                };
+                load();
+            }, [rekapId]);
+
+            if (loading) return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                    <div className="text-center"><div className="text-4xl mb-4">...</div><p className="text-gray-500">Memuat rekap gaji...</p></div>
+                </div>
+            );
+
+            if (!rekap) return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+                    <div className="bg-white rounded-2xl shadow p-8 max-w-sm w-full text-center">
+                        <div className="text-5xl mb-4">404</div>
+                        <h2 className="text-xl font-bold text-gray-700 mb-2">Rekap Tidak Ditemukan</h2>
+                        <p className="text-gray-500 text-sm">Link ini tidak valid atau rekap sudah dihapus.</p>
+                    </div>
+                </div>
+            );
+
+            const printRekap = () => {
+                const w = window.open('','_blank','width=400,height=700');
+                const rows = trips.map((t,i)=>`<tr><td>${i+1}</td><td>${t.date}</td><td>${t.customer}</td><td>${t.address||'-'}</td><td style="text-align:right">${t.tripType==='pp'?'PP':'1x'}</td><td style="text-align:right">${formatRupiah(safeMoney(t.ongkir))}</td></tr>`).join('');
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rekap Gaji Driver</title><style>
+                    body{font-family:monospace;font-size:12px;width:80mm;margin:0 auto;padding:8px;}
+                    .center{text-align:center;} .bold{font-weight:bold;} hr{border:none;border-top:1px dashed #000;}
+                    table{width:100%;border-collapse:collapse;} td,th{padding:2px 4px;font-size:11px;} th{border-bottom:1px solid #000;}
+                    .right{text-align:right;}
+                </style></head><body>
+                <div class="center bold" style="font-size:14px">${tpl?.companyName||'SIMPATI KONVEKSI'}</div>
+                <div class="center">${tpl?.companySubtitle||''}</div>
+                <div class="center bold" style="margin:4px 0">REKAP GAJI DRIVER</div>
+                <hr/>
+                <table><tr><td>Driver</td><td>: <b>${rekap.driverName}</b></td></tr>
+                <tr><td>Kendaraan</td><td>: ${driver?.vehicle||'-'} ${driver?.plateNumber?'('+driver.plateNumber+')':''}</td></tr>
+                <tr><td>Tgl Rekap</td><td>: ${rekap.tanggalRekap}</td></tr>
+                <tr><td>No Rekap</td><td>: ${rekap.id}</td></tr>
+                ${rekap.note?`<tr><td>Catatan</td><td>: ${rekap.note}</td></tr>`:''}</table>
+                <hr/>
+                <table><thead><tr><th>#</th><th>Tgl</th><th>Customer</th><th>Tujuan</th><th class="right">PP</th><th class="right">Ongkir</th></tr></thead>
+                <tbody>${rows}</tbody>
+                <tfoot><tr><td colspan="5" class="bold">TOTAL (${rekap.jumlahTrip} trip)</td><td class="bold right">${formatRupiah(safeMoney(rekap.totalOngkir))}</td></tr></tfoot>
+                </table>
+                <hr/>
+                <div class="center" style="font-size:10px;margin-top:8px">Dicetak: ${new Date().toLocaleDateString('id-ID')}</div>
+                </body></html>`);
+                w.document.close();
+                setTimeout(()=>{w.print();w.close();},500);
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-50 py-8 px-4">
+                    <div className="max-w-lg mx-auto">
+                        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+                            <div className="bg-slate-700 text-white p-5 text-center">
+                                <div className="text-sm opacity-80">{tpl?.companyName||'SIMPATI KONVEKSI'}</div>
+                                <div className="text-2xl font-bold mt-1">Rekap Gaji Driver</div>
+                            </div>
+                            <div className="p-5 space-y-4">
+                                <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                                    <div className="flex justify-between"><span className="text-gray-500">Driver</span><span className="font-bold">{rekap.driverName}</span></div>
+                                    {driver?.vehicle && <div className="flex justify-between"><span className="text-gray-500">Kendaraan</span><span className="font-medium">{driver.vehicle} {driver.plateNumber?`(${driver.plateNumber})`:''}</span></div>}
+                                    <div className="flex justify-between"><span className="text-gray-500">Tanggal Rekap</span><span className="font-medium">{rekap.tanggalRekap}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">No Rekap</span><span className="text-xs font-mono text-gray-600">{rekap.id}</span></div>
+                                    {rekap.note && <div className="flex justify-between"><span className="text-gray-500">Catatan</span><span className="font-medium">{rekap.note}</span></div>}
+                                </div>
+                                <div className="bg-blue-50 rounded-lg p-4 flex items-center justify-between">
+                                    <div><div className="text-xs text-blue-500 font-semibold">TOTAL ONGKIR</div><div className="text-2xl font-bold text-blue-700">{formatRupiah(safeMoney(rekap.totalOngkir))}</div></div>
+                                    <div className="text-right"><div className="text-xs text-gray-500">Jumlah Trip</div><div className="text-2xl font-bold text-gray-700">{rekap.jumlahTrip}</div></div>
+                                </div>
+                                <div>
+                                    <div className="font-semibold text-sm text-gray-700 mb-2">Detail Trip:</div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs">
+                                            <thead><tr className="bg-gray-50 text-left"><th className="px-2 py-2">#</th><th className="px-2 py-2">Tgl</th><th className="px-2 py-2">Customer</th><th className="px-2 py-2">Tujuan</th><th className="px-2 py-2 text-right">Ongkir</th></tr></thead>
+                                            <tbody>
+                                                {trips.map((t,i)=>(
+                                                    <tr key={t.id} className="border-t">
+                                                        <td className="px-2 py-1 text-gray-400">{i+1}</td>
+                                                        <td className="px-2 py-1">{t.date}</td>
+                                                        <td className="px-2 py-1 font-medium">{t.customer}{t.tripType==='pp'&&<span className="ml-1 bg-purple-100 text-purple-600 px-1 rounded">PP</span>}</td>
+                                                        <td className="px-2 py-1 text-gray-500">{t.address||'-'}</td>
+                                                        <td className="px-2 py-1 text-right font-bold text-blue-600">{formatRupiah(safeMoney(t.ongkir))}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <button onClick={printRekap} className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-xl font-bold text-base">Cetak / Simpan PDF</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -11894,12 +12205,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [drivers, setDrivers] = useState([]);
             const [driverTarifs, setDriverTarifs] = useState([]);
             const [driverTransactions, setDriverTransactions] = useState([]);
+            const [driverRekapGaji, setDriverRekapGaji] = useState([]);
             const [templates, setTemplates] = useState({});
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
             const [investorShareToken, setInvestorShareToken] = useState(getInvestorShareTokenFromHash());
             const [marketingShareToken] = useState(getMarketingShareTokenFromHash());
             const [driverConfirmId] = useState(getDriverConfirmFromHash());
+            const [driverRekapGajiShareId] = useState(getDriverRekapGajiFromHash());
             
             const [toast, setToast] = useState(null);
             const toastTimerRef = useRef(null);
@@ -12515,7 +12828,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const applyRemoteDataSnapshot = async () => {
                 if (!supabaseClient) return;
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -12531,7 +12844,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     fetchStoreData('investorBagiHasil', []),
                     fetchStoreData('drivers', []),
                     fetchStoreData('driverTarifs', []),
-                    fetchStoreData('driverTransactions', [])
+                    fetchStoreData('driverTransactions', []),
+                    fetchStoreData('driverRekapGaji', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -12657,6 +12971,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         return merged;
                     });
                 }
+                if (Array.isArray(remoteDriverRekapGaji)) {
+                    setDriverRekapGaji(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteDriverRekapGaji);
+                        safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteDriverRekapGaji)) setTimeout(() => saveToSupabase('driverRekapGaji', merged), 0);
+                        return merged;
+                    });
+                }
             };
 
             useEffect(() => {
@@ -12733,6 +13055,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     }
                     if (e.key === 'simpati_driver_trx_sync' && e.newValue) {
                         try { setDriverTransactions(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
+                    if (e.key === 'simpati_driver_rekap_gaji_sync' && e.newValue) {
+                        try { setDriverRekapGaji(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
                 };
                 window.addEventListener('storage', handleStorageChange);
@@ -12850,6 +13175,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     setDrivers(loadLocalData('simpati_drivers_sync', []));
                     setDriverTarifs(loadLocalData('simpati_driver_tarifs_sync', []));
                     setDriverTransactions(loadLocalData('simpati_driver_trx_sync', []));
+                    setDriverRekapGaji(loadLocalData('simpati_driver_rekap_gaji_sync', []));
                     syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
                     setIsReady(true);
                 };
@@ -13177,6 +13503,23 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 });
             };
 
+            const updateDriverRekapGaji = (updater) => {
+                setDriverRekapGaji(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('driverRekapGaji', valid);
+                        safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(merged));
+                        saveToSupabase('driverRekapGaji', merged);
+                        setDriverRekapGaji(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             useEffect(() => {
                 const legacyTabRedirects = {
                     'riwayat_rekap_kinerja': 'laporan',
@@ -13246,6 +13589,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 return (
                     <>
                         <InvestorPublicView token={investorShareToken} />
+                        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    </>
+                );
+            }
+
+            if (driverRekapGajiShareId) {
+                return (
+                    <>
+                        <DriverRekapGajiShareView rekapId={driverRekapGajiShareId} />
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     </>
                 );
@@ -13401,7 +13753,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} showToast={showToast} templates={templates} />}
+                                {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} showToast={showToast} templates={templates} />}
                                 {activeTab === 'tracking_instansi' && canOpen('tracking_instansi') && <TrackingInstansiView orders={orders} templates={templates} showToast={showToast} />}
                                 {activeTab === 'pengiriman' && canOpen('pengiriman') && <PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} />}
                                 {activeTab === 'pengaturan' && canOpen('pengaturan') && <TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} />}
