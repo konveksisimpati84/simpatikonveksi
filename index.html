@@ -3242,6 +3242,8 @@ ${templates?.spkNote ? `<p class="spk-note">* ${templates.spkNote}</p>` : ''}
                         if (!log.isDeleted && log.size === size && log.checkAfter) totalSetor += getWorkLogSubmittedQty(log);
                     });
                 }
+                // Fallback: jika tidak ada workLogs, gunakan ukuran order penuh
+                if (totalSetor === 0) totalSetor = (order.sizes && order.sizes[size]) || 0;
                 const shippedCount = (order.shipped && order.shipped[size]) || 0;
                 return Math.max(0, totalSetor - shippedCount);
             };
@@ -3737,7 +3739,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 if (!riwayatToDelete) {
                     // Virtual record: deleteConfirmId == order.id (archived without SJ)
                     setOrders(prev => (prev || []).map(o => String(o.id) === String(deleteConfirmId)
-                        ? { ...o, isArchived: false, status: 'Siap Kirim', _syncUpdatedAt: new Date().toISOString() }
+                        ? { ...o, isArchived: false, status: 'Siap Kirim', shipped: {}, _syncUpdatedAt: new Date().toISOString() }
                         : o
                     ));
                     setDeleteConfirmId(null);
