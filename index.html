@@ -11080,7 +11080,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             
             const [toast, setToast] = useState(null);
             const toastTimerRef = useRef(null);
-            const AUTH_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+            const AUTH_SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000;
 
             const showToast = (message, type = 'success') => {
                 if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -11090,10 +11090,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const saveAuthSession = (user, lastActiveAt = new Date().toISOString()) => {
                 if (!user) return;
-                safeLocalSet('simpati_auth_session', JSON.stringify({
-                    user,
-                    lastActiveAt
-                }));
+                try {
+                    localStorage.setItem('simpati_auth_session', JSON.stringify({ user, lastActiveAt }));
+                } catch(e) {
+                    try {
+                        localStorage.removeItem('simpati_templates_sync');
+                        localStorage.removeItem('simpati_rekap_sync');
+                        localStorage.setItem('simpati_auth_session', JSON.stringify({ user, lastActiveAt }));
+                    } catch(e2) { console.warn('[auth] gagal simpan session:', e2); }
+                }
             };
 
             const clearAuthSession = () => {
@@ -11704,14 +11709,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
-                    const mergedAccForSync = mergeRecordLists(undefined, remoteAccounts);
                     setAccounts(prevAccounts => {
                         const merged = mergeRecordLists(prevAccounts, remoteAccounts);
                         safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteAccounts)) setTimeout(() => saveToSupabase('accounts', merged), 0);
                         return merged;
                     });
-                    setTimeout(() => syncSavedAuthSession(mergedAccForSync.filter(isVisibleRecord)), 0);
+                    setTimeout(() => syncSavedAuthSession(remoteAccounts.filter(isVisibleRecord)), 0);
                 }
                 if (Array.isArray(remoteEmployees)) {
                     setEmployees(prevEmployees => {
