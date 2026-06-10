@@ -11102,8 +11102,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const getTarifLabel = (t) => {
                 if (!t) return '-';
-                if (t.pricingType === 'per_km') return `${t.from} - ${t.to} (${formatRupiah(safeMoney(t.pricePerKm))}/km)`;
-                return `${t.from} - ${t.to} (${formatRupiah(safeMoney(t.pricePerKg))}/kg)`;
+                if (t.pricingType === 'per_km') return `${t.from} → ${t.to}${t.jarak?' ('+t.jarak+' km, '+formatRupiah(safeMoney(t.pricePerKm))+'/km)':' ('+formatRupiah(safeMoney(t.pricePerKm))+'/km)'}`;
+                return `${t.from} → ${t.to} (${formatRupiah(safeMoney(t.pricePerKg))}/kg)`;
             };
 
             const generateShareLink = (trx) => {
@@ -11154,10 +11154,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
 
             // ----- TARIF FORM -----
-            const [tForm, setTForm] = React.useState({ from:'', to:'', pricingType:'per_kg', pricePerKg:'', pricePerKm:'', minPrice:'', note:'' });
+            const [tForm, setTForm] = React.useState({ from:'', to:'', pricingType:'per_kg', pricePerKg:'', pricePerKm:'', minPrice:'', jarak:'', note:'' });
             const openTarifForm = (tarif=null) => {
                 setEditTarif(tarif);
-                setTForm(tarif ? { from:tarif.from||'', to:tarif.to||'', pricingType:tarif.pricingType||'per_kg', pricePerKg:tarif.pricePerKg||'', pricePerKm:tarif.pricePerKm||'', minPrice:tarif.minPrice||'', note:tarif.note||'' } : { from:'', to:'', pricingType:'per_kg', pricePerKg:'', pricePerKm:'', minPrice:'', note:'' });
+                setTForm(tarif ? { from:tarif.from||'', to:tarif.to||'', pricingType:tarif.pricingType||'per_kg', pricePerKg:tarif.pricePerKg||'', pricePerKm:tarif.pricePerKm||'', minPrice:tarif.minPrice||'', jarak:tarif.jarak||'', note:tarif.note||'' } : { from:'', to:'', pricingType:'per_kg', pricePerKg:'', pricePerKm:'', minPrice:'', jarak:'', note:'' });
                 setShowTarifForm(true);
             };
             const saveTarif = () => {
@@ -11185,12 +11185,16 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const handleXFormChange = (field, val) => {
                 setXForm(prev => {
                     const updated = {...prev, [field]:val};
-                    if (field==='weight' || field==='distance' || field==='tarifId' || field==='tripType') {
+                    if (field === 'tarifId') {
+                        const t = visibleTarifs.find(x => x.id === val);
+                        if (t?.pricingType === 'per_km' && t?.jarak) updated.distance = t.jarak;
+                    }
+                    if (['weight','distance','tarifId','tripType'].includes(field)) {
                         updated.ongkir = calcOngkir(
-                            field==='weight'?val:prev.weight,
-                            field==='distance'?val:prev.distance,
-                            field==='tarifId'?val:prev.tarifId,
-                            field==='tripType'?val:prev.tripType
+                            field==='weight' ? val : prev.weight,
+                            field==='distance' ? val : updated.distance,
+                            field==='tarifId' ? val : prev.tarifId,
+                            field==='tripType' ? val : prev.tripType
                         );
                     }
                     return updated;
@@ -11222,33 +11226,55 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const printStruk = (trx) => {
                 const drv = visibleDrivers.find(d=>d.id===trx.driverId);
                 const tarif = visibleTarifs.find(t=>t.id===trx.tarifId);
-                const w = window.open('','_blank','width=400,height=600');
+                const w = window.open('','_blank','width=420,height=700');
+                if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
                 w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Struk Pengiriman</title><style>
-                    body{font-family:monospace;font-size:12px;width:80mm;margin:0 auto;padding:8px;}
-                    .center{text-align:center;} .bold{font-weight:bold;} hr{border:none;border-top:1px dashed #000;}
-                    table{width:100%;} td{padding:2px 0;} .right{text-align:right;}
-                </style></head><body>
-                <div class="center bold" style="font-size:14px">${templates?.companyName||'SIMPATI KONVEKSI'}</div>
-                <div class="center">${templates?.companySubtitle||''}</div>
-                <div class="center bold" style="margin:4px 0">STRUK PENGIRIMAN</div>
-                <hr/><table>
-                <tr><td>No Struk</td><td>: ${trx.id}</td></tr>
-                <tr><td>Tanggal</td><td>: ${trx.date}</td></tr>
-                <tr><td>Customer</td><td>: ${trx.customer}</td></tr>
-                <tr><td>No HP</td><td>: ${trx.phone||'-'}</td></tr>
-                <tr><td>Tujuan</td><td>: ${trx.address||'-'}</td></tr>
-                <tr><td>Driver</td><td>: ${drv?drv.name:(trx.driverName||'-')}</td></tr>
-                ${tarif?`<tr><td>Rute</td><td>: ${tarif.from} - ${tarif.to}</td></tr>`:''}
-                ${trx.weight?`<tr><td>Berat</td><td>: ${trx.weight} kg</td></tr>`:''}
-                ${trx.distance?`<tr><td>Jarak</td><td>: ${trx.distance} km</td></tr>`:''}
-                <tr><td>Jenis</td><td>: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}</td></tr>
-                </table>
-                <hr/><table>
-                <tr><td class="bold">ONGKIR</td><td class="bold right">${formatRupiah(safeMoney(trx.ongkir))}</td></tr>
-                </table><hr/>
-                <div class="center">Status: <b>${trx.status||'Menunggu'}</b></div>
-                <div class="center" style="margin-top:8px;font-size:10px">Dicetak: ${new Date().toLocaleDateString('id-ID')}</div>
-                </body></html>`);
+                    @page{size:80mm auto;margin:4mm;}
+                    html,body{width:72mm;}
+                    body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.3;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+                    .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
+                    .header{text-align:center;border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
+                    .header-logo{max-height:44px;max-width:70px;object-fit:contain;margin-bottom:3px;}
+                    .header h1{margin:0;font-size:14px;text-transform:uppercase;line-height:1.15;}
+                    .header p{margin:2px 0 0;font-size:10.5px;}
+                    .meta{border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
+                    .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0;}
+                    .lbl{color:#444;white-space:nowrap;}
+                    .val{font-weight:bold;text-align:right;}
+                    .section{margin-top:7px;padding:4px 0 3px;border-top:1px dashed #000;border-bottom:1px dashed #bbb;font-size:10px;font-weight:900;text-transform:uppercase;}
+                    .total-box{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:6px 0;margin-top:6px;}
+                    .grand{font-size:13px;font-weight:900;}
+                    .footer{text-align:center;font-size:9px;margin-top:8px;color:#555;}
+                    @media screen{body{background:#f3f4f6;padding:12px 0;}.receipt{background:#fff;padding:4mm;box-shadow:0 10px 30px rgba(0,0,0,.12);}}
+                </style></head><body><div class="receipt">
+                <div class="header">
+                    ${templates?.companyLogo?`<img src="${templates.companyLogo}" class="header-logo"/>`:''}
+                    <h1>${templates?.companyName||'SIMPATI KONVEKSI'}</h1>
+                    <p>STRUK PENGIRIMAN</p>
+                    ${templates?.companySubtitle?`<p>${templates.companySubtitle}</p>`:''}
+                </div>
+                <div class="meta">
+                    <div class="row"><span class="lbl">No Struk</span><span class="val" style="font-size:9px">${trx.id}</span></div>
+                    <div class="row"><span class="lbl">Tanggal</span><span class="val">${trx.date}</span></div>
+                    <div class="row"><span class="lbl">Status</span><span class="val">${trx.status||'Menunggu'}</span></div>
+                    <div class="row"><span class="lbl">Jenis</span><span class="val">${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}</span></div>
+                </div>
+                <div class="section">Detail Pengiriman</div>
+                <div style="margin-bottom:7px">
+                    <div class="row"><span class="lbl">Customer</span><span class="val">${trx.customer}</span></div>
+                    ${trx.phone?`<div class="row"><span class="lbl">No HP</span><span class="val">${trx.phone}</span></div>`:''}
+                    <div class="row"><span class="lbl">Tujuan</span><span class="val" style="max-width:44mm;text-align:right">${trx.address||'-'}</span></div>
+                    <div class="row"><span class="lbl">Driver</span><span class="val">${drv?drv.name:(trx.driverName||'-')}</span></div>
+                    ${tarif?`<div class="row"><span class="lbl">Rute</span><span class="val">${tarif.from} → ${tarif.to}</span></div>`:''}
+                    ${trx.weight?`<div class="row"><span class="lbl">Berat</span><span class="val">${trx.weight} kg</span></div>`:''}
+                    ${trx.distance?`<div class="row"><span class="lbl">Jarak</span><span class="val">${trx.distance} km</span></div>`:''}
+                </div>
+                <div class="total-box">
+                    <div class="row grand"><span>ONGKIR</span><span>${formatRupiah(safeMoney(trx.ongkir))}</span></div>
+                    ${trx.note?`<div class="row" style="font-size:9.5px;margin-top:4px"><span class="lbl">Catatan</span><span>${trx.note}</span></div>`:''}
+                </div>
+                <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
+                </div></body></html>`);
                 w.document.close();
                 setTimeout(()=>{ w.print(); w.close(); }, 500);
             };
@@ -11308,31 +11334,52 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const printRekapGaji = (rekap) => {
                 const drv = visibleDrivers.find(d=>d.id===rekap.driverId);
                 const trips = visibleTrx.filter(t=>(rekap.tripIds||[]).includes(t.id));
-                const w = window.open('','_blank','width=400,height=700');
-                const rows = trips.map((t,i)=>`<tr><td>${i+1}</td><td>${t.date}</td><td>${t.customer}</td><td>${t.address||'-'}</td><td style="text-align:right">${t.tripType==='pp'?'PP':'1x'}</td><td style="text-align:right">${formatRupiah(safeMoney(t.ongkir))}</td></tr>`).join('');
+                const w = window.open('','_blank','width=420,height=700');
+                if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
+                const rows = trips.map((t,i)=>`<div class="item-row"><span><b>${t.customer}</b><small>${t.date} &bull; ${t.address||'-'}${t.tripType==='pp'?' &bull; PP':''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`).join('');
                 w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rekap Gaji Driver</title><style>
-                    body{font-family:monospace;font-size:12px;width:80mm;margin:0 auto;padding:8px;}
-                    .center{text-align:center;} .bold{font-weight:bold;} hr{border:none;border-top:1px dashed #000;}
-                    table{width:100%;border-collapse:collapse;} td,th{padding:2px 4px;font-size:11px;} th{border-bottom:1px solid #000;}
-                    .right{text-align:right;}
-                </style></head><body>
-                <div class="center bold" style="font-size:14px">${templates?.companyName||'SIMPATI KONVEKSI'}</div>
-                <div class="center">${templates?.companySubtitle||''}</div>
-                <div class="center bold" style="margin:4px 0">REKAP GAJI DRIVER</div>
-                <hr/>
-                <table><tr><td>Driver</td><td>: <b>${rekap.driverName}</b></td></tr>
-                <tr><td>Kendaraan</td><td>: ${drv?.vehicle||'-'} ${drv?.plateNumber?'('+drv.plateNumber+')':''}</td></tr>
-                <tr><td>Tgl Rekap</td><td>: ${rekap.tanggalRekap}</td></tr>
-                <tr><td>No Rekap</td><td>: ${rekap.id}</td></tr>
-                ${rekap.note?`<tr><td>Catatan</td><td>: ${rekap.note}</td></tr>`:''}</table>
-                <hr/>
-                <table><thead><tr><th>#</th><th>Tgl</th><th>Customer</th><th>Tujuan</th><th class="right">PP</th><th class="right">Ongkir</th></tr></thead>
-                <tbody>${rows}</tbody>
-                <tfoot><tr><td colspan="5" class="bold">TOTAL (${rekap.jumlahTrip} trip)</td><td class="bold right">${formatRupiah(safeMoney(rekap.totalOngkir))}</td></tr></tfoot>
-                </table>
-                <hr/>
-                <div class="center" style="font-size:10px;margin-top:8px">Dicetak: ${new Date().toLocaleDateString('id-ID')}</div>
-                </body></html>`);
+                    @page{size:80mm auto;margin:4mm;}
+                    html,body{width:72mm;}
+                    body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+                    .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
+                    .header{text-align:center;border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
+                    .header-logo{max-height:44px;max-width:70px;object-fit:contain;margin-bottom:3px;}
+                    .header h1{margin:0;font-size:14px;text-transform:uppercase;line-height:1.15;}
+                    .header p{margin:2px 0 0;font-size:10.5px;}
+                    .meta{border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
+                    .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0;}
+                    .lbl{color:#444;}
+                    .val{font-weight:bold;text-align:right;}
+                    .section-title{margin-top:7px;padding:4px 0 3px;border-top:1px dashed #000;border-bottom:1px dashed #bbb;font-size:10px;font-weight:900;text-transform:uppercase;}
+                    .item-row{display:flex;justify-content:space-between;gap:6px;padding:4px 0;border-bottom:1px dashed #ddd;}
+                    .item-row span:first-child{max-width:44mm;overflow-wrap:anywhere;}
+                    .item-row span:last-child{text-align:right;font-weight:bold;white-space:nowrap;}
+                    .item-row small{display:block;color:#555;font-size:8.6px;font-weight:normal;}
+                    .total-box{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:6px 0;margin-top:6px;}
+                    .grand{font-size:13px;font-weight:900;}
+                    .footer{text-align:center;font-size:9px;margin-top:9px;color:#444;}
+                    @media screen{body{background:#f3f4f6;padding:12px 0;}.receipt{background:#fff;padding:4mm;box-shadow:0 10px 30px rgba(0,0,0,.12);}}
+                </style></head><body><div class="receipt">
+                <div class="header">
+                    ${templates?.companyLogo?`<img src="${templates.companyLogo}" class="header-logo"/>`:''}
+                    <h1>${templates?.companyName||'SIMPATI KONVEKSI'}</h1>
+                    <p>REKAP GAJI DRIVER</p>
+                    ${templates?.companySubtitle?`<p>${templates.companySubtitle}</p>`:''}
+                </div>
+                <div class="meta">
+                    <div class="row"><span class="lbl">Driver</span><span class="val">${rekap.driverName}</span></div>
+                    <div class="row"><span class="lbl">Kendaraan</span><span class="val">${drv?.vehicle||'-'}${drv?.plateNumber?' ('+drv.plateNumber+')':''}</span></div>
+                    <div class="row"><span class="lbl">Tgl Rekap</span><span class="val">${rekap.tanggalRekap}</span></div>
+                    <div class="row"><span class="lbl">No Rekap</span><span style="font-size:9px;font-weight:bold">${rekap.id}</span></div>
+                    ${rekap.note?`<div class="row"><span class="lbl">Catatan</span><span class="val">${rekap.note}</span></div>`:''}
+                </div>
+                <div class="section-title">Detail Trip (${rekap.jumlahTrip} trip)</div>
+                <div>${rows}</div>
+                <div class="total-box">
+                    <div class="row grand"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                </div>
+                <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
+                </div></body></html>`);
                 w.document.close();
                 setTimeout(()=>{w.print();w.close();},500);
             };
@@ -11394,10 +11441,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
 
             const subTabs = [
-                { id:'driver', label:'Data Driver' },
-                { id:'tarif', label:'Tarif Pengiriman' },
-                { id:'transaksi', label:'Transaksi Pengiriman' },
-                { id:'rekap', label:'Rekap & Laporan' },
+                { id:'driver', label:'Data Driver', icon:'👤', activeClass:'bg-blue-600 text-white shadow-blue-200', inactiveClass:'bg-blue-50 text-blue-700 hover:bg-blue-100' },
+                { id:'tarif', label:'Tarif Pengiriman', icon:'💰', activeClass:'bg-emerald-600 text-white shadow-emerald-200', inactiveClass:'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
+                { id:'transaksi', label:'Transaksi', icon:'🚚', activeClass:'bg-orange-500 text-white shadow-orange-200', inactiveClass:'bg-orange-50 text-orange-700 hover:bg-orange-100' },
+                { id:'rekap', label:'Rekap & Laporan', icon:'📊', activeClass:'bg-purple-600 text-white shadow-purple-200', inactiveClass:'bg-purple-50 text-purple-700 hover:bg-purple-100' },
             ];
 
             const selectedTarifInForm = visibleTarifs.find(t=>t.id===xForm.tarifId);
@@ -11405,13 +11452,16 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             return (
                 <div>
                     <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-2xl font-bold text-slate-800">Driver / Ekspedisi</h2>
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-800">🚛 Driver / Ekspedisi</h2>
+                            <p className="text-sm text-gray-500 mt-0.5">Kelola driver, tarif, transaksi pengiriman &amp; rekap gaji</p>
+                        </div>
                     </div>
-                    <div className="flex flex-wrap gap-2 mb-4 border-b border-gray-200 pb-2">
+                    <div className="flex flex-wrap gap-2 mb-5">
                         {subTabs.map(st => (
                             <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);}}
-                                className={`px-4 py-2 rounded-t text-sm font-semibold transition-colors ${activeSubTab===st.id?'bg-blue-600 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                {st.label}
+                                className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-1.5 ${activeSubTab===st.id ? st.activeClass+' shadow-md' : st.inactiveClass}`}>
+                                <span>{st.icon}</span>{st.label}
                             </button>
                         ))}
                     </div>
@@ -11453,9 +11503,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                     </span>
                                                 </td>
                                                 <td className="px-3 py-2">
-                                                    <div className="flex gap-2">
-                                                        <button onClick={()=>openDriverForm(drv)} className="text-blue-600 hover:underline text-xs">Edit</button>
-                                                        <button onClick={()=>deleteDriver(drv.id)} className="text-red-500 hover:underline text-xs">Hapus</button>
+                                                    <div className="flex gap-1">
+                                                        <button onClick={()=>openDriverForm(drv)} title="Edit" className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z"/></svg>
+                                                        </button>
+                                                        <button onClick={()=>deleteDriver(drv.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C9.327 4.025 10.16 4 11 4h-1zm-5.402 7.24l-.84-10.52A40.58 40.58 0 0110 10.5c1.768 0 3.508.085 5.242.22l-.84 10.52a1.25 1.25 0 01-1.247 1.01H7.596a1.25 1.25 0 01-1.246-1.01L4.598 11.24z" clip-rule="evenodd"/></svg>
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -11482,13 +11536,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                             <th className="px-3 py-2 font-semibold">Tujuan</th>
                                             <th className="px-3 py-2 font-semibold">Metode</th>
                                             <th className="px-3 py-2 font-semibold">Tarif</th>
+                                            <th className="px-3 py-2 font-semibold">Jarak</th>
                                             <th className="px-3 py-2 font-semibold">Minimal</th>
                                             <th className="px-3 py-2 font-semibold">Catatan</th>
                                             <th className="px-3 py-2 font-semibold">Aksi</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredTarifs.length===0 && <tr><td colSpan="8" className="text-center py-8 text-gray-400">Belum ada data tarif</td></tr>}
+                                        {filteredTarifs.length===0 && <tr><td colSpan="9" className="text-center py-8 text-gray-400">Belum ada data tarif</td></tr>}
                                         {filteredTarifs.map((t,i)=>(
                                             <tr key={t.id} className="border-t hover:bg-gray-50">
                                                 <td className="px-3 py-2 text-gray-500">{i+1}</td>
@@ -11504,12 +11559,17 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                         ? `${formatRupiah(safeMoney(t.pricePerKm))}/km`
                                                         : `${formatRupiah(safeMoney(t.pricePerKg))}/kg`}
                                                 </td>
+                                                <td className="px-3 py-2">{t.jarak ? `${t.jarak} km` : <span className="text-gray-300">-</span>}</td>
                                                 <td className="px-3 py-2">{formatRupiah(safeMoney(t.minPrice))}</td>
                                                 <td className="px-3 py-2 text-xs text-gray-500">{t.note||'-'}</td>
                                                 <td className="px-3 py-2">
-                                                    <div className="flex gap-2">
-                                                        <button onClick={()=>openTarifForm(t)} className="text-blue-600 hover:underline text-xs">Edit</button>
-                                                        <button onClick={()=>deleteTarif(t.id)} className="text-red-500 hover:underline text-xs">Hapus</button>
+                                                    <div className="flex gap-1">
+                                                        <button onClick={()=>openTarifForm(t)} title="Edit" className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z"/></svg>
+                                                        </button>
+                                                        <button onClick={()=>deleteTarif(t.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C9.327 4.025 10.16 4 11 4h-1zm-5.402 7.24l-.84-10.52A40.58 40.58 0 0110 10.5c1.768 0 3.508.085 5.242.22l-.84 10.52a1.25 1.25 0 01-1.247 1.01H7.596a1.25 1.25 0 01-1.246-1.01L4.598 11.24z" clip-rule="evenodd"/></svg>
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -11577,12 +11637,22 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                     </select>
                                                 </td>
                                                 <td className="px-3 py-2">
-                                                    <div className="flex gap-1 flex-wrap">
-                                                        <button onClick={()=>printStruk(t)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded">Struk</button>
-                                                        <button onClick={()=>shareViaWA(t)} className="bg-green-100 hover:bg-green-200 text-green-700 text-xs px-2 py-1 rounded" title="Share ke WhatsApp Driver">WA</button>
-                                                        <button onClick={()=>copyShareLink(t)} className="bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded" title="Salin link konfirmasi">Link</button>
-                                                        <button onClick={()=>openTrxForm(t)} className="text-blue-600 hover:underline text-xs">Edit</button>
-                                                        <button onClick={()=>deleteTrx(t.id)} className="text-red-500 hover:underline text-xs">Hapus</button>
+                                                    <div className="flex gap-1">
+                                                        <button onClick={()=>printStruk(t)} title="Cetak Struk" className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fill-rule="evenodd" d="M5 2.75C5 1.784 5.784 1 6.75 1h6.5c.966 0 1.75.784 1.75 1.75v3.552c.377.046.752.097 1.126.153A2.212 2.212 0 0118 8.653v4.097A2.25 2.25 0 0115.75 15h-.241l.305 1.984A1.75 1.75 0 0114.084 19H5.915a1.75 1.75 0 01-1.73-2.016L4.492 15H4.25A2.25 2.25 0 012 12.75V8.653c0-1.082.775-2.034 1.874-2.198.374-.056.75-.107 1.126-.153V2.75zM6.5 2.75v3.358a43.927 43.927 0 017 0V2.75a.25.25 0 00-.25-.25h-6.5a.25.25 0 00-.25.25zM6.026 7.595a42.43 42.43 0 015.948 0l1.317 8.544a.25.25 0 01-.247.286H6.956a.25.25 0 01-.247-.286l1.317-8.544zM3.5 8.75a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5a.75.75 0 01-.75-.75z" clip-rule="evenodd"/></svg>
+                                                        </button>
+                                                        <button onClick={()=>shareViaWA(t)} title="Kirim via WhatsApp" className="p-1.5 rounded-lg bg-green-50 hover:bg-green-100 text-green-600 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M3.505 2.365A41.369 41.369 0 019 2c1.863 0 3.697.124 5.495.365 1.247.167 2.18 1.108 2.435 2.268a4.45 4.45 0 00-.577-.069 43.141 43.141 0 00-4.706 0C9.229 4.696 7.5 6.727 7.5 9.318V14l-1.408.316A3.596 3.596 0 013.5 10.732V5.25c0-1.18.814-2.208 2.005-2.885zM5 14.25a.75.75 0 000 1.5h10a.75.75 0 000-1.5H5zm.75 3a.75.75 0 000 1.5h8.5a.75.75 0 000-1.5h-8.5z"/><path d="M9 8.25c0-1.43 1.042-2.622 2.41-2.744a41.64 41.64 0 014.18 0C17 5.628 18 6.82 18 8.25v4.482c0 1.44-1.001 2.631-2.41 2.744a42.166 42.166 0 01-4.18 0C9.999 15.363 9 14.172 9 12.732V8.25z"/></svg>
+                                                        </button>
+                                                        <button onClick={()=>copyShareLink(t)} title="Salin Link Konfirmasi Driver" className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M12.232 4.232a2.5 2.5 0 013.536 3.536l-1.225 1.224a.75.75 0 001.061 1.06l1.224-1.224a4 4 0 00-5.656-5.656l-3 3a4 4 0 00.225 5.865.75.75 0 00.977-1.138 2.5 2.5 0 01-.142-3.667l3-3z"/><path d="M11.603 7.963a.75.75 0 00-.977 1.138 2.5 2.5 0 01.142 3.667l-3 3a2.5 2.5 0 01-3.536-3.536l1.225-1.224a.75.75 0 00-1.061-1.06l-1.224 1.224a4 4 0 105.656 5.656l3-3a4 4 0 00-.225-5.865z"/></svg>
+                                                        </button>
+                                                        <button onClick={()=>openTrxForm(t)} title="Edit" className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z"/></svg>
+                                                        </button>
+                                                        <button onClick={()=>deleteTrx(t.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 transition-colors">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C9.327 4.025 10.16 4 11 4h-1zm-5.402 7.24l-.84-10.52A40.58 40.58 0 0110 10.5c1.768 0 3.508.085 5.242.22l-.84 10.52a1.25 1.25 0 01-1.247 1.01H7.596a1.25 1.25 0 01-1.246-1.01L4.598 11.24z" clip-rule="evenodd"/></svg>
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -11678,10 +11748,16 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                         <td className="px-3 py-2 font-bold text-blue-700">{formatRupiah(safeMoney(rekap.totalOngkir))}</td>
                                                         <td className="px-3 py-2 text-xs text-gray-500">{rekap.note||'-'}</td>
                                                         <td className="px-3 py-2">
-                                                            <div className="flex gap-1 flex-wrap">
-                                                                <button onClick={()=>printRekapGaji(rekap)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded">Cetak</button>
-                                                                <button onClick={()=>copyRekapGajiLink(rekap)} className="bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs px-2 py-1 rounded">Link</button>
-                                                                <button onClick={()=>deleteRekap(rekap.id)} className="text-red-500 hover:underline text-xs">Hapus</button>
+                                                            <div className="flex gap-1">
+                                                                <button onClick={()=>printRekapGaji(rekap)} title="Cetak Rekap" className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fill-rule="evenodd" d="M5 2.75C5 1.784 5.784 1 6.75 1h6.5c.966 0 1.75.784 1.75 1.75v3.552c.377.046.752.097 1.126.153A2.212 2.212 0 0118 8.653v4.097A2.25 2.25 0 0115.75 15h-.241l.305 1.984A1.75 1.75 0 0114.084 19H5.915a1.75 1.75 0 01-1.73-2.016L4.492 15H4.25A2.25 2.25 0 012 12.75V8.653c0-1.082.775-2.034 1.874-2.198.374-.056.75-.107 1.126-.153V2.75zM6.5 2.75v3.358a43.927 43.927 0 017 0V2.75a.25.25 0 00-.25-.25h-6.5a.25.25 0 00-.25.25zM6.026 7.595a42.43 42.43 0 015.948 0l1.317 8.544a.25.25 0 01-.247.286H6.956a.25.25 0 01-.247-.286l1.317-8.544zM3.5 8.75a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5a.75.75 0 01-.75-.75z" clip-rule="evenodd"/></svg>
+                                                                </button>
+                                                                <button onClick={()=>copyRekapGajiLink(rekap)} title="Salin Link Rekap" className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path d="M12.232 4.232a2.5 2.5 0 013.536 3.536l-1.225 1.224a.75.75 0 001.061 1.06l1.224-1.224a4 4 0 00-5.656-5.656l-3 3a4 4 0 00.225 5.865.75.75 0 00.977-1.138 2.5 2.5 0 01-.142-3.667l3-3z"/><path d="M11.603 7.963a.75.75 0 00-.977 1.138 2.5 2.5 0 01.142 3.667l-3 3a2.5 2.5 0 01-3.536-3.536l1.225-1.224a.75.75 0 00-1.061-1.06l-1.224 1.224a4 4 0 105.656 5.656l3-3a4 4 0 00-.225-5.865z"/></svg>
+                                                                </button>
+                                                                <button onClick={()=>deleteRekap(rekap.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-500 transition-colors">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C9.327 4.025 10.16 4 11 4h-1zm-5.402 7.24l-.84-10.52A40.58 40.58 0 0110 10.5c1.768 0 3.508.085 5.242.22l-.84 10.52a1.25 1.25 0 01-1.247 1.01H7.596a1.25 1.25 0 01-1.246-1.01L4.598 11.24z" clip-rule="evenodd"/></svg>
+                                                                </button>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -11787,6 +11863,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                         }
                                         <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tarif Minimal (Rp)</label><input type="number" value={tForm.minPrice} onChange={e=>setTForm(p=>({...p,minPrice:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="0" /></div>
                                     </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Jarak Rute (km) <span className="font-normal text-gray-400">— otomatis terisi saat dipilih di transaksi</span></label><input type="number" value={tForm.jarak} onChange={e=>setTForm(p=>({...p,jarak:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Contoh: 45" /></div>
                                     <div><label className="block text-xs font-semibold text-gray-600 mb-1">Catatan</label><input value={tForm.note} onChange={e=>setTForm(p=>({...p,note:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Opsional" /></div>
                                 </div>
                                 <div className="flex justify-end gap-2 p-4 border-t">
@@ -12108,31 +12185,52 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             );
 
             const printRekap = () => {
-                const w = window.open('','_blank','width=400,height=700');
-                const rows = trips.map((t,i)=>`<tr><td>${i+1}</td><td>${t.date}</td><td>${t.customer}</td><td>${t.address||'-'}</td><td style="text-align:right">${t.tripType==='pp'?'PP':'1x'}</td><td style="text-align:right">${formatRupiah(safeMoney(t.ongkir))}</td></tr>`).join('');
+                const w = window.open('','_blank','width=420,height=700');
+                if (!w) return;
+                const rows = trips.map(t=>`<div class="item-row"><span><b>${t.customer}</b><small>${t.date} &bull; ${t.address||'-'}${t.tripType==='pp'?' &bull; PP':''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`).join('');
                 w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rekap Gaji Driver</title><style>
-                    body{font-family:monospace;font-size:12px;width:80mm;margin:0 auto;padding:8px;}
-                    .center{text-align:center;} .bold{font-weight:bold;} hr{border:none;border-top:1px dashed #000;}
-                    table{width:100%;border-collapse:collapse;} td,th{padding:2px 4px;font-size:11px;} th{border-bottom:1px solid #000;}
-                    .right{text-align:right;}
-                </style></head><body>
-                <div class="center bold" style="font-size:14px">${tpl?.companyName||'SIMPATI KONVEKSI'}</div>
-                <div class="center">${tpl?.companySubtitle||''}</div>
-                <div class="center bold" style="margin:4px 0">REKAP GAJI DRIVER</div>
-                <hr/>
-                <table><tr><td>Driver</td><td>: <b>${rekap.driverName}</b></td></tr>
-                <tr><td>Kendaraan</td><td>: ${driver?.vehicle||'-'} ${driver?.plateNumber?'('+driver.plateNumber+')':''}</td></tr>
-                <tr><td>Tgl Rekap</td><td>: ${rekap.tanggalRekap}</td></tr>
-                <tr><td>No Rekap</td><td>: ${rekap.id}</td></tr>
-                ${rekap.note?`<tr><td>Catatan</td><td>: ${rekap.note}</td></tr>`:''}</table>
-                <hr/>
-                <table><thead><tr><th>#</th><th>Tgl</th><th>Customer</th><th>Tujuan</th><th class="right">PP</th><th class="right">Ongkir</th></tr></thead>
-                <tbody>${rows}</tbody>
-                <tfoot><tr><td colspan="5" class="bold">TOTAL (${rekap.jumlahTrip} trip)</td><td class="bold right">${formatRupiah(safeMoney(rekap.totalOngkir))}</td></tr></tfoot>
-                </table>
-                <hr/>
-                <div class="center" style="font-size:10px;margin-top:8px">Dicetak: ${new Date().toLocaleDateString('id-ID')}</div>
-                </body></html>`);
+                    @page{size:80mm auto;margin:4mm;}
+                    html,body{width:72mm;}
+                    body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+                    .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
+                    .header{text-align:center;border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
+                    .header-logo{max-height:44px;max-width:70px;object-fit:contain;margin-bottom:3px;}
+                    .header h1{margin:0;font-size:14px;text-transform:uppercase;line-height:1.15;}
+                    .header p{margin:2px 0 0;font-size:10.5px;}
+                    .meta{border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
+                    .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0;}
+                    .lbl{color:#444;}
+                    .val{font-weight:bold;text-align:right;}
+                    .section-title{margin-top:7px;padding:4px 0 3px;border-top:1px dashed #000;border-bottom:1px dashed #bbb;font-size:10px;font-weight:900;text-transform:uppercase;}
+                    .item-row{display:flex;justify-content:space-between;gap:6px;padding:4px 0;border-bottom:1px dashed #ddd;}
+                    .item-row span:first-child{max-width:44mm;overflow-wrap:anywhere;}
+                    .item-row span:last-child{text-align:right;font-weight:bold;white-space:nowrap;}
+                    .item-row small{display:block;color:#555;font-size:8.6px;font-weight:normal;}
+                    .total-box{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:6px 0;margin-top:6px;}
+                    .grand{font-size:13px;font-weight:900;}
+                    .footer{text-align:center;font-size:9px;margin-top:9px;color:#444;}
+                    @media screen{body{background:#f3f4f6;padding:12px 0;}.receipt{background:#fff;padding:4mm;box-shadow:0 10px 30px rgba(0,0,0,.12);}}
+                </style></head><body><div class="receipt">
+                <div class="header">
+                    ${tpl?.companyLogo?`<img src="${tpl.companyLogo}" class="header-logo"/>`:''}
+                    <h1>${tpl?.companyName||'SIMPATI KONVEKSI'}</h1>
+                    <p>REKAP GAJI DRIVER</p>
+                    ${tpl?.companySubtitle?`<p>${tpl.companySubtitle}</p>`:''}
+                </div>
+                <div class="meta">
+                    <div class="row"><span class="lbl">Driver</span><span class="val">${rekap.driverName}</span></div>
+                    <div class="row"><span class="lbl">Kendaraan</span><span class="val">${driver?.vehicle||'-'}${driver?.plateNumber?' ('+driver.plateNumber+')':''}</span></div>
+                    <div class="row"><span class="lbl">Tgl Rekap</span><span class="val">${rekap.tanggalRekap}</span></div>
+                    <div class="row"><span class="lbl">No Rekap</span><span style="font-size:9px;font-weight:bold">${rekap.id}</span></div>
+                    ${rekap.note?`<div class="row"><span class="lbl">Catatan</span><span class="val">${rekap.note}</span></div>`:''}
+                </div>
+                <div class="section-title">Detail Trip (${rekap.jumlahTrip} trip)</div>
+                <div>${rows}</div>
+                <div class="total-box">
+                    <div class="row grand"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                </div>
+                <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
+                </div></body></html>`);
                 w.document.close();
                 setTimeout(()=>{w.print();w.close();},500);
             };
