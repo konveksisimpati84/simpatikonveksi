@@ -1010,10 +1010,17 @@
                                                 {order.status === 'Terkirim' && (
                                                     <button 
                                                         onClick={() => {
+                                                            const hasSJ = (riwayatPengiriman || []).filter(isVisibleRecord).some(r => (r.items || []).some(item => item.orderId === order.id));
+                                                            if (!hasSJ) {
+                                                                const shipped = (order.shipped && Object.keys(order.shipped).length > 0) ? order.shipped : order.sizes || {};
+                                                                const shippedTotal = Object.values(shipped).reduce((s, q) => s + (parseInt(q) || 0), 0);
+                                                                const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz} (${shipped[sz]})`).join(', ');
+                                                                setRiwayatPengiriman(prev => [...(prev || []), { id: genId('SJ-'), date: new Date().toISOString().split('T')[0], client: order.client, items: [{ orderId: order.id, type: order.type || '-', details, total: shippedTotal || order.total || 0 }], total: shippedTotal || order.total || 0, _syncUpdatedAt: new Date().toISOString() }]);
+                                                            }
                                                             setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, isArchived: true } : o));
                                                             showToast("Order dipindahkan ke Riwayat!", "success");
-                                                        }} 
-                                                        className="text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 p-1.5 rounded-md transition-colors" 
+                                                        }}
+                                                        className="text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 p-1.5 rounded-md transition-colors"
                                                         title="Arsipkan Order"
                                                     >
                                                         <IconArchive />
@@ -3543,7 +3550,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                             onClick={() => {
                                                                 const hasSJ = (riwayatPengiriman || []).filter(isVisibleRecord).some(r => (r.items || []).some(item => item.orderId === order.id));
                                                                 if (!hasSJ) {
-                                                                    const shipped = order.shipped || order.sizes || {};
+                                                                    const shipped = (order.shipped && Object.keys(order.shipped).length > 0) ? order.shipped : order.sizes || {};
                                                                     const shippedTotal = Object.values(shipped).reduce((s, q) => s + (parseInt(q) || 0), 0);
                                                                     const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz} (${shipped[sz]})`).join(', ');
                                                                     setRiwayatPengiriman(prev => [...(prev || []), { id: genId('SJ-'), date: new Date().toISOString().split('T')[0], client: order.client, items: [{ orderId: order.id, type: order.type || '-', details, total: shippedTotal || order.total || 0 }], total: shippedTotal || order.total || 0, _syncUpdatedAt: new Date().toISOString() }]);
@@ -3563,7 +3570,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                                 const avail = getAvailableToShip(order, size);
                                                                 const target = order.sizes[size];
                                                                 const shippedCount = (order.shipped && order.shipped[size]) || 0;
-                                                                const isCompleted = shippedCount >= target;
+                                                                const isCompleted = avail === 0 && shippedCount >= target;
 
                                                                 return (
                                                                     <div key={size} className={`p-2.5 rounded-lg border ${isCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
@@ -3620,7 +3627,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const sjOrderIds = new Set((riwayatPengiriman || []).filter(isVisibleRecord).flatMap(r => (r.items || []).map(i => i.orderId)));
             const archivedWithoutSJ = (orders || []).filter(isVisibleRecord).filter(o => o.isArchived && !sjOrderIds.has(o.id));
             const archivedAsSJ = archivedWithoutSJ.map(o => {
-                const shipped = o.shipped || o.sizes || {};
+                const shipped = (o.shipped && Object.keys(o.shipped).length > 0) ? o.shipped : o.sizes || {};
                 const shippedTotal = Object.values(shipped).reduce((s, q) => s + (parseInt(q) || 0), 0);
                 const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz} (${shipped[sz]})`).join(', ');
                 return { id: o.id, date: o.deadline || '', client: o.client, items: [{ orderId: o.id, type: o.type || '-', details, total: shippedTotal || o.total || 0 }], total: shippedTotal || o.total || 0, _fromArchivedOrder: true };
@@ -3759,7 +3766,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                             parts.forEach(part => {
                                 const match = part.match(/(.+?)\s*\((\d+)\)/);
                                 if (match) {
-                                    const size = match[1];
+                                    const size = match[1].trim();
                                     const qty = parseInt(match[2], 10) || 0;
                                     if (newShipped[size]) {
                                         newShipped[size] -= qty;
@@ -3778,21 +3785,23 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                             const newProgress = { ...order.progress };
                             const activeStages = getActiveProductionStageIds(order);
                             const stageLabel = (stageId) => productionStageOptions.find(stage => stage.id === stageId)?.label || stageId;
-                            let overallStatus = order.materialStatus === 'Selesai' ? 'Pembelian Bahan' : 'Pending'; 
+                            let overallStatus = 'Siap Kirim';
                             if (isFullyShipped) overallStatus = 'Terkirim';
-                            else {
+                            else if (activeStages.length > 0) {
+                                let foundStage = false;
                                 for (let i = activeStages.length - 1; i >= 0; i--) {
                                     const stageId = activeStages[i];
                                     const status = newProgress[stageId]?.status;
                                     if (status === 'Selesai') {
                                         overallStatus = i === activeStages.length - 1 ? 'Siap Kirim' : `Proses ${stageLabel(activeStages[i + 1])}`;
-                                        break;
+                                        foundStage = true; break;
                                     }
                                     if (status === 'Proses') {
                                         overallStatus = `Proses ${stageLabel(stageId)}`;
-                                        break;
+                                        foundStage = true; break;
                                     }
                                 }
+                                if (!foundStage) overallStatus = order.materialStatus === 'Selesai' ? 'Pembelian Bahan' : 'Pending';
                             }
 
                             order.status = overallStatus;
