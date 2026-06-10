@@ -11285,8 +11285,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     setAuthUser(null);
                     return;
                 }
+                // Jangan invalidasi sesi jika daftar akun belum selesai dimuat
+                if (!accountList || accountList.length === 0) return;
 
-                const latestUser = (accountList || []).find(acc => (
+                const latestUser = accountList.find(acc => (
                     String(acc.id) === String(savedUser.id) ||
                     String(acc.username || '').toLowerCase() === String(savedUser.username || '').toLowerCase()
                 ));
@@ -11702,13 +11704,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
+                    const mergedAccForSync = mergeRecordLists(undefined, remoteAccounts);
                     setAccounts(prevAccounts => {
                         const merged = mergeRecordLists(prevAccounts, remoteAccounts);
                         safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
-                        syncSavedAuthSession(merged.filter(isVisibleRecord));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteAccounts)) setTimeout(() => saveToSupabase('accounts', merged), 0);
                         return merged;
                     });
+                    setTimeout(() => syncSavedAuthSession(mergedAccForSync.filter(isVisibleRecord)), 0);
                 }
                 if (Array.isArray(remoteEmployees)) {
                     setEmployees(prevEmployees => {
@@ -11821,7 +11824,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             const incomingAccounts = JSON.parse(e.newValue);
                             setAccounts(prevAccounts => {
                                 const merged = mergeRecordLists(prevAccounts, incomingAccounts);
-                                syncSavedAuthSession(merged.filter(isVisibleRecord));
+                                setTimeout(() => syncSavedAuthSession(merged.filter(isVisibleRecord)), 0);
                                 return merged;
                             });
                         } catch(err) {}
