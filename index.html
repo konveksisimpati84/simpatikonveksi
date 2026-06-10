@@ -11974,9 +11974,17 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [templates2, setTemplates2] = React.useState({});
 
             React.useEffect(() => {
+                const CACHE_KEY = `simpati_dc_cache_${trxId}`;
                 const load = async () => {
-                    setLoading(true);
                     try {
+                        const cached = sessionStorage.getItem(CACHE_KEY);
+                        if (cached) {
+                            const { trx: cTrx, tarif: cTarif, templates: cTpl } = JSON.parse(cached);
+                            setTrx(cTrx || null);
+                            setTarif(cTarif || null);
+                            setTemplates2(cTpl || {});
+                            setLoading(false);
+                        }
                         if (supabaseClient) {
                             const [trxRes, tplRes, tarRes] = await Promise.all([
                                 supabaseClient.from('app_data').select('data').eq('id','driverTransactions').single(),
@@ -11985,12 +11993,12 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             ]);
                             const allTrx = trxRes.data?.data || [];
                             const found = allTrx.find(t => t.id === trxId && !t.isDeleted);
+                            const tpl = tplRes.data?.data || {};
+                            const foundTarif = found ? (tarRes.data?.data || []).find(t => t.id === found.tarifId) || null : null;
                             setTrx(found || null);
-                            setTemplates2(tplRes.data?.data || {});
-                            if (found) {
-                                const allTarifs = tarRes.data?.data || [];
-                                setTarif(allTarifs.find(t => t.id === found.tarifId) || null);
-                            }
+                            setTemplates2(tpl);
+                            setTarif(foundTarif);
+                            try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ trx: found, tarif: foundTarif, templates: tpl })); } catch(e) {}
                         }
                     } catch(e) { console.error(e); }
                     setLoading(false);
@@ -12001,14 +12009,19 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const doAction = async (newStatus) => {
                 if (!trx || saving) return;
                 setSaving(true);
+                setTrx(prev => ({...prev, status: newStatus}));
+                setActionDone(newStatus);
                 try {
                     const res = await supabaseClient.from('app_data').select('data').eq('id','driverTransactions').single();
                     const allTrx = res.data?.data || [];
                     const updated = allTrx.map(t => t.id===trx.id ? {...t, status:newStatus, _syncUpdatedAt:new Date().toISOString()} : t);
                     await supabaseClient.from('app_data').upsert({ id:'driverTransactions', data: updated });
-                    setTrx(prev => ({...prev, status: newStatus}));
-                    setActionDone(newStatus);
-                } catch(e) { console.error(e); }
+                    try { sessionStorage.removeItem(`simpati_dc_cache_${trx.id}`); } catch(e) {}
+                } catch(e) {
+                    console.error(e);
+                    setTrx(prev => ({...prev, status: trx.status}));
+                    setActionDone('');
+                }
                 setSaving(false);
             };
 
@@ -12104,9 +12117,19 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [loading, setLoading] = React.useState(true);
 
             React.useEffect(() => {
+                const CACHE_KEY = `simpati_drg_cache_${rekapId}`;
                 const load = async () => {
-                    setLoading(true);
                     try {
+                        const cached = sessionStorage.getItem(CACHE_KEY);
+                        if (cached) {
+                            const { rekap: cR, trips: cT, driver: cD, tpl: cTpl, tarifs: cTrf } = JSON.parse(cached);
+                            setRekap(cR || null);
+                            setTrips(cT || []);
+                            setDriver(cD || null);
+                            setTpl(cTpl || {});
+                            setTarifs(cTrf || []);
+                            setLoading(false);
+                        }
                         if (supabaseClient) {
                             const [rRes, tRes, dRes, tplRes, trfRes] = await Promise.all([
                                 supabaseClient.from('app_data').select('data').eq('id','driverRekapGaji').single(),
@@ -12117,15 +12140,16 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             ]);
                             const allRekap = rRes.data?.data || [];
                             const found = allRekap.find(r => r.id === rekapId && !r.isDeleted);
+                            const tpl = tplRes.data?.data || {};
+                            const allTarifs = trfRes.data?.data || [];
+                            const foundTrips = found ? (tRes.data?.data || []).filter(t => (found.tripIds||[]).includes(t.id)) : [];
+                            const foundDriver = found ? (dRes.data?.data || []).find(d => d.id === found.driverId) || null : null;
                             setRekap(found || null);
-                            if (found) {
-                                const allTrx = tRes.data?.data || [];
-                                setTrips(allTrx.filter(t => (found.tripIds||[]).includes(t.id)));
-                                const allDrivers = dRes.data?.data || [];
-                                setDriver(allDrivers.find(d => d.id === found.driverId) || null);
-                            }
-                            setTpl(tplRes.data?.data || {});
-                            setTarifs(trfRes.data?.data || []);
+                            setTrips(foundTrips);
+                            setDriver(foundDriver);
+                            setTpl(tpl);
+                            setTarifs(allTarifs);
+                            try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ rekap: found, trips: foundTrips, driver: foundDriver, tpl, tarifs: allTarifs })); } catch(e) {}
                         }
                     } catch(e) { console.error(e); }
                     setLoading(false);
