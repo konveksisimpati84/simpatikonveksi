@@ -14135,7 +14135,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         @media print {
                             body * { visibility: hidden; }
                             #label-print-area, #label-print-area * { visibility: visible; }
-                            #label-print-area { position: absolute; left:0; top:0; width:100%; margin:0; padding:0; }
+                            #label-print-area {
+                                position: absolute; left:0; top:0;
+                                display: block !important;
+                                padding: 0 !important; margin: 0 !important;
+                                gap: 0 !important;
+                            }
+                            #label-print-area .lm-pb { margin: 0 !important; padding: 0 !important; }
+                            #label-print-area .lm-page {
+                                transform: none !important;
+                                box-shadow: none !important;
+                            }
                             .lm-pb { page-break-after: always; }
                             @page { size: ${paper.width}mm ${paper.height}mm; margin: 0mm; }
                             body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -14376,13 +14386,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             {pages.map((pageSizes, pi) => (
                                 <div key={pi} className="lm-pb relative">
                                     <div className="lm-np absolute -top-6 left-0 text-xs text-slate-400 font-medium">Halaman {pi+1}</div>
-                                    <div className="bg-white shadow-2xl"
+                                    <div className="bg-white shadow-2xl lm-page"
                                         style={{width:`${paper.width}mm`, height:`${paper.height}mm`, transform:`scale(${zoom})`, transformOrigin:'top left',
                                             paddingTop:`${paper.marginTop}mm`, paddingBottom:`${paper.marginBottom}mm`,
                                             paddingLeft:`${paper.marginLeft}mm`, paddingRight:`${paper.marginRight}mm`}}>
                                         <div className="w-full h-full flex flex-wrap content-start" style={{gap:`${paper.gapY}mm ${paper.gapX}mm`}}>
                                             {pageSizes.map((sz, i) => (
-                                                <div key={i} className="box-border overflow-hidden bg-white" style={{width:`${labelW()}mm`, height:`${labelH()}mm`, padding:'2mm', outline:'1.5px solid #9ca3af'}}>
+                                                <div key={i} className="box-border overflow-hidden bg-white" style={{width:`${labelW()}mm`, height:`${labelH()}mm`, padding:'2mm', border:'1.5px solid #9ca3af'}}>
                                                     <div className="w-full h-full flex border-[2.5px]" style={{borderColor:design.textColorRight}}>
                                                         <div className="h-full relative flex items-center justify-center border-r-[2.5px]"
                                                             style={{width:'75%', backgroundColor:design.bgLeft, borderColor:design.textColorRight}}>
