@@ -12338,6 +12338,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [isReady, setIsReady] = useState(false);
             const [authUser, setAuthUser] = useState(null);
             const [activeTab, setActiveTab] = useState('dashboard');
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
             const [isTVMode, setIsTVMode] = useState(false);
             
             const [accounts, setAccounts] = useState([]);
@@ -13868,29 +13869,55 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             return (
                 <div className="flex h-screen bg-gray-100 font-sans print:bg-white print:h-auto">
-                    <div className="w-64 bg-slate-900 text-white flex flex-col hidden md:flex shrink-0 print:hidden shadow-xl z-10">
-                        <div className="p-6 bg-slate-950 text-center border-b border-slate-800">
-                            {templates?.companyLogo ? (
-                                <img src={templates.companyLogo} alt="Logo" className="mx-auto max-h-16 object-contain mb-2 bg-white/5 p-1 rounded" />
-                            ) : (
-                                <h1 className="text-2xl font-bold tracking-wider text-red-500">SIMPATI</h1>
+                    <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex flex-col hidden md:flex shrink-0 print:hidden shadow-xl z-10 transition-all duration-200`}>
+                        <div className={`bg-slate-950 border-b border-slate-800 flex items-center ${sidebarCollapsed ? 'justify-center py-4 px-2' : 'p-4 flex-col text-center'}`}>
+                            {!sidebarCollapsed && (
+                                <>
+                                    {templates?.companyLogo ? (
+                                        <img src={templates.companyLogo} alt="Logo" className="mx-auto max-h-14 object-contain mb-2 bg-white/5 p-1 rounded" />
+                                    ) : (
+                                        <h1 className="text-xl font-bold tracking-wider text-red-500">SIMPATI</h1>
+                                    )}
+                                    <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">Sistem Konveksi</p>
+                                </>
                             )}
-                            <p className="text-xs text-gray-400 mt-2 uppercase tracking-widest">Sistem Konveksi</p>
+                            {sidebarCollapsed && (
+                                templates?.companyLogo
+                                    ? <img src={templates.companyLogo} alt="Logo" className="w-8 h-8 object-contain bg-white/5 rounded" />
+                                    : <span className="text-red-500 font-bold text-sm">S</span>
+                            )}
                         </div>
-                        <nav className="flex-1 overflow-y-auto py-4">
-                            <ul className="space-y-1 px-3">
+                        <div className={`flex ${sidebarCollapsed ? 'justify-center' : 'justify-end'} px-2 pt-2`}>
+                            <button onClick={() => setSidebarCollapsed(v => !v)} className="text-gray-400 hover:text-white p-1.5 rounded hover:bg-slate-800 transition-colors" title={sidebarCollapsed ? 'Perluas menu' : 'Ciutkan menu'}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    {sidebarCollapsed
+                                        ? <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                                        : <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7M19 19l-7-7 7-7" />
+                                    }
+                                </svg>
+                            </button>
+                        </div>
+                        <nav className="flex-1 overflow-y-auto py-2">
+                            <ul className={`space-y-1 ${sidebarCollapsed ? 'px-1' : 'px-3'}`}>
                                 {navItems.map(item => (
                                     <li key={item.id}>
-                                        <button onClick={() => setActiveTab(item.id)} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:bg-slate-800 hover:text-white'}`}>
-                                            {item.icon}<span>{item.label}</span>
+                                        <button
+                                            onClick={() => setActiveTab(item.id)}
+                                            title={sidebarCollapsed ? item.label : ''}
+                                            className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-2 py-3' : 'space-x-3 px-4 py-3'} rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:bg-slate-800 hover:text-white'}`}
+                                        >
+                                            {item.icon}
+                                            {!sidebarCollapsed && <span>{item.label}</span>}
                                         </button>
                                     </li>
                                 ))}
                             </ul>
                         </nav>
-                        <div className="p-4 border-t border-slate-800 text-xs text-center text-gray-500">
-                            Simpati Konveksi &copy; 2026
-                        </div>
+                        {!sidebarCollapsed && (
+                            <div className="p-4 border-t border-slate-800 text-xs text-center text-gray-500">
+                                Simpati Konveksi &copy; 2026
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex-1 flex flex-col overflow-hidden print:overflow-visible">
