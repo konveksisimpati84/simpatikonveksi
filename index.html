@@ -14096,32 +14096,37 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
             const handlePrint = () => {
                 const lw = labelW(), lh = labelH();
+                const wW = workW(), wH = workH();
+                const pgW = paper.width, pgH = paper.height;
+                const orientation = paper.orientation === 'landscape' ? 'landscape' : 'portrait';
                 const pagesHtml = pages.map((pageSizes, pi) => {
                     const labelsHtml = pageSizes.map(sz => {
+                        const innerW = lw - 4; // 2mm padding each side (subtract in mm)
+                        const innerH = lh - 4;
                         const logoHtml = design.logoUrl
                             ? `<img src="${design.logoUrl}" style="max-width:88%;max-height:88%;object-fit:contain;transform:scale(${design.logoScale/100}) translate(${design.logoOffsetX}px,${design.logoOffsetY}px);" />`
                             : `<span style="color:${design.textColorLeft};font-size:${lh*0.15}mm;font-weight:700;opacity:0.4;">LOGO</span>`;
                         const holeHtml = design.showHoleMark
                             ? `<div style="position:absolute;left:2.5mm;top:50%;transform:translateY(-50%);width:3mm;height:3mm;background:white;border-radius:50%;"></div>`
                             : '';
-                        return `<div style="box-sizing:border-box;width:${lw}mm;height:${lh}mm;padding:2mm;border:1.5px solid #9ca3af;overflow:hidden;background:white;">
-                            <div style="width:100%;height:100%;display:flex;border:2.5px solid ${design.textColorRight};">
-                                <div style="width:75%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;background:${design.bgLeft};border-right:2.5px solid ${design.textColorRight};">
+                        return `<div style="box-sizing:border-box;width:${lw}mm;height:${lh}mm;padding:2mm;border:1.5px solid #9ca3af;overflow:hidden;background:white;flex-shrink:0;">
+                            <div style="box-sizing:border-box;width:${innerW}mm;height:${innerH}mm;display:flex;border:2.5px solid ${design.textColorRight};overflow:hidden;">
+                                <div style="box-sizing:border-box;width:75%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;background:${design.bgLeft};border-right:2.5px solid ${design.textColorRight};overflow:hidden;">
                                     ${holeHtml}${logoHtml}
                                 </div>
-                                <div style="width:25%;height:100%;display:flex;flex-direction:column;background:${design.bgRight};">
-                                    <div style="height:38%;display:flex;align-items:center;justify-content:center;border-bottom:2.5px solid ${design.textColorRight};">
+                                <div style="box-sizing:border-box;width:25%;height:100%;display:flex;flex-direction:column;background:${design.bgRight};overflow:hidden;">
+                                    <div style="box-sizing:border-box;height:38%;width:100%;display:flex;align-items:center;justify-content:center;border-bottom:2.5px solid ${design.textColorRight};overflow:hidden;">
                                         <span style="color:${design.textColorRight};font-size:${lh*0.15}mm;font-weight:700;font-family:${design.fontFamily||'serif'};">Size</span>
                                     </div>
-                                    <div style="height:62%;display:flex;align-items:center;justify-content:center;">
+                                    <div style="box-sizing:border-box;height:62%;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;">
                                         <span style="color:${design.textColorRight};font-size:${Math.min(lh*0.32,lw*0.11)}mm;font-weight:900;font-family:${design.fontFamily||'serif'};line-height:1;">${sz}</span>
                                     </div>
                                 </div>
                             </div>
                         </div>`;
                     }).join('');
-                    return `<div style="width:${paper.width}mm;height:${paper.height}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};">
-                        <div style="width:100%;height:100%;display:flex;flex-wrap:wrap;align-content:flex-start;gap:${paper.gapY}mm ${paper.gapX}mm;">
+                    return `<div style="box-sizing:border-box;width:${pgW}mm;height:${pgH}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;overflow:hidden;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};">
+                        <div style="box-sizing:border-box;width:${wW}mm;height:${wH}mm;display:flex;flex-wrap:wrap;align-content:flex-start;gap:${paper.gapY}mm ${paper.gapX}mm;overflow:hidden;">
                             ${labelsHtml}
                         </div>
                     </div>`;
@@ -14130,7 +14135,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Label Cetak</title>
                 <style>
                     *{box-sizing:border-box;margin:0;padding:0;}
-                    @page{size:${paper.width}mm ${paper.height}mm ${paper.orientation==='landscape'?'landscape':'portrait'};margin:0mm;}
+                    @page{size:${pgW}mm ${pgH}mm ${orientation};margin:0mm;}
+                    html,body{width:${pgW}mm;height:${pgH}mm;overflow:hidden;}
                     body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
                 </style></head><body>${pagesHtml}</body></html>`;
 
