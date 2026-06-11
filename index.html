@@ -14178,12 +14178,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setShowPrintTip(true);
                 setTimeout(() => w.print(), 700);
             };
-            const handleExportPDF = () => {
+            const handleExportPDF = async () => {
                 if (!window.jspdf) { alert('Library PDF belum dimuat. Coba refresh halaman.'); return; }
                 const { jsPDF } = window.jspdf;
                 const lw = labelW(), lh = labelH();
                 const hexRgb = h => { const c = (h||'#000000').replace('#',''); return [parseInt(c.slice(0,2),16)||0, parseInt(c.slice(2,4),16)||0, parseInt(c.slice(4,6),16)||0]; };
                 const doc = new jsPDF({ orientation: paper.orientation, unit: 'mm', format: [paper.width, paper.height] });
+
+                // Muat dimensi asli logo untuk menjaga aspect ratio
+                let imgNatW = 1, imgNatH = 1;
+                if (design.logoUrl) {
+                    await new Promise(resolve => {
+                        const img = new Image();
+                        img.onload = () => { imgNatW = img.naturalWidth || 1; imgNatH = img.naturalHeight || 1; resolve(); };
+                        img.onerror = resolve;
+                        img.src = design.logoUrl;
+                    });
+                }
 
                 const drawLabel = (item, sx, sy) => {
                     const sz = item.size, nama = item.nama || '';
@@ -14219,11 +14230,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (design.showHoleMark) {
                         doc.setFillColor(255,255,255); doc.circle(iX+2.5, iY+logoH/2, 1.5, 'F');
                     }
-                    // Logo image
+                    // Logo image — object-fit:contain untuk jaga aspect ratio
                     if (design.logoUrl) {
                         const scaleFactor = hasNama ? 0.72 : 0.88;
-                        const mW = lgW*scaleFactor*(design.logoScale/100);
-                        const mH = logoH*scaleFactor*(design.logoScale/100);
+                        const maxW = lgW * scaleFactor * (design.logoScale/100);
+                        const maxH = logoH * scaleFactor * (design.logoScale/100);
+                        const fitScale = Math.min(maxW / imgNatW, maxH / imgNatH);
+                        const mW = imgNatW * fitScale;
+                        const mH = imgNatH * fitScale;
                         const lx = iX + lgW/2 - mW/2 + design.logoOffsetX*0.264;
                         const ly = iY + logoH/2 - mH/2 + design.logoOffsetY*0.264;
                         try { doc.addImage(design.logoUrl, lx, ly, mW, mH); } catch(e){}
