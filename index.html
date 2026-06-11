@@ -93,7 +93,13 @@
             spkSignatureLeft: 'Diserahkan Oleh, Admin',
             spkSignatureRight: 'Diterima Oleh, Mandor',
             spkDirectorName: 'Direktur',
-            spkNote: 'Pastikan dikerjakan sesuai dengan spesifikasi dan deadline.'
+            spkNote: 'Pastikan dikerjakan sesuai dengan spesifikasi dan deadline.',
+            paymentBank1: '',
+            paymentBank1No: '',
+            paymentBank1Name: '',
+            paymentBank2: '',
+            paymentBank2No: '',
+            paymentBank2Name: ''
         };
 
         const disabledMenuIds = new Set([]);
@@ -6105,6 +6111,20 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
     <div class="amount-row total-final"><span>Sisa Tagihan</span><span style="color:${remaining>0?'#dc2626':'#16a34a'}">${formatRupiah(remaining)}</span></div>
   </div>
 </div>
+${(templates?.paymentBank1 || templates?.paymentBank2) ? `
+<div style="margin:16px 0 0 0;padding:12px 16px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:12px;">
+  <div style="font-weight:700;color:#0369a1;margin-bottom:8px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;">Pembayaran Transfer ke:</div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;">
+    ${templates?.paymentBank1 ? `<div style="display:flex;align-items:center;gap:10px;">
+      <div style="background:#0369a1;color:white;font-weight:800;font-size:11px;padding:4px 10px;border-radius:4px;white-space:nowrap;">${safe(templates.paymentBank1)}</div>
+      <div><div style="font-weight:700;font-size:13px;color:#0c4a6e;letter-spacing:.03em;">${safe(templates.paymentBank1No)}</div><div style="color:#475569;font-size:11px;">a.n. ${safe(templates.paymentBank1Name)}</div></div>
+    </div>` : ''}
+    ${templates?.paymentBank2 ? `<div style="display:flex;align-items:center;gap:10px;">
+      <div style="background:#0369a1;color:white;font-weight:800;font-size:11px;padding:4px 10px;border-radius:4px;white-space:nowrap;">${safe(templates.paymentBank2)}</div>
+      <div><div style="font-weight:700;font-size:13px;color:#0c4a6e;letter-spacing:.03em;">${safe(templates.paymentBank2No)}</div><div style="color:#475569;font-size:11px;">a.n. ${safe(templates.paymentBank2Name)}</div></div>
+    </div>` : ''}
+  </div>
+</div>` : ''}
 <div class="footer-section">
   <div class="sign-box">
     <div class="sign-title">Hormat Kami,</div>
@@ -10896,6 +10916,24 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="md:col-span-2"><label className="block text-sm mb-1">Catatan Bawah (Opsional)</label><input type="text" name="spkNote" className="w-full p-2 border rounded" value={localTemplates.spkNote || ''} onChange={handleChange} /></div>
                                 <div className="md:col-span-2"><label className="block text-sm mb-1">Nama Direktur</label><input type="text" name="spkDirectorName" className="w-full p-2 border rounded" value={localTemplates.spkDirectorName || ''} onChange={handleChange} placeholder="Masukkan nama direktur" /></div>
+                            </div>
+                        </Card>
+                        <Card>
+                            <h3 className="font-bold border-b pb-2 mb-4">Info Pembayaran / Rekening</h3>
+                            <p className="text-xs text-gray-500 mb-4">Informasi rekening ini akan tampil di bagian bawah invoice saat dicetak.</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-3">
+                                    <p className="text-sm font-semibold text-gray-700">Rekening 1</p>
+                                    <div><label className="block text-xs text-gray-500 mb-1">Nama Bank</label><input className="w-full border rounded p-2 text-sm" placeholder="Contoh: BCA, Mandiri, BRI..." value={localTemplates.paymentBank1 || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank1: e.target.value}))} /></div>
+                                    <div><label className="block text-xs text-gray-500 mb-1">No. Rekening</label><input className="w-full border rounded p-2 text-sm" placeholder="Contoh: 1234567890" value={localTemplates.paymentBank1No || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank1No: e.target.value}))} /></div>
+                                    <div><label className="block text-xs text-gray-500 mb-1">Atas Nama</label><input className="w-full border rounded p-2 text-sm" placeholder="Nama pemilik rekening" value={localTemplates.paymentBank1Name || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank1Name: e.target.value}))} /></div>
+                                </div>
+                                <div className="space-y-3">
+                                    <p className="text-sm font-semibold text-gray-700">Rekening 2 <span className="text-gray-400 font-normal">(opsional)</span></p>
+                                    <div><label className="block text-xs text-gray-500 mb-1">Nama Bank</label><input className="w-full border rounded p-2 text-sm" placeholder="Contoh: BCA, Mandiri, BRI..." value={localTemplates.paymentBank2 || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank2: e.target.value}))} /></div>
+                                    <div><label className="block text-xs text-gray-500 mb-1">No. Rekening</label><input className="w-full border rounded p-2 text-sm" placeholder="Contoh: 1234567890" value={localTemplates.paymentBank2No || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank2No: e.target.value}))} /></div>
+                                    <div><label className="block text-xs text-gray-500 mb-1">Atas Nama</label><input className="w-full border rounded p-2 text-sm" placeholder="Nama pemilik rekening" value={localTemplates.paymentBank2Name || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank2Name: e.target.value}))} /></div>
+                                </div>
                             </div>
                         </Card>
                         <Card>
