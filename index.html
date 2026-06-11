@@ -14146,8 +14146,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>`;
                     }).join('');
-                    return `<div style="box-sizing:border-box;width:${pgW}mm;height:${pgH}mm;overflow:hidden;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};break-after:${pi < pages.length-1 ? 'page' : 'auto'};page-break-inside:avoid;">
-                        <div style="box-sizing:border-box;width:${wW}mm;display:flex;flex-wrap:wrap;align-content:flex-start;gap:${paper.gapY}mm ${paper.gapX}mm;">
+                    return `<div style="box-sizing:border-box;width:${pgW}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;overflow:hidden;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};break-after:${pi < pages.length-1 ? 'page' : 'auto'};page-break-inside:avoid;">
+                        <div style="box-sizing:border-box;width:${wW}mm;display:flex;flex-wrap:wrap;align-content:flex-start;gap:${paper.gapY}mm ${paper.gapX}mm;overflow:hidden;">
                             ${labelsHtml}
                         </div>
                     </div>`;
