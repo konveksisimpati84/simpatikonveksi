@@ -13993,7 +13993,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </header>
 
-                        <main className={`flex-1 overflow-x-hidden overflow-y-auto print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'p-0 bg-gray-100' : 'p-4 md:p-8 bg-gray-50/50'}`}>
+                        <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'p-0 bg-gray-100 overflow-hidden' : 'p-4 md:p-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {activeTab === 'label_maker' && canOpen('label_maker') && <LabelMakerView />}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {activeTab === 'dashboard' && canOpen('dashboard') && <DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} />}
@@ -14268,7 +14268,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
 
             return (
-                <div className="flex h-full font-sans">
+                <div className="flex h-full min-h-0 font-sans">
                     {/* Tidak ada print CSS di sini — cetak via window.open() terpisah */}
 
                     {/* Print tip toast */}
