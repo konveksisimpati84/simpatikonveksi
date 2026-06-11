@@ -14028,9 +14028,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
         // ── LABEL MAKER ──────────────────────────────────────────────────────────
         const LabelMakerView = () => {
             const LM_PAPER_SIZES = { A4:{width:210,height:297}, F4:{width:210,height:330}, Letter:{width:215.9,height:279.4} };
+            const LM_FONTS = [
+                { label:'Serif (Times)', value:'serif' },
+                { label:'Sans-serif (Arial)', value:'sans-serif' },
+                { label:'Arial Black', value:'"Arial Black", sans-serif' },
+                { label:'Impact', value:'Impact, sans-serif' },
+                { label:'Georgia', value:'Georgia, serif' },
+                { label:'Monospace', value:'monospace' },
+                { label:'Courier New', value:'"Courier New", monospace' },
+                { label:'Trebuchet MS', value:'"Trebuchet MS", sans-serif' },
+            ];
             const LM_DEFAULT = {
-                paper:{ type:'A4', width:210, height:297, marginTop:15, marginBottom:15, marginLeft:15, marginRight:15, rows:8, cols:3, gapX:5, gapY:5 },
-                design:{ logoUrl:'', bgLeft:'#15315e', bgRight:'#ffffff', textColorLeft:'#ffffff', textColorRight:'#15315e', showHoleMark:true, logoScale:100, logoOffsetX:0, logoOffsetY:0 },
+                paper:{ type:'A4', width:210, height:297, orientation:'portrait', marginTop:15, marginBottom:15, marginLeft:15, marginRight:15, rows:8, cols:3, gapX:5, gapY:5 },
+                design:{ logoUrl:'', bgLeft:'#15315e', bgRight:'#ffffff', textColorLeft:'#ffffff', textColorRight:'#15315e', showHoleMark:true, logoScale:100, logoOffsetX:0, logoOffsetY:0, fontFamily:'serif' },
                 massGen:[{id:1,size:'M',qty:10},{id:2,size:'L',qty:20},{id:3,size:'XL',qty:10}]
             };
             const [lmTab, setLmTab] = useState('paper');
@@ -14066,7 +14076,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const handlePaperChange = (e) => {
                 const t = e.target.value;
-                setPaper(LM_PAPER_SIZES[t] ? {...paper, type:t, ...LM_PAPER_SIZES[t]} : {...paper, type:'Custom'});
+                if (LM_PAPER_SIZES[t]) {
+                    const base = LM_PAPER_SIZES[t];
+                    const isLandscape = paper.orientation === 'landscape';
+                    setPaper(p => ({...p, type:t, width: isLandscape ? base.height : base.width, height: isLandscape ? base.width : base.height}));
+                } else {
+                    setPaper(p => ({...p, type:'Custom'}));
+                }
+            };
+            const toggleOrientation = () => {
+                setPaper(p => ({...p, orientation: p.orientation === 'portrait' ? 'landscape' : 'portrait', width: p.height, height: p.width}));
             };
             const handleLogoUpload = (e) => {
                 const f = e.target.files[0];
@@ -14092,10 +14111,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 <div style="width:25%;height:100%;display:flex;flex-direction:column;background:${design.bgRight};">
                                     <div style="height:38%;display:flex;align-items:center;justify-content:center;border-bottom:2.5px solid ${design.textColorRight};">
-                                        <span style="color:${design.textColorRight};font-size:${lh*0.15}mm;font-weight:700;font-family:serif;">Size</span>
+                                        <span style="color:${design.textColorRight};font-size:${lh*0.15}mm;font-weight:700;font-family:${design.fontFamily||'serif'};">Size</span>
                                     </div>
                                     <div style="height:62%;display:flex;align-items:center;justify-content:center;">
-                                        <span style="color:${design.textColorRight};font-size:${Math.min(lh*0.32,lw*0.11)}mm;font-weight:900;font-family:serif;line-height:1;">${sz}</span>
+                                        <span style="color:${design.textColorRight};font-size:${Math.min(lh*0.32,lw*0.11)}mm;font-weight:900;font-family:${design.fontFamily||'serif'};line-height:1;">${sz}</span>
                                     </div>
                                 </div>
                             </div>
@@ -14111,7 +14130,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Label Cetak</title>
                 <style>
                     *{box-sizing:border-box;margin:0;padding:0;}
-                    @page{size:${paper.width}mm ${paper.height}mm;margin:0mm;}
+                    @page{size:${paper.width}mm ${paper.height}mm ${paper.orientation==='landscape'?'landscape':'portrait'};margin:0mm;}
                     body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
                 </style></head><body>${pagesHtml}</body></html>`;
 
@@ -14267,6 +14286,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <Field label="Tinggi (mm)"><input type="number" value={paper.height} onChange={e => setPaper(p => ({...p, height:Number(e.target.value)}))} className={inputCls} /></Field>
                                         </div>
                                     )}
+                                    <Field label="Orientasi">
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button onClick={() => paper.orientation !== 'portrait' && toggleOrientation()}
+                                                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg border-2 text-xs font-bold transition-all ${paper.orientation==='portrait' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                                                <svg className="w-4 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2" strokeWidth="2"/></svg>
+                                                Portrait
+                                            </button>
+                                            <button onClick={() => paper.orientation !== 'landscape' && toggleOrientation()}
+                                                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg border-2 text-xs font-bold transition-all ${paper.orientation==='landscape' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                                                <svg className="w-5 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2" strokeWidth="2"/></svg>
+                                                Landscape
+                                            </button>
+                                        </div>
+                                    </Field>
                                 </Section>
                                 <Section title="Grid Label">
                                     <div className="grid grid-cols-2 gap-2">
@@ -14325,6 +14358,22 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <input type="color" value={design[key]} onChange={e => setDesign(d => ({...d, [key]:e.target.value}))} className="w-8 h-8 rounded-lg cursor-pointer border border-gray-200 p-0.5" />
                                                 <span className="text-xs text-gray-600">{label}</span>
                                             </div>
+                                        ))}
+                                    </div>
+                                </Section>
+                                <Section title="Font Teks">
+                                    <Field label="Jenis Font">
+                                        <select value={design.fontFamily || 'serif'} onChange={e => setDesign(d => ({...d, fontFamily:e.target.value}))} className={inputCls}>
+                                            {LM_FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                                        </select>
+                                    </Field>
+                                    <div className="flex gap-2 flex-wrap mt-1">
+                                        {LM_FONTS.map(f => (
+                                            <button key={f.value} onClick={() => setDesign(d => ({...d, fontFamily:f.value}))}
+                                                className={`px-2 py-1 rounded text-xs border transition-all ${design.fontFamily===f.value ? 'border-blue-500 bg-blue-50 text-blue-700 font-bold' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                                                style={{fontFamily:f.value}}>
+                                                Abc
+                                            </button>
                                         ))}
                                     </div>
                                 </Section>
@@ -14425,10 +14474,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         </div>
                                                         <div className="h-full flex flex-col" style={{width:'25%', backgroundColor:design.bgRight}}>
                                                             <div className="w-full flex items-center justify-center border-b-[2.5px]" style={{height:'38%', borderColor:design.textColorRight}}>
-                                                                <span style={{color:design.textColorRight, fontSize:`${labelH()*0.15}mm`, fontWeight:700, fontFamily:'serif', letterSpacing:'.03em'}}>Size</span>
+                                                                <span style={{color:design.textColorRight, fontSize:`${labelH()*0.15}mm`, fontWeight:700, fontFamily:design.fontFamily||'serif', letterSpacing:'.03em'}}>Size</span>
                                                             </div>
                                                             <div className="w-full flex items-center justify-center" style={{height:'62%'}}>
-                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)}mm`, fontWeight:900, fontFamily:'serif', lineHeight:1, letterSpacing:'-.01em'}}>{sz}</span>
+                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', lineHeight:1, letterSpacing:'-.01em'}}>{sz}</span>
                                                             </div>
                                                         </div>
                                                     </div>
