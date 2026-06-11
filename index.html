@@ -14123,8 +14123,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>`;
                     }).join('');
-                    return `<div style="box-sizing:border-box;width:${pgW}mm;height:${pgH}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;overflow:hidden;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};break-after:${pi < pages.length-1 ? 'page' : 'auto'};">
-                        <div style="box-sizing:border-box;width:${wW}mm;height:${wH}mm;display:flex;flex-wrap:wrap;align-content:flex-start;gap:${paper.gapY}mm ${paper.gapX}mm;overflow:hidden;">
+                    return `<div style="box-sizing:border-box;width:${pgW}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};break-after:${pi < pages.length-1 ? 'page' : 'auto'};page-break-inside:avoid;">
+                        <div style="box-sizing:border-box;width:${wW}mm;display:flex;flex-wrap:wrap;align-content:flex-start;gap:${paper.gapY}mm ${paper.gapX}mm;">
                             ${labelsHtml}
                         </div>
                     </div>`;
@@ -14140,9 +14140,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Label Cetak</title>
                 <style>
                     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-                    @page{size:${pgW}mm ${pgH}mm ${orientation};margin:0;}
-                    html{width:${pgW}mm;}
-                    body{width:${pgW}mm;margin:0!important;padding:0!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+                    @page{margin:0;}
+                    html,body{margin:0!important;padding:0!important;background:white;}
+                    body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
                     @media print{.instruksi{display:none!important;}}
                 </style></head><body>${instruksi}${pagesHtml}</body></html>`;
 
@@ -14213,7 +14213,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="mt-0.5 shrink-0 p-1.5 bg-blue-600 rounded-lg"><Ic.Printer /></div>
                             <div className="space-y-1.5">
                                 <p className="font-bold text-sm">Atur dialog cetak browser:</p>
-                                <p className="text-xs text-slate-300">📄 <strong className="text-white">Ukuran kertas</strong> — pilih sesuai ({paper.type})</p>
+                                <p className="text-xs text-slate-300">📄 <strong className="text-white">Ukuran kertas</strong> — pilih <strong className="text-yellow-300">{paper.type === 'Letter' ? 'Letter' : paper.type === 'A4' ? 'A4' : 'F4 / Folio'}</strong></p>
                                 <p className="text-xs text-yellow-300">📐 <strong>Margin</strong> — pilih <strong>Tidak ada / None</strong></p>
                                 <p className="text-xs text-yellow-300">🔢 <strong>Skala</strong> — set <strong>100%</strong> (jangan Fit to page)</p>
                                 <p className="text-xs text-slate-300">🖨 Header/Footer — <strong className="text-white">matikan</strong></p>
