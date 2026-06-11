@@ -13991,8 +13991,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </header>
 
-                        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50/50 p-4 md:p-8 print:p-0 print:bg-white print:overflow-visible">
-                            <div className="max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12">
+                        <main className={`flex-1 overflow-x-hidden overflow-y-auto print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'p-0 bg-gray-100' : 'p-4 md:p-8 bg-gray-50/50'}`}>
+                            {activeTab === 'label_maker' && canOpen('label_maker') && <LabelMakerView />}
+                            <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {activeTab === 'dashboard' && canOpen('dashboard') && <DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} />}
                                 {activeTab === 'antrean' && canOpen('antrean') && <AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />}
                                 {activeTab === 'karyawan' && canOpen('karyawan') && <KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} />}
@@ -14011,7 +14012,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {activeTab === 'pengiriman' && canOpen('pengiriman') && <PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} />}
                                 {activeTab === 'pengaturan' && canOpen('pengaturan') && <TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} />}
                                 {activeTab === 'master_akun' && canOpen('master_akun') && <MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} />}
-                                {activeTab === 'label_maker' && canOpen('label_maker') && <LabelMakerView />}
                                 {activeMenuAllowed === false && (
                                     <Card>
                                         <div className="text-center py-10 text-gray-500 font-bold">Menu ini tidak tersedia untuk akun Anda.</div>
@@ -14027,312 +14027,376 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
         // ── LABEL MAKER ──────────────────────────────────────────────────────────
         const LabelMakerView = () => {
-            const LM_PAPER_SIZES = { A4:{width:210,height:297,name:'A4'}, F4:{width:210,height:330,name:'F4'}, Letter:{width:215.9,height:279.4,name:'Letter'} };
+            const LM_PAPER_SIZES = { A4:{width:210,height:297}, F4:{width:210,height:330}, Letter:{width:215.9,height:279.4} };
             const LM_DEFAULT = {
                 paper:{ type:'A4', width:210, height:297, marginTop:15, marginBottom:15, marginLeft:15, marginRight:15, rows:8, cols:3, gapX:5, gapY:5 },
                 design:{ logoUrl:'', bgLeft:'#15315e', bgRight:'#ffffff', textColorLeft:'#ffffff', textColorRight:'#15315e', showHoleMark:true, logoScale:100, logoOffsetX:0, logoOffsetY:0 },
                 massGen:[{id:1,size:'M',qty:10},{id:2,size:'L',qty:20},{id:3,size:'XL',qty:10}]
             };
-            const [activeTab, setLMTab] = useState('paper');
+            const [lmTab, setLmTab] = useState('paper');
             const [paper, setPaper] = useState(LM_DEFAULT.paper);
             const [design, setDesign] = useState(LM_DEFAULT.design);
             const [massGen, setMassGen] = useState(LM_DEFAULT.massGen);
-            const [zoom, setZoom] = useState(0.8);
+            const [zoom, setZoom] = useState(0.7);
             const [savedTemplates, setSavedTemplates] = useState([]);
-            const [showToastLM, setShowToastLM] = useState(false);
+            const [showPrintTip, setShowPrintTip] = useState(false);
 
             useEffect(() => {
                 const saved = localStorage.getItem('simpati_label_templates');
                 if (saved) try { setSavedTemplates(JSON.parse(saved)); } catch(e) {}
             }, []);
 
-            const getWorkableWidth = () => paper.width - paper.marginLeft - paper.marginRight;
-            const getWorkableHeight = () => paper.height - paper.marginTop - paper.marginBottom;
-            const getLabelWidth = () => (getWorkableWidth() - ((paper.cols - 1) * paper.gapX)) / paper.cols;
-            const getLabelHeight = () => (getWorkableHeight() - ((paper.rows - 1) * paper.gapY)) / paper.rows;
-            const labelsPerPage = paper.rows * paper.cols;
+            const workW = () => paper.width - paper.marginLeft - paper.marginRight;
+            const workH = () => paper.height - paper.marginTop - paper.marginBottom;
+            const labelW = () => (workW() - (paper.cols - 1) * paper.gapX) / paper.cols;
+            const labelH = () => (workH() - (paper.rows - 1) * paper.gapY) / paper.rows;
+            const perPage = paper.rows * paper.cols;
+            const totalLabels = massGen.reduce((a,c) => a + (c.qty||0), 0);
+            const totalPages = Math.ceil(Math.max(totalLabels, 1) / perPage);
 
-            const generateLabelArray = () => {
+            const buildPages = () => {
                 let arr = [];
                 massGen.forEach(item => { for (let i = 0; i < item.qty; i++) arr.push(item.size); });
-                if (arr.length === 0) for(let i=0; i<labelsPerPage; i++) arr.push("XL");
-                return arr;
-            };
-            const chunkArray = (array, size) => {
+                if (arr.length === 0) for(let i=0;i<perPage;i++) arr.push('XL');
                 const res = []; let idx = 0;
-                while (idx < array.length) { res.push(array.slice(idx, size + idx)); idx += size; }
+                while (idx < arr.length) { res.push(arr.slice(idx, idx + perPage)); idx += perPage; }
                 return res;
             };
-            const pages = chunkArray(generateLabelArray(), labelsPerPage);
+            const pages = buildPages();
 
             const handlePaperChange = (e) => {
-                const type = e.target.value;
-                if (LM_PAPER_SIZES[type]) setPaper({...paper, type, width:LM_PAPER_SIZES[type].width, height:LM_PAPER_SIZES[type].height});
-                else setPaper({...paper, type:'Custom'});
+                const t = e.target.value;
+                setPaper(LM_PAPER_SIZES[t] ? {...paper, type:t, ...LM_PAPER_SIZES[t]} : {...paper, type:'Custom'});
             };
             const handleLogoUpload = (e) => {
-                const file = e.target.files[0];
-                if (file) { const reader = new FileReader(); reader.onloadend = () => setDesign({...design, logoUrl:reader.result}); reader.readAsDataURL(file); }
+                const f = e.target.files[0];
+                if (!f) return;
+                const r = new FileReader();
+                r.onloadend = () => setDesign(d => ({...d, logoUrl:r.result}));
+                r.readAsDataURL(f);
             };
             const handlePrint = () => {
-                setShowToastLM(true);
-                setTimeout(() => setShowToastLM(false), 8000);
+                setShowPrintTip(true);
+                setTimeout(() => setShowPrintTip(false), 8000);
                 try { window.print(); } catch(e) {}
             };
-            const saveTemplate = () => {
-                const name = prompt("Masukkan nama template:");
+            const doSave = () => {
+                const name = prompt('Nama template:');
                 if (!name) return;
                 const updated = [...savedTemplates, {id:Date.now(), name, paper, design, massGen}];
                 setSavedTemplates(updated);
                 localStorage.setItem('simpati_label_templates', JSON.stringify(updated));
-                alert("Template berhasil disimpan!");
             };
-            const loadTemplate = (t) => { setPaper(t.paper); setDesign(t.design); setMassGen(t.massGen||[]); };
-            const deleteTemplate = (id) => {
+            const doLoad = (t) => { setPaper(t.paper); setDesign(t.design); setMassGen(t.massGen||[]); };
+            const doDelete = (id) => {
                 const updated = savedTemplates.filter(t => t.id !== id);
                 setSavedTemplates(updated);
                 localStorage.setItem('simpati_label_templates', JSON.stringify(updated));
             };
 
-            // Ikon lokal untuk Label Maker
-            const IcPrinter = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>;
-            const IcSave = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>;
-            const IcLayers = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>;
-            const IcSettings = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
-            const IcPalette = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>;
-            const IcTemplate = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>;
-            const IcPlus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>;
-            const IcTrash = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>;
-            const IcImage = () => <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>;
-            const IcChevron = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/></svg>;
+            // Icon mikro
+            const Ic = {
+                Printer: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>,
+                Save: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>,
+                Layers: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>,
+                Cog: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>,
+                Palette: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>,
+                Template: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>,
+                Plus: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>,
+                Trash: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>,
+                Image: () => <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>,
+                Chevron: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/></svg>,
+            };
 
-            const SidebarBtn = ({id, icon: Icon, label}) => (
-                <button onClick={() => setLMTab(id)} className={`w-full flex flex-col items-center justify-center p-3 mb-2 rounded-xl transition-all ${activeTab===id?'bg-blue-600 text-white shadow-lg':'text-gray-500 hover:bg-gray-100 hover:text-gray-800'}`}>
-                    <Icon /><span className="text-[10px] font-semibold uppercase tracking-wider mt-1">{label}</span>
+            const NavBtn = ({id, Icon, label}) => (
+                <button onClick={() => setLmTab(id)} title={label}
+                    className={`w-full flex flex-col items-center gap-1 py-3 px-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${lmTab===id ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
+                    <Icon />{label}
                 </button>
             );
 
+            const Field = ({label, children}) => (
+                <div><label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>{children}</div>
+            );
+            const inputCls = "w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none";
+            const Section = ({title, children}) => (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="bg-gray-50 border-b border-gray-100 px-4 py-2.5">
+                        <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wider">{title}</h3>
+                    </div>
+                    <div className="p-4 space-y-3">{children}</div>
+                </div>
+            );
+
             return (
-                <div className="flex flex-col font-sans -m-4 md:-m-8" style={{height:'calc(100vh - 64px)'}}>
-                    {/* Print CSS — hanya aktif saat tab ini terbuka */}
+                <div className="flex h-full font-sans">
+                    {/* Print CSS */}
                     <style>{`
                         @media print {
                             body * { visibility: hidden; }
                             #label-print-area, #label-print-area * { visibility: visible; }
-                            #label-print-area { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; }
-                            .lm-page-break { page-break-after: always; }
+                            #label-print-area { position: absolute; left:0; top:0; width:100%; margin:0; padding:0; }
+                            .lm-pb { page-break-after: always; }
                             @page { size: ${paper.width}mm ${paper.height}mm; margin: 0mm; }
                             body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-                            .lm-no-print { display: none !important; }
+                            .lm-np { display: none !important; }
                         }
                     `}</style>
 
-                    {/* Toast */}
-                    {showToastLM && (
-                        <div className="lm-no-print fixed bottom-10 right-10 bg-blue-700 text-white p-5 rounded-2xl shadow-2xl z-50 flex items-start gap-4 max-w-sm border border-blue-500">
-                            <IcPrinter />
+                    {/* Print tip toast */}
+                    {showPrintTip && (
+                        <div className="lm-np fixed bottom-8 right-8 bg-slate-800 text-white p-4 rounded-2xl shadow-2xl z-50 flex items-start gap-3 max-w-xs border border-slate-700">
+                            <div className="mt-0.5 shrink-0 p-1.5 bg-blue-600 rounded-lg"><Ic.Printer /></div>
                             <div>
-                                <h4 className="font-bold text-lg">Informasi Cetak</h4>
-                                <p className="text-sm mt-1 text-blue-100">Jika dialog tidak muncul, tekan:</p>
-                                <p className="text-sm font-bold mt-1 bg-blue-800 inline-block px-2 py-1 rounded">Ctrl+P (Windows) / Cmd+P (Mac)</p>
+                                <p className="font-bold text-sm">Dialog cetak</p>
+                                <p className="text-xs mt-1 text-slate-300">Jika tidak muncul otomatis, tekan <strong className="text-white">Ctrl+P</strong> (Win) atau <strong className="text-white">⌘P</strong> (Mac)</p>
+                                <p className="text-xs text-yellow-300 mt-1">⚠ Setel skala printer ke <strong>100%</strong></p>
                             </div>
-                            <button onClick={() => setShowToastLM(false)} className="text-blue-300 hover:text-white font-bold ml-2">✕</button>
+                            <button onClick={() => setShowPrintTip(false)} className="shrink-0 text-slate-400 hover:text-white text-lg leading-none">×</button>
                         </div>
                     )}
 
-                    {/* Header */}
-                    <header className="lm-no-print h-14 bg-white border-b border-gray-200 px-4 flex items-center justify-between shrink-0">
-                        <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white"><IcLayers /></div>
-                            <h1 className="text-lg font-bold text-gray-800">Konveksi<span className="text-blue-600">Label</span></h1>
+                    {/* Nav kiri (dark) */}
+                    <aside className="lm-np w-16 bg-slate-900 flex flex-col items-center py-3 gap-1 shrink-0">
+                        <div className="mb-3 w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+                            <Ic.Layers />
                         </div>
-                        <div className="flex items-center gap-3">
-                            <div className="flex items-center bg-gray-100 rounded-lg p-1 mr-2">
-                                <button onClick={() => setZoom(z => Math.max(0.3, z-0.1))} className="px-2 py-1 hover:bg-white rounded text-sm">-</button>
-                                <span className="px-2 text-sm font-medium">{Math.round(zoom*100)}%</span>
-                                <button onClick={() => setZoom(z => Math.min(2, z+0.1))} className="px-2 py-1 hover:bg-white rounded text-sm">+</button>
+                        <NavBtn id="paper" Icon={Ic.Cog} label="Kertas" />
+                        <NavBtn id="design" Icon={Ic.Palette} label="Desain" />
+                        <NavBtn id="mass" Icon={Ic.Layers} label="Massal" />
+                        <NavBtn id="templates" Icon={Ic.Template} label="Tmpl" />
+                    </aside>
+
+                    {/* Panel pengaturan */}
+                    <aside className="lm-np w-72 bg-gray-50 border-r border-gray-200 overflow-y-auto shrink-0 flex flex-col">
+                        {/* Header panel */}
+                        <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
+                            <div>
+                                <h1 className="font-bold text-gray-800 text-sm">Konveksi<span className="text-blue-600">Label</span></h1>
+                                <p className="text-[10px] text-gray-400 mt-0.5">Pembuat label ukuran pakaian</p>
                             </div>
-                            <button onClick={saveTemplate} className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium"><IcSave /> Simpan</button>
-                            <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium shadow-md"><IcPrinter /> Cetak PDF</button>
+                            <div className="flex gap-1.5">
+                                <button onClick={doSave} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-medium transition-colors">
+                                    <Ic.Save /> Simpan
+                                </button>
+                                <button onClick={handlePrint} className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors">
+                                    <Ic.Printer /> Cetak
+                                </button>
+                            </div>
                         </div>
-                    </header>
 
-                    <div className="flex flex-1 overflow-hidden">
-                        {/* Nav ikon */}
-                        <aside className="lm-no-print w-20 bg-white border-r border-gray-200 flex flex-col p-2 pt-4 shrink-0">
-                            <SidebarBtn id="paper" icon={IcSettings} label="Kertas" />
-                            <SidebarBtn id="design" icon={IcPalette} label="Desain" />
-                            <SidebarBtn id="mass" icon={IcLayers} label="Massal" />
-                            <SidebarBtn id="templates" icon={IcTemplate} label="Template" />
-                        </aside>
+                        {/* Zoom control */}
+                        <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center justify-between shrink-0">
+                            <span className="text-xs text-gray-500">Zoom Preview</span>
+                            <div className="flex items-center bg-gray-100 rounded-lg overflow-hidden">
+                                <button onClick={() => setZoom(z => Math.max(0.3, +(z-0.1).toFixed(1)))} className="px-2.5 py-1 text-gray-600 hover:bg-gray-200 text-sm font-bold">−</button>
+                                <span className="px-3 text-xs font-bold text-gray-700 min-w-[40px] text-center">{Math.round(zoom*100)}%</span>
+                                <button onClick={() => setZoom(z => Math.min(2, +(z+0.1).toFixed(1)))} className="px-2.5 py-1 text-gray-600 hover:bg-gray-200 text-sm font-bold">+</button>
+                            </div>
+                        </div>
 
-                        {/* Panel pengaturan */}
-                        <aside className="lm-no-print w-72 bg-white border-r border-gray-200 overflow-y-auto shrink-0">
-                            <div className="p-5">
-                                {/* KERTAS */}
-                                {activeTab === 'paper' && (
-                                    <div className="space-y-5">
-                                        <h2 className="text-base font-bold text-gray-800 border-b pb-2">Pengaturan Kertas</h2>
+                        {/* Stats bar */}
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 flex items-center justify-between shrink-0">
+                            <div className="text-center">
+                                <div className="text-white font-bold text-lg leading-none">{totalLabels}</div>
+                                <div className="text-blue-200 text-[10px]">Total Label</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="text-white font-bold text-lg leading-none">{perPage}</div>
+                                <div className="text-blue-200 text-[10px]">Per Lembar</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="text-white font-bold text-lg leading-none">{totalPages}</div>
+                                <div className="text-blue-200 text-[10px]">Halaman</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="text-white font-bold text-sm leading-none">{labelW().toFixed(0)}×{labelH().toFixed(0)}</div>
+                                <div className="text-blue-200 text-[10px]">mm/label</div>
+                            </div>
+                        </div>
+
+                        {/* Konten panel */}
+                        <div className="flex-1 p-4 space-y-3 overflow-y-auto">
+
+                            {/* PANEL KERTAS */}
+                            {lmTab === 'paper' && (<>
+                                <Section title="Ukuran Kertas">
+                                    <Field label="Jenis Kertas">
+                                        <select value={paper.type} onChange={handlePaperChange} className={inputCls}>
+                                            <option value="A4">A4 — 210 × 297 mm</option>
+                                            <option value="F4">F4 — 210 × 330 mm</option>
+                                            <option value="Letter">Letter — 215.9 × 279.4 mm</option>
+                                            <option value="Custom">Custom</option>
+                                        </select>
+                                    </Field>
+                                    {paper.type === 'Custom' && (
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <Field label="Lebar (mm)"><input type="number" value={paper.width} onChange={e => setPaper(p => ({...p, width:Number(e.target.value)}))} className={inputCls} /></Field>
+                                            <Field label="Tinggi (mm)"><input type="number" value={paper.height} onChange={e => setPaper(p => ({...p, height:Number(e.target.value)}))} className={inputCls} /></Field>
+                                        </div>
+                                    )}
+                                </Section>
+                                <Section title="Grid Label">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <Field label="Kolom"><input type="number" min="1" value={paper.cols} onChange={e => setPaper(p => ({...p, cols:Number(e.target.value)}))} className={inputCls} /></Field>
+                                        <Field label="Baris"><input type="number" min="1" value={paper.rows} onChange={e => setPaper(p => ({...p, rows:Number(e.target.value)}))} className={inputCls} /></Field>
+                                        <Field label="Jarak X (mm)"><input type="number" min="0" value={paper.gapX} onChange={e => setPaper(p => ({...p, gapX:Number(e.target.value)}))} className={inputCls} /></Field>
+                                        <Field label="Jarak Y (mm)"><input type="number" min="0" value={paper.gapY} onChange={e => setPaper(p => ({...p, gapY:Number(e.target.value)}))} className={inputCls} /></Field>
+                                    </div>
+                                </Section>
+                                <Section title="Margin Kertas (mm)">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <Field label="Atas"><input type="number" value={paper.marginTop} onChange={e => setPaper(p => ({...p, marginTop:Number(e.target.value)}))} className={inputCls} /></Field>
+                                        <Field label="Bawah"><input type="number" value={paper.marginBottom} onChange={e => setPaper(p => ({...p, marginBottom:Number(e.target.value)}))} className={inputCls} /></Field>
+                                        <Field label="Kiri"><input type="number" value={paper.marginLeft} onChange={e => setPaper(p => ({...p, marginLeft:Number(e.target.value)}))} className={inputCls} /></Field>
+                                        <Field label="Kanan"><input type="number" value={paper.marginRight} onChange={e => setPaper(p => ({...p, marginRight:Number(e.target.value)}))} className={inputCls} /></Field>
+                                    </div>
+                                </Section>
+                            </>)}
+
+                            {/* PANEL DESAIN */}
+                            {lmTab === 'design' && (<>
+                                <Section title="Logo">
+                                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors bg-white">
+                                        {design.logoUrl
+                                            ? <img src={design.logoUrl} className="max-h-20 max-w-full object-contain p-2" alt="logo" />
+                                            : <><Ic.Image /><p className="text-xs text-gray-400 mt-1">Klik upload logo PNG/JPG</p></>}
+                                        <input type="file" className="hidden" accept="image/png,image/jpeg,image/svg+xml" onChange={handleLogoUpload} />
+                                    </label>
+                                    {design.logoUrl && <button onClick={() => setDesign(d => ({...d,logoUrl:''}))} className="text-xs text-red-500 hover:underline">✕ Hapus logo</button>}
+                                </Section>
+                                <Section title="Posisi & Ukuran Logo">
+                                    <div>
+                                        <div className="flex justify-between text-xs text-gray-500 mb-1"><span>Ukuran</span><span className="font-bold text-blue-600">{design.logoScale}%</span></div>
+                                        <input type="range" min="10" max="200" value={design.logoScale} onChange={e => setDesign(d => ({...d, logoScale:Number(e.target.value)}))} className="w-full accent-blue-600" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Ukuran Kertas</label>
-                                            <select value={paper.type} onChange={handlePaperChange} className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none">
-                                                <option value="A4">A4 (210×297mm)</option>
-                                                <option value="F4">F4 (210×330mm)</option>
-                                                <option value="Letter">Letter (215.9×279.4mm)</option>
-                                                <option value="Custom">Custom</option>
-                                            </select>
+                                            <div className="flex justify-between text-xs text-gray-500 mb-1"><span>Geser X</span><span>{design.logoOffsetX}</span></div>
+                                            <input type="range" min="-50" max="50" value={design.logoOffsetX} onChange={e => setDesign(d => ({...d, logoOffsetX:Number(e.target.value)}))} className="w-full accent-blue-600" />
                                         </div>
-                                        {paper.type === 'Custom' && (
-                                            <div className="flex gap-3">
-                                                <div className="flex-1"><label className="block text-xs text-gray-500 mb-1">Lebar (mm)</label><input type="number" value={paper.width} onChange={e => setPaper({...paper, width:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                                <div className="flex-1"><label className="block text-xs text-gray-500 mb-1">Tinggi (mm)</label><input type="number" value={paper.height} onChange={e => setPaper({...paper, height:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                            </div>
-                                        )}
-                                        <div className="border-t pt-4 space-y-3">
-                                            <h3 className="text-sm font-bold text-gray-700">Grid Label</h3>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div><label className="block text-xs text-gray-500 mb-1">Kolom</label><input type="number" min="1" value={paper.cols} onChange={e => setPaper({...paper, cols:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                                <div><label className="block text-xs text-gray-500 mb-1">Baris</label><input type="number" min="1" value={paper.rows} onChange={e => setPaper({...paper, rows:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                                <div><label className="block text-xs text-gray-500 mb-1">Jarak X (mm)</label><input type="number" min="0" value={paper.gapX} onChange={e => setPaper({...paper, gapX:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                                <div><label className="block text-xs text-gray-500 mb-1">Jarak Y (mm)</label><input type="number" min="0" value={paper.gapY} onChange={e => setPaper({...paper, gapY:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                            </div>
-                                        </div>
-                                        <div className="border-t pt-4 space-y-3">
-                                            <h3 className="text-sm font-bold text-gray-700">Margin Kertas (mm)</h3>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div><label className="block text-xs text-gray-500">Atas</label><input type="number" value={paper.marginTop} onChange={e => setPaper({...paper, marginTop:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                                <div><label className="block text-xs text-gray-500">Bawah</label><input type="number" value={paper.marginBottom} onChange={e => setPaper({...paper, marginBottom:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                                <div><label className="block text-xs text-gray-500">Kiri</label><input type="number" value={paper.marginLeft} onChange={e => setPaper({...paper, marginLeft:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                                <div><label className="block text-xs text-gray-500">Kanan</label><input type="number" value={paper.marginRight} onChange={e => setPaper({...paper, marginRight:Number(e.target.value)})} className="w-full p-2 border rounded text-sm" /></div>
-                                            </div>
-                                        </div>
-                                        <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-xs text-blue-800">
-                                            <strong>Ukuran Otomatis:</strong><br/>
-                                            Lebar Label: {getLabelWidth().toFixed(1)} mm &nbsp;|&nbsp; Tinggi: {getLabelHeight().toFixed(1)} mm<br/>
-                                            Total: {labelsPerPage} label/lembar
+                                        <div>
+                                            <div className="flex justify-between text-xs text-gray-500 mb-1"><span>Geser Y</span><span>{design.logoOffsetY}</span></div>
+                                            <input type="range" min="-50" max="50" value={design.logoOffsetY} onChange={e => setDesign(d => ({...d, logoOffsetY:Number(e.target.value)}))} className="w-full accent-blue-600" />
                                         </div>
                                     </div>
-                                )}
-                                {/* DESAIN */}
-                                {activeTab === 'design' && (
-                                    <div className="space-y-5">
-                                        <h2 className="text-base font-bold text-gray-800 border-b pb-2">Desain Label</h2>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">Upload Logo</label>
-                                            <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-gray-300 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100">
-                                                <IcImage /><p className="text-xs text-gray-500 mt-1">Klik untuk upload PNG/JPG</p>
-                                                <input type="file" className="hidden" accept="image/png,image/jpeg,image/svg+xml" onChange={handleLogoUpload} />
-                                            </label>
-                                            {design.logoUrl && <button onClick={() => setDesign({...design,logoUrl:''})} className="text-xs text-red-500 hover:underline mt-1">Hapus Logo</button>}
-                                        </div>
-                                        <div className="border-t pt-4 space-y-3">
-                                            <label className="block text-sm font-medium text-gray-700">Pengaturan Logo</label>
-                                            <div>
-                                                <label className="flex justify-between text-xs text-gray-500 mb-1"><span>Ukuran (%)</span><span>{design.logoScale}%</span></label>
-                                                <input type="range" min="10" max="200" value={design.logoScale} onChange={e => setDesign({...design,logoScale:Number(e.target.value)})} className="w-full" />
+                                </Section>
+                                <Section title="Warna">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {[
+                                            ['BG Logo', 'bgLeft'],
+                                            ['BG Ukuran', 'bgRight'],
+                                            ['Teks Logo', 'textColorLeft'],
+                                            ['Teks Ukuran', 'textColorRight'],
+                                        ].map(([label, key]) => (
+                                            <div key={key} className="flex items-center gap-2">
+                                                <input type="color" value={design[key]} onChange={e => setDesign(d => ({...d, [key]:e.target.value}))} className="w-8 h-8 rounded-lg cursor-pointer border border-gray-200 p-0.5" />
+                                                <span className="text-xs text-gray-600">{label}</span>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div><label className="block text-xs text-gray-500">Geser X</label><input type="range" min="-50" max="50" value={design.logoOffsetX} onChange={e => setDesign({...design,logoOffsetX:Number(e.target.value)})} className="w-full" /></div>
-                                                <div><label className="block text-xs text-gray-500">Geser Y</label><input type="range" min="-50" max="50" value={design.logoOffsetY} onChange={e => setDesign({...design,logoOffsetY:Number(e.target.value)})} className="w-full" /></div>
-                                            </div>
-                                        </div>
-                                        <div className="border-t pt-4 space-y-3">
-                                            <h3 className="text-sm font-bold text-gray-700">Warna</h3>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div><label className="block text-xs text-gray-500 mb-1">BG Area Logo</label><input type="color" value={design.bgLeft} onChange={e => setDesign({...design,bgLeft:e.target.value})} className="w-full h-8 rounded cursor-pointer" /></div>
-                                                <div><label className="block text-xs text-gray-500 mb-1">BG Area Ukuran</label><input type="color" value={design.bgRight} onChange={e => setDesign({...design,bgRight:e.target.value})} className="w-full h-8 rounded cursor-pointer" /></div>
-                                                <div><label className="block text-xs text-gray-500 mb-1">Teks Logo</label><input type="color" value={design.textColorLeft} onChange={e => setDesign({...design,textColorLeft:e.target.value})} className="w-full h-8 rounded cursor-pointer" /></div>
-                                                <div><label className="block text-xs text-gray-500 mb-1">Teks Ukuran</label><input type="color" value={design.textColorRight} onChange={e => setDesign({...design,textColorRight:e.target.value})} className="w-full h-8 rounded cursor-pointer" /></div>
-                                            </div>
-                                        </div>
-                                        <label className="flex items-center gap-2 cursor-pointer pt-2 border-t">
-                                            <input type="checkbox" checked={design.showHoleMark} onChange={e => setDesign({...design,showHoleMark:e.target.checked})} className="rounded" />
-                                            <span className="text-sm text-gray-700">Tampilkan Titik Lubang</span>
-                                        </label>
+                                        ))}
                                     </div>
-                                )}
-                                {/* MASSAL */}
-                                {activeTab === 'mass' && (
-                                    <div className="space-y-5">
-                                        <div className="flex justify-between items-center border-b pb-2">
-                                            <h2 className="text-base font-bold text-gray-800">Generator Massal</h2>
-                                            <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-bold">Total: {massGen.reduce((a,c)=>a+c.qty,0)} pcs</span>
+                                </Section>
+                                <Section title="Opsi">
+                                    <label className="flex items-center gap-3 cursor-pointer py-1">
+                                        <div className={`w-10 h-5 rounded-full transition-colors relative ${design.showHoleMark?'bg-blue-600':'bg-gray-300'}`} onClick={() => setDesign(d => ({...d, showHoleMark:!d.showHoleMark}))}>
+                                            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${design.showHoleMark?'left-5':'left-0.5'}`}></div>
                                         </div>
-                                        <p className="text-xs text-gray-500">Masukkan daftar ukuran dan jumlah yang ingin dicetak.</p>
-                                        <div className="space-y-2">
-                                            {massGen.map((item, index) => (
-                                                <div key={item.id} className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border border-gray-200">
-                                                    <input type="text" placeholder="S/M/XL" value={item.size} onChange={e => { const a=[...massGen]; a[index]={...a[index],size:e.target.value}; setMassGen(a); }} className="flex-1 p-2 border rounded bg-white text-sm uppercase font-bold" />
-                                                    <input type="number" min="1" placeholder="Qty" value={item.qty} onChange={e => { const a=[...massGen]; a[index]={...a[index],qty:Number(e.target.value)}; setMassGen(a); }} className="w-20 p-2 border rounded bg-white text-sm" />
-                                                    <button onClick={() => setMassGen(massGen.filter(m=>m.id!==item.id))} className="p-2 text-red-500 hover:bg-red-50 rounded"><IcTrash /></button>
+                                        <span className="text-sm text-gray-700">Titik lubang (punch hole)</span>
+                                    </label>
+                                </Section>
+                            </>)}
+
+                            {/* PANEL MASSAL */}
+                            {lmTab === 'mass' && (<>
+                                <div className="flex items-center justify-between">
+                                    <h2 className="text-sm font-bold text-gray-700">Generator Massal</h2>
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">{totalLabels} pcs</span>
+                                </div>
+                                <div className="space-y-2">
+                                    {massGen.map((item, i) => (
+                                        <div key={item.id} className="flex gap-2 items-center">
+                                            <div className="flex-1 relative">
+                                                <input type="text" placeholder="Ukuran" value={item.size}
+                                                    onChange={e => { const a=[...massGen]; a[i]={...a[i],size:e.target.value}; setMassGen(a); }}
+                                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-bold uppercase bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
+                                            </div>
+                                            <div className="w-20">
+                                                <input type="number" min="1" placeholder="Qty" value={item.qty}
+                                                    onChange={e => { const a=[...massGen]; a[i]={...a[i],qty:Number(e.target.value)}; setMassGen(a); }}
+                                                    className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none text-center" />
+                                            </div>
+                                            <button onClick={() => setMassGen(massGen.filter(m=>m.id!==item.id))} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                                <Ic.Trash />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => setMassGen(prev => [...prev, {id:Date.now(), size:'', qty:10}])}
+                                    className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-sm font-medium">
+                                    <Ic.Plus /> Tambah Ukuran
+                                </button>
+                            </>)}
+
+                            {/* PANEL TEMPLATE */}
+                            {lmTab === 'templates' && (<>
+                                <h2 className="text-sm font-bold text-gray-700">Template Tersimpan</h2>
+                                {savedTemplates.length === 0 ? (
+                                    <div className="text-center py-12 text-gray-400">
+                                        <Ic.Template />
+                                        <p className="text-sm mt-2">Belum ada template</p>
+                                        <p className="text-xs mt-1">Klik "Simpan" di atas untuk menyimpan</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {savedTemplates.map(t => (
+                                            <div key={t.id} className="bg-white rounded-xl border border-gray-100 p-3 flex items-center justify-between group hover:border-blue-200 hover:shadow-sm transition-all">
+                                                <div>
+                                                    <p className="font-bold text-sm text-gray-800">{t.name}</p>
+                                                    <p className="text-xs text-gray-400 mt-0.5">{t.paper.type} • {t.paper.cols}×{t.paper.rows} grid • {(t.massGen||[]).reduce((a,c)=>a+(c.qty||0),0)} pcs</p>
                                                 </div>
-                                            ))}
-                                        </div>
-                                        <button onClick={() => setMassGen([...massGen,{id:Date.now(),size:'',qty:10}])} className="w-full flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 hover:border-blue-400 hover:text-blue-600 text-sm font-medium">
-                                            <IcPlus /> Tambah Ukuran
-                                        </button>
-                                    </div>
-                                )}
-                                {/* TEMPLATE */}
-                                {activeTab === 'templates' && (
-                                    <div className="space-y-4">
-                                        <h2 className="text-base font-bold text-gray-800 border-b pb-2">Template Tersimpan</h2>
-                                        {savedTemplates.length === 0 ? (
-                                            <p className="text-sm text-gray-500 italic text-center py-8">Belum ada template. Gunakan tombol 'Simpan' di atas.</p>
-                                        ) : (
-                                            <div className="space-y-2">
-                                                {savedTemplates.map(t => (
-                                                    <div key={t.id} className="p-3 border rounded-lg bg-gray-50 flex items-center justify-between group">
-                                                        <div>
-                                                            <p className="font-bold text-sm text-gray-800">{t.name}</p>
-                                                            <p className="text-xs text-gray-500">{t.paper.type} • {t.paper.cols}×{t.paper.rows} Grid</p>
-                                                        </div>
-                                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => loadTemplate(t)} className="p-1.5 bg-blue-100 text-blue-600 rounded hover:bg-blue-200"><IcChevron /></button>
-                                                            <button onClick={() => deleteTemplate(t.id)} className="p-1.5 bg-red-100 text-red-600 rounded hover:bg-red-200"><IcTrash /></button>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => doLoad(t)} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Ic.Chevron /></button>
+                                                    <button onClick={() => doDelete(t.id)} className="p-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-100"><Ic.Trash /></button>
+                                                </div>
                                             </div>
-                                        )}
+                                        ))}
                                     </div>
                                 )}
-                            </div>
-                        </aside>
+                            </>)}
+                        </div>
+                    </aside>
 
-                        {/* Preview area */}
-                        <main className="flex-1 bg-gray-200 overflow-auto flex justify-center p-6 relative">
-                            <div className="lm-no-print absolute top-3 right-6 bg-black/60 text-white px-3 py-1.5 rounded-full text-xs z-10">
-                                Setel printer ke skala 100% / Default (Bukan Fit to Page)
-                            </div>
-                            <div id="label-print-area" className="flex flex-col gap-6 origin-top" style={{transform:`scale(${zoom})`, transformOrigin:'top center'}}>
-                                {pages.map((pageSizes, pageIndex) => (
-                                    <div key={pageIndex} className="lm-page-break bg-white shadow-2xl relative"
-                                        style={{width:`${paper.width}mm`, height:`${paper.height}mm`, paddingTop:`${paper.marginTop}mm`, paddingBottom:`${paper.marginBottom}mm`, paddingLeft:`${paper.marginLeft}mm`, paddingRight:`${paper.marginRight}mm`}}>
+                    {/* Area preview */}
+                    <main className="flex-1 overflow-auto relative" style={{background:'#1e293b', backgroundImage:'radial-gradient(circle, #334155 1px, transparent 1px)', backgroundSize:'20px 20px'}}>
+                        <div className="lm-np sticky top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-2 bg-slate-900/80 backdrop-blur-sm border-b border-slate-700">
+                            <span className="text-xs text-slate-400">Preview — <span className="text-slate-200 font-medium">{pages.length} halaman</span></span>
+                            <span className="text-xs text-amber-400">⚠ Setel printer ke 100% saat cetak</span>
+                        </div>
+                        <div id="label-print-area" className="flex flex-col items-center gap-8 py-8 px-6">
+                            {pages.map((pageSizes, pi) => (
+                                <div key={pi} className="lm-pb relative">
+                                    <div className="lm-np absolute -top-6 left-0 text-xs text-slate-400 font-medium">Halaman {pi+1}</div>
+                                    <div className="bg-white shadow-2xl"
+                                        style={{width:`${paper.width}mm`, height:`${paper.height}mm`, transform:`scale(${zoom})`, transformOrigin:'top left',
+                                            paddingTop:`${paper.marginTop}mm`, paddingBottom:`${paper.marginBottom}mm`,
+                                            paddingLeft:`${paper.marginLeft}mm`, paddingRight:`${paper.marginRight}mm`}}>
                                         <div className="w-full h-full flex flex-wrap content-start" style={{gap:`${paper.gapY}mm ${paper.gapX}mm`}}>
-                                            {pageSizes.map((sizeText, i) => (
-                                                <div key={i} className="box-border overflow-hidden outline outline-[2px] outline-gray-500 bg-white"
-                                                    style={{width:`${getLabelWidth()}mm`, height:`${getLabelHeight()}mm`, padding:'2.5mm'}}>
-                                                    <div className="w-full h-full flex flex-row border-[3px]" style={{borderColor:design.textColorRight}}>
-                                                        {/* Kiri: Logo */}
-                                                        <div className="h-full relative flex items-center justify-center flex-col border-r-[3px]"
+                                            {pageSizes.map((sz, i) => (
+                                                <div key={i} className="box-border overflow-hidden bg-white" style={{width:`${labelW()}mm`, height:`${labelH()}mm`, padding:'2mm', outline:'1.5px solid #9ca3af'}}>
+                                                    <div className="w-full h-full flex border-[2.5px]" style={{borderColor:design.textColorRight}}>
+                                                        <div className="h-full relative flex items-center justify-center border-r-[2.5px]"
                                                             style={{width:'75%', backgroundColor:design.bgLeft, borderColor:design.textColorRight}}>
-                                                            {design.showHoleMark && <div className="absolute left-[3mm] top-1/2 -translate-y-1/2 w-[3mm] h-[3mm] bg-white rounded-full shadow-sm"></div>}
-                                                            {design.logoUrl ? (
-                                                                <img src={design.logoUrl} alt="Logo" style={{maxWidth:'90%', maxHeight:'90%', transform:`scale(${design.logoScale/100}) translate(${design.logoOffsetX}px,${design.logoOffsetY}px)`, objectFit:'contain'}} />
-                                                            ) : (
-                                                                <div className="w-[15mm] h-[15mm] rounded-full border border-dashed border-white/50 flex items-center justify-center">
-                                                                    <span className="text-[6px] text-white/50">Logo</span>
-                                                                </div>
-                                                            )}
+                                                            {design.showHoleMark && <div className="absolute left-[2.5mm] top-1/2 -translate-y-1/2 w-[3mm] h-[3mm] bg-white rounded-full opacity-90"></div>}
+                                                            {design.logoUrl
+                                                                ? <img src={design.logoUrl} alt="" style={{maxWidth:'88%', maxHeight:'88%', objectFit:'contain', transform:`scale(${design.logoScale/100}) translate(${design.logoOffsetX}px,${design.logoOffsetY}px)`}} />
+                                                                : <span style={{color:design.textColorLeft, fontSize:`${labelH()*0.15}mm`, fontWeight:700, opacity:.4}}>LOGO</span>}
                                                         </div>
-                                                        {/* Kanan: Ukuran */}
                                                         <div className="h-full flex flex-col" style={{width:'25%', backgroundColor:design.bgRight}}>
-                                                            <div className="w-full flex items-center justify-center border-b-[3px]" style={{height:'40%', borderColor:design.textColorRight}}>
-                                                                <span className="font-bold" style={{color:design.textColorRight, fontSize:`${getLabelHeight()*0.18}mm`, fontFamily:'serif'}}>Size</span>
+                                                            <div className="w-full flex items-center justify-center border-b-[2.5px]" style={{height:'38%', borderColor:design.textColorRight}}>
+                                                                <span style={{color:design.textColorRight, fontSize:`${labelH()*0.15}mm`, fontWeight:700, fontFamily:'serif', letterSpacing:'.03em'}}>Size</span>
                                                             </div>
-                                                            <div className="w-full flex items-center justify-center" style={{height:'60%'}}>
-                                                                <span className="font-bold uppercase" style={{fontFamily:'serif', color:design.textColorRight, fontSize:`${Math.min(getLabelHeight()*0.35,getLabelWidth()*0.12)}mm`, lineHeight:1}}>{sizeText}</span>
+                                                            <div className="w-full flex items-center justify-center" style={{height:'62%'}}>
+                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)}mm`, fontWeight:900, fontFamily:'serif', lineHeight:1, letterSpacing:'-.01em'}}>{sz}</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -14340,10 +14404,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             ))}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-                        </main>
-                    </div>
+                                    <div style={{height:`calc(${paper.height}mm * ${zoom})`}} className="pointer-events-none absolute inset-0"></div>
+                                </div>
+                            ))}
+                        </div>
+                    </main>
                 </div>
             );
         };
