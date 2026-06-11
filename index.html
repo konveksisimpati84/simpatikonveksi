@@ -14101,8 +14101,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const orientation = paper.orientation === 'landscape' ? 'landscape' : 'portrait';
                 const pagesHtml = pages.map((pageSizes, pi) => {
                     const labelsHtml = pageSizes.map(sz => {
-                        const innerW = lw - 4; // 2mm padding each side (subtract in mm)
-                        const innerH = lh - 4;
                         const logoHtml = design.logoUrl
                             ? `<img src="${design.logoUrl}" style="max-width:88%;max-height:88%;object-fit:contain;transform:scale(${design.logoScale/100}) translate(${design.logoOffsetX}px,${design.logoOffsetY}px);" />`
                             : `<span style="color:${design.textColorLeft};font-size:${lh*0.15}mm;font-weight:700;opacity:0.4;">LOGO</span>`;
@@ -14110,35 +14108,43 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             ? `<div style="position:absolute;left:2.5mm;top:50%;transform:translateY(-50%);width:3mm;height:3mm;background:white;border-radius:50%;"></div>`
                             : '';
                         return `<div style="box-sizing:border-box;width:${lw}mm;height:${lh}mm;padding:2mm;border:1.5px solid #9ca3af;overflow:hidden;background:white;flex-shrink:0;">
-                            <div style="box-sizing:border-box;width:${innerW}mm;height:${innerH}mm;display:flex;border:2.5px solid ${design.textColorRight};overflow:hidden;">
-                                <div style="box-sizing:border-box;width:75%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;background:${design.bgLeft};border-right:2.5px solid ${design.textColorRight};overflow:hidden;">
+                            <div style="width:100%;height:100%;display:flex;border:2.5px solid ${design.textColorRight};overflow:hidden;">
+                                <div style="width:75%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;background:${design.bgLeft};border-right:2.5px solid ${design.textColorRight};overflow:hidden;">
                                     ${holeHtml}${logoHtml}
                                 </div>
-                                <div style="box-sizing:border-box;width:25%;height:100%;display:flex;flex-direction:column;background:${design.bgRight};overflow:hidden;">
-                                    <div style="box-sizing:border-box;height:38%;width:100%;display:flex;align-items:center;justify-content:center;border-bottom:2.5px solid ${design.textColorRight};overflow:hidden;">
+                                <div style="width:25%;height:100%;display:flex;flex-direction:column;background:${design.bgRight};overflow:hidden;">
+                                    <div style="height:38%;width:100%;display:flex;align-items:center;justify-content:center;border-bottom:2.5px solid ${design.textColorRight};overflow:hidden;">
                                         <span style="color:${design.textColorRight};font-size:${lh*0.15}mm;font-weight:700;font-family:${design.fontFamily||'serif'};">Size</span>
                                     </div>
-                                    <div style="box-sizing:border-box;height:62%;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                                    <div style="height:62%;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;">
                                         <span style="color:${design.textColorRight};font-size:${Math.min(lh*0.32,lw*0.11)}mm;font-weight:900;font-family:${design.fontFamily||'serif'};line-height:1;">${sz}</span>
                                     </div>
                                 </div>
                             </div>
                         </div>`;
                     }).join('');
-                    return `<div style="box-sizing:border-box;width:${pgW}mm;height:${pgH}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;overflow:hidden;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};">
+                    return `<div style="box-sizing:border-box;width:${pgW}mm;height:${pgH}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;overflow:hidden;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};break-after:${pi < pages.length-1 ? 'page' : 'auto'};">
                         <div style="box-sizing:border-box;width:${wW}mm;height:${wH}mm;display:flex;flex-wrap:wrap;align-content:flex-start;gap:${paper.gapY}mm ${paper.gapX}mm;overflow:hidden;">
                             ${labelsHtml}
                         </div>
                     </div>`;
                 }).join('');
 
+                const instruksi = `<div style="font-family:Arial,sans-serif;background:#1e3a5f;color:white;padding:12px 16px;font-size:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <span style="font-weight:900;font-size:14px;">⚙ Pengaturan Dialog Cetak:</span>
+                    <span>📄 <b>Ukuran kertas</b>: pilih <b>${paper.type === 'A4' ? 'A4' : paper.type === 'F4' ? 'F4 / Folio' : paper.type === 'Letter' ? 'Letter' : `Custom ${pgW}×${pgH}mm`}</b></span>
+                    <span>📐 <b>Margin</b>: pilih <b>Tidak ada / None</b></span>
+                    <span>🔢 <b>Skala</b>: <b>100%</b> (jangan "Fit to page")</span>
+                    <span>🖨 <b>Header/Footer</b>: <b>matikan</b></span>
+                </div>`;
                 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Label Cetak</title>
                 <style>
-                    *{box-sizing:border-box;margin:0;padding:0;}
-                    @page{size:${pgW}mm ${pgH}mm ${orientation};margin:0mm;}
-                    html,body{width:${pgW}mm;height:${pgH}mm;overflow:hidden;}
-                    body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-                </style></head><body>${pagesHtml}</body></html>`;
+                    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+                    @page{size:${pgW}mm ${pgH}mm ${orientation};margin:0;}
+                    html{width:${pgW}mm;}
+                    body{width:${pgW}mm;margin:0!important;padding:0!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+                    @media print{.instruksi{display:none!important;}}
+                </style></head><body>${instruksi}${pagesHtml}</body></html>`;
 
                 const w = window.open('', '_blank');
                 if (!w) { alert('Harap izinkan pop-up di browser Anda, lalu coba lagi.'); return; }
@@ -14146,7 +14152,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 w.document.write(html);
                 w.document.close();
                 w.focus();
-                setTimeout(() => w.print(), 400);
+                setShowPrintTip(true);
+                setTimeout(() => w.print(), 700);
             };
             const doSave = () => {
                 const name = prompt('Nama template:');
@@ -14202,14 +14209,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                     {/* Print tip toast */}
                     {showPrintTip && (
-                        <div className="lm-np fixed bottom-8 right-8 bg-slate-800 text-white p-4 rounded-2xl shadow-2xl z-50 flex items-start gap-3 max-w-xs border border-slate-700">
+                        <div className="lm-np fixed bottom-6 right-6 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl z-50 flex items-start gap-3 max-w-sm border border-blue-700">
                             <div className="mt-0.5 shrink-0 p-1.5 bg-blue-600 rounded-lg"><Ic.Printer /></div>
-                            <div>
-                                <p className="font-bold text-sm">Dialog cetak</p>
-                                <p className="text-xs mt-1 text-slate-300">Jika tidak muncul otomatis, tekan <strong className="text-white">Ctrl+P</strong> (Win) atau <strong className="text-white">⌘P</strong> (Mac)</p>
-                                <p className="text-xs text-yellow-300 mt-1">⚠ Setel skala printer ke <strong>100%</strong></p>
+                            <div className="space-y-1.5">
+                                <p className="font-bold text-sm">Atur dialog cetak browser:</p>
+                                <p className="text-xs text-slate-300">📄 <strong className="text-white">Ukuran kertas</strong> — pilih sesuai ({paper.type})</p>
+                                <p className="text-xs text-yellow-300">📐 <strong>Margin</strong> — pilih <strong>Tidak ada / None</strong></p>
+                                <p className="text-xs text-yellow-300">🔢 <strong>Skala</strong> — set <strong>100%</strong> (jangan Fit to page)</p>
+                                <p className="text-xs text-slate-300">🖨 Header/Footer — <strong className="text-white">matikan</strong></p>
                             </div>
-                            <button onClick={() => setShowPrintTip(false)} className="shrink-0 text-slate-400 hover:text-white text-lg leading-none">×</button>
+                            <button onClick={() => setShowPrintTip(false)} className="shrink-0 text-slate-400 hover:text-white text-lg leading-none ml-1">×</button>
                         </div>
                     )}
 
