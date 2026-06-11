@@ -14130,7 +14130,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </div>`;
                 }).join('');
 
-                const instruksi = `<div style="font-family:Arial,sans-serif;background:#1e3a5f;color:white;padding:12px 16px;font-size:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                const instruksi = `<div class="instruksi" style="font-family:Arial,sans-serif;background:#1e3a5f;color:white;padding:12px 16px;font-size:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                     <span style="font-weight:900;font-size:14px;">⚙ Pengaturan Dialog Cetak:</span>
                     <span>📄 <b>Ukuran kertas</b>: pilih <b>${paper.type === 'A4' ? 'A4' : paper.type === 'F4' ? 'F4 / Folio' : paper.type === 'Letter' ? 'Letter' : `Custom ${pgW}×${pgH}mm`}</b></span>
                     <span>📐 <b>Margin</b>: pilih <b>Tidak ada / None</b></span>
@@ -14469,10 +14469,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <span className="text-xs text-amber-400">⚠ Setel printer ke 100% saat cetak</span>
                         </div>
                         <div id="label-print-area" className="flex flex-col items-center gap-8 py-8 px-6">
-                            {pages.map((pageSizes, pi) => (
-                                <div key={pi} className="lm-pb relative">
+                            {pages.map((pageSizes, pi) => {
+                                const pgWpx = paper.width * zoom;
+                                const pgHpx = paper.height * zoom;
+                                return (
+                                <div key={pi} className="lm-pb relative" style={{width:`${pgWpx}mm`, height:`${pgHpx}mm`}}>
                                     <div className="lm-np absolute -top-6 left-0 text-xs text-slate-400 font-medium">Halaman {pi+1}</div>
-                                    <div className="bg-white shadow-2xl lm-page"
+                                    <div className="bg-white shadow-2xl lm-page absolute top-0 left-0"
                                         style={{width:`${paper.width}mm`, height:`${paper.height}mm`, transform:`scale(${zoom})`, transformOrigin:'top left',
                                             paddingTop:`${paper.marginTop}mm`, paddingBottom:`${paper.marginBottom}mm`,
                                             paddingLeft:`${paper.marginLeft}mm`, paddingRight:`${paper.marginRight}mm`}}>
@@ -14500,9 +14503,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             ))}
                                         </div>
                                     </div>
-                                    <div style={{height:`calc(${paper.height}mm * ${zoom})`}} className="pointer-events-none absolute inset-0"></div>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </main>
                 </div>
