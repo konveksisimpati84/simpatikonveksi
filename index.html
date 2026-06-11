@@ -14043,12 +14043,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const LM_DEFAULT = {
                 paper:{ type:'A4', width:210, height:297, orientation:'portrait', marginTop:15, marginBottom:15, marginLeft:15, marginRight:15, rows:8, cols:3, gapX:5, gapY:5 },
                 design:{ logoUrl:'', bgLeft:'#15315e', bgRight:'#ffffff', textColorLeft:'#ffffff', textColorRight:'#15315e', showHoleMark:true, logoScale:100, logoOffsetX:0, logoOffsetY:0, fontFamily:'serif' },
-                massGen:[{id:1,size:'M',qty:10},{id:2,size:'L',qty:20},{id:3,size:'XL',qty:10}]
+                massGen:[{id:1,size:'M',qty:10},{id:2,size:'L',qty:20},{id:3,size:'XL',qty:10}],
+                individualLabels:[{id:1,size:'M',nama:''},{id:2,size:'L',nama:''}]
             };
             const [lmTab, setLmTab] = useState('paper');
             const [paper, setPaper] = useState(LM_DEFAULT.paper);
             const [design, setDesign] = useState(LM_DEFAULT.design);
             const [massGen, setMassGen] = useState(LM_DEFAULT.massGen);
+            const [massGenMode, setMassGenMode] = useState('massal');
+            const [individualLabels, setIndividualLabels] = useState(LM_DEFAULT.individualLabels);
             const [zoom, setZoom] = useState(0.7);
             const [savedTemplates, setSavedTemplates] = useState([]);
             const [showPrintTip, setShowPrintTip] = useState(false);
@@ -14063,13 +14066,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const labelW = () => (workW() - (paper.cols - 1) * paper.gapX) / paper.cols;
             const labelH = () => (workH() - (paper.rows - 1) * paper.gapY) / paper.rows;
             const perPage = paper.rows * paper.cols;
-            const totalLabels = massGen.reduce((a,c) => a + (c.qty||0), 0);
+            const totalLabels = massGenMode === 'individu'
+                ? individualLabels.length
+                : massGen.reduce((a,c) => a + (c.qty||0), 0);
             const totalPages = Math.ceil(Math.max(totalLabels, 1) / perPage);
 
             const buildPages = () => {
                 let arr = [];
-                massGen.forEach(item => { for (let i = 0; i < item.qty; i++) arr.push(item.size); });
-                if (arr.length === 0) for(let i=0;i<perPage;i++) arr.push('XL');
+                if (massGenMode === 'individu') {
+                    arr = individualLabels.map(item => ({ size: item.size || '', nama: item.nama || '' }));
+                } else {
+                    massGen.forEach(item => { for (let i = 0; i < item.qty; i++) arr.push({ size: item.size, nama: '' }); });
+                }
+                if (arr.length === 0) for(let i=0;i<perPage;i++) arr.push({ size: 'XL', nama: '' });
                 const res = []; let idx = 0;
                 while (idx < arr.length) { res.push(arr.slice(idx, idx + perPage)); idx += perPage; }
                 return res;
@@ -14102,17 +14111,29 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const pgW = paper.width, pgH = paper.height;
                 const orientation = paper.orientation === 'landscape' ? 'landscape' : 'portrait';
                 const pagesHtml = pages.map((pageSizes, pi) => {
-                    const labelsHtml = pageSizes.map(sz => {
+                    const labelsHtml = pageSizes.map(item => {
+                        const sz = item.size, nama = item.nama || '';
+                        const logoMaxH = nama ? '65%' : '88%';
                         const logoHtml = design.logoUrl
-                            ? `<img src="${design.logoUrl}" style="max-width:88%;max-height:88%;object-fit:contain;transform:scale(${design.logoScale/100}) translate(${design.logoOffsetX}px,${design.logoOffsetY}px);" />`
+                            ? `<img src="${design.logoUrl}" style="max-width:88%;max-height:${logoMaxH};object-fit:contain;transform:scale(${design.logoScale/100}) translate(${design.logoOffsetX}px,${design.logoOffsetY}px);" />`
                             : `<span style="color:${design.textColorLeft};font-size:${lh*0.15}mm;font-weight:700;opacity:0.4;">LOGO</span>`;
                         const holeHtml = design.showHoleMark
                             ? `<div style="position:absolute;left:2.5mm;top:50%;transform:translateY(-50%);width:3mm;height:3mm;background:white;border-radius:50%;"></div>`
                             : '';
+                        const namaStripHtml = nama
+                            ? `<div style="height:25%;display:flex;align-items:center;justify-content:center;border-top:2.5px solid ${design.textColorRight};background:white;padding:0 2mm;overflow:hidden;">
+                                <div style="border:1.5px solid ${design.textColorRight};border-radius:2.5mm;padding:0 2.5mm;overflow:hidden;max-width:96%;display:flex;align-items:center;justify-content:center;">
+                                    <span style="color:${design.textColorRight};font-size:${lh*0.09}mm;font-weight:900;font-family:${design.fontFamily||'serif'};letter-spacing:.07em;white-space:nowrap;">${nama}</span>
+                                </div>
+                               </div>`
+                            : '';
                         return `<div style="box-sizing:border-box;width:${lw}mm;height:${lh}mm;padding:2mm;border:1.5px solid #9ca3af;overflow:hidden;background:white;flex-shrink:0;">
                             <div style="width:100%;height:100%;display:flex;border:2.5px solid ${design.textColorRight};overflow:hidden;">
-                                <div style="width:75%;height:100%;position:relative;display:flex;align-items:center;justify-content:center;background:${design.bgLeft};border-right:2.5px solid ${design.textColorRight};overflow:hidden;">
-                                    ${holeHtml}${logoHtml}
+                                <div style="width:75%;height:100%;display:flex;flex-direction:column;background:${design.bgLeft};border-right:2.5px solid ${design.textColorRight};overflow:hidden;">
+                                    <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                                        ${holeHtml}${logoHtml}
+                                    </div>
+                                    ${namaStripHtml}
                                 </div>
                                 <div style="width:25%;height:100%;display:flex;flex-direction:column;background:${design.bgRight};overflow:hidden;">
                                     <div style="height:38%;width:100%;display:flex;align-items:center;justify-content:center;border-bottom:2.5px solid ${design.textColorRight};overflow:hidden;">
@@ -14164,17 +14185,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const hexRgb = h => { const c = (h||'#000000').replace('#',''); return [parseInt(c.slice(0,2),16)||0, parseInt(c.slice(2,4),16)||0, parseInt(c.slice(4,6),16)||0]; };
                 const doc = new jsPDF({ orientation: paper.orientation, unit: 'mm', format: [paper.width, paper.height] });
 
-                const drawLabel = (sz, sx, sy) => {
+                const drawLabel = (item, sx, sy) => {
+                    const sz = item.size, nama = item.nama || '';
                     const iX = sx+2, iY = sy+2, iW = lw-4, iH = lh-4;
                     const lgW = iW*0.75, szW = iW*0.25, szX = iX+lgW;
                     const divY = iY + iH*0.38;
+                    const hasNama = !!nama;
+                    const namaH = hasNama ? iH*0.25 : 0;
+                    const logoH = iH - namaH;
                     // White fill
                     doc.setFillColor(255,255,255); doc.rect(sx, sy, lw, lh, 'F');
                     // Outer border (gray)
                     doc.setDrawColor(156,163,175); doc.setLineWidth(0.4); doc.rect(sx, sy, lw, lh, 'S');
                     // Logo background
                     const [br,bg_,bb] = hexRgb(design.bgLeft);
-                    doc.setFillColor(br,bg_,bb); doc.rect(iX, iY, lgW, iH, 'F');
+                    doc.setFillColor(br,bg_,bb); doc.rect(iX, iY, lgW, logoH, 'F');
+                    // Nama strip background (white)
+                    if (hasNama) { doc.setFillColor(255,255,255); doc.rect(iX, iY+logoH, lgW, namaH, 'F'); }
                     // Size background
                     const [wr,wg,wb] = hexRgb(design.bgRight);
                     doc.setFillColor(wr,wg,wb); doc.rect(szX, iY, szW, iH, 'F');
@@ -14186,17 +14213,30 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     doc.line(szX, iY, szX, iY+iH);
                     // Divider horizontal Size|huruf
                     doc.line(szX, divY, szX+szW, divY);
+                    // Divider logo area | nama strip
+                    if (hasNama) doc.line(iX, iY+logoH, szX, iY+logoH);
                     // Hole mark
                     if (design.showHoleMark) {
-                        doc.setFillColor(255,255,255); doc.circle(iX+2.5, iY+iH/2, 1.5, 'F');
+                        doc.setFillColor(255,255,255); doc.circle(iX+2.5, iY+logoH/2, 1.5, 'F');
                     }
                     // Logo image
                     if (design.logoUrl) {
-                        const mW = lgW*0.88*(design.logoScale/100);
-                        const mH = iH*0.88*(design.logoScale/100);
+                        const scaleFactor = hasNama ? 0.72 : 0.88;
+                        const mW = lgW*scaleFactor*(design.logoScale/100);
+                        const mH = logoH*scaleFactor*(design.logoScale/100);
                         const lx = iX + lgW/2 - mW/2 + design.logoOffsetX*0.264;
-                        const ly = iY + iH/2 - mH/2 + design.logoOffsetY*0.264;
+                        const ly = iY + logoH/2 - mH/2 + design.logoOffsetY*0.264;
                         try { doc.addImage(design.logoUrl, lx, ly, mW, mH); } catch(e){}
+                    }
+                    // Nama strip content
+                    if (hasNama) {
+                        const namaY = iY + logoH;
+                        const rX = iX+1.5, rY = namaY+namaH*0.15, rW = lgW-3, rH = namaH*0.7;
+                        doc.setDrawColor(tr,tg,tb); doc.setLineWidth(0.5);
+                        doc.roundedRect(rX, rY, rW, rH, 1.5, 1.5, 'S');
+                        doc.setTextColor(tr,tg,tb); doc.setFont('helvetica','bold');
+                        doc.setFontSize(Math.max(namaH*0.38*2.835, 4));
+                        doc.text(String(nama), iX+lgW/2, namaY+namaH/2, {align:'center', baseline:'middle'});
                     }
                     // Teks "Size"
                     doc.setTextColor(tr,tg,tb); doc.setFont('helvetica','bold');
@@ -14209,10 +14249,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                 pages.forEach((pageSizes, pi) => {
                     if (pi > 0) doc.addPage([paper.width, paper.height], paper.orientation);
-                    pageSizes.forEach((sz, i) => {
+                    pageSizes.forEach((item, i) => {
                         const col = i % paper.cols;
                         const row = Math.floor(i / paper.cols);
-                        drawLabel(sz, paper.marginLeft + col*(lw+paper.gapX), paper.marginTop + row*(lh+paper.gapY));
+                        drawLabel(item, paper.marginLeft + col*(lw+paper.gapX), paper.marginTop + row*(lh+paper.gapY));
                     });
                 });
 
@@ -14222,11 +14262,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const doSave = () => {
                 const name = prompt('Nama template:');
                 if (!name) return;
-                const updated = [...savedTemplates, {id:Date.now(), name, paper, design, massGen}];
+                const updated = [...savedTemplates, {id:Date.now(), name, paper, design, massGen, massGenMode, individualLabels}];
                 setSavedTemplates(updated);
                 localStorage.setItem('simpati_label_templates', JSON.stringify(updated));
             };
-            const doLoad = (t) => { setPaper(t.paper); setDesign(t.design); setMassGen(t.massGen||[]); };
+            const doLoad = (t) => {
+                setPaper(t.paper); setDesign(t.design); setMassGen(t.massGen||[]);
+                if (t.massGenMode) setMassGenMode(t.massGenMode);
+                if (t.individualLabels) setIndividualLabels(t.individualLabels);
+            };
             const doDelete = (id) => {
                 const updated = savedTemplates.filter(t => t.id !== id);
                 setSavedTemplates(updated);
@@ -14472,32 +14516,76 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             {/* PANEL MASSAL */}
                             {lmTab === 'mass' && (<>
                                 <div className="flex items-center justify-between">
-                                    <h2 className="text-sm font-bold text-gray-700">Generator Massal</h2>
+                                    <h2 className="text-sm font-bold text-gray-700">Generator Label</h2>
                                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">{totalLabels} pcs</span>
                                 </div>
-                                <div className="space-y-2">
-                                    {massGen.map((item, i) => (
-                                        <div key={item.id} className="flex gap-2 items-center">
-                                            <div className="flex-1 relative">
-                                                <input type="text" placeholder="Ukuran" value={item.size}
-                                                    onChange={e => { const a=[...massGen]; a[i]={...a[i],size:e.target.value}; setMassGen(a); }}
-                                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-bold uppercase bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
-                                            </div>
-                                            <div className="w-20">
-                                                <input type="number" min="1" placeholder="Qty" value={item.qty}
-                                                    onChange={e => { const a=[...massGen]; a[i]={...a[i],qty:Number(e.target.value)}; setMassGen(a); }}
-                                                    className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none text-center" />
-                                            </div>
-                                            <button onClick={() => setMassGen(massGen.filter(m=>m.id!==item.id))} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                                                <Ic.Trash />
-                                            </button>
-                                        </div>
-                                    ))}
+                                {/* Mode toggle */}
+                                <div className="flex rounded-lg overflow-hidden border border-gray-200 bg-gray-100 p-0.5">
+                                    <button onClick={() => setMassGenMode('massal')}
+                                        className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${massGenMode==='massal' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
+                                        Massal
+                                    </button>
+                                    <button onClick={() => setMassGenMode('individu')}
+                                        className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${massGenMode==='individu' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
+                                        Individual
+                                    </button>
                                 </div>
-                                <button onClick={() => setMassGen(prev => [...prev, {id:Date.now(), size:'', qty:10}])}
-                                    className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-sm font-medium">
-                                    <Ic.Plus /> Tambah Ukuran
-                                </button>
+
+                                {massGenMode === 'massal' && (<>
+                                    <div className="space-y-2">
+                                        {massGen.map((item, i) => (
+                                            <div key={item.id} className="flex gap-2 items-center">
+                                                <div className="flex-1 relative">
+                                                    <input type="text" placeholder="Ukuran" value={item.size}
+                                                        onChange={e => { const a=[...massGen]; a[i]={...a[i],size:e.target.value}; setMassGen(a); }}
+                                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-bold uppercase bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
+                                                </div>
+                                                <div className="w-20">
+                                                    <input type="number" min="1" placeholder="Qty" value={item.qty}
+                                                        onChange={e => { const a=[...massGen]; a[i]={...a[i],qty:Number(e.target.value)}; setMassGen(a); }}
+                                                        className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none text-center" />
+                                                </div>
+                                                <button onClick={() => setMassGen(massGen.filter(m=>m.id!==item.id))} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                                    <Ic.Trash />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button onClick={() => setMassGen(prev => [...prev, {id:Date.now(), size:'', qty:10}])}
+                                        className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-sm font-medium">
+                                        <Ic.Plus /> Tambah Ukuran
+                                    </button>
+                                </>)}
+
+                                {massGenMode === 'individu' && (<>
+                                    <p className="text-xs text-gray-400">Input nama &amp; ukuran satu per satu. Nama opsional — jika diisi muncul di bawah logo.</p>
+                                    <div className="space-y-1.5">
+                                        <div className="flex gap-1.5 text-[10px] font-bold text-gray-400 uppercase px-1">
+                                            <span className="w-5 text-center">#</span>
+                                            <span className="flex-1">Nama (opsional)</span>
+                                            <span className="w-14 text-center">Ukuran</span>
+                                            <span className="w-7"></span>
+                                        </div>
+                                        {individualLabels.map((item, i) => (
+                                            <div key={item.id} className="flex gap-1.5 items-center">
+                                                <span className="w-5 text-[10px] text-gray-400 text-center shrink-0">{i+1}</span>
+                                                <input type="text" placeholder="Nama..." value={item.nama}
+                                                    onChange={e => { const a=[...individualLabels]; a[i]={...a[i],nama:e.target.value}; setIndividualLabels(a); }}
+                                                    className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
+                                                <input type="text" placeholder="Size" value={item.size}
+                                                    onChange={e => { const a=[...individualLabels]; a[i]={...a[i],size:e.target.value}; setIndividualLabels(a); }}
+                                                    className="w-14 px-2 py-1.5 border border-gray-200 rounded-lg text-xs font-bold uppercase bg-white focus:ring-2 focus:ring-blue-400 outline-none text-center" />
+                                                <button onClick={() => setIndividualLabels(individualLabels.filter(m=>m.id!==item.id))} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0">
+                                                    <Ic.Trash />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button onClick={() => setIndividualLabels(prev => [...prev, {id:Date.now(), size:'', nama:''}])}
+                                        className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-sm font-medium">
+                                        <Ic.Plus /> Tambah Label
+                                    </button>
+                                </>)}
                             </>)}
 
                             {/* PANEL TEMPLATE */}
@@ -14547,22 +14635,33 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             paddingTop:`${paper.marginTop}mm`, paddingBottom:`${paper.marginBottom}mm`,
                                             paddingLeft:`${paper.marginLeft}mm`, paddingRight:`${paper.marginRight}mm`}}>
                                         <div className="w-full h-full flex flex-wrap content-start" style={{gap:`${paper.gapY}mm ${paper.gapX}mm`}}>
-                                            {pageSizes.map((sz, i) => (
+                                            {pageSizes.map((item, i) => (
                                                 <div key={i} className="box-border overflow-hidden bg-white" style={{width:`${labelW()}mm`, height:`${labelH()}mm`, padding:'2mm', border:'1.5px solid #9ca3af'}}>
                                                     <div className="w-full h-full flex border-[2.5px]" style={{borderColor:design.textColorRight}}>
-                                                        <div className="h-full relative flex items-center justify-center border-r-[2.5px]"
+                                                        <div className="h-full flex flex-col border-r-[2.5px]"
                                                             style={{width:'75%', backgroundColor:design.bgLeft, borderColor:design.textColorRight}}>
-                                                            {design.showHoleMark && <div className="absolute left-[2.5mm] top-1/2 -translate-y-1/2 w-[3mm] h-[3mm] bg-white rounded-full opacity-90"></div>}
-                                                            {design.logoUrl
-                                                                ? <img src={design.logoUrl} alt="" style={{maxWidth:'88%', maxHeight:'88%', objectFit:'contain', transform:`scale(${design.logoScale/100}) translate(${design.logoOffsetX}px,${design.logoOffsetY}px)`}} />
-                                                                : <span style={{color:design.textColorLeft, fontSize:`${labelH()*0.15}mm`, fontWeight:700, opacity:.4}}>LOGO</span>}
+                                                            <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+                                                                {design.showHoleMark && <div className="absolute left-[2.5mm] top-1/2 -translate-y-1/2 w-[3mm] h-[3mm] bg-white rounded-full opacity-90"></div>}
+                                                                {design.logoUrl
+                                                                    ? <img src={design.logoUrl} alt="" style={{maxWidth:'88%', maxHeight: item.nama ? '65%' : '88%', objectFit:'contain', transform:`scale(${design.logoScale/100}) translate(${design.logoOffsetX}px,${design.logoOffsetY}px)`}} />
+                                                                    : <span style={{color:design.textColorLeft, fontSize:`${labelH()*0.15}mm`, fontWeight:700, opacity:.4}}>LOGO</span>}
+                                                            </div>
+                                                            {item.nama && (
+                                                                <div className="flex items-center justify-center overflow-hidden border-t-[2.5px]"
+                                                                    style={{height:'25%', borderColor:design.textColorRight, backgroundColor:'white', padding:'0 2mm'}}>
+                                                                    <div className="flex items-center justify-center overflow-hidden"
+                                                                        style={{border:`1.5px solid ${design.textColorRight}`, borderRadius:'2.5mm', padding:'0 2mm', maxWidth:'96%'}}>
+                                                                        <span style={{color:design.textColorRight, fontSize:`${labelH()*0.09}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', letterSpacing:'.07em', whiteSpace:'nowrap'}}>{item.nama}</span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="h-full flex flex-col" style={{width:'25%', backgroundColor:design.bgRight}}>
                                                             <div className="w-full flex items-center justify-center border-b-[2.5px]" style={{height:'38%', borderColor:design.textColorRight}}>
                                                                 <span style={{color:design.textColorRight, fontSize:`${labelH()*0.15}mm`, fontWeight:700, fontFamily:design.fontFamily||'serif', letterSpacing:'.03em'}}>Size</span>
                                                             </div>
                                                             <div className="w-full flex items-center justify-center" style={{height:'62%'}}>
-                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', lineHeight:1, letterSpacing:'-.01em'}}>{sz}</span>
+                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', lineHeight:1, letterSpacing:'-.01em'}}>{item.size}</span>
                                                             </div>
                                                         </div>
                                                     </div>
