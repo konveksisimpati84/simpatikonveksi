@@ -14232,8 +14232,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (hasNama) {
                         const namaY = iY + logoH;
                         const rX = iX+1.5, rY = namaY+namaH*0.15, rW = lgW-3, rH = namaH*0.7;
+                        const rRadius = Math.min(1.5, rH/2 - 0.1, rW/2 - 0.1);
                         doc.setDrawColor(tr,tg,tb); doc.setLineWidth(0.5);
-                        doc.roundedRect(rX, rY, rW, rH, 1.5, 1.5, 'S');
+                        doc.roundedRect(rX, rY, rW, rH, rRadius, rRadius, 'S');
                         doc.setTextColor(tr,tg,tb); doc.setFont('helvetica','bold');
                         doc.setFontSize(Math.max(namaH*0.38*2.835, 4));
                         doc.text(String(nama), iX+lgW/2, namaY+namaH/2, {align:'center', baseline:'middle'});
