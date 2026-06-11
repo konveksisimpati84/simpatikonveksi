@@ -14,6 +14,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
+    <!-- jsPDF — label export PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
@@ -14155,6 +14157,68 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setShowPrintTip(true);
                 setTimeout(() => w.print(), 700);
             };
+            const handleExportPDF = () => {
+                if (!window.jspdf) { alert('Library PDF belum dimuat. Coba refresh halaman.'); return; }
+                const { jsPDF } = window.jspdf;
+                const lw = labelW(), lh = labelH();
+                const hexRgb = h => { const c = (h||'#000000').replace('#',''); return [parseInt(c.slice(0,2),16)||0, parseInt(c.slice(2,4),16)||0, parseInt(c.slice(4,6),16)||0]; };
+                const doc = new jsPDF({ orientation: paper.orientation, unit: 'mm', format: [paper.width, paper.height] });
+
+                const drawLabel = (sz, sx, sy) => {
+                    const iX = sx+2, iY = sy+2, iW = lw-4, iH = lh-4;
+                    const lgW = iW*0.75, szW = iW*0.25, szX = iX+lgW;
+                    const divY = iY + iH*0.38;
+                    // White fill
+                    doc.setFillColor(255,255,255); doc.rect(sx, sy, lw, lh, 'F');
+                    // Outer border (gray)
+                    doc.setDrawColor(156,163,175); doc.setLineWidth(0.4); doc.rect(sx, sy, lw, lh, 'S');
+                    // Logo background
+                    const [br,bg_,bb] = hexRgb(design.bgLeft);
+                    doc.setFillColor(br,bg_,bb); doc.rect(iX, iY, lgW, iH, 'F');
+                    // Size background
+                    const [wr,wg,wb] = hexRgb(design.bgRight);
+                    doc.setFillColor(wr,wg,wb); doc.rect(szX, iY, szW, iH, 'F');
+                    // Inner border
+                    const [tr,tg,tb] = hexRgb(design.textColorRight);
+                    doc.setDrawColor(tr,tg,tb); doc.setLineWidth(0.66);
+                    doc.rect(iX, iY, iW, iH, 'S');
+                    // Divider vertikal logo|size
+                    doc.line(szX, iY, szX, iY+iH);
+                    // Divider horizontal Size|huruf
+                    doc.line(szX, divY, szX+szW, divY);
+                    // Hole mark
+                    if (design.showHoleMark) {
+                        doc.setFillColor(255,255,255); doc.circle(iX+2.5, iY+iH/2, 1.5, 'F');
+                    }
+                    // Logo image
+                    if (design.logoUrl) {
+                        const mW = lgW*0.88*(design.logoScale/100);
+                        const mH = iH*0.88*(design.logoScale/100);
+                        const lx = iX + lgW/2 - mW/2 + design.logoOffsetX*0.264;
+                        const ly = iY + iH/2 - mH/2 + design.logoOffsetY*0.264;
+                        try { doc.addImage(design.logoUrl, lx, ly, mW, mH); } catch(e){}
+                    }
+                    // Teks "Size"
+                    doc.setTextColor(tr,tg,tb); doc.setFont('helvetica','bold');
+                    doc.setFontSize(Math.max(lh*0.15*2.835, 4));
+                    doc.text('Size', szX+szW/2, iY+iH*0.19, {align:'center', baseline:'middle'});
+                    // Huruf ukuran
+                    doc.setFontSize(Math.max(Math.min(lh*0.32, lw*0.11)*2.835, 6));
+                    doc.text(String(sz), szX+szW/2, iY+iH*0.69, {align:'center', baseline:'middle'});
+                };
+
+                pages.forEach((pageSizes, pi) => {
+                    if (pi > 0) doc.addPage([paper.width, paper.height], paper.orientation);
+                    pageSizes.forEach((sz, i) => {
+                        const col = i % paper.cols;
+                        const row = Math.floor(i / paper.cols);
+                        drawLabel(sz, paper.marginLeft + col*(lw+paper.gapX), paper.marginTop + row*(lh+paper.gapY));
+                    });
+                });
+
+                doc.save(`label-${paper.type}-${new Date().toISOString().slice(0,10)}.pdf`);
+            };
+
             const doSave = () => {
                 const name = prompt('Nama template:');
                 if (!name) return;
@@ -14244,6 +14308,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="flex gap-1.5">
                                 <button onClick={doSave} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-medium transition-colors">
                                     <Ic.Save /> Simpan
+                                </button>
+                                <button onClick={handleExportPDF} className="flex items-center gap-1 px-2.5 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> PDF
                                 </button>
                                 <button onClick={handlePrint} className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors">
                                     <Ic.Printer /> Cetak
