@@ -4603,6 +4603,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     }
                 });
                 safeArray(manualPurchases).filter(isVisibleRecord).forEach(mp => {
+                    if (searchTerm && !matchesSearch([mp.vendor, mp.name, mp.spec, mp.note, mp.purchaseDate, mp.purchaseStatus, mp.unit], searchTerm)) return;
+                    if (dateFilter && String(mp.purchaseDate || '').slice(0, 10) !== dateFilter) return;
                     const vendorName = String(mp.vendor || 'Tanpa Vendor').trim();
                     const batchDateKey = mp.purchaseDate || new Date().toISOString().slice(0, 10);
                     const groupKey = `${vendorName}|||${batchDateKey}`;
@@ -4612,7 +4614,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     groups[groupKey].items.push({ ...mp, orderId: null, isManual: true, batchDateKey });
                 });
                 return groups;
-            }, [filteredRekapOrders, manualPurchases]);
+            }, [filteredRekapOrders, manualPurchases, searchTerm, dateFilter]);
 
             const renderOrderDesignPreview = (order, compact = false) => {
                 const images = [order?.designImage1, order?.designImage2].filter(Boolean);
