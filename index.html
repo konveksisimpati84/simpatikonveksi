@@ -3963,6 +3963,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const [manualFormOpen, setManualFormOpen] = useState(null);
             const [manualFormRow, setManualFormRow] = useState({ name: '', spec: '', qty: '', unit: 'Meter', price: '', note: '', purchaseStatus: 'Sudah Dibeli' });
             const [editManualId, setEditManualId] = useState(null);
+            const [newVendorForm, setNewVendorForm] = useState({ open: false, vendor: '', date: new Date().toISOString().slice(0, 10) });
 
             const materialOrders = (orders || []).filter(isVisibleOrder);
             const activeOrders = materialOrders.filter(o => {
@@ -4742,6 +4743,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 setManualPurchases(prev => safeArray(prev).map(mp => String(mp.id) === String(id) ? { ...mp, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : mp));
                 showToast("Bahan manual dihapus.", "success");
             };
+            const saveNewVendorManual = () => {
+                if (!newVendorForm.vendor.trim()) { showToast("Isi nama vendor/toko terlebih dahulu.", "error"); return; }
+                saveManualPurchase(newVendorForm.vendor.trim(), newVendorForm.date);
+                setNewVendorForm({ open: false, vendor: '', date: new Date().toISOString().slice(0, 10) });
+            };
 
             const addManualVendorPayment = (vendor, batchDateKey) => {
                 const key = getMaterialBatchKey(vendor, batchDateKey);
@@ -4779,16 +4785,57 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     return String(b.batchDateKey).localeCompare(String(a.batchDateKey));
                 });
 
-                if (vendorGroups.length === 0) {
-                    return (
-                        <Card className="text-center p-8 text-gray-500 italic border-dashed border-2">
-                            <p>{searchTerm ? 'Tidak ada rekap vendor yang cocok dengan pencarian.' : 'Belum ada data rincian bahan yang diinput pada order aktif mana pun.'}</p>
-                        </Card>
-                    );
-                }
-
                 return (
                     <div className="space-y-6">
+                        <Card className="p-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="font-bold text-sm text-gray-700">Tambah Pembelian Manual</div>
+                                    <div className="text-xs text-gray-400 mt-0.5">Input pembelian bahan langsung ke vendor tanpa melalui order produksi</div>
+                                </div>
+                                <button onClick={() => { setNewVendorForm({ open: !newVendorForm.open, vendor: '', date: new Date().toISOString().slice(0, 10) }); setManualFormRow({ name: '', spec: '', qty: '', unit: 'Meter', price: '', note: '', purchaseStatus: 'Sudah Dibeli' }); setEditManualId(null); }} className={`text-xs font-bold px-3 py-1.5 rounded-lg border ${newVendorForm.open ? 'bg-gray-100 text-gray-600 border-gray-300' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}>
+                                    {newVendorForm.open ? 'Batal' : '+ Tambah Pembelian Manual'}
+                                </button>
+                            </div>
+                            {newVendorForm.open && (
+                                <div className="mt-3 border-t pt-3 space-y-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">Nama Vendor / Toko *</label>
+                                            <input className="w-full p-2 border rounded text-sm" placeholder="Cth: Toko Maju Jaya" value={newVendorForm.vendor} onChange={e => setNewVendorForm(prev => ({ ...prev, vendor: e.target.value }))} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Pembelian</label>
+                                            <input type="date" className="w-full p-2 border rounded text-sm" value={newVendorForm.date} onChange={e => setNewVendorForm(prev => ({ ...prev, date: e.target.value }))} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Rincian Bahan *</label>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-2">
+                                            <input className="p-2 border rounded text-xs col-span-2 md:col-span-1" placeholder="Nama Bahan *" value={manualFormRow.name} onChange={e => setManualFormRow(r => ({ ...r, name: e.target.value }))} />
+                                            <input className="p-2 border rounded text-xs" placeholder="Warna/Spesifikasi" value={manualFormRow.spec} onChange={e => setManualFormRow(r => ({ ...r, spec: e.target.value }))} />
+                                            <input type="number" min="0" className="p-2 border rounded text-xs" placeholder="Qty *" value={manualFormRow.qty} onChange={e => setManualFormRow(r => ({ ...r, qty: e.target.value }))} />
+                                            <select className="p-2 border rounded text-xs" value={manualFormRow.unit} onChange={e => setManualFormRow(r => ({ ...r, unit: e.target.value }))}>
+                                                <option>Meter</option><option>Kg</option><option>Pcs</option><option>Lusin</option><option>Roll</option><option>Yard</option><option>Lainnya</option>
+                                            </select>
+                                            <input type="number" min="0" className="p-2 border rounded text-xs" placeholder="Harga/Satuan *" value={manualFormRow.price} onChange={e => setManualFormRow(r => ({ ...r, price: e.target.value }))} />
+                                            <input className="p-2 border rounded text-xs" placeholder="Catatan" value={manualFormRow.note} onChange={e => setManualFormRow(r => ({ ...r, note: e.target.value }))} />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <select className="p-2 border rounded text-xs" value={manualFormRow.purchaseStatus} onChange={e => setManualFormRow(r => ({ ...r, purchaseStatus: e.target.value }))}>
+                                                <option>Sudah Dibeli</option><option>Belum Dibeli</option><option>Termin</option>
+                                            </select>
+                                            <button onClick={saveNewVendorManual} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold">Simpan Pembelian</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </Card>
+                        {vendorGroups.length === 0 && (
+                            <Card className="text-center p-8 text-gray-500 italic border-dashed border-2">
+                                <p>{searchTerm ? 'Tidak ada rekap vendor yang cocok dengan pencarian.' : 'Belum ada data bahan. Gunakan form di atas untuk menambah pembelian manual.'}</p>
+                            </Card>
+                        )}
                         {vendorGroups.map(groupedVendor => {
                             const vendor = groupedVendor.vendor;
                             const items = groupedVendor.items;
