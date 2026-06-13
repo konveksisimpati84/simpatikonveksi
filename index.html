@@ -245,6 +245,8 @@
         const IconUnlock = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>;
         const IconShoppingCart = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>;
         const IconLayers = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>;
+        const IconEye = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>;
+        const IconCash = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>;
 
         const getGeminiApiKey = () => {
             const configuredKey = "";
@@ -5955,6 +5957,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [expandedIds, setExpandedIds] = useState({});
             const [deleteInvConfirmId, setDeleteInvConfirmId] = useState(null);
             const [payInvId, setPayInvId] = useState(null);
+            const [detailInvId, setDetailInvId] = useState(null);
+            const [editModalOpen, setEditModalOpen] = useState(false);
             const [payForm, setPayForm] = useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
             const [mktShareModal, setMktShareModal] = useState(null);
             const [activeInvoiceTab, setActiveInvoiceTab] = useState('invoice');
@@ -5988,6 +5992,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const resetForm = () => {
                 setForm({ ...emptyInvoice, invoiceItems: [newItem()], invoiceDp: { ...emptyInvoice.invoiceDp } });
                 setEditId(null);
+                setEditModalOpen(false);
             };
             const patchItem = (itemId, patch) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) === String(itemId) ? { ...item, ...patch } : item) }));
             const patchSize = (itemId, sizeId, patch) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) === String(itemId) ? { ...item, sizes: (item.sizes || []).map(size => String(size.id) === String(sizeId) ? { ...size, ...patch } : size) } : item) }));
@@ -6308,16 +6313,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </div>
 
                     {activeInvoiceTab === 'invoice' && <>
-                    {/* ── FORM CARD ── */}
-                    <div className="rounded-2xl overflow-hidden shadow-md border border-gray-100">
-                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center gap-3">
-                            <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><IconPlusCircle /></div>
-                            <div>
-                                <h3 className="text-white font-black text-base">{editId ? 'Edit Invoice' : 'Buat Invoice Baru'}</h3>
-                                <p className="text-blue-100 text-xs">{editId ? `Mengedit: ${editId}` : 'Isi detail invoice di bawah ini'}</p>
+                    {/* ── FORM CARD ── (inline untuk create, modal overlay untuk edit) */}
+                    {editModalOpen && <div className="fixed inset-0 bg-black/60 z-[190]" onClick={() => { setEditModalOpen(false); resetForm(); }} />}
+                    <div className={editModalOpen ? "fixed inset-0 z-[200] flex items-center justify-center p-4" : ""}>
+                    <div className={`rounded-2xl overflow-hidden shadow-md border border-gray-100 ${editModalOpen ? "w-full max-w-3xl max-h-[90vh] flex flex-col" : ""}`}>
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><IconPlusCircle /></div>
+                                <div>
+                                    <h3 className="text-white font-black text-base">{editId ? 'Edit Invoice' : 'Buat Invoice Baru'}</h3>
+                                    <p className="text-blue-100 text-xs">{editId ? `Mengedit: ${editId}` : 'Isi detail invoice di bawah ini'}</p>
+                                </div>
                             </div>
+                            {editModalOpen && <button type="button" onClick={() => { setEditModalOpen(false); resetForm(); }} className="text-white/80 hover:text-white w-9 h-9 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold flex-shrink-0">✕</button>}
                         </div>
-                        <div className="bg-white p-6">
+                        <div className={`bg-white p-6 ${editModalOpen ? "overflow-y-auto flex-1" : ""}`}>
                             <form onSubmit={saveInvoice} className="space-y-5">
                                 {/* Info dasar */}
                                 <div>
@@ -6423,6 +6433,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </form>
                         </div>
                     </div>
+                    </div>
 
                     {/* ── INVOICE LIST ── */}
                     <div className="rounded-2xl overflow-hidden shadow-md border border-gray-100">
@@ -6455,86 +6466,48 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const style = statusStyles[status] || statusStyles['Belum Dibayar'];
                                 const paidPct = totals.total > 0 ? Math.min(100, Math.round(paid / totals.total * 100)) : 0;
                                 const initials = (inv.customer || 'C').split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase();
+                                const rowBg = status === 'Lunas' ? 'bg-green-50/60' : status === 'Termin' ? 'bg-amber-50/60' : 'bg-red-50/40';
                                 return (
                                     <React.Fragment key={inv.id}>
-                                        <div className={`border-l-4 ${style.border} px-5 py-4 hover:bg-gray-50 transition-colors`}>
+                                        <div className={`border-l-4 ${style.border} ${rowBg} px-5 py-3.5 hover:brightness-95 transition-all`}>
                                             <div className="flex flex-col md:flex-row md:items-center gap-3">
                                                 {/* Avatar + info */}
                                                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-sm flex items-center justify-center flex-shrink-0 shadow">{initials}</div>
+                                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-sm flex items-center justify-center flex-shrink-0 shadow">{initials}</div>
                                                     <div className="min-w-0">
                                                         <div className="flex items-center gap-2 flex-wrap">
                                                             <span className="font-black text-gray-800 text-sm">{inv.customer}</span>
                                                             <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${style.badge}`}>{status}</span>
                                                         </div>
-                                                        <div className="text-xs text-gray-400 mt-0.5 flex gap-2 flex-wrap">
+                                                        <div className="text-xs text-gray-500 mt-0.5 flex gap-1.5 flex-wrap items-center">
                                                             <span className="font-mono text-blue-600 font-semibold">{inv.id}</span>
                                                             <span>·</span>
                                                             <span>{inv.date}</span>
                                                             {inv.marketing && <><span>·</span><span className="text-indigo-600">{inv.marketing}</span></>}
                                                         </div>
-                                                        <div className="flex flex-wrap gap-1 mt-1.5">
-                                                            {getInvoiceItems(inv).slice(0,3).map((item, i) => (
-                                                                <span key={i} className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2 py-0.5">{item.productionType || '-'}</span>
-                                                            ))}
-                                                            {getInvoiceItems(inv).length > 3 && <span className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">+{getInvoiceItems(inv).length - 3}</span>}
-                                                        </div>
                                                     </div>
                                                 </div>
                                                 {/* Stats + progress */}
-                                                <div className="flex flex-col gap-1.5 min-w-[160px]">
+                                                <div className="flex flex-col gap-1 min-w-[150px]">
                                                     <div className="flex items-center justify-between text-xs text-gray-500">
                                                         <span>{getInvoicePcsTotal(inv)} pcs</span>
                                                         <span className="font-black text-gray-800">{formatRupiah(totals.total)}</span>
                                                     </div>
-                                                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                    <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                                                         <div className={`h-full ${style.bar} rounded-full transition-all`} style={{width: `${paidPct}%`}}></div>
                                                     </div>
-                                                    <div className="text-xs text-gray-400">{paidPct}% dibayar · Sisa <span className="font-bold text-red-600">{formatRupiah(Math.max(0, totals.total - paid))}</span></div>
+                                                    <div className="text-xs text-gray-400">{paidPct}% · Sisa <span className="font-bold text-red-600">{formatRupiah(Math.max(0, totals.total - paid))}</span></div>
                                                 </div>
-                                                {/* Tombol aksi */}
-                                                <div className="flex gap-1.5 flex-wrap md:flex-nowrap">
-                                                    <button onClick={() => setExpandedIds(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))} className="text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-100 transition-colors">{expandedIds[inv.id] ? 'Tutup' : 'Rincian'}</button>
-                                                    {status !== 'Lunas' && <button onClick={() => { setPayInvId(inv.id); setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' }); }} className="text-xs font-bold bg-green-50 hover:bg-green-100 text-green-700 px-3 py-1.5 rounded-lg border border-green-100 transition-colors">+ Bayar</button>}
-                                                    <button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: getInvoiceItems(inv), invoiceDp: getInvoiceDp(inv) }); }} className="text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-100 transition-colors flex items-center gap-1"><IconEdit /><span>Edit</span></button>
-                                                    <button onClick={() => printInvoice(inv)} className="text-xs font-bold bg-slate-50 hover:bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-100 transition-colors flex items-center gap-1"><IconPrinter /><span>Cetak</span></button>
-                                                    <button onClick={() => setDeleteInvConfirmId(inv.id)} className="text-xs font-bold bg-red-50 hover:bg-red-100 text-red-600 p-1.5 rounded-lg border border-red-100 transition-colors"><IconTrash /></button>
+                                                {/* Tombol aksi — icon only */}
+                                                <div className="flex gap-1.5 items-center">
+                                                    <button onClick={() => setDetailInvId(inv.id)} title="Rincian" className="bg-blue-50 hover:bg-blue-100 text-blue-700 p-2 rounded-lg border border-blue-100 transition-colors"><IconEye /></button>
+                                                    {status !== 'Lunas' && <button onClick={() => { setPayInvId(inv.id); setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' }); }} title="Bayar" className="bg-green-50 hover:bg-green-100 text-green-700 p-2 rounded-lg border border-green-100 transition-colors"><IconCash /></button>}
+                                                    <button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: getInvoiceItems(inv), invoiceDp: getInvoiceDp(inv) }); setEditModalOpen(true); }} title="Edit Invoice" className="bg-purple-50 hover:bg-purple-100 text-purple-700 p-2 rounded-lg border border-purple-100 transition-colors"><IconEdit /></button>
+                                                    <button onClick={() => printInvoice(inv)} title="Cetak Invoice" className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2 rounded-lg border border-slate-100 transition-colors"><IconPrinter /></button>
+                                                    <button onClick={() => setDeleteInvConfirmId(inv.id)} title="Hapus Invoice" className="bg-red-50 hover:bg-red-100 text-red-600 p-2 rounded-lg border border-red-100 transition-colors"><IconTrash /></button>
                                                 </div>
                                             </div>
                                         </div>
-                                        {expandedIds[inv.id] && (
-                                            <div className="bg-gray-50 border-t border-gray-100 px-5 py-4">
-                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                                                    <div className="bg-white rounded-xl p-3 border border-gray-100">
-                                                        <div className="text-xs text-gray-400">Pembayaran Invoice</div>
-                                                        <div className="font-black text-gray-800 text-sm">{formatRupiah(getInvoiceDpAmount(inv))}</div>
-                                                    </div>
-                                                    {getInvoiceLinkedDpAmount(inv) > 0 && (
-                                                        <div className="bg-white rounded-xl p-3 border border-emerald-100">
-                                                            <div className="text-xs text-gray-400">Saldo Klien Dipakai</div>
-                                                            <div className="font-black text-emerald-700 text-sm">{formatRupiah(getInvoiceLinkedDpAmount(inv))}</div>
-                                                        </div>
-                                                    )}
-                                                    <div className="bg-white rounded-xl p-3 border border-gray-100">
-                                                        <div className="text-xs text-gray-400">Total Dibayar</div>
-                                                        <div className="font-black text-green-700 text-sm">{formatRupiah(paid)}</div>
-                                                    </div>
-                                                    <div className="bg-white rounded-xl p-3 border border-gray-100">
-                                                        <div className="text-xs text-gray-400">Komisi Marketing</div>
-                                                        <div className="font-black text-purple-700 text-sm">{formatRupiah(getInvoiceCommissionTotal(inv))}</div>
-                                                        {inv.subMarketing && <div className="text-xs text-gray-400 mt-1">Sub: {inv.subMarketing}</div>}
-                                                        {inv.subMarketing && <div className="font-bold text-purple-500 text-xs">{formatRupiah(getInvoiceSubMarketingCommissionTotal(inv))}</div>}
-                                                    </div>
-                                                </div>
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {getInvoiceItems(inv).map((item, i) => (
-                                                        <span key={i} className="text-xs bg-white border border-blue-100 text-blue-700 rounded-xl px-2.5 py-1">
-                                                            <b>{item.productionType || '-'}</b>: {(item.sizes || []).map(size => `${size.size || '-'} ${size.qty || 0}pcs`).join(', ')}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
                                     </React.Fragment>
                                 );
                             })}
@@ -6594,6 +6567,83 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                     </div>
                 )}
+                {detailInvId && (() => {
+                    const inv = safeInvoiceRows.find(i => String(i.id) === String(detailInvId));
+                    if (!inv) return null;
+                    const totals = getInvoiceTotals(inv);
+                    const paid = getInvoicePaidTotal(inv);
+                    const status = getInvoicePaymentStatus(inv);
+                    const style = statusStyles[status] || statusStyles['Belum Dibayar'];
+                    return (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setDetailInvId(null)}>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                                <div className={`px-5 py-4 flex items-center justify-between border-b-4 ${style.border} bg-white`}>
+                                    <div>
+                                        <div className="font-black text-gray-800 text-base">{inv.customer}</div>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="font-mono text-blue-600 text-xs font-semibold">{inv.id}</span>
+                                            <span className="text-gray-400 text-xs">·</span>
+                                            <span className="text-gray-500 text-xs">{inv.date}</span>
+                                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${style.badge}`}>{status}</span>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setDetailInvId(null)} className="text-gray-400 hover:text-gray-700 w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-100 text-xl font-bold">✕</button>
+                                </div>
+                                <div className="overflow-y-auto flex-1 p-5 space-y-4">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                            <div className="text-xs text-gray-400 mb-1">Total Invoice</div>
+                                            <div className="font-black text-gray-800">{formatRupiah(totals.total)}</div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                            <div className="text-xs text-gray-400 mb-1">Total Dibayar</div>
+                                            <div className="font-black text-green-700">{formatRupiah(paid)}</div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                                            <div className="text-xs text-gray-400 mb-1">Pembayaran DP</div>
+                                            <div className="font-black text-gray-800">{formatRupiah(getInvoiceDpAmount(inv))}</div>
+                                        </div>
+                                        {getInvoiceLinkedDpAmount(inv) > 0 && (
+                                            <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                                                <div className="text-xs text-gray-400 mb-1">Saldo Klien Dipakai</div>
+                                                <div className="font-black text-emerald-700">{formatRupiah(getInvoiceLinkedDpAmount(inv))}</div>
+                                            </div>
+                                        )}
+                                        <div className="bg-red-50 rounded-xl p-3 border border-red-100">
+                                            <div className="text-xs text-gray-400 mb-1">Sisa Tagihan</div>
+                                            <div className="font-black text-red-600">{formatRupiah(Math.max(0, totals.total - paid))}</div>
+                                        </div>
+                                        <div className="bg-purple-50 rounded-xl p-3 border border-purple-100">
+                                            <div className="text-xs text-gray-400 mb-1">Komisi Marketing</div>
+                                            <div className="font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</div>
+                                            {inv.subMarketing && <div className="text-xs text-gray-500 mt-0.5">Sub ({inv.subMarketing}): {formatRupiah(getInvoiceSubMarketingCommissionTotal(inv))}</div>}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Rincian Produksi</div>
+                                        <div className="space-y-2">
+                                            {getInvoiceItems(inv).map((item, i) => (
+                                                <div key={i} className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                                                    <div className="font-bold text-blue-800 text-sm mb-1">{item.productionType || '-'}</div>
+                                                    <div className="text-xs text-gray-600 flex flex-wrap gap-1">
+                                                        {(item.sizes || []).filter(s => s.qty > 0 || s.size).map((s, si) => (
+                                                            <span key={si} className="bg-white border border-blue-100 rounded px-1.5 py-0.5">{s.size || '-'}: {s.qty || 0} pcs</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    {inv.note && <div className="bg-gray-50 border border-gray-100 rounded-xl p-3"><div className="text-xs text-gray-400 mb-1">Catatan</div><div className="text-sm text-gray-700">{inv.note}</div></div>}
+                                </div>
+                                <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50">
+                                    <button onClick={() => { setDetailInvId(null); printInvoice(inv); }} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak</button>
+                                    <button onClick={() => setDetailInvId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
                 {mktShareModal && (() => {
                     const shareUrl = `${window.location.origin}${window.location.pathname}#marketing-share=${encodeURIComponent(mktShareModal.token)}`;
                     return (
