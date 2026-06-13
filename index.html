@@ -8783,6 +8783,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
         const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
+            const [detailRekapId, setDetailRekapId] = useState(null);
             const [selectionConfirm, setSelectionConfirm] = useState(null);
             const [selectedItemKeys, setSelectedItemKeys] = useState(new Set());
             const [searchTerm, setSearchTerm] = useState('');
