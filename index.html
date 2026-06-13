@@ -9772,18 +9772,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <Card><h3 className="text-xs font-bold text-gray-500">Kasbon Dipotong</h3><p className="text-xl font-black text-orange-700">{formatRupiah(rekapSummary.kasbon)}</p></Card>
                             <Card><h3 className="text-xs font-bold text-gray-500">Gaji Bersih</h3><p className="text-xl font-black text-blue-700">{formatRupiah(rekapSummary.net)}</p></Card>
                         </div>
-                        <div className="overflow-x-auto bg-white border border-gray-200 rounded-xl shadow-sm">
+                        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-gray-50 text-gray-600">
                                     <tr>
-                                        <th className="p-3 font-semibold">Tanggal Rekap</th>
+                                        <th className="p-3 font-semibold">Tanggal</th>
                                         <th className="p-3 font-semibold">Nama Karyawan</th>
                                         <th className="p-3 font-semibold">Divisi</th>
-                                        <th className="p-3 font-semibold text-right">Total Pcs</th>
-                                        <th className="p-3 font-semibold text-right">Gaji Bruto</th>
-                                        <th className="p-3 font-semibold text-right">Potongan Kasbon</th>
                                         <th className="p-3 font-semibold text-right">Gaji Bersih</th>
-                                        <th className="p-3 font-semibold text-center">Status Pembayaran</th>
+                                        <th className="p-3 font-semibold text-center">Status</th>
                                         <th className="p-3 font-semibold text-center">Aksi</th>
                                     </tr>
                                 </thead>
@@ -9793,67 +9790,26 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                         const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
-                                        const isExpanded = !!expandedRekapIds[rekap.id];
                                         return (
-                                            <React.Fragment key={rekap.id}>
-                                                <tr className="border-t border-gray-100 hover:bg-gray-50 align-top">
-                                                    <td className="p-3">{rekap.dateProcessed || '-'}</td>
-                                                    <td className="p-3 font-bold text-gray-800">{rekap.empName || emp?.name || '-'}</td>
-                                                    <td className="p-3">{rekap.division || emp?.division || '-'}</td>
-                                                    <td className="p-3 text-right font-bold">{rekap.total || 0} pcs</td>
-                                                    <td className="p-3 text-right font-bold text-green-700">{formatRupiah(grossSalary)}</td>
-                                                    <td className="p-3 text-right font-bold text-orange-700">{formatRupiah(deduction)}</td>
-                                                    <td className="p-3 text-right font-black text-blue-700">{formatRupiah(netSalary)}</td>
-                                                    <td className="p-3 text-center"><Badge status="Sudah Dibayar" /></td>
-                                                    <td className="p-3">
-                                                        <div className="flex flex-wrap justify-center gap-2">
-                                                            <button onClick={() => setExpandedRekapIds(prev => ({ ...prev, [rekap.id]: !prev[rekap.id] }))} className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg">{isExpanded ? 'Sembunyikan Rincian' : 'Lihat Rincian'}</button>
-                                                            <button onClick={() => restoreRekapToInput(rekap)} className="text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-lg">Edit</button>
-                                                            <button onClick={() => printExistingRekap(rekap)} className="text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1"><IconPrinter /> Cetak Rekap</button>
-                                                            <button onClick={() => copyRekapShareLink(rekap)} className="text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-3 py-1.5 rounded-lg">Salin Link</button>
-                                                            <button onClick={() => setDeleteRekapConfirmId(rekap.id)} className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg" title="Hapus rekap"><IconTrash /></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                {isExpanded && (
-                                                    <tr className="bg-gray-50 border-t border-gray-100">
-                                                        <td colSpan="9" className="p-4">
-                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                                                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                                                                    <div className="px-3 py-2 bg-gray-100 font-black text-gray-700 text-xs">Detail Pekerjaan</div>
-                                                                    <table className="w-full text-xs text-left">
-                                                                        <thead><tr className="border-b text-gray-500"><th className="p-2">Order</th><th className="p-2">Jenis</th><th className="p-2">Tahap</th><th className="p-2">Ukuran</th><th className="p-2 text-right">Qty</th><th className="p-2 text-right">Harga</th><th className="p-2 text-right">Subtotal</th></tr></thead>
-                                                                        <tbody>
-                                                                            {(rekap.items || []).map((item, idx) => (
-                                                                                <tr key={`${rekap.id}-${idx}`} className="border-b border-gray-100">
-                                                                                    <td className="p-2 font-bold text-blue-700">{item.orderId}<div className="text-gray-500 font-normal">{item.client}</div></td>
-                                                                                    <td className="p-2">{item.type || '-'}</td>
-                                                                                    <td className="p-2">{item.stageLabel || item.stage || '-'}</td>
-                                                                                    <td className="p-2">{item.sizes || '-'}</td>
-                                                                                    <td className="p-2 text-right">{item.qty || 0}</td>
-                                                                                    <td className="p-2 text-right">{formatRupiah(item.unitPrice || 0)}</td>
-                                                                                    <td className="p-2 text-right font-bold text-green-700">{formatRupiah(item.wageTotal || 0)}</td>
-                                                                                </tr>
-                                                                            ))}
-                                                                        </tbody>
-                                                                    </table>
-                                                                </div>
-                                                                <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm">
-                                                                    <h4 className="font-black text-gray-800 mb-3">Detail Kasbon & Catatan</h4>
-                                                                    <div className="grid grid-cols-2 gap-3">
-                                                                        <div><span className="block text-xs text-gray-500 font-bold">Potongan Kasbon</span><span className="font-black text-orange-700">{formatRupiah(deduction)}</span></div>
-                                                                        <div><span className="block text-xs text-gray-500 font-bold">Gaji Bersih</span><span className="font-black text-blue-700">{formatRupiah(netSalary)}</span></div>
-                                                                    </div>
-                                                                    <div className="mt-3 text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded p-3">{rekap.cashAdvanceDeductionNote || 'Tidak ada catatan rekap.'}</div>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </React.Fragment>
+                                            <tr key={rekap.id} className="border-t border-gray-100 hover:bg-gray-50">
+                                                <td className="p-3 text-gray-600 text-xs">{rekap.dateProcessed || '-'}</td>
+                                                <td className="p-3 font-bold text-gray-800">{rekap.empName || emp?.name || '-'}</td>
+                                                <td className="p-3 text-gray-600">{rekap.division || emp?.division || '-'}</td>
+                                                <td className="p-3 text-right font-black text-blue-700">{formatRupiah(netSalary)}</td>
+                                                <td className="p-3 text-center"><Badge status="Sudah Dibayar" /></td>
+                                                <td className="p-3">
+                                                    <div className="flex justify-center gap-1.5">
+                                                        <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg"><IconEye /></button>
+                                                        <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-2 rounded-lg"><IconEdit /></button>
+                                                        <button onClick={() => printExistingRekap(rekap)} title="Cetak Rekap" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-2 rounded-lg"><IconPrinter /></button>
+                                                        <button onClick={() => copyRekapShareLink(rekap)} title="Salin Link Share" className="text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 p-2 rounded-lg"><IconCheckCircle /></button>
+                                                        <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-2 rounded-lg"><IconTrash /></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
                                         );
                                     })}
-                                    {visibleRekaps.length === 0 && <tr><td colSpan="9" className="p-8 text-center text-gray-500 italic">{searchTerm ? 'Tidak ada rekap yang cocok dengan pencarian.' : 'Belum ada rekap kinerja.'}</td></tr>}
+                                    {visibleRekaps.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-gray-500 italic">{searchTerm ? 'Tidak ada rekap yang cocok dengan pencarian.' : 'Belum ada rekap kinerja.'}</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -10070,6 +10026,76 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>
                     )}
+                    {detailRekapId && (() => {
+                        const rekap = (rekapKinerja || []).find(r => String(r.id) === String(detailRekapId));
+                        if (!rekap) return null;
+                        const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
+                        const deduction = safeMoney(rekap.cashAdvanceDeduction);
+                        const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
+                        return (
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setDetailRekapId(null)}>
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                                    <div className="bg-gradient-to-r from-green-600 to-teal-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
+                                        <div>
+                                            <div className="text-white font-black text-base">{rekap.empName || '-'}</div>
+                                            <div className="text-green-100 text-xs mt-0.5">{rekap.division || '-'} · Rekap: {rekap.dateProcessed || '-'} · <span className="font-mono">{rekap.id}</span></div>
+                                        </div>
+                                        <button onClick={() => setDetailRekapId(null)} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold flex-shrink-0">✕</button>
+                                    </div>
+                                    <div className="overflow-y-auto flex-1 p-5 space-y-4">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+                                                <div className="text-xs text-gray-400 mb-1">Total Pcs</div>
+                                                <div className="font-black text-gray-800 text-lg">{rekap.total || 0}</div>
+                                                <div className="text-xs text-gray-400">pcs</div>
+                                            </div>
+                                            <div className="bg-green-50 rounded-xl p-3 border border-green-100 text-center">
+                                                <div className="text-xs text-gray-400 mb-1">Gaji Bruto</div>
+                                                <div className="font-black text-green-700">{formatRupiah(grossSalary)}</div>
+                                            </div>
+                                            <div className="bg-orange-50 rounded-xl p-3 border border-orange-100 text-center">
+                                                <div className="text-xs text-gray-400 mb-1">Pot. Kasbon</div>
+                                                <div className="font-black text-orange-700">{formatRupiah(deduction)}</div>
+                                            </div>
+                                            <div className="bg-blue-50 rounded-xl p-3 border border-blue-200 text-center">
+                                                <div className="text-xs text-gray-400 mb-1">Gaji Bersih</div>
+                                                <div className="font-black text-blue-700 text-lg">{formatRupiah(netSalary)}</div>
+                                            </div>
+                                        </div>
+                                        {rekap.cashAdvanceDeductionNote && (
+                                            <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800"><span className="font-bold">Catatan Kasbon:</span> {rekap.cashAdvanceDeductionNote}</div>
+                                        )}
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Detail Pekerjaan ({(rekap.items || []).length} item)</div>
+                                            <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                                                <table className="w-full text-xs text-left">
+                                                    <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Order / Klien</th><th className="p-2.5 font-semibold">Jenis</th><th className="p-2.5 font-semibold">Tahap</th><th className="p-2.5 font-semibold">Ukuran</th><th className="p-2.5 font-semibold text-right">Qty</th><th className="p-2.5 font-semibold text-right">Harga</th><th className="p-2.5 font-semibold text-right">Subtotal</th></tr></thead>
+                                                    <tbody>
+                                                        {(rekap.items || []).map((item, idx) => (
+                                                            <tr key={idx} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
+                                                                <td className="p-2.5 font-bold text-blue-700">{item.orderId}<div className="text-gray-500 font-normal text-xs">{item.client}</div></td>
+                                                                <td className="p-2.5 text-gray-700">{item.type || '-'}</td>
+                                                                <td className="p-2.5 text-gray-700">{item.stageLabel || item.stage || '-'}</td>
+                                                                <td className="p-2.5 text-gray-700">{item.sizes || '-'}</td>
+                                                                <td className="p-2.5 text-right font-bold">{item.qty || 0}</td>
+                                                                <td className="p-2.5 text-right text-gray-600">{formatRupiah(item.unitPrice || 0)}</td>
+                                                                <td className="p-2.5 text-right font-black text-green-700">{formatRupiah(item.wageTotal || 0)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 flex-shrink-0">
+                                        <button onClick={() => { setDetailRekapId(null); printExistingRekap(rekap); }} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak</button>
+                                        <button onClick={() => { copyRekapShareLink(rekap); }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconCheckCircle /> Salin Link</button>
+                                        <button onClick={() => setDetailRekapId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </div>
             )
         };
@@ -10077,6 +10103,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
         const RiwayatRekapKinerjaView = ({ orders, setOrders, employees, rekapKinerja, setRekapKinerja, showToast, authUser }) => {
             const [searchTerm, setSearchTerm] = useState('');
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
+            const [detailRekapId, setDetailRekapId] = useState(null);
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const toggleRekapExpand = (id) => setExpandedRekapIds(prev => ({ ...prev, [id]: !prev[id] }));
             const visibleEmployees = (employees || []).filter(isVisibleRecord);
@@ -10179,10 +10206,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 ))}
                                             </div>
                                         )}
-                                        <div className="flex flex-wrap justify-end gap-2">
-                                            <a href={getRekapShareLink(rekap)} target="_blank" className="text-blue-600 hover:text-white hover:bg-blue-600 p-2 border border-blue-200 rounded bg-white flex items-center gap-1 text-xs font-bold transition-colors" title="Buka Preview"><IconDocument /> Buka</a>
-                                            <button onClick={() => copyRekapShareLink(rekap)} className="text-green-700 hover:text-white hover:bg-green-600 p-2 border border-green-200 rounded bg-white flex items-center gap-1 text-xs font-bold transition-colors" title="Salin Link Share"><IconCheckCircle /> Salin Link</button>
-                                            {authUser?.role !== 'Karyawan' && <button onClick={() => setDeleteRekapConfirmId(rekap.id)} className="text-red-500 hover:text-white hover:bg-red-500 p-2 border border-red-200 rounded bg-white flex items-center gap-1 text-xs font-bold transition-colors" title="Batalkan Rekap"><IconTrash /> Batal Rekap</button>}
+                                        <div className="flex flex-wrap justify-end gap-1.5">
+                                            <a href={getRekapShareLink(rekap)} target="_blank" className="text-blue-600 hover:text-white hover:bg-blue-600 p-2 border border-blue-200 rounded-lg bg-white transition-colors" title="Buka Preview"><IconDocument /></a>
+                                            <button onClick={() => copyRekapShareLink(rekap)} className="text-green-700 hover:text-white hover:bg-green-600 p-2 border border-green-200 rounded-lg bg-white transition-colors" title="Salin Link Share"><IconCheckCircle /></button>
+                                            {authUser?.role !== 'Karyawan' && <button onClick={() => setDeleteRekapConfirmId(rekap.id)} className="text-red-500 hover:text-white hover:bg-red-500 p-2 border border-red-200 rounded-lg bg-white transition-colors" title="Batalkan Rekap"><IconTrash /></button>}
                                         </div>
                                     </div>
                                 </div>
