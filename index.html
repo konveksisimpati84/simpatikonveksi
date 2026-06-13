@@ -8793,6 +8793,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // printOptions dihapus — pilihan direkap kini langsung dikontrol oleh selectedKeys per kategori
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const [expandedInputIds, setExpandedInputIds] = useState({});
+            const [pinnedEmpIds, setPinnedEmpIds] = useState(new Set());
+            const [inputDetailEmpId, setInputDetailEmpId] = useState(null);
             const [showOnlyReady, setShowOnlyReady] = useState(false);
             const [manualProdForm, setManualProdForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), description: '', qty: '', unitPrice: '' });
             const safeOrdersForReport = Array.isArray(orders) ? orders : [];
@@ -9493,6 +9495,37 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian, lembur: acc.lembur + lembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
             }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 });
 
+            const pinnedSummary = pinnedEmpIds.size === 0 ? { net: 0, count: 0 } : filteredReportEmployees
+                .filter(emp => pinnedEmpIds.has(emp.id))
+                .reduce((acc, emp) => {
+                    let prodWage = 0;
+                    safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
+                        if(order.progress) {
+                            Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
+                                if (!getActiveProductionStageIds(order).includes(stage)) return;
+                                if (data && data.workLogs) {
+                                    const empLogs = safeArray(data.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
+                                    const qty = empLogs.reduce((s, l) => s + getWorkLogSubmittedQty(l), 0);
+                                    prodWage += qty * getProductionUnitPrice(order, stage);
+                                }
+                            });
+                        }
+                    });
+                    const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId);
+                    const manualProdWage = manualProdRows.reduce((s, l) => s + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
+                    const totalProdWage = prodWage + manualProdWage;
+                    const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
+                    const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
+                    const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
+                    const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
+                    const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
+                    const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
+                    const total = totalProdWage + harian + lembur + komisi;
+                    const kasbon = getEmployeeCashAdvanceSummary(emp).remaining;
+                    const net = Math.max(0, total - Math.min(kasbon, total));
+                    return { net: acc.net + net, count: acc.count + 1 };
+                }, { net: 0, count: 0 });
+
             return (
                 <div className="space-y-6">
                     <div>
@@ -9555,7 +9588,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="text-xs text-orange-200 mt-1">Siap Direkap</div>
                             </div>
                         </div>
-                        <div className="space-y-8">
+                        {pinnedEmpIds.size > 0 && (
+                            <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-3 rounded-xl flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <span className="font-black text-sm">📌 {pinnedEmpIds.size} Karyawan Disematkan</span>
+                                    <span className="text-sm text-amber-100">Total Gaji Bersih: <strong className="text-white">{formatRupiah(pinnedSummary.net)}</strong></span>
+                                </div>
+                                <button onClick={() => setPinnedEmpIds(new Set())} className="flex-shrink-0 text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold transition-colors">✕ Hapus Sematan</button>
+                            </div>
+                        )}
+                        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                            <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
+                                <span className="w-4 flex-shrink-0">Pin</span>
+                                <span className="flex-1">Karyawan</span>
+                                <span className="w-36 text-right hidden sm:block">Gaji Bersih</span>
+                                <span className="w-24 text-center hidden md:block">Status</span>
+                                <span className="w-20 text-center">Aksi</span>
+                            </div>
                             {pagedReportEmployees.map(emp => {
                                 const unsettledItems = [];
                                 let totalUnsettled = 0;
@@ -9627,132 +9676,35 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const empSelectedTotal = empSelectedItems.reduce((sum, item) => sum + item.qty, 0);
                                 const empSelectedWage = empSelectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0);
 
+                                const hasUnsettled = unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0;
+                                const isPinned = pinnedEmpIds.has(emp.id);
                                 return (
-                                    <div key={emp.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-blue-50 p-4 border-b border-blue-100">
-                                            <div>
-                                                <h3 className="font-bold text-lg text-blue-900">{emp.name}</h3>
-                                                <span className="text-xs font-semibold bg-blue-200 text-blue-800 px-3 py-1 rounded-full">{emp.division}</span>
-                                            </div>
-                                            <button onClick={() => setExpandedInputIds(prev => ({ ...prev, [emp.id]: !prev[emp.id] }))} className="mt-2 md:mt-0 text-xs font-bold px-3 py-1.5 rounded-lg border border-blue-300 bg-white text-blue-700 hover:bg-blue-100 transition-colors">
-                                                {expandedInputIds[emp.id] ? '▲ Sembunyikan Rincian' : '▼ Tampilkan Rincian'}
-                                            </button>
+                                    <div key={emp.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 transition-colors ${isPinned ? 'bg-amber-50/60' : 'hover:bg-gray-50/80'}`}>
+                                        <input type="checkbox" checked={isPinned} onChange={() => setPinnedEmpIds(prev => { const n = new Set(prev); n.has(emp.id) ? n.delete(emp.id) : n.add(emp.id); return n; })} className="w-4 h-4 cursor-pointer accent-amber-500 flex-shrink-0" title="Sematkan" />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold text-gray-900 text-sm truncate">{emp.name}</div>
+                                            <div className="text-xs text-gray-500">{emp.division}</div>
                                         </div>
-
-                                        <div className="p-4 space-y-4">
-                                            <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
-                                                <div className="bg-green-50 border border-green-100 rounded-lg p-3"><div className="text-[11px] font-black text-green-700 uppercase">Total Produksi</div><div className="text-sm font-black text-green-900 mt-1">{formatRupiah(totalUnsettledWage)}</div></div>
-                                                <div className="bg-purple-50 border border-purple-100 rounded-lg p-3"><div className="text-[11px] font-black text-purple-700 uppercase">Total Marketing</div><div className="text-sm font-black text-purple-900 mt-1">{formatRupiah(totalMarketingCommission)}</div></div>
-                                                <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3"><div className="text-[11px] font-black text-indigo-700 uppercase">Total Harian</div><div className="text-sm font-black text-indigo-900 mt-1">{formatRupiah(totalDailySalary)}</div></div>
-                                                <div className="bg-sky-50 border border-sky-100 rounded-lg p-3"><div className="text-[11px] font-black text-sky-700 uppercase">Total Lembur</div><div className="text-sm font-black text-sky-900 mt-1">{formatRupiah(totalOvertimeSalary)}</div></div>
-                                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3"><div className="text-[11px] font-black text-slate-600 uppercase">Pendapatan</div><div className="text-sm font-black text-slate-900 mt-1">{formatRupiah(totalIncome)}</div></div>
-                                                <div className="bg-orange-50 border border-orange-100 rounded-lg p-3"><div className="text-[11px] font-black text-orange-700 uppercase">Kasbon</div><div className="text-sm font-black text-orange-900 mt-1">{formatRupiah(cashAdvanceSummary.remaining)}</div></div>
-                                                <div className="bg-blue-50 border border-blue-100 rounded-lg p-3"><div className="text-[11px] font-black text-blue-700 uppercase">Bersih</div><div className="text-sm font-black text-blue-900 mt-1">{formatRupiah(projectedNetSalary)}</div></div>
-                                            </div>
-
-                                            {expandedInputIds[emp.id] && <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                                    <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
-                                                        <span className="font-black text-xs text-gray-700">Gaji Produksi</span>
-                                                        <button onClick={() => setManualProdForm(prev => ({ ...prev, empId: prev.empId === emp.id ? null : emp.id, description: '', qty: '', unitPrice: '', date: new Date().toISOString().slice(0,10) }))} className="text-xs px-2 py-1 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 transition-colors">+ Tambah Manual</button>
-                                                    </div>
-                                                    {manualProdForm.empId === emp.id && (
-                                                        <div className="bg-green-50 border-b border-green-200 p-3 space-y-2">
-                                                            <div className="text-xs font-bold text-green-800 mb-1">Input Gaji Produksi Manual (Permak, Ganti Label, dll)</div>
-                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                                                <div><label className="text-xs text-gray-600">Tanggal</label><input type="date" value={manualProdForm.date} onChange={e => setManualProdForm(prev => ({...prev, date: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
-                                                                <div className="md:col-span-1"><label className="text-xs text-gray-600">Keterangan Pekerjaan</label><input type="text" placeholder="cth: Permak celana, Ganti label..." value={manualProdForm.description} onChange={e => setManualProdForm(prev => ({...prev, description: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
-                                                                <div><label className="text-xs text-gray-600">Qty (pcs)</label><input type="number" min="0" placeholder="0" value={manualProdForm.qty} onChange={e => setManualProdForm(prev => ({...prev, qty: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
-                                                                <div><label className="text-xs text-gray-600">Harga/pcs (Rp)</label><input type="number" min="0" placeholder="0" value={manualProdForm.unitPrice} onChange={e => setManualProdForm(prev => ({...prev, unitPrice: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
-                                                            </div>
-                                                            {manualProdForm.qty > 0 && manualProdForm.unitPrice > 0 && <div className="text-xs text-green-800 font-bold">Subtotal: {formatRupiah(parseFloat(manualProdForm.qty || 0) * parseFloat(manualProdForm.unitPrice || 0))}</div>}
-                                                            <div className="flex gap-2">
-                                                                <button onClick={() => handleSaveManualProd(emp.id)} className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700">Simpan</button>
-                                                                <button onClick={() => setManualProdForm(prev => ({...prev, empId: null}))} className="text-xs px-3 py-1.5 bg-white text-gray-600 border border-gray-300 rounded-lg font-bold hover:bg-gray-50">Batal</button>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                    <div className="overflow-x-auto">
-                                                        <table className="w-full text-xs">
-                                                            <thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Order / Keterangan</th><th className="p-2 text-left">Jenis</th><th className="p-2 text-left">Tahap / Tgl</th><th className="p-2 text-right">Qty</th><th className="p-2 text-right">Harga/pcs</th><th className="p-2 text-right">Subtotal</th><th className="p-2"></th></tr></thead>
-                                                            <tbody>{unsettledItems.map((item, idx) => <tr key={`${emp.id}-prod-${item.orderId}-${item.stage}-${idx}`} className={`border-t ${item.isManual ? 'bg-green-50' : ''}`}><td className="p-2 font-bold text-blue-700">{item.isManual ? <span className="flex items-center gap-1"><span className="bg-green-200 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-black">MANUAL</span><span className="text-gray-800">{safeText(item.stageLabel)}</span></span> : safeText(item.orderId)}</td><td className="p-2">{safeText(item.type)}</td><td className="p-2">{item.isManual ? safeText(item.manualDate || '-') : safeText(item.stageLabel || item.stage)}</td><td className="p-2 text-right">{safeNumber(item.qty)} pcs</td><td className="p-2 text-right">{formatRupiah(item.unitPrice)}</td><td className="p-2 text-right font-black text-green-700">{formatRupiah(item.wageTotal)}</td><td className="p-2 text-center">{item.isManual && <button onClick={() => handleDeleteManualProd(emp.id, item.manualLogId)} className="text-red-400 hover:text-red-600 font-bold">✕</button>}</td></tr>)}{unsettledItems.length === 0 && <tr><td colSpan="7" className="p-4 text-center text-gray-500 italic">Belum ada gaji produksi.</td></tr>}</tbody>
-                                                        </table>
-                                                    </div>
-                                                </div>
-
-                                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                                    <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Komisi Marketing</div>
-                                                    <div className="overflow-x-auto">
-                                                        <table className="w-full text-xs">
-                                                            <thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Nomor Invoice</th><th className="p-2 text-left">Customer</th><th className="p-2 text-right">Total Invoice</th><th className="p-2 text-right">Komisi</th><th className="p-2 text-center">Status</th></tr></thead>
-                                                            <tbody>{marketingRows.map(inv => <tr key={`${emp.id}-inv-${inv.id}`} className="border-t"><td className="p-2 font-bold text-blue-700">{safeText(inv.id)}</td><td className="p-2">{safeText(inv.customer)}</td><td className="p-2 text-right">{formatRupiah(inv.totalInvoice)}</td><td className="p-2 text-right font-black text-purple-700">{formatRupiah(inv.commissionTotal)}</td><td className="p-2 text-center"><Badge status={safeText(inv.status, 'Belum Dibayar')} /></td></tr>)}{marketingRows.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Belum ada komisi marketing.</td></tr>}</tbody>
-                                                        </table>
-                                                    </div>
-                                                </div>
-
-                                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                                    <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Gaji Harian</div>
-                                                    <div className="overflow-x-auto">
-                                                        <table className="w-full text-xs">
-                                                            <thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Keterangan</th><th className="p-2 text-right">Jumlah Hari</th><th className="p-2 text-right">Nominal Harian</th><th className="p-2 text-right">Subtotal</th></tr></thead>
-                                                            <tbody>{dailySalaryRows.map(log => { const total = getDailySalaryLogTotal(log); return <tr key={`${emp.id}-daily-${log.id || log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2">{safeText(log.note, 'Masuk Kerja')}</td><td className="p-2 text-right">{safeNumber(log.workDays)} hari</td><td className="p-2 text-right">{formatRupiah(log.dailySalary)}</td><td className="p-2 text-right font-black text-indigo-700">{formatRupiah(total.daily)}</td></tr>; })}{dailySalaryRows.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Belum ada gaji harian.</td></tr>}</tbody>
-                                                        </table>
-                                                    </div>
-                                                </div>
-
-                                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                                    <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Lembur</div>
-                                                    <div className="overflow-x-auto">
-                                                        <table className="w-full text-xs">
-                                                            <thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Keterangan</th><th className="p-2 text-right">Jumlah Lembur</th><th className="p-2 text-right">Nominal Lembur</th><th className="p-2 text-right">Subtotal</th></tr></thead>
-                                                            <tbody>{overtimeRows.map(log => { const total = getDailySalaryLogTotal(log); return <tr key={`${emp.id}-overtime-${log.id || log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2">{safeText(log.note, 'Lembur')}</td><td className="p-2 text-right">{safeNumber(log.overtimeCount)}x</td><td className="p-2 text-right">{formatRupiah(log.overtimeRate)}</td><td className="p-2 text-right font-black text-sky-700">{formatRupiah(total.overtime)}</td></tr>; })}{overtimeRows.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Belum ada lembur.</td></tr>}</tbody>
-                                                        </table>
-                                                    </div>
-                                                </div>
-
-                                                <div className="xl:col-span-2 border border-gray-200 rounded-lg overflow-hidden">
-                                                    <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Kasbon</div>
-                                                    <div className="overflow-x-auto">
-                                                        <table className="w-full text-xs">
-                                                            <thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Keterangan</th><th className="p-2 text-right">Nominal Kasbon</th><th className="p-2 text-center">Status</th><th className="p-2 text-right">Sisa Kasbon</th></tr></thead>
-                                                            <tbody>{cashAdvanceRows.map(row => <tr key={`${emp.id}-kasbon-${row.id || row.date}`} className="border-t"><td className="p-2">{safeText(row.date || row.createdAt?.slice?.(0, 10))}</td><td className="p-2">{safeText(row.note || row.description, 'Kasbon')}</td><td className="p-2 text-right">{formatRupiah(getCashAdvanceAmount(row))}</td><td className="p-2 text-center"><Badge status={normalizeCashAdvanceStatus(row)} /></td><td className="p-2 text-right font-black text-orange-700">{formatRupiah(getCashAdvanceRemaining(row))}</td></tr>)}{cashAdvanceRows.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Belum ada kasbon aktif.</td></tr>}</tbody>
-                                                            <tfoot className="bg-orange-50 font-bold"><tr><td className="p-2" colSpan="2">Ringkasan Kasbon</td><td className="p-2 text-right">{formatRupiah(cashAdvanceSummary.total)}</td><td className="p-2 text-center">Terpotong: {formatRupiah(cashAdvanceSummary.deducted)}</td><td className="p-2 text-right">{formatRupiah(cashAdvanceSummary.remaining)}</td></tr></tfoot>
-                                                        </table>
-                                                    </div>
-                                                </div>
-                                            </div>}
-
-                                            {(unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0) ? (
-                                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                                                    <div>
-                                                        <h4 className="font-bold text-gray-800 flex items-center gap-2">
-                                                            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span> Siap Direkap
-                                                        </h4>
-                                                        <div className="flex flex-wrap gap-2 mt-2 text-xs">
-                                                            {unsettledItems.length > 0 && <span className="bg-green-100 text-green-800 font-bold px-2 py-1 rounded-full">Produksi: {unsettledItems.length} item — {formatRupiah(totalUnsettledWage)}</span>}
-                                                            {dailySalaryRows.length > 0 && <span className="bg-indigo-100 text-indigo-800 font-bold px-2 py-1 rounded-full">Harian: {dailySalaryRows.length} item — {formatRupiah(totalDailySalary)}</span>}
-                                                            {overtimeRows.length > 0 && <span className="bg-sky-100 text-sky-800 font-bold px-2 py-1 rounded-full">Lembur: {overtimeRows.length} item — {formatRupiah(totalOvertimeSalary)}</span>}
-                                                            {marketingRows.filter(inv => inv.commissionTotal > 0).length > 0 && <span className="bg-purple-100 text-purple-800 font-bold px-2 py-1 rounded-full">Marketing: {marketingRows.filter(inv => inv.commissionTotal > 0).length} item — {formatRupiah(totalMarketingCommission)}</span>}
-                                                        </div>
-                                                        <div className="text-sm text-gray-600 mt-2">Total pendapatan belum direkap: <strong>{formatRupiah(totalIncome)}</strong></div>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => handleOpenRekapModal(emp.id, unsettledItems)}
-                                                        className="text-sm px-4 py-2 rounded shadow-sm font-bold transition flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-                                                        <IconCheckCircle /> Rekap Gabungan
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <p className="text-sm text-gray-500 italic p-3 bg-gray-50 rounded text-center">Tidak ada penghasilan siap rekap.</p>
-                                            )}
+                                        <div className="text-right w-36 hidden sm:block flex-shrink-0">
+                                            <div className="font-black text-blue-700 text-sm">{formatRupiah(projectedNetSalary)}</div>
+                                            <div className="text-[11px] text-gray-400">{formatRupiah(totalIncome)} bruto</div>
+                                        </div>
+                                        <div className="w-24 text-center hidden md:block flex-shrink-0">
+                                            {hasUnsettled ? (
+                                                <span className="inline-flex items-center gap-1 text-xs font-bold bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full whitespace-nowrap">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse inline-block"></span> Siap
+                                                </span>
+                                            ) : <span className="text-xs text-gray-400 italic">Lunas</span>}
+                                        </div>
+                                        <div className="flex gap-1.5 items-center w-20 justify-center flex-shrink-0">
+                                            <button onClick={() => setInputDetailEmpId(emp.id)} title="Rincian" className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-100 transition-colors"><IconEye /></button>
+                                            {hasUnsettled && <button onClick={() => handleOpenRekapModal(emp.id, unsettledItems)} title="Rekap Gabungan" className="p-2 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 border border-green-100 transition-colors"><IconCheckCircle /></button>}
                                         </div>
                                     </div>
                                 )
                             })}
                             {filteredReportEmployees.length === 0 && (
-                                <Card className="p-8 text-center text-gray-500 italic border-dashed border-2">
-                                    Tidak ada karyawan yang cocok dengan pencarian.
-                                </Card>
+                                <div className="p-8 text-center text-gray-500 italic">Tidak ada karyawan yang cocok dengan pencarian.</div>
                             )}
                         </div>
                         {filteredReportEmployees.length > 0 && (
@@ -10027,6 +9979,129 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>
                     )}
+                    {inputDetailEmpId && (() => {
+                        const dEmp = (employees || []).find(e => String(e.id) === String(inputDetailEmpId));
+                        if (!dEmp) return null;
+                        const dUnsettledItems = [];
+                        let dTotalUnsettledWage = 0;
+                        safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
+                            if(order.progress) {
+                                Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
+                                    if (!getActiveProductionStageIds(order).includes(stage)) return;
+                                    if (data && data.workLogs) {
+                                        const empLogs = safeArray(data.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(dEmp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
+                                        if (empLogs.length > 0) {
+                                            const sizeMap = {};
+                                            empLogs.forEach(l => { sizeMap[l.size] = (sizeMap[l.size] || 0) + getWorkLogSubmittedQty(l); });
+                                            const sizesInfo = sortSizeKeys(Object.keys(sizeMap)).map(s => `${s} (${sizeMap[s]})`).join(', ');
+                                            const stageTotalQty = empLogs.reduce((sum, l) => sum + getWorkLogSubmittedQty(l), 0);
+                                            const unitPrice = getProductionUnitPrice(order, stage);
+                                            const wageTotal = stageTotalQty * unitPrice;
+                                            const stageLabel = productionStageOptions.find(opt => opt.id === stage)?.label || stage;
+                                            dUnsettledItems.push({ orderId: order.id, client: order.client, type: order.type, stage, stageLabel, sizes: sizesInfo, qty: stageTotalQty, unitPrice, wageTotal, logIds: empLogs.map(l => ({ stageId: stage, logId: l.id })) });
+                                            dTotalUnsettledWage += wageTotal;
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                        const dManualLogs = safeArray(getEmployeeManualProductionLogs(dEmp)).filter(log => !log.rekapId);
+                        dManualLogs.forEach(log => {
+                            const unitPrice = safeMoney(log.unitPrice); const qty = safeMoney(log.qty); const wageTotal = qty * unitPrice;
+                            if (wageTotal <= 0) return;
+                            dUnsettledItems.push({ orderId: `manual-${log.id}`, client: '-', type: 'Manual', stage: 'manual', stageLabel: log.description || 'Pekerjaan Manual', sizes: `${qty} pcs`, qty, unitPrice, wageTotal, isManual: true, manualLogId: log.id, manualDate: log.date, logIds: [] });
+                            dTotalUnsettledWage += wageTotal;
+                        });
+                        const dDailySalaryRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
+                        const dOvertimeRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
+                        const dCashAdvanceRows = safeArray(getEmployeeCashAdvances(dEmp));
+                        const dMarketingRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(dEmp?.name) && !inv?.commissionRekapId).map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
+                        const dTotalDailySalary = dDailySalaryRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
+                        const dTotalOvertimeSalary = dOvertimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
+                        const dTotalMarketingCommission = dMarketingRows.reduce((s, inv) => s + safeNumber(inv.commissionTotal), 0);
+                        const dCashAdvanceSummary = getEmployeeCashAdvanceSummary(dEmp);
+                        const dTotalIncome = dTotalUnsettledWage + dTotalMarketingCommission + dTotalDailySalary + dTotalOvertimeSalary;
+                        const dNetSalary = Math.max(0, dTotalIncome - Math.min(safeNumber(dCashAdvanceSummary.remaining), dTotalIncome));
+                        const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0;
+                        return (
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setInputDetailEmpId(null)}>
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
+                                        <div>
+                                            <div className="text-white font-black text-base">{dEmp.name}</div>
+                                            <div className="text-blue-100 text-xs mt-0.5">{dEmp.division} · Input Laporan Kinerja</div>
+                                        </div>
+                                        <button onClick={() => setInputDetailEmpId(null)} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold flex-shrink-0">✕</button>
+                                    </div>
+                                    <div className="overflow-y-auto flex-1 p-5 space-y-4">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                            <div className="bg-green-50 rounded-xl p-3 border border-green-100 text-center"><div className="text-xs text-gray-400 mb-1">Gaji Produksi</div><div className="font-black text-green-700 text-sm">{formatRupiah(dTotalUnsettledWage)}</div></div>
+                                            <div className="bg-purple-50 rounded-xl p-3 border border-purple-100 text-center"><div className="text-xs text-gray-400 mb-1">Komisi Marketing</div><div className="font-black text-purple-700 text-sm">{formatRupiah(dTotalMarketingCommission)}</div></div>
+                                            <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100 text-center"><div className="text-xs text-gray-400 mb-1">Gaji Harian</div><div className="font-black text-indigo-700 text-sm">{formatRupiah(dTotalDailySalary)}</div></div>
+                                            <div className="bg-sky-50 rounded-xl p-3 border border-sky-100 text-center"><div className="text-xs text-gray-400 mb-1">Gaji Lembur</div><div className="font-black text-sky-700 text-sm">{formatRupiah(dTotalOvertimeSalary)}</div></div>
+                                            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-center"><div className="text-xs text-gray-400 mb-1">Total Pendapatan</div><div className="font-black text-slate-800 text-sm">{formatRupiah(dTotalIncome)}</div></div>
+                                            <div className="bg-orange-50 rounded-xl p-3 border border-orange-100 text-center"><div className="text-xs text-gray-400 mb-1">Sisa Kasbon</div><div className="font-black text-orange-700 text-sm">{formatRupiah(dCashAdvanceSummary.remaining)}</div></div>
+                                            <div className="md:col-span-2 bg-blue-50 rounded-xl p-3 border border-blue-200 text-center"><div className="text-xs text-gray-400 mb-1">Gaji Bersih (Proyeksi)</div><div className="font-black text-blue-700 text-xl">{formatRupiah(dNetSalary)}</div></div>
+                                        </div>
+                                        <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                            <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
+                                                <span className="font-black text-xs text-gray-700">Gaji Produksi ({dUnsettledItems.length} item)</span>
+                                                <button onClick={() => setManualProdForm(prev => ({ ...prev, empId: prev.empId === dEmp.id ? null : dEmp.id, description: '', qty: '', unitPrice: '', date: new Date().toISOString().slice(0,10) }))} className="text-xs px-2 py-1 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700">+ Tambah Manual</button>
+                                            </div>
+                                            {manualProdForm.empId === dEmp.id && (
+                                                <div className="bg-green-50 border-b border-green-200 p-3 space-y-2">
+                                                    <div className="text-xs font-bold text-green-800 mb-1">Input Gaji Produksi Manual (Permak, Ganti Label, dll)</div>
+                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                                        <div><label className="text-xs text-gray-600">Tanggal</label><input type="date" value={manualProdForm.date} onChange={e => setManualProdForm(prev => ({...prev, date: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                        <div className="md:col-span-1"><label className="text-xs text-gray-600">Keterangan</label><input type="text" placeholder="cth: Permak celana..." value={manualProdForm.description} onChange={e => setManualProdForm(prev => ({...prev, description: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                        <div><label className="text-xs text-gray-600">Qty (pcs)</label><input type="number" min="0" placeholder="0" value={manualProdForm.qty} onChange={e => setManualProdForm(prev => ({...prev, qty: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                        <div><label className="text-xs text-gray-600">Harga/pcs (Rp)</label><input type="number" min="0" placeholder="0" value={manualProdForm.unitPrice} onChange={e => setManualProdForm(prev => ({...prev, unitPrice: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                    </div>
+                                                    {manualProdForm.qty > 0 && manualProdForm.unitPrice > 0 && <div className="text-xs text-green-800 font-bold">Subtotal: {formatRupiah(parseFloat(manualProdForm.qty||0)*parseFloat(manualProdForm.unitPrice||0))}</div>}
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => handleSaveManualProd(dEmp.id)} className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700">Simpan</button>
+                                                        <button onClick={() => setManualProdForm(prev => ({...prev, empId: null}))} className="text-xs px-3 py-1.5 bg-white text-gray-600 border border-gray-300 rounded-lg font-bold hover:bg-gray-50">Batal</button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-xs">
+                                                    <thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Order / Keterangan</th><th className="p-2 text-left">Jenis</th><th className="p-2 text-left">Tahap / Tgl</th><th className="p-2 text-right">Qty</th><th className="p-2 text-right">Harga/pcs</th><th className="p-2 text-right">Subtotal</th><th className="p-2"></th></tr></thead>
+                                                    <tbody>{dUnsettledItems.map((item, idx) => <tr key={`d-prod-${item.orderId}-${item.stage}-${idx}`} className={`border-t ${item.isManual ? 'bg-green-50' : ''}`}><td className="p-2 font-bold text-blue-700">{item.isManual ? <span className="flex items-center gap-1"><span className="bg-green-200 text-green-800 text-[10px] px-1.5 py-0.5 rounded font-black">MANUAL</span>{safeText(item.stageLabel)}</span> : safeText(item.orderId)}</td><td className="p-2">{safeText(item.type)}</td><td className="p-2">{item.isManual ? safeText(item.manualDate||'-') : safeText(item.stageLabel||item.stage)}</td><td className="p-2 text-right">{safeNumber(item.qty)} pcs</td><td className="p-2 text-right">{formatRupiah(item.unitPrice)}</td><td className="p-2 text-right font-black text-green-700">{formatRupiah(item.wageTotal)}</td><td className="p-2 text-center">{item.isManual && <button onClick={() => handleDeleteManualProd(dEmp.id, item.manualLogId)} className="text-red-400 hover:text-red-600 font-bold">✕</button>}</td></tr>)}{dUnsettledItems.length === 0 && <tr><td colSpan="7" className="p-4 text-center text-gray-500 italic">Belum ada gaji produksi.</td></tr>}</tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                                <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Komisi Marketing ({dMarketingRows.length})</div>
+                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Invoice</th><th className="p-2 text-left">Customer</th><th className="p-2 text-right">Komisi</th><th className="p-2 text-center">Status</th></tr></thead><tbody>{dMarketingRows.map(inv => <tr key={`d-inv-${inv.id}`} className="border-t"><td className="p-2 font-bold text-blue-700 text-[11px]">{safeText(inv.id)}</td><td className="p-2">{safeText(inv.customer)}</td><td className="p-2 text-right font-black text-purple-700">{formatRupiah(inv.commissionTotal)}</td><td className="p-2 text-center"><Badge status={safeText(inv.status,'Belum Dibayar')} /></td></tr>)}{dMarketingRows.length===0 && <tr><td colSpan="4" className="p-4 text-center text-gray-500 italic">Tidak ada.</td></tr>}</tbody></table>
+                                            </div>
+                                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                                <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Gaji Harian ({dDailySalaryRows.length})</div>
+                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Hari</th><th className="p-2 text-right">Subtotal</th></tr></thead><tbody>{dDailySalaryRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-daily-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2">{safeText(log.note,'Masuk Kerja')}</td><td className="p-2 text-right">{safeNumber(log.workDays)}h</td><td className="p-2 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>; })}{dDailySalaryRows.length===0 && <tr><td colSpan="4" className="p-4 text-center text-gray-500 italic">Tidak ada.</td></tr>}</tbody></table>
+                                            </div>
+                                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                                <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Lembur ({dOvertimeRows.length})</div>
+                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Jumlah</th><th className="p-2 text-right">Subtotal</th></tr></thead><tbody>{dOvertimeRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-ot-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2">{safeText(log.note,'Lembur')}</td><td className="p-2 text-right">{safeNumber(log.overtimeCount)}x</td><td className="p-2 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td></tr>; })}{dOvertimeRows.length===0 && <tr><td colSpan="4" className="p-4 text-center text-gray-500 italic">Tidak ada.</td></tr>}</tbody></table>
+                                            </div>
+                                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                                <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Kasbon</div>
+                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Nominal</th><th className="p-2 text-right">Sisa</th></tr></thead><tbody>{dCashAdvanceRows.map(row => <tr key={`d-kasbon-${row.id||row.date}`} className="border-t"><td className="p-2">{safeText(row.date||row.createdAt?.slice?.(0,10))}</td><td className="p-2">{safeText(row.note||row.description,'Kasbon')}</td><td className="p-2 text-right">{formatRupiah(getCashAdvanceAmount(row))}</td><td className="p-2 text-right font-black text-orange-700">{formatRupiah(getCashAdvanceRemaining(row))}</td></tr>)}{dCashAdvanceRows.length===0 && <tr><td colSpan="4" className="p-4 text-center text-gray-500 italic">Tidak ada.</td></tr>}</tbody></table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="px-5 py-3 border-t border-gray-100 flex justify-between items-center gap-2 bg-gray-50 flex-shrink-0">
+                                        <div className="text-xs text-gray-500">{dHasUnsettled ? <span className="text-yellow-700 font-bold">⚡ Ada penghasilan siap direkap</span> : <span className="text-green-600 font-bold">✓ Tidak ada yang perlu direkap</span>}</div>
+                                        <div className="flex gap-2">
+                                            {dHasUnsettled && <button onClick={() => { setInputDetailEmpId(null); handleOpenRekapModal(dEmp.id, dUnsettledItems); }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconCheckCircle /> Rekap Gabungan</button>}
+                                            <button onClick={() => setInputDetailEmpId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     {detailRekapId && (() => {
                         const rekap = (rekapKinerja || []).find(r => String(r.id) === String(detailRekapId));
                         if (!rekap) return null;
