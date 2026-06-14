@@ -3572,141 +3572,166 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                 <div className="p-10 text-center text-gray-400 bg-white rounded-xl border border-dashed border-gray-300">
                                     <div className="text-4xl mb-3">📦</div>
                                     <div className="font-bold text-gray-500">{searchTerm ? 'Tidak ada order yang cocok.' : 'Belum ada order produksi aktif.'}</div>
-                                    <div className="text-sm mt-1 text-gray-400">{!searchTerm && 'Semua order aktif akan muncul di sini. Hijau = siap kirim penuh, kuning = sebagian, merah = belum ada setor finishing.'}</div>
+                                    <div className="text-sm mt-1 text-gray-400">{!searchTerm && 'Hijau = siap kirim penuh · Kuning = sebagian · Merah = belum ada setor finishing'}</div>
                                 </div>
                             ) : (
-                                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                    <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
-                                        <span className="flex-1">Order · Klien</span>
-                                        <span className="w-32 text-right hidden sm:block">Total · Terkirim</span>
-                                        <span className="w-24 text-center hidden md:block">Deadline</span>
-                                        <span className="w-28 text-center hidden lg:block">Status</span>
-                                        <span className="w-36 text-center">Aksi</span>
-                                    </div>
-                                    {filteredActiveOrders.map(order => {
-                                        const isFullyShipped = Object.keys(order.sizes||{}).every(sz => (order.shipped?.[sz]||0) >= (order.sizes[sz]||0));
-                                        const totalShipped = Object.values(order.shipped||{}).reduce((s,v) => s+(parseInt(v)||0), 0);
-                                        const isDone = order.status === 'Terkirim' || isFullyShipped;
-                                        const finishingSetor = getFinishingSetorTotal(order);
-                                        const totalOrder = parseInt(order.total) || 0;
-                                        const totalAvailOrder = Object.keys(order.sizes||{}).reduce((s,sz) => s + getAvailableToShip(order, sz), 0);
-                                        const colorScheme = isDone
-                                            ? { border: 'border-l-purple-400', bg: 'bg-purple-50/30', badge: 'Terkirim' }
-                                            : finishingSetor >= totalOrder && totalOrder > 0
-                                                ? { border: 'border-l-green-400', bg: 'bg-green-50/40', badge: 'Siap Kirim' }
-                                                : finishingSetor > 0
-                                                    ? { border: 'border-l-yellow-400', bg: 'bg-yellow-50/40', badge: order.status }
-                                                    : { border: 'border-l-red-400', bg: 'bg-red-50/20', badge: order.status };
+                                <div className="space-y-2">
+                                    {Object.entries(filteredActiveOrders.reduce((acc, o) => { if (!acc[o.client]) acc[o.client] = []; acc[o.client].push(o); return acc; }, {})).map(([clientName, clientOrders]) => {
+                                        const isExpanded = !!expandedClients[clientName];
+                                        let hasRed = false, hasYellow = false, hasGreen = false, allDone = true;
+                                        clientOrders.forEach(o => {
+                                            const isFS = Object.keys(o.sizes||{}).every(sz => (o.shipped?.[sz]||0) >= (o.sizes[sz]||0));
+                                            const done = o.status === 'Terkirim' || isFS;
+                                            if (!done) { allDone = false; const s = getFinishingSetorTotal(o); const t = parseInt(o.total)||0; if (s <= 0) hasRed = true; else if (s < t) hasYellow = true; else hasGreen = true; }
+                                        });
+                                        const clientBorder = allDone ? 'border-l-purple-400' : hasRed ? 'border-l-red-400' : hasYellow ? 'border-l-yellow-400' : 'border-l-green-400';
+                                        const clientBg = allDone ? 'bg-purple-50/20' : hasRed ? 'bg-red-50/10' : hasYellow ? 'bg-yellow-50/20' : 'bg-green-50/20';
+                                        const totalPcsClient = clientOrders.reduce((s,o) => s+(parseInt(o.total)||0), 0);
+                                        const totalShippedClient = clientOrders.reduce((s,o) => s+Object.values(o.shipped||{}).reduce((ss,v)=>ss+(parseInt(v)||0),0), 0);
+                                        const selectedInClient = clientOrders.filter(o => selectedOrders[o.id]);
+                                        const hasNonDone = clientOrders.some(o => { const isFS = Object.keys(o.sizes||{}).every(sz=>(o.shipped?.[sz]||0)>=(o.sizes[sz]||0)); return !(o.status==='Terkirim'||isFS); });
                                         return (
-                                            <div key={order.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${colorScheme.border} ${colorScheme.bg} hover:brightness-[0.97] transition-all`}>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="font-bold text-gray-900 text-sm truncate">{order.id}</div>
-                                                    <div className="text-xs text-gray-500 truncate">{order.client} · {order.type}</div>
-                                                    <div className="text-[10px] text-gray-400 mt-0.5">Finishing setor: <span className="font-bold">{finishingSetor}</span> / {totalOrder} pcs</div>
+                                            <div key={clientName} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                                                <div className={`flex items-center gap-3 px-4 py-3 border-l-4 ${clientBorder} ${clientBg} cursor-pointer hover:brightness-[0.97] transition-all select-none`} onClick={() => toggleClientExpand(clientName)}>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="font-black text-gray-900 text-sm">{clientName}</div>
+                                                        <div className="text-xs text-gray-500">{clientOrders.length} order · {totalPcsClient} pcs · Terkirim: {totalShippedClient}</div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                                        {selectedInClient.length > 0 && <span className="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">{selectedInClient.length} dipilih</span>}
+                                                        <span className="text-xs font-bold text-gray-400">{isExpanded ? '▲' : '▼'}</span>
+                                                    </div>
                                                 </div>
-                                                <div className="text-right w-32 hidden sm:block flex-shrink-0">
-                                                    <div className="font-black text-gray-800 text-sm">{order.total} pcs</div>
-                                                    <div className="text-[11px] text-gray-400">Kirim: {totalShipped} · Avail: {totalAvailOrder}</div>
-                                                </div>
-                                                <div className="w-24 text-center hidden md:block flex-shrink-0">
-                                                    <div className={`text-xs font-bold ${order.deadline && new Date(order.deadline) < new Date() ? 'text-red-600' : 'text-gray-600'}`}>{order.deadline || '-'}</div>
-                                                </div>
-                                                <div className="w-28 text-center hidden lg:block flex-shrink-0">
-                                                    <Badge status={colorScheme.badge} />
-                                                </div>
-                                                <div className="flex gap-1.5 items-center w-36 justify-center flex-shrink-0">
-                                                    {!isDone && totalAvailOrder > 0 && (
-                                                        <button onClick={() => setShipModalOrderId(order.id)} className="text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg flex items-center gap-1"><IconPrinter /> Kirim</button>
-                                                    )}
-                                                    {!isDone && totalAvailOrder === 0 && (
-                                                        <span className="text-xs text-gray-400 italic">Belum ada</span>
-                                                    )}
-                                                    {isDone && (
-                                                        <button onClick={() => {
-                                                            const hasSJ = (riwayatPengiriman||[]).filter(isVisibleRecord).some(r => (r.items||[]).some(item => item.orderId === order.id));
-                                                            if (!hasSJ) {
-                                                                const shipped = (order.shipped && Object.keys(order.shipped).length > 0) ? order.shipped : order.sizes||{};
-                                                                const shippedTotal = Object.values(shipped).reduce((s,q)=>s+(parseInt(q)||0),0);
-                                                                const details = sortSizeKeys(Object.keys(shipped)).map(sz=>`${sz} (${shipped[sz]})`).join(', ');
-                                                                setRiwayatPengiriman(prev => [...(prev||[]), { id: genId('SJ-'), date: new Date().toISOString().split('T')[0], client: order.client, items: [{ orderId: order.id, type: order.type||'-', details, total: shippedTotal||order.total||0 }], total: shippedTotal||order.total||0, _syncUpdatedAt: new Date().toISOString() }]);
-                                                            }
-                                                            setOrders(prev => prev.map(o => String(o.id)===String(order.id) ? {...o, isArchived: true} : o));
-                                                            showToast("Order diarsipkan ke Riwayat!", "success");
-                                                        }} className="text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center gap-1"><IconArchive /> Arsipkan</button>
-                                                    )}
-                                                </div>
+                                                {isExpanded && (
+                                                    <div className="border-t border-gray-100">
+                                                        <div className="flex px-4 py-2 bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-wide gap-3 items-center border-b border-gray-100">
+                                                            <span className="w-5"></span>
+                                                            <span className="flex-1">Order · Jenis Produksi</span>
+                                                            <span className="w-32 text-right hidden sm:block">Total · Avail</span>
+                                                            <span className="w-24 text-center hidden md:block">Deadline</span>
+                                                            <span className="w-24 text-center">Status</span>
+                                                        </div>
+                                                        {clientOrders.map(order => {
+                                                            const isFullyShipped = Object.keys(order.sizes||{}).every(sz => (order.shipped?.[sz]||0) >= (order.sizes[sz]||0));
+                                                            const isDone = order.status === 'Terkirim' || isFullyShipped;
+                                                            const finishingSetor = getFinishingSetorTotal(order);
+                                                            const totalOrder = parseInt(order.total) || 0;
+                                                            const totalAvailOrder = Object.keys(order.sizes||{}).reduce((s,sz) => s + getAvailableToShip(order, sz), 0);
+                                                            const cs = isDone ? { border:'border-l-purple-300', bg:'bg-purple-50/20', badge:'Terkirim' } : finishingSetor >= totalOrder && totalOrder > 0 ? { border:'border-l-green-300', bg:'bg-green-50/30', badge:'Siap Kirim' } : finishingSetor > 0 ? { border:'border-l-yellow-300', bg:'bg-yellow-50/30', badge:order.status } : { border:'border-l-red-300', bg:'bg-red-50/15', badge:order.status };
+                                                            return (
+                                                                <div key={order.id} className={`flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-b-0 border-l-4 ${cs.border} ${cs.bg}`}>
+                                                                    <input type="checkbox" className="w-4 h-4 rounded border-gray-300 accent-blue-600 flex-shrink-0 cursor-pointer"
+                                                                        disabled={isDone || totalAvailOrder === 0}
+                                                                        checked={!!selectedOrders[order.id]}
+                                                                        onChange={() => setSelectedOrders(prev => ({...prev, [order.id]: !prev[order.id]}))} />
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="font-bold text-gray-900 text-xs">{order.id}</div>
+                                                                        <div className="text-[10px] text-gray-500">{order.type} · Finishing setor: {finishingSetor}/{totalOrder}</div>
+                                                                    </div>
+                                                                    <div className="text-right w-32 hidden sm:block flex-shrink-0">
+                                                                        <div className="font-black text-gray-800 text-xs">{order.total} pcs</div>
+                                                                        <div className="text-[10px] text-gray-400">Avail: {totalAvailOrder}</div>
+                                                                    </div>
+                                                                    <div className="w-24 text-center hidden md:block flex-shrink-0">
+                                                                        <div className={`text-[10px] font-bold ${order.deadline && new Date(order.deadline) < new Date() ? 'text-red-600' : 'text-gray-500'}`}>{order.deadline || '-'}</div>
+                                                                    </div>
+                                                                    <div className="w-24 text-center flex-shrink-0">
+                                                                        {isDone ? (
+                                                                            <button onClick={() => {
+                                                                                const hasSJ = (riwayatPengiriman||[]).filter(isVisibleRecord).some(r => (r.items||[]).some(i => i.orderId === order.id));
+                                                                                if (!hasSJ) { const sh = (order.shipped && Object.keys(order.shipped).length > 0) ? order.shipped : order.sizes||{}; const st = Object.values(sh).reduce((s,q)=>s+(parseInt(q)||0),0); const det = sortSizeKeys(Object.keys(sh)).map(sz=>`${sz} (${sh[sz]})`).join(', '); setRiwayatPengiriman(prev => [...(prev||[]), { id: genId('SJ-'), date: new Date().toISOString().split('T')[0], client: order.client, items: [{ orderId: order.id, type: order.type||'-', details: det, total: st||order.total||0 }], total: st||order.total||0, _syncUpdatedAt: new Date().toISOString() }]); }
+                                                                                setOrders(prev => prev.map(o => String(o.id)===String(order.id) ? {...o, isArchived: true} : o));
+                                                                                showToast("Order diarsipkan!", "success");
+                                                                            }} className="text-[10px] font-bold bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded-lg">Arsipkan</button>
+                                                                        ) : (
+                                                                            <Badge status={cs.badge} />
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {hasNonDone && (
+                                                            <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
+                                                                <div className="flex items-center gap-3">
+                                                                    <button onClick={() => { const sel = {}; clientOrders.forEach(o => { const isFS=Object.keys(o.sizes||{}).every(sz=>(o.shipped?.[sz]||0)>=(o.sizes[sz]||0)); const done=o.status==='Terkirim'||isFS; const avail=Object.keys(o.sizes||{}).reduce((s,sz)=>s+getAvailableToShip(o,sz),0); if (!done && avail > 0) sel[o.id]=true; }); setSelectedOrders(prev=>({...prev,...sel})); }} className="text-xs text-blue-600 font-bold hover:underline">Pilih Semua</button>
+                                                                    <button onClick={() => { const desel={}; clientOrders.forEach(o=>{ desel[o.id]=false; }); setSelectedOrders(prev=>({...prev,...desel})); }} className="text-xs text-gray-500 hover:underline">Batal Pilih</button>
+                                                                </div>
+                                                                <button disabled={selectedInClient.length === 0}
+                                                                    onClick={() => { if (!selectedInClient.length) { showToast("Pilih minimal 1 order.", "error"); return; } setShipModalOrderId(clientName); }}
+                                                                    className="text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg flex items-center gap-1.5">
+                                                                    <IconPrinter /> Kirim{selectedInClient.length > 0 ? ` (${selectedInClient.length} Order)` : ' Order Terpilih'}
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}
                                 </div>
                             )}
 
-                            {/* Modal Kirim Order */}
+                            {/* Modal Kirim Gabungan Per Klien */}
                             {shipModalOrderId && (() => {
-                                const shipOrder = activeOrders.find(o => String(o.id) === String(shipModalOrderId));
-                                if (!shipOrder) return null;
-                                const totalPcsOrder = parseInt(shipOrder.total) || 0;
-                                const totalShippedOrder = Object.values(shipOrder.shipped||{}).reduce((s,v)=>s+(parseInt(v)||0),0);
-                                const totalAvail = Object.keys(shipOrder.sizes||{}).reduce((s,sz)=>s+getAvailableToShip(shipOrder,sz),0);
+                                const clientName = shipModalOrderId;
+                                const clientSelectedOrders = activeOrders.filter(o => o.client === clientName && selectedOrders[o.id]);
+                                if (!clientSelectedOrders.length) return null;
+                                const totalPcsAll = clientSelectedOrders.reduce((s,o)=>s+(parseInt(o.total)||0),0);
+                                const totalAvailAll = clientSelectedOrders.reduce((s,o)=>s+Object.keys(o.sizes||{}).reduce((ss,sz)=>ss+getAvailableToShip(o,sz),0),0);
+                                const totalShippedAll = clientSelectedOrders.reduce((s,o)=>s+Object.values(o.shipped||{}).reduce((ss,v)=>ss+(parseInt(v)||0),0),0);
                                 return (
                                     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setShipModalOrderId(null)}>
-                                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                                             <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-5 py-4 flex items-center justify-between flex-shrink-0">
                                                 <div>
-                                                    <div className="text-white font-black text-base">{shipOrder.id} — {shipOrder.type}</div>
-                                                    <div className="text-blue-200 text-xs mt-0.5">{shipOrder.client} · Deadline: {shipOrder.deadline}</div>
+                                                    <div className="text-white font-black text-base">{clientName}</div>
+                                                    <div className="text-blue-200 text-xs mt-0.5">{clientSelectedOrders.length} order dipilih · Surat Jalan Gabungan</div>
                                                 </div>
                                                 <button onClick={() => setShipModalOrderId(null)} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold flex-shrink-0">✕</button>
                                             </div>
                                             <div className="p-5 overflow-y-auto flex-1 space-y-4">
                                                 <div className="grid grid-cols-3 gap-3">
-                                                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
-                                                        <div className="text-xs text-gray-400 mb-1">Total Order</div>
-                                                        <div className="font-black text-blue-700 text-lg">{totalPcsOrder} pcs</div>
-                                                    </div>
-                                                    <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-center">
-                                                        <div className="text-xs text-gray-400 mb-1">Tersedia Kirim</div>
-                                                        <div className="font-black text-orange-700 text-lg">{totalAvail} pcs</div>
-                                                    </div>
-                                                    <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-center">
-                                                        <div className="text-xs text-gray-400 mb-1">Sudah Terkirim</div>
-                                                        <div className="font-black text-green-700 text-lg">{totalShippedOrder} pcs</div>
-                                                    </div>
+                                                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center"><div className="text-xs text-gray-400 mb-1">Total Order</div><div className="font-black text-blue-700 text-lg">{totalPcsAll} pcs</div></div>
+                                                    <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-center"><div className="text-xs text-gray-400 mb-1">Tersedia Kirim</div><div className="font-black text-orange-700 text-lg">{totalAvailAll} pcs</div></div>
+                                                    <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-center"><div className="text-xs text-gray-400 mb-1">Sudah Terkirim</div><div className="font-black text-green-700 text-lg">{totalShippedAll} pcs</div></div>
                                                 </div>
-                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                    {sortSizeKeys(Object.keys(shipOrder.sizes||{})).map(size => {
-                                                        const avail = getAvailableToShip(shipOrder, size);
-                                                        const target = shipOrder.sizes[size];
-                                                        const shipped = (shipOrder.shipped?.[size]) || 0;
-                                                        const isCompleted = avail === 0 && shipped >= target;
-                                                        return (
-                                                            <div key={size} className={`p-3 rounded-xl border ${isCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                                <div className="flex justify-between items-center mb-2">
-                                                                    <span className="text-xs font-black text-gray-700">Size {size}</span>
-                                                                    <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold">Target: {target}</span>
-                                                                </div>
-                                                                <div className="flex justify-between text-xs mb-1">
-                                                                    <span className="text-gray-500">Sudah Kirim</span>
-                                                                    <span className="font-bold text-green-600">{shipped}</span>
-                                                                </div>
-                                                                <div className="flex justify-between text-xs mb-3 pb-2 border-b border-gray-200">
-                                                                    <span className="text-gray-500">Tersedia</span>
-                                                                    <span className="font-bold text-orange-600">{avail}</span>
-                                                                </div>
-                                                                <input type="number" min="0" max={avail} disabled={isCompleted || avail === 0}
-                                                                    placeholder={isCompleted ? 'Lengkap' : 'Qty kirim...'}
-                                                                    className="w-full text-sm p-2 border rounded-lg text-center font-bold focus:ring-2 focus:ring-blue-500 disabled:bg-gray-200 disabled:cursor-not-allowed"
-                                                                    value={shippingInputs[shipOrder.id]?.[size] || ''}
-                                                                    onChange={e => handleUpdateShippingInput(shipOrder.id, size, e.target.value, avail)}
-                                                                />
+                                                {clientSelectedOrders.map(shipOrder => {
+                                                    const totalAvailOrd = Object.keys(shipOrder.sizes||{}).reduce((s,sz)=>s+getAvailableToShip(shipOrder,sz),0);
+                                                    return (
+                                                        <div key={shipOrder.id} className="border border-gray-200 rounded-xl overflow-hidden">
+                                                            <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
+                                                                <div><span className="font-black text-indigo-700 text-sm">{shipOrder.id}</span><span className="text-xs text-gray-500 ml-2">{shipOrder.type} · {shipOrder.total} pcs</span></div>
+                                                                <span className="text-xs text-orange-600 font-bold">Avail: {totalAvailOrd} pcs</span>
                                                             </div>
-                                                        );
-                                                    })}
-                                                </div>
+                                                            <div className="p-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                                                {sortSizeKeys(Object.keys(shipOrder.sizes||{})).map(size => {
+                                                                    const avail = getAvailableToShip(shipOrder, size);
+                                                                    const target = shipOrder.sizes[size];
+                                                                    const shipped = (shipOrder.shipped?.[size]) || 0;
+                                                                    const isCompleted = avail === 0 && shipped >= target;
+                                                                    return (
+                                                                        <div key={size} className={`p-2 rounded-lg border ${isCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                                            <div className="flex justify-between items-center mb-1">
+                                                                                <span className="text-xs font-black text-gray-700">Size {size}</span>
+                                                                                <span className="text-[9px] bg-orange-100 text-orange-700 px-1 py-0.5 rounded font-bold">Avail: {avail}</span>
+                                                                            </div>
+                                                                            <div className="flex justify-between text-[10px] mb-1 text-gray-500"><span>Sudah kirim</span><span className="font-bold text-green-600">{shipped}</span></div>
+                                                                            <input type="number" min="0" max={avail} disabled={isCompleted || avail === 0}
+                                                                                placeholder={isCompleted ? 'Lengkap' : '0'}
+                                                                                className="w-full text-sm p-1.5 border rounded text-center font-bold focus:ring-2 focus:ring-blue-500 disabled:bg-gray-200 disabled:cursor-not-allowed"
+                                                                                value={shippingInputs[shipOrder.id]?.[size] || ''}
+                                                                                onChange={e => handleUpdateShippingInput(shipOrder.id, size, e.target.value, avail)} />
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                             <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 flex-shrink-0">
                                                 <button onClick={() => setShipModalOrderId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Batal</button>
-                                                <button onClick={() => { executeKirimGabungan(shipOrder.client, [shipOrder]); setShipModalOrderId(null); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak SJ & Kirim</button>
+                                                <button onClick={() => { executeKirimGabungan(clientName, clientSelectedOrders); setShipModalOrderId(null); setSelectedOrders({}); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak SJ & Kirim</button>
                                             </div>
                                         </div>
                                     </div>
