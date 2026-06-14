@@ -14536,7 +14536,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <span style="color:${design.textColorRight};font-size:${lh*0.15*(design.fontSizeTitle||100)/100}mm;font-weight:700;font-family:${design.fontFamily||'serif'};">Size</span>
                                     </div>
                                     <div style="height:62%;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;">
-                                        <span style="color:${design.textColorRight};font-size:${Math.min(lh*0.32,lw*0.11)*(design.fontSizeValue||100)/100}mm;font-weight:900;font-family:${design.fontFamily||'serif'};line-height:1;">${sz}</span>
+                                        <span style="color:${design.textColorRight};font-size:${Math.min(lh*0.32,lw*0.11)*(design.fontSizeValue||100)/100}mm;font-weight:900;font-family:${design.fontFamily||'serif'};line-height:1;text-align:center;">${sz}</span>
                                     </div>
                                 </div>
                             </div>
@@ -15086,7 +15086,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                 <span style={{color:design.textColorRight, fontSize:`${labelH()*0.15*(design.fontSizeTitle||100)/100}mm`, fontWeight:700, fontFamily:design.fontFamily||'serif', letterSpacing:'.03em'}}>Size</span>
                                                             </div>
                                                             <div className="w-full flex items-center justify-center" style={{height:'62%'}}>
-                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)*(design.fontSizeValue||100)/100}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', lineHeight:1, letterSpacing:'-.01em'}}>{item.size}</span>
+                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)*(design.fontSizeValue||100)/100}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', lineHeight:1, letterSpacing:'-.01em', textAlign:'center'}}>{item.size}</span>
                                                             </div>
                                                         </div>
                                                     </div>
