@@ -5548,7 +5548,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .amount-row .label{color:#64748b}.amount-row .val{font-weight:700}
 .footer-section{display:flex;justify-content:space-between;margin-top:auto;padding-top:6mm;border-top:1px solid #9ca3af;page-break-inside:avoid;break-inside:avoid}
 .sign-box{text-align:center;width:200px;position:relative}.sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:0;position:relative;z-index:0}
-.sign-img{max-height:${Math.round(120*(templates?.signatureSize||100)/100)}px;max-width:${Math.round(175*(templates?.signatureSize||100)/100)}px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2}
+.sign-img{max-height:120px;max-width:175px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}
 .sign-space{height:65px}.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}.sign-name{font-size:12px;font-weight:700;color:${ac};text-decoration:underline;text-underline-offset:3px;position:relative;z-index:0}.sign-sub{font-size:10px;color:#64748b;margin-top:3px;position:relative;z-index:0}
 @media print{.page{padding:10mm 12mm}}
 </style></head><body><div class="page">
@@ -6277,7 +6277,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .footer-section{display:flex;justify-content:flex-end;margin-top:5mm;padding-top:4mm;border-top:1px solid #9ca3af;page-break-inside:avoid;break-inside:avoid}
 .sign-box{text-align:center;width:210px;position:relative}
 .sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:0;position:relative;z-index:0}
-.sign-img{max-height:${Math.round(120*(templates?.signatureSize||100)/100)}px;max-width:${Math.round(180*(templates?.signatureSize||100)/100)}px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2}
+.sign-img{max-height:120px;max-width:180px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}
 .sign-space{height:65px}
 .sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}
 .sign-name{font-size:12px;font-weight:700;color:#1e3a5f;text-decoration:underline;text-underline-offset:3px;position:relative;z-index:0}
@@ -7433,7 +7433,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const coNm = safe((tmpl||{}).companyName || 'SIMPATI KONVEKSI');
             const coSub = safe((tmpl||{}).companySubtitle || 'Konveksi Profesional');
             const signHtml = (tmpl||{}).signatureImage
-                ? `<img src="${(tmpl||{}).signatureImage}" style="max-height:${Math.round(55*((tmpl||{}).signatureSize||100)/100)}px;max-width:${Math.round(160*((tmpl||{}).signatureSize||100)/100)}px;object-fit:contain;display:block;margin:0 auto"/>`
+                ? `<img src="${(tmpl||{}).signatureImage}" style="max-height:55px;max-width:160px;object-fit:contain;display:block;margin:0 auto;transform:scale(${((tmpl||{}).signatureSize||100)/100});transform-origin:center center"/>`
                 : '';
             const printContent = `<!DOCTYPE html><html><head><title>Sertifikat Investasi - ${safe(investor.name)}</title><style>
 @page{size:A4 landscape;margin:0}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,Helvetica,sans-serif;background:#fffef8;-webkit-print-color-adjust:exact;print-color-adjust:exact}
