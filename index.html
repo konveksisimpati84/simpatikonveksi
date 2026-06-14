@@ -13376,7 +13376,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 }
 
                 if ((!merged.materials || merged.materials.length === 0) && Array.isArray(remoteOrder.materials)) merged.materials = remoteOrder.materials;
-                if (remoteTime > localTime && Array.isArray(remoteOrder.materials)) merged.materials = remoteOrder.materials;
+                if (remoteTime > localTime && Array.isArray(remoteOrder.materials) && remoteOrder.materials.length > 0) merged.materials = remoteOrder.materials;
                 return merged;
             };
 
@@ -13663,9 +13663,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             const nextAccounts = mergeRecordLists(localAccounts, Array.isArray(accs) ? accs : []);
                             const nextEmployees = mergeRecordLists(sanitizeEmployees(localEmployees), sanitizeEmployees(Array.isArray(emps) ? emps : []));
                             const localOrders = loadLocalData('simpati_orders_sync', initialOrders);
-                            const shouldResetPurchases = shouldResetPurchaseData();
-                            let nextOrders = mergeOrderLists(localOrders, Array.isArray(ords) ? ords : []);
-                            if (shouldResetPurchases) nextOrders = resetPurchaseDataForCleanStart(nextOrders);
+                            const nextOrders = mergeOrderLists(localOrders, Array.isArray(ords) ? ords : []);
                             const localRekaps = loadLocalData('simpati_rekap_sync', []);
                             const nextRekaps = mergeRecordLists(localRekaps, Array.isArray(rekaps) ? rekaps : []);
                             const localRiwayats = loadLocalData('simpati_riwayat_sj_sync', []);
@@ -13689,7 +13687,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             safeLocalSet('simpati_accounts_sync', JSON.stringify(nextAccounts));
                             safeLocalSet('simpati_employees_sync', JSON.stringify(nextEmployees));
                             safeLocalSet('simpati_orders_sync', JSON.stringify(nextOrders));
-                            if (shouldResetPurchases) safeLocalSet('simpati_purchase_reset_version', PURCHASE_RESET_VERSION);
                             safeLocalSet('simpati_rekap_sync', JSON.stringify(nextRekaps));
                             safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(nextRiwayats));
                             safeLocalSet('simpati_expenses_sync', JSON.stringify(nextExpenses));
@@ -13714,6 +13711,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             setRiwayatPengiriman(nextRiwayats);
                             setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : loadLocalData('simpati_templates_sync', initialTemplates));
                             if (Array.isArray(remInvestors)) {
+
                                 const next = mergeRecordLists(loadLocalData('simpati_investors_sync', []), remInvestors);
                                 setInvestors(next); safeLocalSet('simpati_investors_sync', JSON.stringify(next));
                                 if (JSON.stringify(next) !== JSON.stringify(remInvestors)) setTimeout(() => saveToSupabase('investors', next), 0);
