@@ -14436,6 +14436,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [savedTemplates, setSavedTemplates] = useState([]);
             const [showPrintTip, setShowPrintTip] = useState(false);
             const [isExporting, setIsExporting] = useState(false);
+            const previewTimerRef = React.useRef(null);
+            const [previewKey, setPreviewKey] = React.useState(0);
+            const latestForPreview = React.useRef({ massGenMode: 'massal', individualLabels: LM_DEFAULT.individualLabels, massGen: LM_DEFAULT.massGen });
 
             useEffect(() => {
                 const saved = localStorage.getItem('simpati_label_templates');
@@ -14452,19 +14455,30 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 : massGen.reduce((a,c) => a + (c.qty||0), 0);
             const totalPages = Math.ceil(Math.max(totalLabels, 1) / perPage);
 
-            const buildPages = () => {
+            const buildPagesFrom = (m, il, mg, pp) => {
                 let arr = [];
-                if (massGenMode === 'individu') {
-                    arr = individualLabels.map(item => ({ size: item.size || '', nama: item.nama || '' }));
+                if (m === 'individu') {
+                    arr = il.map(item => ({ size: item.size || '', nama: item.nama || '' }));
                 } else {
-                    massGen.forEach(item => { for (let i = 0; i < item.qty; i++) arr.push({ size: item.size, nama: '' }); });
+                    mg.forEach(item => { for (let i = 0; i < item.qty; i++) arr.push({ size: item.size, nama: '' }); });
                 }
-                if (arr.length === 0) for(let i=0;i<perPage;i++) arr.push({ size: 'XL', nama: '' });
+                if (arr.length === 0) for (let i = 0; i < pp; i++) arr.push({ size: 'XL', nama: '' });
                 const res = []; let idx = 0;
-                while (idx < arr.length) { res.push(arr.slice(idx, idx + perPage)); idx += perPage; }
+                while (idx < arr.length) { res.push(arr.slice(idx, idx + pp)); idx += pp; }
                 return res;
             };
-            const pages = buildPages();
+            const triggerPreview = (updates, immediate) => {
+                Object.assign(latestForPreview.current, updates);
+                clearTimeout(previewTimerRef.current);
+                if (immediate) { setPreviewKey(k => k + 1); }
+                else { previewTimerRef.current = setTimeout(() => setPreviewKey(k => k + 1), 250); }
+            };
+            const pages = React.useMemo(() => buildPagesFrom(
+                latestForPreview.current.massGenMode,
+                latestForPreview.current.individualLabels,
+                latestForPreview.current.massGen,
+                perPage
+            ), [previewKey, perPage]);
 
             const handlePaperChange = (e) => {
                 const t = e.target.value;
@@ -14491,7 +14505,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const wW = workW(), wH = workH();
                 const pgW = paper.width, pgH = paper.height;
                 const orientation = paper.orientation === 'landscape' ? 'landscape' : 'portrait';
-                const pagesHtml = pages.map((pageSizes, pi) => {
+                const currentPages = buildPagesFrom(massGenMode, individualLabels, massGen, perPage);
+                const pagesHtml = currentPages.map((pageSizes, pi) => {
                     const labelsHtml = pageSizes.map(item => {
                         const sz = item.size, nama = item.nama || '';
                         const logoMaxH = nama ? '65%' : '88%';
@@ -14527,7 +14542,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>`;
                     }).join('');
-                    return `<div style="box-sizing:border-box;width:${pgW}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;overflow:hidden;page-break-after:${pi < pages.length-1 ? 'always' : 'auto'};break-after:${pi < pages.length-1 ? 'page' : 'auto'};page-break-inside:avoid;">
+                    return `<div style="box-sizing:border-box;width:${pgW}mm;padding:${paper.marginTop}mm ${paper.marginRight}mm ${paper.marginBottom}mm ${paper.marginLeft}mm;background:white;overflow:hidden;page-break-after:${pi < currentPages.length-1 ? 'always' : 'auto'};break-after:${pi < currentPages.length-1 ? 'page' : 'auto'};page-break-inside:avoid;">
                         <div style="box-sizing:border-box;width:${wW}mm;display:flex;flex-wrap:wrap;align-content:flex-start;gap:${paper.gapY}mm ${paper.gapX}mm;overflow:hidden;">
                             ${labelsHtml}
                         </div>
@@ -14917,11 +14932,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 {/* Mode toggle */}
                                 <div className="flex rounded-lg overflow-hidden border border-gray-200 bg-gray-100 p-0.5">
-                                    <button onClick={() => setMassGenMode('massal')}
+                                    <button onClick={() => { setMassGenMode('massal'); triggerPreview({ massGenMode: 'massal' }, true); }}
                                         className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${massGenMode==='massal' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
                                         Massal
                                     </button>
-                                    <button onClick={() => setMassGenMode('individu')}
+                                    <button onClick={() => { setMassGenMode('individu'); triggerPreview({ massGenMode: 'individu' }, true); }}
                                         className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${massGenMode==='individu' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
                                         Individual
                                     </button>
@@ -14933,21 +14948,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div key={item.id} className="flex gap-2 items-center">
                                                 <div className="flex-1 relative">
                                                     <input type="text" placeholder="Ukuran" value={item.size}
-                                                        onChange={e => { const a=[...massGen]; a[i]={...a[i],size:e.target.value}; setMassGen(a); }}
+                                                        onChange={e => { const a=[...massGen]; a[i]={...a[i],size:e.target.value}; setMassGen(a); triggerPreview({ massGen: a }); }}
                                                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-bold uppercase bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
                                                 </div>
                                                 <div className="w-20">
                                                     <input type="number" min="1" placeholder="Qty" value={item.qty}
-                                                        onChange={e => { const a=[...massGen]; a[i]={...a[i],qty:Number(e.target.value)}; setMassGen(a); }}
+                                                        onChange={e => { const a=[...massGen]; a[i]={...a[i],qty:Number(e.target.value)}; setMassGen(a); triggerPreview({ massGen: a }); }}
                                                         className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none text-center" />
                                                 </div>
-                                                <button onClick={() => setMassGen(massGen.filter(m=>m.id!==item.id))} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                                <button onClick={() => { const a=massGen.filter(m=>m.id!==item.id); setMassGen(a); triggerPreview({ massGen: a }, true); }} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                                                     <Ic.Trash />
                                                 </button>
                                             </div>
                                         ))}
                                     </div>
-                                    <button onClick={() => setMassGen(prev => [...prev, {id:Date.now(), size:'', qty:10}])}
+                                    <button onClick={() => { const a=[...massGen,{id:Date.now(),size:'',qty:10}]; setMassGen(a); triggerPreview({ massGen: a }, true); }}
                                         className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-sm font-medium">
                                         <Ic.Plus /> Tambah Ukuran
                                     </button>
@@ -14966,18 +14981,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div key={item.id} className="flex gap-1.5 items-center">
                                                 <span className="w-5 text-[10px] text-gray-400 text-center shrink-0">{i+1}</span>
                                                 <input type="text" placeholder="Nama..." value={item.nama}
-                                                    onChange={e => { const a=[...individualLabels]; a[i]={...a[i],nama:e.target.value}; setIndividualLabels(a); }}
+                                                    onChange={e => { const a=[...individualLabels]; a[i]={...a[i],nama:e.target.value}; setIndividualLabels(a); triggerPreview({ individualLabels: a }); }}
                                                     className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
                                                 <input type="text" placeholder="Size" value={item.size}
-                                                    onChange={e => { const a=[...individualLabels]; a[i]={...a[i],size:e.target.value}; setIndividualLabels(a); }}
+                                                    onChange={e => { const a=[...individualLabels]; a[i]={...a[i],size:e.target.value}; setIndividualLabels(a); triggerPreview({ individualLabels: a }); }}
                                                     className="w-14 px-2 py-1.5 border border-gray-200 rounded-lg text-xs font-bold uppercase bg-white focus:ring-2 focus:ring-blue-400 outline-none text-center" />
-                                                <button onClick={() => setIndividualLabels(individualLabels.filter(m=>m.id!==item.id))} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0">
+                                                <button onClick={() => { const a=individualLabels.filter(m=>m.id!==item.id); setIndividualLabels(a); triggerPreview({ individualLabels: a }, true); }} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0">
                                                     <Ic.Trash />
                                                 </button>
                                             </div>
                                         ))}
                                     </div>
-                                    <button onClick={() => setIndividualLabels(prev => [...prev, {id:Date.now(), size:'', nama:''}])}
+                                    <button onClick={() => { const a=[...individualLabels,{id:Date.now(),size:'',nama:''}]; setIndividualLabels(a); triggerPreview({ individualLabels: a }, true); }}
                                         className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-sm font-medium">
                                         <Ic.Plus /> Tambah Label
                                     </button>
