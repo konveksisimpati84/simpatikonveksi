@@ -14422,7 +14422,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             ];
             const LM_DEFAULT = {
                 paper:{ type:'A4', width:210, height:297, orientation:'portrait', marginTop:15, marginBottom:15, marginLeft:15, marginRight:15, rows:8, cols:3, gapX:5, gapY:5 },
-                design:{ logoUrl:'', bgLeft:'#15315e', bgRight:'#ffffff', textColorLeft:'#ffffff', textColorRight:'#15315e', showHoleMark:true, logoScale:100, logoOffsetX:0, logoOffsetY:0, fontFamily:'serif' },
+                design:{ logoUrl:'', bgLeft:'#15315e', bgRight:'#ffffff', textColorLeft:'#ffffff', textColorRight:'#15315e', showHoleMark:true, logoScale:100, logoOffsetX:0, logoOffsetY:0, fontFamily:'serif', fontSizeTitle:100, fontSizeValue:100, fontSizeNama:100 },
                 massGen:[{id:1,size:'M',qty:10},{id:2,size:'L',qty:20},{id:3,size:'XL',qty:10}],
                 individualLabels:[{id:1,size:'M',nama:''},{id:2,size:'L',nama:''}]
             };
@@ -14519,7 +14519,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const namaStripHtml = nama
                             ? `<div style="height:25%;display:flex;align-items:center;justify-content:center;border-top:2.5px solid ${design.textColorRight};background:white;padding:0 2mm;overflow:hidden;">
                                 <div style="border:1.5px solid ${design.textColorRight};border-radius:2.5mm;padding:0 2.5mm;overflow:hidden;max-width:96%;display:flex;align-items:center;justify-content:center;">
-                                    <span style="color:${design.textColorRight};font-size:${lh*0.09}mm;font-weight:900;font-family:${design.fontFamily||'serif'};letter-spacing:.07em;white-space:nowrap;">${nama}</span>
+                                    <span style="color:${design.textColorRight};font-size:${lh*0.09*(design.fontSizeNama||100)/100}mm;font-weight:900;font-family:${design.fontFamily||'serif'};letter-spacing:.07em;white-space:nowrap;">${nama}</span>
                                 </div>
                                </div>`
                             : '';
@@ -14533,10 +14533,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 <div style="width:25%;height:100%;display:flex;flex-direction:column;background:${design.bgRight};overflow:hidden;">
                                     <div style="height:38%;width:100%;display:flex;align-items:center;justify-content:center;border-bottom:2.5px solid ${design.textColorRight};overflow:hidden;">
-                                        <span style="color:${design.textColorRight};font-size:${lh*0.15}mm;font-weight:700;font-family:${design.fontFamily||'serif'};">Size</span>
+                                        <span style="color:${design.textColorRight};font-size:${lh*0.15*(design.fontSizeTitle||100)/100}mm;font-weight:700;font-family:${design.fontFamily||'serif'};">Size</span>
                                     </div>
                                     <div style="height:62%;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;">
-                                        <span style="color:${design.textColorRight};font-size:${Math.min(lh*0.32,lw*0.11)}mm;font-weight:900;font-family:${design.fontFamily||'serif'};line-height:1;">${sz}</span>
+                                        <span style="color:${design.textColorRight};font-size:${Math.min(lh*0.32,lw*0.11)*(design.fontSizeValue||100)/100}mm;font-weight:900;font-family:${design.fontFamily||'serif'};line-height:1;">${sz}</span>
                                     </div>
                                 </div>
                             </div>
@@ -14914,6 +14914,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         ))}
                                     </div>
                                 </Section>
+                                <Section title="Ukuran Font">
+                                    {[
+                                        { key:'fontSizeTitle', label:'Label "Size"' },
+                                        { key:'fontSizeValue', label:'Nilai Ukuran (XL/M/L)' },
+                                        { key:'fontSizeNama', label:'Nama' },
+                                    ].map(({key, label}) => (
+                                        <Field key={key} label={`${label}: ${design[key]||100}%`}>
+                                            <input type="range" min="40" max="200" step="5"
+                                                value={design[key]||100}
+                                                onChange={e => setDesign(d => ({...d, [key]:Number(e.target.value)}))}
+                                                className="w-full" />
+                                        </Field>
+                                    ))}
+                                </Section>
                                 <Section title="Opsi">
                                     <label className="flex items-center gap-3 cursor-pointer py-1">
                                         <div className={`w-10 h-5 rounded-full transition-colors relative ${design.showHoleMark?'bg-blue-600':'bg-gray-300'}`} onClick={() => setDesign(d => ({...d, showHoleMark:!d.showHoleMark}))}>
@@ -15062,17 +15076,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                     style={{height:'25%', borderColor:design.textColorRight, backgroundColor:'white', padding:'0 2mm'}}>
                                                                     <div className="flex items-center justify-center overflow-hidden"
                                                                         style={{border:`1.5px solid ${design.textColorRight}`, borderRadius:'2.5mm', padding:'0 2mm', maxWidth:'96%'}}>
-                                                                        <span style={{color:design.textColorRight, fontSize:`${labelH()*0.09}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', letterSpacing:'.07em', whiteSpace:'nowrap'}}>{item.nama}</span>
+                                                                        <span style={{color:design.textColorRight, fontSize:`${labelH()*0.09*(design.fontSizeNama||100)/100}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', letterSpacing:'.07em', whiteSpace:'nowrap'}}>{item.nama}</span>
                                                                     </div>
                                                                 </div>
                                                             )}
                                                         </div>
                                                         <div className="h-full flex flex-col" style={{width:'25%', backgroundColor:design.bgRight}}>
                                                             <div className="w-full flex items-center justify-center border-b-[2.5px]" style={{height:'38%', borderColor:design.textColorRight}}>
-                                                                <span style={{color:design.textColorRight, fontSize:`${labelH()*0.15}mm`, fontWeight:700, fontFamily:design.fontFamily||'serif', letterSpacing:'.03em'}}>Size</span>
+                                                                <span style={{color:design.textColorRight, fontSize:`${labelH()*0.15*(design.fontSizeTitle||100)/100}mm`, fontWeight:700, fontFamily:design.fontFamily||'serif', letterSpacing:'.03em'}}>Size</span>
                                                             </div>
                                                             <div className="w-full flex items-center justify-center" style={{height:'62%'}}>
-                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', lineHeight:1, letterSpacing:'-.01em'}}>{item.size}</span>
+                                                                <span style={{color:design.textColorRight, fontSize:`${Math.min(labelH()*0.32, labelW()*0.11)*(design.fontSizeValue||100)/100}mm`, fontWeight:900, fontFamily:design.fontFamily||'serif', lineHeight:1, letterSpacing:'-.01em'}}>{item.size}</span>
                                                             </div>
                                                         </div>
                                                     </div>
