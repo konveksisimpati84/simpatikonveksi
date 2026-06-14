@@ -13757,14 +13757,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                 const loadAllLocal = () => {
                     const nextAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
-                    const shouldResetPurchases = shouldResetPurchaseData();
                     const localOrders = loadLocalData('simpati_orders_sync', initialOrders);
-                    const nextOrders = shouldResetPurchases ? resetPurchaseDataForCleanStart(localOrders) : patchOrders(localOrders);
+                    const nextOrders = patchOrders(localOrders);
                     setAccounts(nextAccounts);
                     setEmployees(sanitizeEmployees(loadLocalData('simpati_employees_sync', initialEmployees)));
                     setOrders(nextOrders);
                     safeLocalSet('simpati_orders_sync', JSON.stringify(nextOrders));
-                    if (shouldResetPurchases) safeLocalSet('simpati_purchase_reset_version', PURCHASE_RESET_VERSION);
                     setRekapKinerja(loadLocalData('simpati_rekap_sync', []));
                     setRiwayatPengiriman(loadLocalData('simpati_riwayat_sj_sync', []));
                     setExpenses(loadLocalData('simpati_expenses_sync', []));
@@ -13855,10 +13853,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 }
             };
 
-            const updateOrders = (updater) => { 
+            const updateOrders = (updater) => {
                 setOrders(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const patched = patchOrders(stampChangedOrders(prev || [], nextVal));
+                    safeLocalSet('simpati_orders_sync', JSON.stringify(patched));
                     setTimeout(async () => {
                         const merged = await mergeRemoteOrdersForSave(patched);
                         safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
