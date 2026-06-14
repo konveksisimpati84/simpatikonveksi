@@ -8827,7 +8827,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
                 return matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm);
             });
-            const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedReportEmployees, total: empTotal } = usePagination(filteredReportEmployees, 10);
+            const sortedReportEmployees = [...filteredReportEmployees].sort((a, b) => {
+                const aPinned = pinnedEmpIds.has(a.id) ? 0 : 1;
+                const bPinned = pinnedEmpIds.has(b.id) ? 0 : 1;
+                return aPinned - bPinned;
+            });
+            const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedReportEmployees, total: empTotal } = usePagination(sortedReportEmployees, 10);
 
             const toggleSelection = (key) => {
                 setSelectedItemKeys(prev => {
@@ -9679,7 +9684,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const hasUnsettled = unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0;
                                 const isPinned = pinnedEmpIds.has(emp.id);
                                 return (
-                                    <div key={emp.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 transition-colors ${isPinned ? 'bg-amber-50/60' : 'hover:bg-gray-50/80'}`}>
+                                    <div key={emp.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 transition-colors border-l-4 ${isPinned ? 'bg-orange-100/60 border-l-orange-400 hover:bg-orange-100/80' : hasUnsettled ? 'bg-yellow-50/70 border-l-yellow-400 hover:bg-yellow-100/60' : 'bg-green-50/50 border-l-green-300 hover:bg-green-50/80'}`}>
                                         <input type="checkbox" checked={isPinned} onChange={() => setPinnedEmpIds(prev => { const n = new Set(prev); n.has(emp.id) ? n.delete(emp.id) : n.add(emp.id); return n; })} className="w-4 h-4 cursor-pointer accent-amber-500 flex-shrink-0" title="Sematkan" />
                                         <div className="flex-1 min-w-0">
                                             <div className="font-bold text-gray-900 text-sm truncate">{emp.name}</div>
