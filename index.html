@@ -1452,6 +1452,7 @@
                 (divisionFilter === 'Semua' || emp.division === divisionFilter) &&
                 matchesSearch([emp.name, emp.division, emp.phone, emp.status], searchTerm)
             );
+            const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedEmployees, total: empTotal } = usePagination(filteredEmployees, 15);
             const activeCashAdvanceEmp = cashAdvanceEmp ? safeEmployees.find(emp => String(emp.id) === String(cashAdvanceEmp.id)) || cashAdvanceEmp : null;
             const activeCashAdvanceSummary = getEmployeeCashAdvanceSummary(activeCashAdvanceEmp);
             const activeDailySalaryEmp = dailySalaryEmp ? safeEmployees.find(emp => String(emp.id) === String(dailySalaryEmp.id)) || dailySalaryEmp : null;
@@ -1683,7 +1684,7 @@
                                 <div className="col-span-1 text-center">Status</div>
                                 <div className="col-span-2 text-center">Aksi</div>
                             </div>
-                            {filteredEmployees.map(emp => {
+                            {pagedEmployees.map(emp => {
                                 const kasbonSummary = getEmployeeCashAdvanceSummary(emp);
                                 const totalUnrekapedSalary = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId).reduce((sum, log) => sum + getDailySalaryLogTotal(log).total, 0);
                                 const isAktif = (emp.status || 'Aktif') === 'Aktif';
@@ -1722,8 +1723,9 @@
                                     </div>
                                 );
                             })}
-                            {filteredEmployees.length === 0 && <div className="p-8 text-center text-gray-500 italic text-sm">{searchTerm ? 'Tidak ada karyawan yang cocok.' : 'Belum ada data karyawan.'}</div>}
+                            {empTotal === 0 && <div className="p-8 text-center text-gray-500 italic text-sm">{searchTerm ? 'Tidak ada karyawan yang cocok.' : 'Belum ada data karyawan.'}</div>}
                         </div>
+                        <Paginator page={empPage} setPage={setEmpPage} totalPages={empTotalPages} total={empTotal} pageSize={15} label="karyawan" />
                     </Card>
 
                     {activeCashAdvanceEmp && (
@@ -5965,6 +5967,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const safeClients = safeArray(clients);
             const safeInvoices = safeArray(invoices);
             const visibleClients = safeClients.filter(isVisibleRecord).filter(client => matchesSearch([client.name, client.address, client.phone, client.pic, client.note], searchTerm));
+            const { page: clientPage, setPage: setClientPage, totalPages: clientTotalPages, paged: pagedClients, total: clientTotal } = usePagination(visibleClients, 15);
             const getClientDpRows = (client) => Array.isArray(client?.clientDpPayments) ? client.clientDpPayments.filter(isVisibleRecord) : [];
             const getClientInvoices = (client) => safeInvoices.filter(isVisibleRecord).filter(inv => normalizeText(inv.customer) === normalizeText(client?.name));
             const getClientSummary = (client) => {
@@ -6094,7 +6097,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                 <div className="col-span-2 text-right">Piutang</div>
                                 <div className="col-span-1 text-center">Aksi</div>
                             </div>
-                            {visibleClients.map(client => {
+                            {pagedClients.map(client => {
                                 const s = getClientSummary(client);
                                 const borderColor = s.receivable > 0 ? 'border-l-red-400' : s.saldoDp > 0 ? 'border-l-green-400' : 'border-l-blue-300';
                                 return (
@@ -6124,8 +6127,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                     </div>
                                 );
                             })}
-                            {visibleClients.length === 0 && <div className="p-8 text-center text-gray-500 italic text-sm">Belum ada data klien.</div>}
+                            {clientTotal === 0 && <div className="p-8 text-center text-gray-500 italic text-sm">Belum ada data klien.</div>}
                         </div>
+                        <Paginator page={clientPage} setPage={setClientPage} totalPages={clientTotalPages} total={clientTotal} pageSize={15} label="klien" />
                     </Card>
                     {deleteClientConfirmId && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
