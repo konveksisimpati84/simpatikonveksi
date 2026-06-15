@@ -643,15 +643,13 @@
             if (!invoice?.subMarketing) return 0;
             if (getInvoicePaymentStatus(invoice) !== 'Lunas') return 0;
             const type = String(invoice?.subMarketingCommissionType || 'Persen').toLowerCase();
-            if (type.includes('pcs')) return getInvoicePcsTotal(invoice) * safeMoney(invoice?.subMarketingCommissionValue);
-            if (type === 'rupiah' || type === 'nominal') return safeMoney(invoice?.subMarketingCommissionValue);
+            if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return getInvoicePcsTotal(invoice) * safeMoney(invoice?.subMarketingCommissionValue);
             return getInvoiceTotals(invoice).total * safeMoney(invoice?.subMarketingCommissionValue) / 100;
         };
         const getInvoiceCommissionTotal = (invoice) => {
             if (getInvoicePaymentStatus(invoice) !== 'Lunas') return 0;
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
-            if (type.includes('pcs')) return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
-            if (type === 'rupiah' || type === 'nominal') return safeMoney(invoice?.commissionValue);
+            if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
             return getInvoiceTotals(invoice).total * safeMoney(invoice?.commissionValue) / 100;
         };
 
@@ -5855,7 +5853,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 return { subtotal, discount, total: Math.max(0, subtotal - discount) };
             };
             const paidTotal = (inv) => (Array.isArray(inv.payments) ? inv.payments : []).reduce((sum, pay) => sum + safeMoney(pay.amount), 0);
-            const commissionTotal = (inv) => inv.commissionType === 'Rupiah' ? safeMoney(inv.commissionValue) : invoiceTotal(inv).total * safeMoney(inv.commissionValue) / 100;
+            const commissionTotal = (inv) => (inv.commissionType === 'Rupiah' || inv.commissionType === 'Nominal') ? safeMoney(inv.qty) * safeMoney(inv.commissionValue) : invoiceTotal(inv).total * safeMoney(inv.commissionValue) / 100;
             const visibleInvoices = (invoices || []).filter(isVisibleRecord).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note], searchTerm);
@@ -8911,7 +8909,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const comm = row.isSubMarketing ? getInvoiceSubMarketingCommissionTotal(inv) : getInvoiceCommissionTotal(inv);
                                 const commType = row.isSubMarketing ? (inv.subMarketingCommissionType || 'Persen') : (inv.commissionType || 'Persen');
                                 const commVal = row.isSubMarketing ? inv.subMarketingCommissionValue : inv.commissionValue;
-                                const commLabel = String(commType).toLowerCase() === 'rupiah' ? fmt(commVal) : `${commVal || 0}%`;
+                                const isPercs = String(commType).toLowerCase() === 'persen';
+                                const commLabel = isPercs ? `${commVal || 0}%` : `${fmt(commVal)}/pcs`;
                                 return `<tr style="border-bottom:1px solid #e5e7eb;">
                                     <td style="padding:6px 8px;text-align:center;">${i+1}</td>
                                     <td style="padding:6px 8px;font-weight:700;color:#1d4ed8;">${safe(inv.id)}</td>
@@ -9043,7 +9042,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                 <td className="p-2">{inv.customer || '-'}</td>
                                                                 <td className="p-2 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td>
                                                                 <td className="p-2 text-right">{commType}</td>
-                                                                <td className="p-2 text-right">{String(commType).toLowerCase() === 'rupiah' ? formatRupiah(commVal || 0) : `${commVal || 0}%`}</td>
+                                                                <td className="p-2 text-right">{String(commType).toLowerCase() === 'persen' ? `${commVal || 0}%` : `${formatRupiah(commVal || 0)}/pcs`}</td>
                                                                 <td className="p-2 text-right font-black text-purple-700">{formatRupiah(comm)}</td>
                                                             </tr>
                                                         );
