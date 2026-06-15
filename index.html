@@ -6117,7 +6117,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
-            const marketingEmployees = safeEmployeeRows.filter(isVisibleRecord).filter(emp => emp.division === 'Marketing' || emp.salaryType === 'Marketing' || emp.salaryType === 'Campuran' || getEmployeeSalaryTypes(emp).includes('Marketing'));
+            const marketingEmployees = safeEmployeeRows.filter(isVisibleRecord).filter(emp => emp.division === 'Marketing' || emp.salaryType === 'Marketing' || getEmployeeSalaryTypes(emp).includes('Marketing'));
             const _defaultProdTypes = ['Kaos', 'Kemeja', 'Jaket', 'Wearpack', 'Wangki / Polo Shirt', 'Celana', 'Topi'];
             const uniqueInvoiceTypes = [...new Set([..._defaultProdTypes, ...safeInvoiceRows.flatMap(inv => getInvoiceItems(inv).map(item => item.productionType)).filter(Boolean)])].sort();
             const clientAddressSuggestions = [...new Set(safeClientRows.filter(isVisibleRecord).map(c => String(c.address || '').trim()).filter(Boolean))].sort();
