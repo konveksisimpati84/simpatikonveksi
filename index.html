@@ -3176,6 +3176,13 @@ window.addEventListener('load',function(){
                     <Card>
                         <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID order, klien, barang, status, deadline..." />
                     </Card>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-[11px] text-gray-500 shadow-sm">
+                        <span className="font-bold text-gray-600">Keterangan Warna:</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-purple-400 flex-shrink-0"></span> Terkirim / Selesai</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-400 flex-shrink-0"></span> Siap Kirim (finishing penuh)</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-yellow-400 flex-shrink-0"></span> Sedang Proses (sebagian selesai)</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-400 flex-shrink-0"></span> Belum Ada Setor Finishing</span>
+                    </div>
                     {isKaryawanMode && myEmployeeProblem && (
                         <Card className="border-red-200 bg-red-50">
                             <div className="flex items-start gap-3 text-red-800">
@@ -3188,6 +3195,14 @@ window.addEventListener('load',function(){
                         </Card>
                     )}
 
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-[11px] text-gray-500 shadow-sm">
+                        <span className="font-bold text-gray-600">Keterangan Warna Card:</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-purple-500 flex-shrink-0"></span> Terkirim</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-500 flex-shrink-0"></span> Siap Kirim</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-500 flex-shrink-0"></span> Terlambat (deadline lewat)</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-yellow-400 flex-shrink-0"></span> Sedang Proses</span>
+                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-blue-500 flex-shrink-0"></span> Normal (belum deadline)</span>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {filteredProductionOrders.map(order => {
                             const today = new Date();
@@ -5035,6 +5050,12 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         )}
                         {vendorGroups.length > 0 && (
                             <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
+                                    <span className="font-bold text-gray-600">Keterangan Warna:</span>
+                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-400 flex-shrink-0"></span> Lunas</span>
+                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-orange-400 flex-shrink-0"></span> Termin / Bayar Sebagian</span>
+                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-400 flex-shrink-0"></span> Belum Bayar</span>
+                                </div>
                                 <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
                                     <span className="flex-1">Vendor / Nota</span>
                                     <span className="w-36 text-right hidden sm:block">Total · Sisa</span>
@@ -5736,6 +5757,12 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <div className="p-8 text-center text-gray-400 italic">Belum ada data biaya.</div>
                         ) : (
                             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
+                                    <span className="font-bold text-gray-600">Keterangan Warna:</span>
+                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-400 flex-shrink-0"></span> Lunas / Uang Masuk</span>
+                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-yellow-400 flex-shrink-0"></span> Dibayar Sebagian</span>
+                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-400 flex-shrink-0"></span> Belum Dibayar (Uang Keluar)</span>
+                                </div>
                                 <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
                                     <span className="w-20 flex-shrink-0">Tanggal</span>
                                     <span className="flex-1">Kategori · Penerima</span>
@@ -6669,6 +6696,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>
                         <div className="bg-white divide-y divide-gray-100">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-gray-50 border-b border-gray-100 text-[11px] text-gray-500">
+                                <span className="font-bold text-gray-600">Keterangan Warna:</span>
+                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-500 flex-shrink-0"></span> Lunas</span>
+                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-orange-400 flex-shrink-0"></span> Termin / Cicilan</span>
+                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-400 flex-shrink-0"></span> Belum Dibayar</span>
+                            </div>
                             {pagedInvoices.length === 0 && (
                                 <div className="p-10 text-center text-gray-400 italic flex flex-col items-center gap-3">
                                     <IconDocument />
@@ -9964,6 +9997,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         )}
                         <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
+                                <span className="font-bold text-gray-600">Keterangan Warna:</span>
+                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-orange-400 flex-shrink-0"></span> Disematkan / Prioritas</span>
+                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-yellow-400 flex-shrink-0"></span> Ada pekerjaan belum direkap</span>
+                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-400 flex-shrink-0"></span> Semua sudah direkap / bersih</span>
+                            </div>
                             <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
                                 <span className="w-4 flex-shrink-0">Pin</span>
                                 <span className="flex-1">Karyawan</span>
