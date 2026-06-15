@@ -9178,7 +9178,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const [expandedInputIds, setExpandedInputIds] = useState({});
             const [pinnedEmpIds, setPinnedEmpIds] = useState(() => { try { const s = JSON.parse(localStorage.getItem('simpati_pinned_emp_ids') || '[]'); return new Set(Array.isArray(s) ? s : []); } catch(e) { return new Set(); } });
-            React.useEffect(() => { try { localStorage.setItem('simpati_pinned_emp_ids', JSON.stringify([...pinnedEmpIds])); } catch(e) {} }, [pinnedEmpIds]);
+            const pinnedInitialized = React.useRef(false);
+            React.useEffect(() => {
+                if (!supabaseClient) { pinnedInitialized.current = true; return; }
+                supabaseClient.from('app_data').select('data').eq('id', 'pinned_emp_ids').single().then(({ data, error }) => {
+                    if (!error && data?.data && Array.isArray(data.data)) {
+                        setPinnedEmpIds(new Set(data.data));
+                        try { localStorage.setItem('simpati_pinned_emp_ids', JSON.stringify(data.data)); } catch(e) {}
+                    }
+                    pinnedInitialized.current = true;
+                });
+            }, []);
+            React.useEffect(() => {
+                if (!pinnedInitialized.current) return;
+                const arr = [...pinnedEmpIds];
+                try { localStorage.setItem('simpati_pinned_emp_ids', JSON.stringify(arr)); } catch(e) {}
+                if (supabaseClient) supabaseClient.from('app_data').upsert({ id: 'pinned_emp_ids', data: arr });
+            }, [pinnedEmpIds]);
             const [inputDetailEmpId, setInputDetailEmpId] = useState(null);
             const [showOnlyReady, setShowOnlyReady] = useState(false);
             const [manualProdForm, setManualProdForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), description: '', qty: '', unitPrice: '' });
