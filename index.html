@@ -9179,21 +9179,28 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [expandedInputIds, setExpandedInputIds] = useState({});
             const [pinnedEmpIds, setPinnedEmpIds] = useState(() => { try { const s = JSON.parse(localStorage.getItem('simpati_pinned_emp_ids') || '[]'); return new Set(Array.isArray(s) ? s : []); } catch(e) { return new Set(); } });
             const pinnedInitialized = React.useRef(false);
+            const pinnedFromPoll = React.useRef(false);
             React.useEffect(() => {
                 if (!supabaseClient) { pinnedInitialized.current = true; return; }
-                supabaseClient.from('app_data').select('data').eq('id', 'pinned_emp_ids').single().then(({ data, error }) => {
+                const fetchPins = async () => {
+                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', 'pinned_emp_ids').single();
                     if (!error && data?.data && Array.isArray(data.data)) {
+                        pinnedFromPoll.current = true;
                         setPinnedEmpIds(new Set(data.data));
                         try { localStorage.setItem('simpati_pinned_emp_ids', JSON.stringify(data.data)); } catch(e) {}
                     }
                     pinnedInitialized.current = true;
-                });
+                };
+                fetchPins();
+                const interval = setInterval(fetchPins, 30000);
+                return () => clearInterval(interval);
             }, []);
             React.useEffect(() => {
                 if (!pinnedInitialized.current) return;
+                if (pinnedFromPoll.current) { pinnedFromPoll.current = false; return; }
                 const arr = [...pinnedEmpIds];
                 try { localStorage.setItem('simpati_pinned_emp_ids', JSON.stringify(arr)); } catch(e) {}
-                if (supabaseClient) supabaseClient.from('app_data').upsert({ id: 'pinned_emp_ids', data: arr });
+                if (supabaseClient) supabaseClient.from('app_data').upsert({ id: 'pinned_emp_ids', data: arr }).then(({ error }) => { if (error) console.error('[pin] Gagal simpan ke Supabase:', error); });
             }, [pinnedEmpIds]);
             const [inputDetailEmpId, setInputDetailEmpId] = useState(null);
             const [showOnlyReady, setShowOnlyReady] = useState(false);
