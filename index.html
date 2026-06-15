@@ -9177,7 +9177,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // printOptions dihapus — pilihan direkap kini langsung dikontrol oleh selectedKeys per kategori
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const [expandedInputIds, setExpandedInputIds] = useState({});
-            const [pinnedEmpIds, setPinnedEmpIds] = useState(new Set());
+            const [pinnedEmpIds, setPinnedEmpIds] = useState(() => { try { const s = JSON.parse(localStorage.getItem('simpati_pinned_emp_ids') || '[]'); return new Set(Array.isArray(s) ? s : []); } catch(e) { return new Set(); } });
+            React.useEffect(() => { try { localStorage.setItem('simpati_pinned_emp_ids', JSON.stringify([...pinnedEmpIds])); } catch(e) {} }, [pinnedEmpIds]);
             const [inputDetailEmpId, setInputDetailEmpId] = useState(null);
             const [showOnlyReady, setShowOnlyReady] = useState(false);
             const [manualProdForm, setManualProdForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), description: '', qty: '', unitPrice: '' });
