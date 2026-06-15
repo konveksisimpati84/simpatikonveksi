@@ -1674,39 +1674,56 @@
                                 </select>
                             </div>
                         </div>
-                        <table className="w-full text-left border-collapse">
-                            <thead><tr className="bg-gray-50 border-b">
-                                <th className="p-3 text-sm">Nama</th><th className="p-3 text-sm">Divisi</th><th className="p-3 text-sm">Tipe Gaji</th><th className="p-3 text-sm">Gaji Harian<div className="font-normal text-gray-400 text-xs">(belum direkap)</div></th><th className="p-3 text-sm">Kasbon</th><th className="p-3 text-sm">Status</th><th className="p-3 text-sm text-center">Aksi</th>
-                            </tr></thead>
-                            <tbody>
-                                {filteredEmployees.map(emp => {
-                                    const kasbonSummary = getEmployeeCashAdvanceSummary(emp);
-                                    const totalUnrekapedSalary = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId).reduce((sum, log) => sum + getDailySalaryLogTotal(log).total, 0);
-                                    return (
-                                        <tr key={emp.id} className="border-b hover:bg-gray-50 transition-colors">
-                                            <td className="p-3 text-sm font-medium text-gray-800">{emp.name}</td>
-                                            <td className="p-3 text-sm text-gray-600">{emp.division}</td>
-                                            <td className="p-3 text-sm text-gray-600">{getEmployeeSalaryTypes(emp).join(', ')}</td>
-                                            <td className="p-3 text-sm font-bold text-green-700">{totalUnrekapedSalary > 0 ? formatRupiah(totalUnrekapedSalary) : <span className="text-gray-400 font-normal">-</span>}</td>
-                                            <td className="p-3 text-sm">
-                                                <div className="font-bold text-red-700">{formatRupiah(kasbonSummary.remaining)}</div>
-                                                <div className="text-xs text-gray-500">{kasbonSummary.advances.length} kasbon aktif</div>
-                                            </td>
-                                            <td className="p-3"><Badge status={emp.status || 'Aktif'} /></td>
-                                            <td className="p-3 text-center">
-                                                <div className="flex justify-center flex-wrap gap-2">
-                                                    <button onClick={() => openCashAdvanceModal(emp)} className="text-orange-600 hover:text-orange-800 bg-orange-50 px-2 py-1.5 rounded text-xs font-bold" title="Kasbon Karyawan">Kasbon</button>
-                                                    <button onClick={() => openDailySalaryModal(emp)} className="text-green-700 hover:text-green-900 bg-green-50 px-2 py-1.5 rounded text-xs font-bold" title="Gaji Harian">Gaji Harian</button>
-                                                    <button onClick={() => setEditEmp({...emp, status: emp.status || 'Aktif', salaryTypes: getEmployeeSalaryTypes(emp)})} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-1.5 rounded" title="Edit Karyawan"><IconEdit /></button>
-                                                    <button onClick={() => setDeleteConfirmId(emp.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded" title="Hapus Karyawan"><IconTrash /></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                                {filteredEmployees.length === 0 && <tr><td colSpan="7" className="p-6 text-center text-gray-500 italic">{searchTerm ? 'Tidak ada karyawan yang cocok dengan pencarian.' : 'Belum ada data karyawan.'}</td></tr>}
-                            </tbody>
-                        </table>
+                        <div className="divide-y divide-gray-100">
+                            <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                                <div className="col-span-3">Nama / Divisi</div>
+                                <div className="col-span-2">Tipe Gaji</div>
+                                <div className="col-span-2 text-right">Gaji Harian</div>
+                                <div className="col-span-2 text-right">Kasbon</div>
+                                <div className="col-span-1 text-center">Status</div>
+                                <div className="col-span-2 text-center">Aksi</div>
+                            </div>
+                            {filteredEmployees.map(emp => {
+                                const kasbonSummary = getEmployeeCashAdvanceSummary(emp);
+                                const totalUnrekapedSalary = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId).reduce((sum, log) => sum + getDailySalaryLogTotal(log).total, 0);
+                                const isAktif = (emp.status || 'Aktif') === 'Aktif';
+                                const borderColor = isAktif ? 'border-l-green-400' : 'border-l-gray-300';
+                                const rowBg = isAktif ? '' : 'opacity-60';
+                                return (
+                                    <div key={emp.id} className={`grid grid-cols-12 gap-2 px-4 py-2.5 items-center border-l-4 ${borderColor} ${rowBg} hover:bg-gray-50/70 transition-colors`}>
+                                        <div className="col-span-3 min-w-0">
+                                            <div className="font-bold text-gray-900 text-sm truncate">{emp.name}</div>
+                                            <div className="text-xs text-gray-400 truncate">{emp.division || '-'}</div>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <div className="flex flex-wrap gap-1">
+                                                {getEmployeeSalaryTypes(emp).map(t => <span key={t} className="text-[10px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{t}</span>)}
+                                            </div>
+                                        </div>
+                                        <div className="col-span-2 text-right">
+                                            {totalUnrekapedSalary > 0
+                                                ? <span className="text-xs font-black text-green-700">{formatRupiah(totalUnrekapedSalary)}</span>
+                                                : <span className="text-xs text-gray-300">-</span>}
+                                        </div>
+                                        <div className="col-span-2 text-right">
+                                            {kasbonSummary.remaining > 0
+                                                ? <><div className="text-xs font-black text-red-600">{formatRupiah(kasbonSummary.remaining)}</div><div className="text-[10px] text-gray-400">{kasbonSummary.advances.length} aktif</div></>
+                                                : <span className="text-xs text-gray-300">-</span>}
+                                        </div>
+                                        <div className="col-span-1 text-center">
+                                            <Badge status={emp.status || 'Aktif'} />
+                                        </div>
+                                        <div className="col-span-2 flex justify-center gap-1">
+                                            <button onClick={() => openCashAdvanceModal(emp)} className="text-orange-600 bg-orange-50 hover:bg-orange-100 p-1.5 rounded-lg" title="Kasbon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></button>
+                                            <button onClick={() => openDailySalaryModal(emp)} className="text-green-700 bg-green-50 hover:bg-green-100 p-1.5 rounded-lg" title="Gaji Harian"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg></button>
+                                            <button onClick={() => setEditEmp({...emp, status: emp.status || 'Aktif', salaryTypes: getEmployeeSalaryTypes(emp)})} className="text-blue-500 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-lg" title="Edit"><IconEdit /></button>
+                                            <button onClick={() => setDeleteConfirmId(emp.id)} className="text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg" title="Hapus"><IconTrash /></button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {filteredEmployees.length === 0 && <div className="p-8 text-center text-gray-500 italic text-sm">{searchTerm ? 'Tidak ada karyawan yang cocok.' : 'Belum ada data karyawan.'}</div>}
+                        </div>
                     </Card>
 
                     {activeCashAdvanceEmp && (
@@ -6066,7 +6083,50 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 <div className="space-y-6">
                     <div><h2 className="text-2xl font-bold text-gray-800">Klien / Instansi</h2><p className="text-sm text-gray-500 mt-1">Data customer, invoice, piutang, dan saldo klien.</p></div>
                     <Card><form onSubmit={saveClient} className="grid grid-cols-1 md:grid-cols-5 gap-3"><input className="p-2 border rounded" placeholder="Nama instansi/klien" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required/><input className="p-2 border rounded" placeholder="Alamat" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/><input className="p-2 border rounded" placeholder="No HP/WA" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })}/><input className="p-2 border rounded" placeholder="PIC" value={form.pic} onChange={e => setForm({ ...form, pic: e.target.value })}/><input className="p-2 border rounded" placeholder="Catatan" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/><div className="md:col-span-5 flex justify-end gap-2"><button type="button" onClick={() => { setForm(emptyClient); setEditId(null); }} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editId ? 'Simpan Edit' : 'Tambah Klien'}</button></div></form></Card>
-                    <Card><div className="mb-4 max-w-lg"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari nama, alamat, HP, PIC, catatan..." /></div><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama</th><th className="p-3">PIC/HP</th><th className="p-3 text-right">Saldo Klien</th><th className="p-3 text-right">Total Invoice</th><th className="p-3 text-right">Piutang</th><th className="p-3 text-center">Aksi</th></tr></thead><tbody>{visibleClients.map(client => { const s = getClientSummary(client); return <tr key={client.id} className="border-t"><td className="p-3 font-bold">{client.name}<div className="text-xs text-gray-500">{client.address || '-'}</div></td><td className="p-3">{client.pic || '-'}<div className="text-xs text-gray-500">{client.phone || '-'}</div></td><td className="p-3 text-right font-bold text-green-700">{formatRupiah(s.saldoDp)}</td><td className="p-3 text-right font-bold text-blue-700">{formatRupiah(s.invoiceTotal)}</td><td className="p-3 text-right font-bold text-red-700">{formatRupiah(s.receivable)}</td><td className="p-3"><div className="flex justify-center gap-2 flex-wrap"><button onClick={() => setSelectedClient(client)} className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded font-bold">Saldo Klien</button><button onClick={() => { setEditId(client.id); setForm(client); }} className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded font-bold">Edit</button><button onClick={() => setDeleteClientConfirmId(client.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>; })}{visibleClients.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-gray-500 italic">Belum ada data klien.</td></tr>}</tbody></table></div></Card>
+                    <Card>
+                        <div className="mb-4 max-w-lg"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari nama, alamat, HP, PIC, catatan..." /></div>
+                        <div className="divide-y divide-gray-100 -mx-4 sm:-mx-6">
+                            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                                <div className="col-span-3">Nama / Alamat</div>
+                                <div className="col-span-2">PIC / HP</div>
+                                <div className="col-span-2 text-right">Saldo Klien</div>
+                                <div className="col-span-2 text-right">Total Invoice</div>
+                                <div className="col-span-2 text-right">Piutang</div>
+                                <div className="col-span-1 text-center">Aksi</div>
+                            </div>
+                            {visibleClients.map(client => {
+                                const s = getClientSummary(client);
+                                const borderColor = s.receivable > 0 ? 'border-l-red-400' : s.saldoDp > 0 ? 'border-l-green-400' : 'border-l-blue-300';
+                                return (
+                                    <div key={client.id} className={`grid grid-cols-12 gap-2 px-4 py-2.5 items-center border-l-4 ${borderColor} hover:bg-gray-50/70 transition-colors`}>
+                                        <div className="col-span-3 min-w-0">
+                                            <div className="font-bold text-gray-900 text-sm truncate">{client.name}</div>
+                                            <div className="text-xs text-gray-400 truncate">{client.address || '-'}</div>
+                                        </div>
+                                        <div className="col-span-2 min-w-0">
+                                            <div className="text-sm text-gray-700 truncate">{client.pic || '-'}</div>
+                                            <div className="text-xs text-gray-400">{client.phone || '-'}</div>
+                                        </div>
+                                        <div className="col-span-2 text-right">
+                                            {s.saldoDp > 0 ? <span className="text-xs font-black text-green-700">{formatRupiah(s.saldoDp)}</span> : <span className="text-xs text-gray-300">-</span>}
+                                        </div>
+                                        <div className="col-span-2 text-right">
+                                            <span className="text-xs font-black text-blue-700">{formatRupiah(s.invoiceTotal)}</span>
+                                        </div>
+                                        <div className="col-span-2 text-right">
+                                            {s.receivable > 0 ? <span className="text-xs font-black text-red-600">{formatRupiah(s.receivable)}</span> : <span className="text-xs text-gray-300">-</span>}
+                                        </div>
+                                        <div className="col-span-1 flex justify-center gap-1">
+                                            <button onClick={() => setSelectedClient(client)} className="text-green-700 bg-green-50 hover:bg-green-100 p-1.5 rounded-lg" title="Saldo Klien"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></button>
+                                            <button onClick={() => { setEditId(client.id); setForm(client); }} className="text-purple-600 bg-purple-50 hover:bg-purple-100 p-1.5 rounded-lg" title="Edit"><IconEdit /></button>
+                                            <button onClick={() => setDeleteClientConfirmId(client.id)} className="text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg" title="Hapus"><IconTrash /></button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {visibleClients.length === 0 && <div className="p-8 text-center text-gray-500 italic text-sm">Belum ada data klien.</div>}
+                        </div>
+                    </Card>
                     {deleteClientConfirmId && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                             <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
