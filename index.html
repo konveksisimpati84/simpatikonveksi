@@ -14801,29 +14801,76 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const doPrint = (item) => {
                 const companyName = templates?.companyName || 'SIMPATI KONVEKSI';
-                const win = window.open('', '_blank', 'width=400,height=350');
-                win.document.write(`<!DOCTYPE html><html><head><title>Sticker</title><style>
+                const companyLogo = templates?.companyLogo || '';
+                const companySubtitle = templates?.companySubtitle || '';
+                const stickerDate = new Date(item.date).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                const printDate = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+                const clientFS = (item.clientName || '').length <= 14 ? '14px' : (item.clientName || '').length <= 22 ? '11px' : '9px';
+                const itemFS = (item.itemName || '').length <= 18 ? '11px' : (item.itemName || '').length <= 28 ? '9px' : '8px';
+                const qStr = String(item.qty || '');
+                const qtyFS = qStr.length > 3 ? Math.max(14, Math.floor(26 * (3.5 / qStr.length))) + 'px' : '22px';
+
+                const logoHtml = companyLogo
+                    ? `<img src="${companyLogo}" style="max-height:10mm;max-width:18mm;object-fit:contain;" />`
+                    : `<div style="font-size:10px;font-weight:900;color:#1e3a5f;line-height:1;">${companyName}</div>${companySubtitle ? `<div style="font-size:7px;color:#64748b;">${companySubtitle}</div>` : ''}`;
+
+                const typeColor = item.type === 'Masuk' ? '#16a34a' : item.type === 'Keluar' ? '#dc2626' : '#d97706';
+
+                const printContent = `<!DOCTYPE html><html><head><title>Sticker Stock - ${item.clientName}</title>
+                <style>
                     @page { size: 60mm 40mm; margin: 0; }
-                    body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
-                    .sticker { width: 60mm; height: 40mm; padding: 2mm 3mm; box-sizing: border-box; border: 0.5pt solid #000; display: flex; flex-direction: column; justify-content: space-between; }
-                    .header { font-size: 7pt; font-weight: bold; text-align: center; border-bottom: 0.5pt solid #ccc; padding-bottom: 1mm; }
-                    .row { font-size: 7.5pt; display: flex; justify-content: space-between; margin-top: 1mm; }
-                    .label { color: #555; flex-shrink: 0; margin-right: 2mm; }
-                    .value { font-weight: bold; text-align: right; word-break: break-word; }
-                    .footer { font-size: 6pt; color: #777; text-align: center; margin-top: 1mm; }
+                    * { box-sizing: border-box; margin: 0; padding: 0; }
+                    body { font-family: Arial, sans-serif; width: 60mm; height: 40mm; overflow: hidden; background: #fff; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    .wrap { width: 60mm; height: 40mm; padding: 1.5mm 2mm; display: flex; flex-direction: column; }
+                    .top { display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #1e3a5f; padding-bottom: 1mm; margin-bottom: 1mm; }
+                    .logo-area { display: flex; flex-direction: column; justify-content: center; }
+                    .type-badge { font-size: 7px; font-weight: 900; color: #fff; background: ${typeColor}; padding: 1px 4px; border-radius: 3px; text-transform: uppercase; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    .client { font-size: ${clientFS}; font-weight: 900; text-transform: uppercase; line-height: 1.1; text-align: center; margin-bottom: 0.5mm; }
+                    .itemname { font-size: ${itemFS}; font-weight: bold; text-align: center; color: #334155; margin-bottom: 1mm; border-bottom: 1px dashed #94a3b8; padding-bottom: 0.5mm; }
+                    .boxes { display: flex; gap: 2mm; flex: 1; }
+                    .box { border: 2px solid #1e3a5f; border-radius: 3px; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+                    .box-title { font-size: 7px; font-weight: 900; text-transform: uppercase; background: #1e3a5f; color: #fff; text-align: center; padding: 1px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    .box-val { font-size: ${qtyFS}; font-weight: 900; text-align: center; flex: 1; display: flex; align-items: center; justify-content: center; line-height: 1; }
+                    .box-unit { font-size: 7px; text-align: center; color: #64748b; padding-bottom: 1px; }
+                    .footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #cbd5e1; padding-top: 0.5mm; margin-top: 0.5mm; font-size: 6.5px; color: #64748b; }
                 </style></head><body>
-                <div class="sticker">
-                    <div class="header">${companyName}</div>
-                    <div class="row"><span class="label">Instansi:</span><span class="value">${item.clientName}</span></div>
-                    <div class="row"><span class="label">Barang:</span><span class="value">${item.itemName}</span></div>
-                    <div class="row"><span class="label">Jumlah:</span><span class="value">${item.qty} ${item.unit}</span></div>
-                    <div class="row"><span class="label">Tgl:</span><span class="value">${item.date}</span></div>
-                    ${item.note ? `<div class="row"><span class="label">Catatan:</span><span class="value">${item.note}</span></div>` : ''}
-                    <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID')}</div>
+                <div class="wrap">
+                    <div class="top">
+                        <div class="logo-area">${logoHtml}</div>
+                        <div class="type-badge">${item.type}</div>
+                    </div>
+                    <div class="client">${item.clientName}</div>
+                    <div class="itemname">${item.itemName}</div>
+                    <div class="boxes">
+                        <div class="box">
+                            <div class="box-title">Jumlah</div>
+                            <div class="box-val">${item.qty}</div>
+                            <div class="box-unit">${item.unit}</div>
+                        </div>
+                        <div class="box">
+                            <div class="box-title">Tanggal</div>
+                            <div class="box-val" style="font-size:9px;">${stickerDate}</div>
+                            ${item.note ? `<div class="box-unit" style="font-size:6px;padding:0 1mm 1px;">${item.note}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <span>${companyName}</span>
+                        <span>Cetak: ${printDate}</span>
+                    </div>
                 </div>
                 <script>window.onload=()=>{window.print();window.close();}<\/script>
-                </body></html>`);
-                win.document.close();
+                </body></html>`;
+
+                const win = window.open('', '_blank');
+                if (win) {
+                    win.document.open();
+                    win.document.write(printContent);
+                    win.document.close();
+                    win.focus();
+                } else {
+                    showToast('Gagal cetak. Izinkan pop-up di browser.', 'error');
+                }
             };
 
             const typeColor = (t) => t === 'Masuk' ? 'bg-green-100 text-green-700' : t === 'Keluar' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700';
