@@ -641,13 +641,11 @@
 
         const getInvoiceSubMarketingCommissionTotal = (invoice) => {
             if (!invoice?.subMarketing) return 0;
-            if (getInvoicePaymentStatus(invoice) !== 'Lunas') return 0;
             const type = String(invoice?.subMarketingCommissionType || 'Persen').toLowerCase();
             if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return getInvoicePcsTotal(invoice) * safeMoney(invoice?.subMarketingCommissionValue);
             return getInvoiceTotals(invoice).total * safeMoney(invoice?.subMarketingCommissionValue) / 100;
         };
         const getInvoiceCommissionTotal = (invoice) => {
-            if (getInvoicePaymentStatus(invoice) !== 'Lunas') return 0;
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
             if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
             return getInvoiceTotals(invoice).total * safeMoney(invoice?.commissionValue) / 100;
@@ -9122,6 +9120,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <th className="p-2 text-left">Tanggal</th>
                                                     <th className="p-2 text-left">Invoice ID</th>
                                                     <th className="p-2 text-left">Klien</th>
+                                                    <th className="p-2 text-center">Status Bayar</th>
                                                     <th className="p-2 text-right">Nilai Invoice</th>
                                                     <th className="p-2 text-right">Tipe Komisi</th>
                                                     <th className="p-2 text-right">Nilai Komisi</th>
@@ -9132,11 +9131,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         const comm = row.isSubMarketing ? getInvoiceSubMarketingCommissionTotal(inv) : getInvoiceCommissionTotal(inv);
                                                         const commType = row.isSubMarketing ? (inv.subMarketingCommissionType || 'Persen') : (inv.commissionType || 'Persen');
                                                         const commVal = row.isSubMarketing ? inv.subMarketingCommissionValue : inv.commissionValue;
+                                                        const payStatus = getInvoicePaymentStatus(inv);
+                                                        const statusBadge = payStatus === 'Lunas'
+                                                            ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span>
+                                                            : payStatus === 'Termin'
+                                                            ? <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span>
+                                                            : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;
                                                         return (
                                                             <tr key={inv.id} className="border-t">
                                                                 <td className="p-2">{inv.date || '-'}</td>
                                                                 <td className="p-2 font-bold text-blue-700">{inv.id}</td>
                                                                 <td className="p-2">{inv.customer || '-'}</td>
+                                                                <td className="p-2 text-center">{statusBadge}</td>
                                                                 <td className="p-2 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td>
                                                                 <td className="p-2 text-right">{commType}</td>
                                                                 <td className="p-2 text-right">{String(commType).toLowerCase() === 'persen' ? `${commVal || 0}%` : `${formatRupiah(commVal || 0)}/pcs`}</td>
@@ -9512,7 +9518,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const allDailyLogs = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId);
                 const selectedDailyKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0).map(log => String(log.id || log.date)));
                 const selectedOvertimeKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => String(log.id || log.date)));
-                const mktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoicePaymentStatus(inv) === 'Lunas');
+                const mktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const selectedMarketingKeys = new Set(mktInvoices.map(inv => String(inv.id)));
                 setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys });
                 setCashAdvanceDeduction('');
@@ -9593,7 +9599,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap].map(l => [String(l.id || l.date), l])).values()];
                 const dailySalary = dailySalaryLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
                 const overtimeSalary = overtimeLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
-                const allMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(empForRekap?.name) && !inv.commissionRekapId && getInvoicePaymentStatus(inv) === 'Lunas');
+                const allMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(empForRekap?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const marketingInvoicesForRekap = allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
                 const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
                 const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission;
@@ -9836,7 +9842,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const selectedOvertimeLogs = modalAllOvertimeLogs.filter(log => modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
             const modalDailySalary = selectedDailyLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
             const modalOvertimeSalary = selectedOvertimeLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
-            const modalMarketingInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(modalEmployee?.name) && !inv.commissionRekapId && getInvoicePaymentStatus(inv) === 'Lunas');
+            const modalMarketingInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(modalEmployee?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
             const selectedMarketingInvoices = modalMarketingInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
             const modalMarketingCommission = selectedMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
@@ -10324,10 +10330,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalMarketingCommission)}</span>
                                             </div>
                                             <table className="w-full text-xs">
-                                                <thead className="bg-purple-50 text-purple-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalMarketingInvoices.length>0&&modalMarketingInvoices.every(i=>modalData?.selectedMarketingKeys?.has(String(i.id)))} onChange={()=>toggleAllModalMarketingItems(modalMarketingInvoices)}/></th><th className="py-2 px-3 text-left">Invoice / Order</th><th className="py-2 px-3 text-left">Nama Klien</th><th className="py-2 px-3 text-right">Nilai Transaksi</th><th className="py-2 px-3 text-right">Komisi</th></tr></thead>
+                                                <thead className="bg-purple-50 text-purple-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalMarketingInvoices.length>0&&modalMarketingInvoices.every(i=>modalData?.selectedMarketingKeys?.has(String(i.id)))} onChange={()=>toggleAllModalMarketingItems(modalMarketingInvoices)}/></th><th className="py-2 px-3 text-left">Invoice / Order</th><th className="py-2 px-3 text-left">Nama Klien</th><th className="py-2 px-3 text-center">Status Bayar</th><th className="py-2 px-3 text-right">Nilai Transaksi</th><th className="py-2 px-3 text-right">Komisi</th></tr></thead>
                                                 <tbody>
-                                                    {modalMarketingInvoices.map((inv,idx)=>{const isSel=modalData?.selectedMarketingKeys?.has(String(inv.id));return(<tr key={`mkt-${idx}`} className={`border-t ${isSel?'bg-purple-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalMarketingItem(inv)}/></td><td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-500 font-normal">{inv.date||'-'}</div></td><td className="py-2 px-3">{inv.customer||'-'}</td><td className="py-2 px-3 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td><td className="py-2 px-3 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td></tr>);})}
-                                                    <tr className="bg-purple-100 font-bold border-t-2"><td colSpan="4" className="py-2 px-3 text-right">Total Komisi Marketing</td><td className="py-2 px-3 text-right text-purple-800">{formatRupiah(modalMarketingCommission)}</td></tr>
+                                                    {modalMarketingInvoices.map((inv,idx)=>{const isSel=modalData?.selectedMarketingKeys?.has(String(inv.id));const ps=getInvoicePaymentStatus(inv);const psBadge=ps==='Lunas'?<span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span>:ps==='Termin'?<span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span>:<span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;return(<tr key={`mkt-${idx}`} className={`border-t ${isSel?'bg-purple-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalMarketingItem(inv)}/></td><td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-500 font-normal">{inv.date||'-'}</div></td><td className="py-2 px-3">{inv.customer||'-'}</td><td className="py-2 px-3 text-center">{psBadge}</td><td className="py-2 px-3 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td><td className="py-2 px-3 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td></tr>);})}
+                                                    <tr className="bg-purple-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Komisi Marketing</td><td className="py-2 px-3 text-right text-purple-800">{formatRupiah(modalMarketingCommission)}</td></tr>
                                                 </tbody>
                                             </table>
                                         </div>
