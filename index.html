@@ -82,7 +82,15 @@
         }, 20000);
     </script>
 
-    <script type="text/babel">
+    <script>
+        if (window.Babel && Babel.availablePresets && Babel.availablePresets.react) {
+            Babel.registerPreset('app-react-classic', {
+                presets: [[Babel.availablePresets.react, { runtime: 'classic' }]]
+            });
+        }
+    </script>
+
+    <script type="text/babel" data-presets="app-react-classic">
         const { useState, useEffect, useMemo, useRef } = React;
 
         // ==========================================
