@@ -14928,8 +14928,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mLemburMulai);
                 const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mLemburMulai);
 
-                const rawMasuk = aktifEntries[0]?.jam || null;
-                const rawPulang = aktifEntries.length > 1 ? aktifEntries[aktifEntries.length - 1].jam : null;
+                let rawMasuk = aktifEntries[0]?.jam || null;
+                let rawPulang = aktifEntries.length > 1 ? aktifEntries[aktifEntries.length - 1].jam : null;
+                if (aktifEntries.length === 1) {
+                    const mMasukCfg = timeToMinutes(jamMasukConfig);
+                    const mPulangCfg = timeToMinutes(jamPulangConfig);
+                    const mScan = timeToMinutes(aktifEntries[0].jam);
+                    if (mMasukCfg != null && mPulangCfg != null && mScan != null) {
+                        const mMid = (mMasukCfg + mPulangCfg) / 2;
+                        if (mScan > mMid) {
+                            rawMasuk = null;
+                            rawPulang = aktifEntries[0].jam;
+                        }
+                    }
+                }
                 const rawLemburMasuk = lemburEntries[0]?.jam || null;
                 const rawLemburPulang = lemburEntries.length > 1 ? lemburEntries[lemburEntries.length - 1].jam : null;
 
