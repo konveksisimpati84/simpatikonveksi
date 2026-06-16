@@ -271,7 +271,7 @@
             return "";
         };
 
-        const safeLocalSet = (k, v) => { try { window.safeLocalSet(k, v); } catch(e) { console.warn('[storage] quota exceeded, skip:', k); } };
+        const safeLocalSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch(e) { console.warn('[storage] quota exceeded, skip:', k); } };
 
         const dataUrlToInlinePart = (dataUrl) => {
             const match = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
@@ -13196,6 +13196,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
         const App = () => {
             const [isReady, setIsReady] = useState(false);
+            const syncInFlightRef = React.useRef(false);
             const [authUser, setAuthUser] = useState(null);
             const [activeTab, setActiveTab] = useState('dashboard');
             const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -13842,6 +13843,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const applyRemoteDataSnapshot = async () => {
                 if (!supabaseClient) return;
+                if (syncInFlightRef.current) return;
+                syncInFlightRef.current = true;
+                try {
+                    await applyRemoteDataSnapshotInner();
+                } finally {
+                    syncInFlightRef.current = false;
+                }
+            };
+
+            const applyRemoteDataSnapshotInner = async () => {
                 const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
@@ -15086,7 +15097,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return rows.filter(r => !filterEmp || r.nama.toLowerCase().includes(filterEmp.toLowerCase()) || r.pin.includes(filterEmp));
             };
 
-            const dailyRows = buildDailySummary(rawLogs, selectedDate);
+            const dailyRows = React.useMemo(() => buildDailySummary(rawLogs, selectedDate), [rawLogs, selectedDate, absensiEdits, employees, filterEmp]);
 
             const printSertifikatAbsensi = (emp, bulan, tmpl) => {
                 const safe = (v) => String(v ?? '-').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -15228,7 +15239,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return Object.values(empMap).filter(r => !filterEmp || r.nama.toLowerCase().includes(filterEmp.toLowerCase())).sort((a,b) => a.nama.localeCompare(b.nama));
             };
 
-            const rekapRows = buildRekap();
+            const rekapRows = React.useMemo(() => buildRekap(), [monthLogs, rekapMonth, absensiEdits, employees, filterEmp]);
 
             const openEdit = (row) => {
                 setEditForm({ pin: row.pin, tanggal: row.tanggal, nama: row.nama, jamMasuk: row.jamMasuk || '', jamPulang: row.jamPulang || '', jamLemburMasuk: row.jamLemburMasuk || '', jamLemburPulang: row.jamLemburPulang || '', note: row.note || '' });
