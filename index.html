@@ -14942,8 +14942,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         }
                     }
                 }
-                const rawLemburMasuk = lemburEntries[0]?.jam || null;
-                const rawLemburPulang = lemburEntries.length > 1 ? lemburEntries[lemburEntries.length - 1].jam : null;
+                let rawLemburMasuk = lemburEntries[0]?.jam || null;
+                let rawLemburPulang = lemburEntries.length > 1 ? lemburEntries[lemburEntries.length - 1].jam : null;
+                if (lemburEntries.length === 1) {
+                    const mLemburSelesaiCfg = timeToMinutes(lemburSelesaiConfig);
+                    const mScanLembur = timeToMinutes(lemburEntries[0].jam);
+                    if (mLemburMulai != null && mLemburSelesaiCfg != null && mScanLembur != null) {
+                        const mMidLembur = (mLemburMulai + mLemburSelesaiCfg) / 2;
+                        if (mScanLembur > mMidLembur) {
+                            rawLemburMasuk = null;
+                            rawLemburPulang = lemburEntries[0].jam;
+                        }
+                    }
+                }
 
                 const jamMasuk = override?.jamMasuk || rawMasuk;
                 const jamPulang = override?.jamPulang || rawPulang;
