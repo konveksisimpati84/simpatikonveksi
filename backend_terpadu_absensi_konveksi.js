@@ -78,7 +78,21 @@ const toTimeStr = (dateObj) => {
 app.get('/iclock/cdata', (req, res) => {
     const sn = req.query.SN || 'Unknown';
     console.log(`[ADMS] Handshake dari mesin (SN: ${sn})`);
-    res.type('text').send(`GET OPTION FROM:${sn}\nRegistry=OK\nDelay=10`);
+    const response = [
+        `GET OPTION FROM:${sn}`,
+        `ATTLOGStamp=None`,
+        `OPERLOGStamp=None`,
+        `ATTPHOTOStamp=None`,
+        `ErrorDelay=30`,
+        `Delay=10`,
+        `TransTimes=00:00;23:59`,
+        `TransInterval=1`,
+        `TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP UserPic`,
+        `TimeZone=7`,
+        `Realtime=1`,
+        `Encrypt=None`
+    ].join('\n');
+    res.type('text').send(response);
 });
 
 // Terima push data absensi dari mesin
