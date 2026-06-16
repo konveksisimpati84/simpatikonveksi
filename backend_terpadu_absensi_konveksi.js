@@ -104,11 +104,19 @@ app.get('/iclock/cdata', (req, res) => {
     res.type('text').send(response);
 });
 
+// Mesin polling perintah dari server
+app.get('/iclock/getrequest', (req, res) => {
+    res.type('text').send('OK');
+});
+
 // Terima push data absensi dari mesin
 app.post('/iclock/cdata', (req, res) => {
     const table   = req.query.table;
     let rawData   = req.body;
     if (typeof rawData !== 'string') rawData = '';
+
+    console.log(`[ATTLOG] table=${table} | panjang data: ${rawData.length} karakter`);
+    if (rawData.length > 0) console.log(`[ATTLOG] isi: ${rawData.substring(0, 200)}`);
 
     if (table === 'ATTLOG' && rawData.trim().length > 0) {
         const lines   = rawData.split('\n');
