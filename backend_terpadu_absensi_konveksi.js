@@ -109,6 +109,11 @@ app.get('/iclock/getrequest', (req, res) => {
     res.type('text').send('OK');
 });
 
+// Mesin kirim hasil eksekusi perintah
+app.post('/iclock/devicecmd', (req, res) => {
+    res.type('text').send('OK');
+});
+
 // Terima push data absensi dari mesin
 app.post('/iclock/cdata', (req, res) => {
     const table   = req.query.table;
@@ -156,9 +161,10 @@ app.post('/iclock/cdata', (req, res) => {
         });
 
         if (newCount > 0) saveLogs(attendanceLogs);
+        res.type('text').send(`OK: ${newCount}`);
+    } else {
+        res.type('text').send('OK: 0');
     }
-
-    res.type('text').send('OK');
 });
 
 // ── [MODUL 2] API ABSENSI ──────────────────────────────────────────────────
