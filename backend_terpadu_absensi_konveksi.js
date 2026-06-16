@@ -56,7 +56,10 @@ app.use(express.urlencoded({ extended: true }));
 
 // Log semua request masuk untuk diagnosa
 app.use((req, res, next) => {
-    console.log(`[REQ] ${req.method} ${req.url} | body: ${typeof req.body === 'string' ? req.body.substring(0, 100) : JSON.stringify(req.body).substring(0, 100)}`);
+    res.on('finish', () => {
+        const body = req.body ? (typeof req.body === 'string' ? req.body.substring(0, 100) : JSON.stringify(req.body).substring(0, 100)) : '';
+        console.log(`[REQ] ${req.method} ${req.url} | body: ${body}`);
+    });
     next();
 });
 
