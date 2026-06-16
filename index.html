@@ -14823,6 +14823,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
             const [rekapMonth, setRekapMonth] = useState(new Date().toISOString().slice(0, 7));
             const [rawLogs, setRawLogs] = useState([]);
+            const [monthLogs, setMonthLogs] = useState([]);
             const [connStatus, setConnStatus] = useState('idle'); // idle | connecting | ok | error
             const [lastFetch, setLastFetch] = useState(null);
             const [editModal, setEditModal] = useState(null); // { pin, tanggal, nama, jamMasuk, jamPulang, note }
@@ -14857,6 +14858,24 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return () => clearInterval(t);
             }, [autoRefresh, selectedDate, serverUrl]);
 
+            const fetchMonthLogs = async () => {
+                try {
+                    const resp = await fetch(`${serverUrl}/api/logs`, { signal: AbortSignal.timeout(8000) });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const json = await resp.json();
+                    setMonthLogs(Array.isArray(json.data) ? json.data : []);
+                } catch(e) {
+                    console.error('[Absensi] Gagal fetch data rekap bulanan:', e.message);
+                }
+            };
+
+            React.useEffect(() => { if (activeTab === 'rekap') fetchMonthLogs(); }, [activeTab, rekapMonth, serverUrl]);
+            React.useEffect(() => {
+                if (!autoRefresh || activeTab !== 'rekap') return;
+                const t = setInterval(fetchMonthLogs, 30000);
+                return () => clearInterval(t);
+            }, [autoRefresh, activeTab, serverUrl]);
+
             // Group raw logs by pin for the selected date
             const groupByPin = (logs) => {
                 const groups = {};
@@ -14887,45 +14906,50 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === getEditKey(pin, tanggal));
             };
 
+            // Hitung jam masuk/pulang/lembur otomatis dari scan mentah satu hari, dioverride manual bila ada
+            const computeDayMetrics = (entries, override) => {
+                const mLemburMulai = timeToMinutes(lemburMulaiConfig);
+                const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
+                const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mLemburMulai);
+                const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mLemburMulai);
+
+                const rawMasuk = aktifEntries[0]?.jam || null;
+                const rawPulang = aktifEntries.length > 1 ? aktifEntries[aktifEntries.length - 1].jam : null;
+                const rawLemburMasuk = lemburEntries[0]?.jam || null;
+                const rawLemburPulang = lemburEntries.length > 1 ? lemburEntries[lemburEntries.length - 1].jam : null;
+
+                const jamMasuk = override?.jamMasuk || rawMasuk;
+                const jamPulang = override?.jamPulang || rawPulang;
+                const jamLemburMasuk = override?.jamLemburMasuk || rawLemburMasuk;
+                const jamLemburPulang = override?.jamLemburPulang || rawLemburPulang;
+
+                const mMasuk = timeToMinutes(jamMasuk);
+                const mTelat = timeToMinutes(jamTelatConfig);
+
+                let status = 'Tepat Waktu';
+                if (mMasuk == null) status = 'Tidak Ada Data';
+                else if (mMasuk > mTelat) status = 'Terlambat';
+
+                // Lembur = durasi sesi lembur (masuk lembur sampai pulang lembur)
+                let lemburMenit = 0;
+                const mLMasuk = timeToMinutes(jamLemburMasuk);
+                const mLPulang = timeToMinutes(jamLemburPulang);
+                if (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) {
+                    lemburMenit = mLPulang - mLMasuk;
+                }
+
+                return { jamMasuk, jamPulang, rawMasuk, rawPulang, jamLemburMasuk, jamLemburPulang, rawLemburMasuk, rawLemburPulang, status, lemburMenit };
+            };
+
             // Build daily summary for a date
             const buildDailySummary = (logs, date) => {
                 const groups = groupByPin(logs);
-                const mLemburMulai = timeToMinutes(lemburMulaiConfig);
                 const rows = [];
                 Object.entries(groups).forEach(([pin, entries]) => {
-                    const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
-                    // Pisah scan aktif dan scan lembur berdasarkan jam
-                    const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mLemburMulai);
-                    const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mLemburMulai);
-
-                    const rawMasuk = aktifEntries[0]?.jam || null;
-                    const rawPulang = aktifEntries.length > 1 ? aktifEntries[aktifEntries.length - 1].jam : null;
-                    const rawLemburMasuk = lemburEntries[0]?.jam || null;
-                    const rawLemburPulang = lemburEntries.length > 1 ? lemburEntries[lemburEntries.length - 1].jam : null;
-
                     const override = getEditOverride(pin, date);
-                    const jamMasuk = override?.jamMasuk || rawMasuk;
-                    const jamPulang = override?.jamPulang || rawPulang;
-                    const jamLemburMasuk = override?.jamLemburMasuk || rawLemburMasuk;
-                    const jamLemburPulang = override?.jamLemburPulang || rawLemburPulang;
+                    const metrics = computeDayMetrics(entries, override);
                     const nama = pinMap[pin] || override?.namaManual || `PIN: ${pin}`;
-
-                    const mMasuk = timeToMinutes(jamMasuk);
-                    const mTelat = timeToMinutes(jamTelatConfig);
-
-                    let status = 'Tepat Waktu';
-                    if (mMasuk == null) status = 'Tidak Ada Data';
-                    else if (mMasuk > mTelat) status = 'Terlambat';
-
-                    // Lembur = durasi sesi lembur (masuk lembur sampai pulang lembur)
-                    let lemburMenit = 0;
-                    const mLMasuk = timeToMinutes(jamLemburMasuk);
-                    const mLPulang = timeToMinutes(jamLemburPulang);
-                    if (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) {
-                        lemburMenit = mLPulang - mLMasuk;
-                    }
-
-                    rows.push({ pin, nama, tanggal: date, jamMasuk, jamPulang, rawMasuk, rawPulang, jamLemburMasuk, jamLemburPulang, rawLemburMasuk, rawLemburPulang, status, lemburMenit, scanCount: entries.length, override, note: override?.note || '' });
+                    rows.push({ pin, nama, tanggal: date, ...metrics, scanCount: entries.length, override, note: override?.note || '' });
                 });
 
                 // Add employees with finger pin that have no scan
@@ -15056,7 +15080,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 w.document.open(); w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 350);
             };
 
-            // Rekap bulanan
+            // Rekap bulanan — otomatis dihitung dari data mentah mesin, override manual (jika ada) tetap diprioritaskan
             const buildRekap = () => {
                 const [year, month] = rekapMonth.split('-').map(Number);
                 const daysInMonth = new Date(year, month, 0).getDate();
@@ -15065,23 +15089,29 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     empMap[String(emp.fingerPin).trim()] = { pin: String(emp.fingerPin).trim(), nama: emp.name, hadir: 0, terlambat: 0, lemburMenit: 0 };
                 });
 
+                // Kelompokkan scan mentah bulan ini per pin+tanggal
+                const groups = {};
+                safeArray(monthLogs).filter(l => !l.isDeleted).forEach(l => {
+                    const pin = String(l.pin).trim();
+                    if (!empMap[pin]) return;
+                    if (!l.tanggal || !l.tanggal.startsWith(rekapMonth)) return;
+                    const key = `${pin}|${l.tanggal}`;
+                    if (!groups[key]) groups[key] = [];
+                    groups[key].push(l);
+                });
+
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = `${rekapMonth}-${String(d).padStart(2,'0')}`;
-                    // Get edits for this date
-                    const dayEdits = safeArray(absensiEdits).filter(isVisibleRecord).filter(e => e.editKey && e.editKey.startsWith(dateStr));
-                    dayEdits.forEach(edit => {
-                        const pin = String(edit.editKey).split('_')[1] || '';
-                        if (!empMap[pin]) return;
-                        if (edit.jamMasuk) {
+                    Object.keys(empMap).forEach(pin => {
+                        const entries = groups[`${pin}|${dateStr}`] || [];
+                        const override = getEditOverride(pin, dateStr);
+                        if (entries.length === 0 && !override) return; // tidak ada data sama sekali hari itu
+                        const metrics = computeDayMetrics(entries, override);
+                        if (metrics.jamMasuk) {
                             empMap[pin].hadir++;
-                            const mMasuk = timeToMinutes(edit.jamMasuk);
-                            if (mMasuk > timeToMinutes(jamTelatConfig)) empMap[pin].terlambat++;
+                            if (metrics.status === 'Terlambat') empMap[pin].terlambat++;
                         }
-                        if (edit.jamLemburMasuk && edit.jamLemburPulang) {
-                            const mLM = timeToMinutes(edit.jamLemburMasuk);
-                            const mLP = timeToMinutes(edit.jamLemburPulang);
-                            if (mLP > mLM) empMap[pin].lemburMenit += (mLP - mLM);
-                        }
+                        empMap[pin].lemburMenit += metrics.lemburMenit;
                     });
                 }
 
@@ -15249,7 +15279,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <input value={filterEmp} onChange={e => setFilterEmp(e.target.value)} placeholder="Nama..." className="w-full p-2.5 border rounded-lg text-sm" />
                                     </div>
                                 </div>
-                                <p className="text-xs text-gray-400 mb-3 italic">Rekap dihitung dari data yang sudah di-edit/konfirmasi. Klik Edit di tab Log Absensi untuk menambah data per hari.</p>
+                                <p className="text-xs text-gray-400 mb-3 italic">Rekap dihitung otomatis dari data mentah mesin fingerprint sepanjang bulan. Koreksi manual lewat tombol Edit di tab Log Absensi akan diprioritaskan jika ada.</p>
                                 {rekapRows.length === 0 ? (
                                     <div className="text-center py-10 text-gray-400 italic">Belum ada data rekap. Pastikan karyawan sudah punya PIN Finger di menu Data Karyawan.</div>
                                 ) : (
