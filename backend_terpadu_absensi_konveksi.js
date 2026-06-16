@@ -105,8 +105,22 @@ app.get('/iclock/cdata', (req, res) => {
 });
 
 // Mesin polling perintah dari server
+let cmdCounter = 1;
+let lastQueryTime = 0;
+
 app.get('/iclock/getrequest', (req, res) => {
-    res.type('text').send('OK');
+    const now = Date.now();
+    // Setiap 30 detik kirim perintah upload data ke mesin
+    if (now - lastQueryTime > 30000) {
+        lastQueryTime = now;
+        const today = new Date();
+        const start = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')} 00:00:00`;
+        const cmd = `C:${cmdCounter++}:DATA QUERY attlog StartTime=${start}`;
+        console.log(`[CMD] Minta upload data: ${cmd}`);
+        res.type('text').send(cmd);
+    } else {
+        res.type('text').send('OK');
+    }
 });
 
 // Mesin kirim hasil eksekusi perintah
