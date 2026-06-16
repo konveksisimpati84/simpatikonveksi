@@ -15475,6 +15475,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const itemFS = (item.itemName || '').length <= 18 ? '11px' : (item.itemName || '').length <= 28 ? '9px' : '8px';
                 const qStr = String(item.qty || '');
                 const qtyFS = qStr.length > 3 ? Math.max(14, Math.floor(26 * (3.5 / qStr.length))) + 'px' : '22px';
+                const noteText = item.note || '-';
+                const noteFS = noteText.length <= 10 ? '11px' : noteText.length <= 20 ? '9px' : noteText.length <= 35 ? '7.5px' : '6.5px';
 
                 const logoHtml = companyLogo
                     ? `<img src="${companyLogo}" style="max-height:10mm;max-width:18mm;object-fit:contain;" />`
@@ -15514,14 +15516,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div class="box-unit">${item.unit}</div>
                         </div>
                         <div class="box">
-                            <div class="box-title">Tanggal</div>
-                            <div class="box-val" style="font-size:9px;">${stickerDate}</div>
-                            ${item.note ? `<div class="box-unit" style="font-size:6px;padding:0 1mm 1px;">${item.note}</div>` : ''}
+                            <div class="box-title">Catatan</div>
+                            <div class="box-val" style="font-size:${noteFS}; padding:0 1mm; line-height:1.2; word-break:break-word;">${noteText}</div>
                         </div>
                     </div>
                     <div class="footer">
                         <span>${companyName}</span>
-                        <span>Cetak: ${printDate}</span>
+                        <span>Tgl: ${stickerDate} &middot; Cetak: ${printDate}</span>
                     </div>
                 </div>
                 <script>window.onload=()=>{window.print();window.close();}<\/script>
