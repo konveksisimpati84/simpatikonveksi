@@ -102,7 +102,11 @@
             paymentBank1Name: '',
             paymentBank2: '',
             paymentBank2No: '',
-            paymentBank2Name: ''
+            paymentBank2Name: '',
+            absensiServerUrl: 'http://localhost:8081',
+            absensiJamMasuk: '08:00',
+            absensiJamTelat: '08:30',
+            absensiJamPulang: '17:00'
         };
 
         const disabledMenuIds = new Set([]);
@@ -129,6 +133,7 @@
             { id: 'ekspedisi', label: 'Driver / Ekspedisi' },
             { id: 'label_maker', label: 'Label Maker' },
             { id: 'stock_barang', label: 'Stock Barang' },
+            { id: 'absensi_finger', label: 'Absensi Finger' },
         ];
 
         const getDefaultMenuAccess = (role) => {
@@ -247,6 +252,7 @@
         const IconUnlock = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>;
         const IconShoppingCart = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>;
         const IconLayers = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>;
+        const IconFingerprint = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.153-.433 2.445-1.457 3.757l-.291.337m-1.854 1.807a13.999 13.999 0 001.587-5.001m-5.2-1.6C7.12 12.178 7 12.598 7 13c0 2.5.906 4.787 2.4 6.55m-.8-10.572A4 4 0 0116 11c0 .626-.061 1.236-.18 1.826" /></svg>;
         const IconEye = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>;
         const IconCash = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>;
 
@@ -1642,6 +1648,7 @@
                                 <div><label className="block text-sm mb-1 font-semibold">No HP</label><input type="text" className="w-full p-2 border rounded" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Status</label><select className="w-full p-2 border rounded" value={newEmp.status} onChange={e => setNewEmp({...newEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
                                 <div className="md:col-span-2"><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(newEmp.salaryTypes||['Produksi']).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(newEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setNewEmp({...newEmp, salaryTypes: (newEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(newEmp.salaryTypes||['Produksi']).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setNewEmp({...newEmp, salaryTypes: [...(newEmp.salaryTypes||['Produksi']), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(newEmp.salaryTypes||['Produksi']).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
+                                <div><label className="block text-sm mb-1 font-semibold">PIN Finger</label><input type="text" className="w-full p-2 border rounded" placeholder="PIN di mesin absensi" value={newEmp.fingerPin || ''} onChange={e => setNewEmp({...newEmp, fingerPin: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={newEmp.dailySalary} onChange={e => setNewEmp({...newEmp, dailySalary: e.target.value})} /></div>
                                 {((newEmp.salaryTypes||['Produksi']).includes('Marketing') || newEmp.division === 'Marketing') && (
                                   <div className="md:col-span-2 bg-purple-50 border border-purple-200 rounded-lg p-4">
@@ -1878,6 +1885,7 @@
                                     </div>
                                     <div><label className="block text-sm mb-1 font-semibold">Nomor HP</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.phone} onChange={e => setEditEmp({...editEmp, phone: e.target.value})} /></div>
                                     <div><label className="block text-sm mb-1 font-semibold">Status Pekerja</label><select className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.status} onChange={e => setEditEmp({...editEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
+                                    <div><label className="block text-sm mb-1 font-semibold">PIN Finger</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" placeholder="PIN di mesin absensi" value={editEmp.fingerPin || ''} onChange={e => setEditEmp({...editEmp, fingerPin: e.target.value})} /></div>
                                     <div className="md:col-span-2"><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(editEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setEditEmp({...editEmp, salaryTypes: (editEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, salaryTypes: [...(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
                                     {((editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes('Marketing') || editEmp.division === 'Marketing') && (
                                       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
@@ -11616,6 +11624,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </Card>
                         <Card>
+                            <h3 className="font-bold border-b pb-2 mb-4">Absensi Finger (Mesin AT-620)</h3>
+                            <p className="text-xs text-gray-500 mb-4">Masukkan URL server backend yang berjalan di PC lokal Anda. Contoh: <code className="bg-gray-100 px-1 rounded">http://192.168.1.10:8081</code></p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="md:col-span-2"><label className="block text-sm mb-1">URL Server Absensi</label><input type="text" name="absensiServerUrl" className="w-full p-2 border rounded font-mono text-sm" placeholder="http://192.168.1.10:8081" value={localTemplates.absensiServerUrl || ''} onChange={handleChange} /></div>
+                                <div><label className="block text-sm mb-1">Jam Masuk Normal</label><input type="time" name="absensiJamMasuk" className="w-full p-2 border rounded" value={localTemplates.absensiJamMasuk || '08:00'} onChange={handleChange} /></div>
+                                <div><label className="block text-sm mb-1">Batas Jam Terlambat</label><input type="time" name="absensiJamTelat" className="w-full p-2 border rounded" value={localTemplates.absensiJamTelat || '08:30'} onChange={handleChange} /></div>
+                                <div><label className="block text-sm mb-1">Jam Pulang Normal</label><input type="time" name="absensiJamPulang" className="w-full p-2 border rounded" value={localTemplates.absensiJamPulang || '17:00'} onChange={handleChange} /></div>
+                            </div>
+                        </Card>
+                        <Card>
                             <h3 className="font-bold border-b pb-2 mb-4">Tanda Tangan / Stempel</h3>
                             <p className="text-xs text-gray-500 mb-3">Gambar ini akan muncul di area TTD &quot;Hormat Kami&quot; pada cetak Invoice dan Bukti Transaksi. Gunakan PNG transparan untuk hasil terbaik.</p>
                             <div className="flex items-center gap-4">
@@ -13084,6 +13102,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [driverTransactions, setDriverTransactions] = useState([]);
             const [driverRekapGaji, setDriverRekapGaji] = useState([]);
             const [stockItems, setStockItems] = useState([]);
+            const [absensiEdits, setAbsensiEdits] = useState([]);
             const [templates, setTemplates] = useState({});
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
@@ -13706,7 +13725,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const applyRemoteDataSnapshot = async () => {
                 if (!supabaseClient) return;
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteStockItems] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteStockItems, remoteAbsensiEdits] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -13724,7 +13743,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     fetchStoreData('driverTarifs', []),
                     fetchStoreData('driverTransactions', []),
                     fetchStoreData('driverRekapGaji', []),
-                    fetchStoreData('stockItems', [])
+                    fetchStoreData('stockItems', []),
+                    fetchStoreData('absensiEdits', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -13866,6 +13886,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         return merged;
                     });
                 }
+                if (Array.isArray(remoteAbsensiEdits)) {
+                    setAbsensiEdits(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteAbsensiEdits);
+                        safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteAbsensiEdits)) setTimeout(() => saveToSupabase('absensiEdits', merged), 0);
+                        return merged;
+                    });
+                }
             };
 
             useEffect(() => {
@@ -13949,6 +13977,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (e.key === 'simpati_stock_items_sync' && e.newValue) {
                         try { setStockItems(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
+                    if (e.key === 'simpati_absensi_edits_sync' && e.newValue) {
+                        try { setAbsensiEdits(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
                 };
                 window.addEventListener('storage', handleStorageChange);
                 return () => window.removeEventListener('storage', handleStorageChange);
@@ -13961,7 +13992,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const initData = async () => {
                     if (supabaseClient) {
                         try {
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remStockItems] = await Promise.all([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remStockItems, remAbsensiEdits] = await Promise.all([
                                 fetchStoreData('accounts', initialAccounts),
                                 fetchStoreData('employees', initialEmployees),
                                 fetchStoreData('orders', initialOrders),
@@ -13979,7 +14010,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 fetchStoreData('driverTarifs', []),
                                 fetchStoreData('driverTransactions', []),
                                 fetchStoreData('driverRekapGaji', []),
-                                fetchStoreData('stockItems', [])
+                                fetchStoreData('stockItems', []),
+                                fetchStoreData('absensiEdits', [])
                             ]);
 
                             const localAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
@@ -14070,6 +14102,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 setStockItems(next); safeLocalSet('simpati_stock_items_sync', JSON.stringify(next));
                                 if (JSON.stringify(next) !== JSON.stringify(remStockItems)) setTimeout(() => saveToSupabase('stockItems', next), 0);
                             }
+                            if (Array.isArray(remAbsensiEdits)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_absensi_edits_sync', []), remAbsensiEdits);
+                                setAbsensiEdits(next); safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remAbsensiEdits)) setTimeout(() => saveToSupabase('absensiEdits', next), 0);
+                            }
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
                         } catch (error) {
                             console.error("Gagal memuat dari Supabase, memakai data lokal.");
@@ -14105,6 +14142,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setDriverTransactions(loadLocalData('simpati_driver_trx_sync', []));
                     setDriverRekapGaji(loadLocalData('simpati_driver_rekap_gaji_sync', []));
                     setStockItems(loadLocalData('simpati_stock_items_sync', []));
+                    setAbsensiEdits(loadLocalData('simpati_absensi_edits_sync', []));
                     syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
                     setIsReady(true);
                 };
@@ -14467,6 +14505,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 });
             };
 
+            const updateAbsensiEdits = (updater) => {
+                setAbsensiEdits(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('absensiEdits', valid);
+                        safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(merged));
+                        saveToSupabase('absensiEdits', merged);
+                        setAbsensiEdits(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             useEffect(() => {
                 const legacyTabRedirects = {
                     'riwayat_rekap_kinerja': 'laporan',
@@ -14622,6 +14677,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 { id: 'master_akun', label: 'Master Akun', icon: <IconKey /> },
                 { id: 'label_maker', label: 'Label Maker', icon: <IconLayers /> },
                 { id: 'stock_barang', label: 'Stock Barang', icon: <IconArchive /> },
+                { id: 'absensi_finger', label: 'Absensi Finger', icon: <IconFingerprint /> },
             ];
             const allowedMenuIds = new Set(getAccountMenuAccess(authUser));
             const canOpen = (menuId) => allowedMenuIds.has(menuId);
@@ -14734,6 +14790,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {activeTab === 'pengaturan' && canOpen('pengaturan') && <TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} />}
                                 {activeTab === 'master_akun' && canOpen('master_akun') && <MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} />}
                                 {activeTab === 'stock_barang' && canOpen('stock_barang') && <StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} />}
+                                {activeTab === 'absensi_finger' && canOpen('absensi_finger') && <AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} showToast={showToast} templates={templates} setTemplates={updateTemplates} />}
                                 {activeMenuAllowed === false && (
                                     <Card>
                                         <div className="text-center py-10 text-gray-500 font-bold">Menu ini tidak tersedia untuk akun Anda.</div>
@@ -14743,6 +14800,425 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </main>
                     </div>
                     {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                </div>
+            );
+        };
+
+        // ── ABSENSI FINGER ────────────────────────────────────────────────────────
+        const AbsensiFingerView = ({ employees, setEmployees, absensiEdits, setAbsensiEdits, showToast, templates, setTemplates }) => {
+            const serverUrl = (templates?.absensiServerUrl || 'http://localhost:8081').replace(/\/$/, '');
+            const jamMasukConfig = templates?.absensiJamMasuk || '08:00';
+            const jamTelatConfig = templates?.absensiJamTelat || '08:30';
+            const jamPulangConfig = templates?.absensiJamPulang || '17:00';
+
+            const [activeTab, setActiveTab] = useState('log');
+            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+            const [rekapMonth, setRekapMonth] = useState(new Date().toISOString().slice(0, 7));
+            const [rawLogs, setRawLogs] = useState([]);
+            const [connStatus, setConnStatus] = useState('idle'); // idle | connecting | ok | error
+            const [lastFetch, setLastFetch] = useState(null);
+            const [editModal, setEditModal] = useState(null); // { pin, tanggal, nama, jamMasuk, jamPulang, note }
+            const [editForm, setEditForm] = useState({});
+            const [filterEmp, setFilterEmp] = useState('');
+            const [autoRefresh, setAutoRefresh] = useState(false);
+
+            const visibleEmployees = safeArray(employees).filter(isVisibleRecord);
+            const pinMap = {};
+            visibleEmployees.forEach(emp => { if (emp.fingerPin) pinMap[String(emp.fingerPin).trim()] = emp.name; });
+
+            const fetchLogs = async (date) => {
+                setConnStatus('connecting');
+                try {
+                    const url = `${serverUrl}/api/logs${date ? `?date=${date}` : ''}`;
+                    const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const json = await resp.json();
+                    setRawLogs(Array.isArray(json.data) ? json.data : []);
+                    setConnStatus('ok');
+                    setLastFetch(new Date().toLocaleTimeString('id-ID'));
+                } catch(e) {
+                    setConnStatus('error');
+                    console.error('[Absensi] Gagal fetch:', e.message);
+                }
+            };
+
+            React.useEffect(() => { fetchLogs(selectedDate); }, [selectedDate, serverUrl]);
+            React.useEffect(() => {
+                if (!autoRefresh) return;
+                const t = setInterval(() => fetchLogs(selectedDate), 30000);
+                return () => clearInterval(t);
+            }, [autoRefresh, selectedDate, serverUrl]);
+
+            // Group raw logs by pin for the selected date
+            const groupByPin = (logs) => {
+                const groups = {};
+                logs.filter(l => !l.isDeleted).forEach(l => {
+                    const pin = String(l.pin);
+                    if (!groups[pin]) groups[pin] = [];
+                    groups[pin].push(l);
+                });
+                return groups;
+            };
+
+            const timeToMinutes = (t) => {
+                if (!t) return null;
+                const [h, m] = t.split(':').map(Number);
+                return h * 60 + m;
+            };
+
+            const minutesToTime = (m) => {
+                if (m == null) return '-';
+                const h = Math.floor(m / 60);
+                const mn = m % 60;
+                return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;
+            };
+
+            const getEditKey = (pin, tanggal) => `${tanggal}_${String(pin)}`;
+
+            const getEditOverride = (pin, tanggal) => {
+                return safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === getEditKey(pin, tanggal));
+            };
+
+            // Build daily summary for a date
+            const buildDailySummary = (logs, date) => {
+                const groups = groupByPin(logs);
+                const rows = [];
+                Object.entries(groups).forEach(([pin, entries]) => {
+                    const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
+                    const rawMasuk = sorted[0]?.jam || null;
+                    const rawPulang = sorted.length > 1 ? sorted[sorted.length - 1].jam : null;
+                    const override = getEditOverride(pin, date);
+                    const jamMasuk = override?.jamMasuk || rawMasuk;
+                    const jamPulang = override?.jamPulang || rawPulang;
+                    const nama = pinMap[pin] || override?.namaManual || `PIN: ${pin}`;
+
+                    const mMasuk = timeToMinutes(jamMasuk);
+                    const mTelat = timeToMinutes(jamTelatConfig);
+                    const mPulang = timeToMinutes(jamPulang);
+                    const mPulangConfig = timeToMinutes(jamPulangConfig);
+
+                    let status = 'Tepat Waktu';
+                    if (mMasuk == null) status = 'Tidak Ada Data';
+                    else if (mMasuk > mTelat) status = 'Terlambat';
+
+                    let lemburMenit = 0;
+                    if (mPulang != null && mPulangConfig != null && mPulang > mPulangConfig) {
+                        lemburMenit = mPulang - mPulangConfig;
+                    }
+
+                    rows.push({ pin, nama, tanggal: date, jamMasuk, jamPulang, rawMasuk, rawPulang, status, lemburMenit, scanCount: entries.length, override, note: override?.note || '' });
+                });
+
+                // Add employees with finger pin that have no scan
+                visibleEmployees.filter(e => e.fingerPin).forEach(emp => {
+                    const pin = String(emp.fingerPin).trim();
+                    if (!groups[pin]) {
+                        const override = getEditOverride(pin, date);
+                        if (override && (override.jamMasuk || override.jamPulang)) {
+                            const jamMasuk = override.jamMasuk || null;
+                            const jamPulang = override.jamPulang || null;
+                            const mMasuk = timeToMinutes(jamMasuk);
+                            const mTelat = timeToMinutes(jamTelatConfig);
+                            const mPulang = timeToMinutes(jamPulang);
+                            const mPulangConfig = timeToMinutes(jamPulangConfig);
+                            let status = mMasuk == null ? 'Tidak Ada Data' : mMasuk > mTelat ? 'Terlambat' : 'Tepat Waktu';
+                            let lemburMenit = mPulang != null && mPulangConfig != null && mPulang > mPulangConfig ? mPulang - mPulangConfig : 0;
+                            rows.push({ pin, nama: emp.name, tanggal: date, jamMasuk, jamPulang, rawMasuk: null, rawPulang: null, status, lemburMenit, scanCount: 0, override, note: override?.note || '' });
+                        }
+                    }
+                });
+
+                return rows.filter(r => !filterEmp || r.nama.toLowerCase().includes(filterEmp.toLowerCase()) || r.pin.includes(filterEmp));
+            };
+
+            const dailyRows = buildDailySummary(rawLogs, selectedDate);
+
+            // Rekap bulanan
+            const buildRekap = () => {
+                const [year, month] = rekapMonth.split('-').map(Number);
+                const daysInMonth = new Date(year, month, 0).getDate();
+                const empMap = {};
+                visibleEmployees.filter(e => e.fingerPin).forEach(emp => {
+                    empMap[String(emp.fingerPin).trim()] = { pin: String(emp.fingerPin).trim(), nama: emp.name, hadir: 0, terlambat: 0, lemburMenit: 0 };
+                });
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = `${rekapMonth}-${String(d).padStart(2,'0')}`;
+                    // Get edits for this date
+                    const dayEdits = safeArray(absensiEdits).filter(isVisibleRecord).filter(e => e.editKey && e.editKey.startsWith(dateStr));
+                    dayEdits.forEach(edit => {
+                        const pin = String(edit.editKey).split('_')[1] || '';
+                        if (!empMap[pin]) return;
+                        if (edit.jamMasuk) {
+                            empMap[pin].hadir++;
+                            const mMasuk = timeToMinutes(edit.jamMasuk);
+                            if (mMasuk > timeToMinutes(jamTelatConfig)) empMap[pin].terlambat++;
+                        }
+                        if (edit.jamPulang) {
+                            const mPulang = timeToMinutes(edit.jamPulang);
+                            const mPulangC = timeToMinutes(jamPulangConfig);
+                            if (mPulang > mPulangC) empMap[pin].lemburMenit += (mPulang - mPulangC);
+                        }
+                    });
+                }
+
+                return Object.values(empMap).filter(r => !filterEmp || r.nama.toLowerCase().includes(filterEmp.toLowerCase())).sort((a,b) => a.nama.localeCompare(b.nama));
+            };
+
+            const rekapRows = buildRekap();
+
+            const openEdit = (row) => {
+                setEditForm({ pin: row.pin, tanggal: row.tanggal, nama: row.nama, jamMasuk: row.jamMasuk || '', jamPulang: row.jamPulang || '', note: row.note || '' });
+                setEditModal(row);
+            };
+
+            const saveEdit = () => {
+                const key = getEditKey(editForm.pin, editForm.tanggal);
+                const existing = getEditOverride(editForm.pin, editForm.tanggal);
+                const record = {
+                    id: existing?.id || `absedit-${editForm.pin}-${editForm.tanggal}-${Date.now()}`,
+                    editKey: key,
+                    pin: editForm.pin,
+                    tanggal: editForm.tanggal,
+                    namaManual: editForm.nama,
+                    jamMasuk: editForm.jamMasuk || null,
+                    jamPulang: editForm.jamPulang || null,
+                    note: editForm.note || ''
+                };
+                if (existing) {
+                    setAbsensiEdits(prev => prev.map(e => e.id === existing.id ? { ...e, ...record } : e));
+                } else {
+                    setAbsensiEdits(prev => [...prev, record]);
+                }
+                showToast('Data absensi disimpan');
+                setEditModal(null);
+            };
+
+            const deleteEdit = (row) => {
+                const existing = getEditOverride(row.pin, row.tanggal);
+                if (!existing) return;
+                setAbsensiEdits(prev => prev.map(e => e.id === existing.id ? { ...e, isDeleted: true } : e));
+                showToast('Override dihapus, kembali ke data mesin');
+            };
+
+            const statusBadge = (s) => {
+                if (s === 'Tepat Waktu') return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Tepat Waktu</span>;
+                if (s === 'Terlambat') return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Terlambat</span>;
+                return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">-</span>;
+            };
+
+            const connBadge = () => {
+                if (connStatus === 'ok') return <span className="text-xs font-bold px-2 py-1 rounded bg-green-100 text-green-700 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>Terhubung {lastFetch && `(${lastFetch})`}</span>;
+                if (connStatus === 'connecting') return <span className="text-xs font-bold px-2 py-1 rounded bg-yellow-100 text-yellow-700">Menghubungkan...</span>;
+                if (connStatus === 'error') return <span className="text-xs font-bold px-2 py-1 rounded bg-red-100 text-red-700 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block"></span>Tidak Terhubung</span>;
+                return null;
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-start justify-between flex-wrap gap-3">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><IconFingerprint /> Absensi Finger</h2>
+                            <p className="text-sm text-gray-500 mt-1">Data absensi dari mesin AT-620 · Server: <code className="bg-gray-100 px-1 rounded text-xs">{serverUrl}</code></p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {connBadge()}
+                            <button onClick={() => fetchLogs(selectedDate)} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-semibold hover:bg-blue-700">↻ Refresh</button>
+                            <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+                                <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="rounded" />
+                                Auto 30s
+                            </label>
+                        </div>
+                    </div>
+
+                    {connStatus === 'error' && (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+                            <strong>Gagal terhubung ke server absensi.</strong> Pastikan:
+                            <ol className="list-decimal ml-4 mt-1 space-y-0.5">
+                                <li>Server backend sudah dijalankan di PC konveksi (<code className="bg-red-100 px-1 rounded">node backend_terpadu_absensi_konveksi.js</code>)</li>
+                                <li>URL server sudah benar di <strong>Pengaturan Cetak → Absensi Finger</strong></li>
+                                <li>Tidak ada firewall yang memblokir port <strong>8081</strong></li>
+                            </ol>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <Card className="border-l-4 border-l-blue-500"><h3 className="text-sm font-bold text-gray-500">Hadir Hari Ini</h3><p className="text-2xl font-black text-blue-700 mt-2">{dailyRows.filter(r => r.jamMasuk).length}</p><p className="text-xs text-gray-400 mt-1">dari {dailyRows.length} data</p></Card>
+                        <Card className="border-l-4 border-l-red-500"><h3 className="text-sm font-bold text-gray-500">Terlambat</h3><p className="text-2xl font-black text-red-700 mt-2">{dailyRows.filter(r => r.status === 'Terlambat').length}</p><p className="text-xs text-gray-400 mt-1">karyawan</p></Card>
+                        <Card className="border-l-4 border-l-orange-500"><h3 className="text-sm font-bold text-gray-500">Lembur</h3><p className="text-2xl font-black text-orange-700 mt-2">{dailyRows.filter(r => r.lemburMenit > 0).length}</p><p className="text-xs text-gray-400 mt-1">karyawan lembur</p></Card>
+                    </div>
+
+                    <Card>
+                        <div className="flex gap-2 mb-4 border-b pb-3 flex-wrap">
+                            <button onClick={() => setActiveTab('log')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'log' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Log Absensi</button>
+                            <button onClick={() => setActiveTab('rekap')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'rekap' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Rekap Bulanan</button>
+                            <button onClick={() => setActiveTab('raw')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'raw' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Data Raw Mesin</button>
+                        </div>
+
+                        {activeTab === 'log' && (
+                            <div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal</label>
+                                        <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-full p-2.5 border rounded-lg text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Cari Karyawan</label>
+                                        <input value={filterEmp} onChange={e => setFilterEmp(e.target.value)} placeholder="Nama atau PIN..." className="w-full p-2.5 border rounded-lg text-sm" />
+                                    </div>
+                                </div>
+                                {dailyRows.length === 0 ? (
+                                    <div className="text-center py-10 text-gray-400 italic">
+                                        {connStatus === 'ok' ? 'Tidak ada data absensi untuk tanggal ini.' : 'Menghubungkan ke server...'}
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead><tr className="bg-gray-50 border-b text-left text-xs font-bold text-gray-600">
+                                                <th className="py-2 px-3">PIN</th>
+                                                <th className="py-2 px-3">Nama</th>
+                                                <th className="py-2 px-3 text-center">Jam Masuk</th>
+                                                <th className="py-2 px-3 text-center">Jam Pulang</th>
+                                                <th className="py-2 px-3 text-center">Status</th>
+                                                <th className="py-2 px-3 text-center">Lembur</th>
+                                                <th className="py-2 px-3 text-center">Scan</th>
+                                                <th className="py-2 px-3">Catatan</th>
+                                                <th className="py-2 px-3 text-center">Aksi</th>
+                                            </tr></thead>
+                                            <tbody>{dailyRows.map((row, idx) => (
+                                                <tr key={`${row.pin}-${row.tanggal}`} className={`border-t ${idx % 2 === 0 ? '' : 'bg-gray-50'}`}>
+                                                    <td className="py-2 px-3 text-gray-500 font-mono text-xs">{row.pin}</td>
+                                                    <td className="py-2 px-3 font-semibold text-gray-800">
+                                                        {row.nama}
+                                                        {row.override && <span className="ml-1 text-[10px] text-blue-500 font-bold">[edit]</span>}
+                                                    </td>
+                                                    <td className="py-2 px-3 text-center font-mono font-bold text-green-700">{row.jamMasuk || <span className="text-gray-300">-</span>}</td>
+                                                    <td className="py-2 px-3 text-center font-mono font-bold text-blue-700">{row.jamPulang || <span className="text-gray-300">-</span>}</td>
+                                                    <td className="py-2 px-3 text-center">{statusBadge(row.status)}</td>
+                                                    <td className="py-2 px-3 text-center text-orange-700 font-bold text-xs">{row.lemburMenit > 0 ? `${minutesToTime(row.lemburMenit)} jam` : <span className="text-gray-300">-</span>}</td>
+                                                    <td className="py-2 px-3 text-center text-gray-500 text-xs">{row.scanCount}</td>
+                                                    <td className="py-2 px-3 text-gray-400 text-xs max-w-[100px] truncate">{row.note}</td>
+                                                    <td className="py-2 px-3 text-center">
+                                                        <div className="flex gap-1 justify-center">
+                                                            <button onClick={() => openEdit(row)} className="p-1 text-yellow-600 hover:bg-yellow-50 rounded text-xs font-bold" title="Edit jam">✎</button>
+                                                            {row.override && <button onClick={() => deleteEdit(row)} className="p-1 text-red-500 hover:bg-red-50 rounded text-xs" title="Hapus override">✕</button>}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}</tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'rekap' && (
+                            <div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Bulan</label>
+                                        <input type="month" value={rekapMonth} onChange={e => setRekapMonth(e.target.value)} className="w-full p-2.5 border rounded-lg text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Cari Karyawan</label>
+                                        <input value={filterEmp} onChange={e => setFilterEmp(e.target.value)} placeholder="Nama..." className="w-full p-2.5 border rounded-lg text-sm" />
+                                    </div>
+                                </div>
+                                <p className="text-xs text-gray-400 mb-3 italic">Rekap dihitung dari data yang sudah di-edit/konfirmasi. Klik Edit di tab Log Absensi untuk menambah data per hari.</p>
+                                {rekapRows.length === 0 ? (
+                                    <div className="text-center py-10 text-gray-400 italic">Belum ada data rekap. Pastikan karyawan sudah punya PIN Finger di menu Data Karyawan.</div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead><tr className="bg-gray-50 border-b text-left text-xs font-bold text-gray-600">
+                                                <th className="py-2 px-3">Nama</th>
+                                                <th className="py-2 px-3 text-right">Hadir</th>
+                                                <th className="py-2 px-3 text-right">Terlambat</th>
+                                                <th className="py-2 px-3 text-right">Total Lembur</th>
+                                            </tr></thead>
+                                            <tbody>{rekapRows.map((r, idx) => (
+                                                <tr key={r.pin} className={`border-t ${idx % 2 === 0 ? '' : 'bg-gray-50'}`}>
+                                                    <td className="py-2 px-3 font-semibold text-gray-800">{r.nama} <span className="text-gray-400 font-normal text-xs">PIN: {r.pin}</span></td>
+                                                    <td className="py-2 px-3 text-right font-bold text-green-700">{r.hadir} hari</td>
+                                                    <td className="py-2 px-3 text-right font-bold text-red-700">{r.terlambat} hari</td>
+                                                    <td className="py-2 px-3 text-right font-bold text-orange-700">{r.lemburMenit > 0 ? `${(r.lemburMenit/60).toFixed(1)} jam` : '-'}</td>
+                                                </tr>
+                                            ))}</tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'raw' && (
+                            <div>
+                                <div className="mb-3">
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal</label>
+                                    <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="p-2.5 border rounded-lg text-sm" />
+                                </div>
+                                <p className="text-xs text-gray-400 mb-3">Data mentah langsung dari mesin finger. Setiap tap = 1 baris.</p>
+                                {rawLogs.filter(l => !l.isDeleted).length === 0 ? (
+                                    <div className="text-center py-10 text-gray-400 italic">Tidak ada data raw.</div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead><tr className="bg-gray-50 border-b text-xs font-bold text-gray-600 text-left">
+                                                <th className="py-2 px-3">PIN</th>
+                                                <th className="py-2 px-3">Nama</th>
+                                                <th className="py-2 px-3">Jam</th>
+                                                <th className="py-2 px-3">Sumber</th>
+                                            </tr></thead>
+                                            <tbody>{rawLogs.filter(l => !l.isDeleted).map((l, idx) => (
+                                                <tr key={l.id} className={`border-t ${idx%2===0?'':'bg-gray-50'}`}>
+                                                    <td className="py-1.5 px-3 font-mono text-xs text-gray-500">{l.pin}</td>
+                                                    <td className="py-1.5 px-3 text-gray-700">{pinMap[String(l.pin)] || `PIN: ${l.pin}`}</td>
+                                                    <td className="py-1.5 px-3 font-mono font-bold text-gray-800">{l.jam}</td>
+                                                    <td className="py-1.5 px-3"><span className={`text-xs px-1.5 py-0.5 rounded ${l.source === 'manual' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>{l.source || 'mesin'}</span></td>
+                                                </tr>
+                                            ))}</tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </Card>
+
+                    {editModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+                                <div className="p-4 border-b flex justify-between items-center">
+                                    <span className="font-bold text-gray-800">Edit Jam Absensi</span>
+                                    <button onClick={() => setEditModal(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+                                </div>
+                                <div className="p-4 space-y-3">
+                                    <div className="bg-gray-50 rounded p-3 text-sm">
+                                        <p><span className="text-gray-500">Karyawan:</span> <strong>{editForm.nama}</strong></p>
+                                        <p><span className="text-gray-500">PIN:</span> <code className="bg-gray-200 px-1 rounded text-xs">{editForm.pin}</code></p>
+                                        <p><span className="text-gray-500">Tanggal:</span> <strong>{editForm.tanggal}</strong></p>
+                                        {editModal.rawMasuk && <p className="text-xs text-gray-400 mt-1">Data mesin: masuk {editModal.rawMasuk}{editModal.rawPulang ? ` · pulang ${editModal.rawPulang}` : ''}</p>}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">Jam Masuk</label>
+                                            <input type="time" value={editForm.jamMasuk || ''} onChange={e => setEditForm(f => ({...f, jamMasuk: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">Jam Pulang</label>
+                                            <input type="time" value={editForm.jamPulang || ''} onChange={e => setEditForm(f => ({...f, jamPulang: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label>
+                                        <input value={editForm.note || ''} onChange={e => setEditForm(f => ({...f, note: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="Alasan edit, izin, sakit, dll." />
+                                    </div>
+                                </div>
+                                <div className="p-4 border-t flex gap-2 justify-end">
+                                    <button onClick={() => setEditModal(null)} className="px-4 py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">Batal</button>
+                                    <button onClick={saveEdit} className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Simpan</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
