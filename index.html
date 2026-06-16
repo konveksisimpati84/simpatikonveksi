@@ -759,6 +759,8 @@
             const workerFS = (worker||'').length <= 20 ? '10px' : '8px';
             const qStr = String(qty || 0);
             const qtyFS = qStr.length > 3 ? Math.max(12, Math.floor(24 * (3.5 / qStr.length))) + 'px' : '24px';
+            const sizeStr = String(size || '-');
+            const sizeFS = sizeStr.length <= 3 ? '24px' : sizeStr.length <= 6 ? '17px' : sizeStr.length <= 10 ? '12px' : '9px';
             const noteText = note ? (note.length > 28 ? note.slice(0, 28) + '…' : note) : '-';
             const printContent = `<!DOCTYPE html><html><head><title>Stiker Revisi - ${client}</title>
             <style>
@@ -781,8 +783,8 @@
                 <div class="type">${type || '-'}</div>
                 <div class="worker">Worker: ${worker || '-'}</div>
                 <div class="details">
-                    <div class="box"><div class="box-title">Size</div><div class="box-val">${size || '-'}</div></div>
-                    <div class="box"><div class="box-title" style="color:#dc2626">Pcs</div><div class="box-val">${qty || 0}</div></div>
+                    <div class="box"><div class="box-title">Size</div><div class="box-val" style="font-size:${sizeFS};">${size || '-'}</div></div>
+                    <div class="box"><div class="box-title" style="color:#dc2626">Pcs</div><div class="box-val" style="font-size:${qtyFS};">${qty || 0}</div></div>
                 </div>
                 <div class="note-row">Ket: ${noteText}</div>
                 <div class="date">Tgl: ${stickerDate}</div>
@@ -2683,6 +2685,8 @@ window.addEventListener('load',function(){
                 // Menyesuaikan ukuran font box jumlah secara otomatis jika angkanya besar
                 const qStr = String(qty);
                 const qtyFS = qStr.length > 3 ? Math.max(12, Math.floor(26 * (3.5 / qStr.length))) + 'px' : '26px';
+                const sizeStr = String(size || '-');
+                const sizeFS = sizeStr.length <= 3 ? '26px' : sizeStr.length <= 6 ? '18px' : sizeStr.length <= 10 ? '13px' : '10px';
 
                 const printContent = `
                 <!DOCTYPE html>
@@ -2723,11 +2727,11 @@ window.addEventListener('load',function(){
                     <div class="details">
                         <div class="box">
                             <div class="box-title">Size</div>
-                            <div class="box-val">${size}</div>
+                            <div class="box-val" style="font-size:${sizeFS};">${size}</div>
                         </div>
                         <div class="box">
                             <div class="box-title" style="color: #000;">Qty</div>
-                            <div class="box-val">${qty}</div>
+                            <div class="box-val" style="font-size:${qtyFS};">${qty}</div>
                         </div>
                     </div>
                     <div class="date">Tgl: ${stickerDate}</div>
