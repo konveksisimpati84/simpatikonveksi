@@ -9339,7 +9339,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 `);
                 const productionRows = (data.items || []).map(item => `
                     <div class="item-row">
-                        <span><b>${item.orderId || '-'} - ${item.stageLabel || item.stage || '-'}</b><small>${item.type || '-'} | ${item.qty || 0} x ${formatReceiptMoney(item.unitPrice || 0)}</small></span>
+                        <span><b>${item.orderId || '-'} - ${item.stageLabel || item.stage || '-'}</b><small>${item.client ? `${item.client} &middot; ` : ''}${item.type || '-'} | ${item.qty || 0} x ${formatReceiptMoney(item.unitPrice || 0)}</small></span>
                         <span>${formatReceiptMoney(item.wageTotal || 0)}</span>
                     </div>
                 `);
