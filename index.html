@@ -7,15 +7,15 @@
     <meta name="description" content="Sistem Manajemen Produksi Simpati Konveksi" />
     <meta name="robots" content="noindex, nofollow" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
-    <!-- React & Tailwind -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
+    <!-- React & Tailwind (tiap library punya CDN cadangan kalau CDN utama gagal/diblokir) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/@supabase/supabase-js@2&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
     <!-- jsPDF — label export PDF -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
