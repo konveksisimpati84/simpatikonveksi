@@ -115,7 +115,8 @@ app.get('/iclock/getrequest', (req, res) => {
         lastQueryTime = now;
         const today = new Date();
         const start = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')} 00:00:00`;
-        const cmd = `C:${cmdCounter++}:DATA QUERY attlog StartTime=${start}`;
+        // Coba query tanpa filter tanggal dan juga operlog
+        const cmd = `C:${cmdCounter++}:DATA QUERY attlog`;
         console.log(`[CMD] Minta upload data: ${cmd}`);
         res.type('text').send(cmd);
     } else {
@@ -134,8 +135,8 @@ app.post('/iclock/cdata', (req, res) => {
     let rawData   = req.body;
     if (typeof rawData !== 'string') rawData = '';
 
-    console.log(`[ATTLOG] table=${table} | panjang data: ${rawData.length} karakter`);
-    if (rawData.length > 0) console.log(`[ATTLOG] isi: ${rawData.substring(0, 200)}`);
+    console.log(`[${table || 'UNKNOWN'}] panjang data: ${rawData.length} karakter`);
+    if (rawData.length > 0) console.log(`[DATA] isi: ${rawData.substring(0, 500)}`);
 
     if (table === 'ATTLOG' && rawData.trim().length > 0) {
         const lines   = rawData.split('\n');
