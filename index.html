@@ -1690,53 +1690,11 @@
                 openPrintWindow(html);
             };
 
-            const printDaftarKaryawan = (list, tmpl) => {
-                const coNm = safePrint((tmpl||{}).companyName || 'SIMPATI KONVEKSI');
-                const coSub = safePrint((tmpl||{}).companySubtitle || '');
-                const logoHtml = (tmpl||{}).companyLogo
-                    ? `<img src="${(tmpl||{}).companyLogo}" style="height:36px;max-width:110px;object-fit:contain"/>`
-                    : `<div style="font-size:14px;font-weight:900;color:#1e3a5f;">${coNm}</div>`;
-                const today = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
-
-                const rows = list.map((emp, idx) => `<tr>
-                    <td>${idx + 1}</td>
-                    <td>${safePrint(emp.name)}</td>
-                    <td>${safePrint(emp.division)}</td>
-                    <td>${safePrint(emp.phone)}</td>
-                    <td>${getEmployeeSalaryTypes(emp).join(', ') || '-'}</td>
-                    <td>${emp.dailySalary ? formatRupiah(emp.dailySalary) : '-'}</td>
-                    <td>${safePrint(emp.status || 'Aktif')}</td>
-                </tr>`).join('');
-
-                const html = `<!DOCTYPE html><html><head><title>Daftar Karyawan</title><meta charset="utf-8"><style>
-                    @page { size: A4 landscape; margin: 12mm; } * { box-sizing: border-box; } body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; }
-                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #1e3a5f; padding-bottom: 8px; margin-bottom: 16px; }
-                    .header h1 { font-size: 16px; margin: 0; color: #1e3a5f; letter-spacing: 1px; }
-                    .sub { font-size: 10px; color: #64748b; }
-                    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-                    th { background: #1e3a5f; color: #fff; padding: 6px 8px; text-align: left; }
-                    td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; }
-                    tr:nth-child(even) td { background: #f8fafc; }
-                    .footer { margin-top: 18px; font-size: 10px; color: #94a3b8; text-align: right; }
-                </style></head><body>
-                    <div class="header"><div>${logoHtml}<div class="sub">${coSub}</div></div><div style="text-align:right"><h1>DAFTAR KARYAWAN</h1><div class="sub">Dicetak: ${today} &middot; Total: ${list.length} karyawan</div></div></div>
-                    <table>
-                        <thead><tr><th>No</th><th>Nama</th><th>Divisi</th><th>No. HP</th><th>Tipe Gaji</th><th>Gaji Harian</th><th>Status</th></tr></thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                    <div class="footer">${coNm} &middot; Dokumen ini dicetak otomatis dari sistem.</div>
-                </body></html>`;
-                openPrintWindow(html);
-            };
-
             return (
                 <div className="space-y-6">
                     <div className="flex justify-between items-center">
                         <h2 className="text-2xl font-bold text-gray-800">Data Karyawan</h2>
-                        <div className="flex gap-2">
-                            <button onClick={() => printDaftarKaryawan(filteredEmployees, templates)} className="bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium">🖨 Cetak Daftar</button>
-                            <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium"><IconPlusCircle /> Tambah Karyawan</button>
-                        </div>
+                        <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium"><IconPlusCircle /> Tambah Karyawan</button>
                     </div>
 
                     {showForm && (
