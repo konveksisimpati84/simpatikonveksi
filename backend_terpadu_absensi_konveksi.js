@@ -50,6 +50,21 @@ console.log(`[Storage] ${attendanceLogs.length} log dimuat dari file.`);
 // ── Middleware ──────────────────────────────────────────────────────────────
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] }));
+
+// Tangkap raw body SEBELUM parser lain
+app.use((req, res, next) => {
+    let raw = Buffer.alloc(0);
+    req.on('data', chunk => { raw = Buffer.concat([raw, chunk]); });
+    req.on('end', () => {
+        req.rawBody = raw.toString('utf8');
+        if (req.method === 'POST' && req.rawBody.length > 0) {
+            console.log(`[RAW POST] ${req.url.split('?')[0]} | Content-Type: ${req.headers['content-type']} | Length: ${req.rawBody.length}`);
+            console.log(`[RAW DATA] ${req.rawBody.substring(0, 300)}`);
+        }
+        next();
+    });
+});
+
 app.use(express.text({ type: '*/*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
