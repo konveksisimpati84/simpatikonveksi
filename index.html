@@ -72,14 +72,13 @@
                 (msg ? '<div style="margin-top:16px;font-size:11px;color:#94a3b8;background:#f1f5f9;border-radius:6px;padding:8px;text-align:left;word-break:break-all;max-width:420px;">' + msg + '</div>' : '') +
                 '</div>';
         }
-        window.addEventListener('error', function(e) {
-            showBootError(e.message || (e.error && e.error.message) || 'Unknown error');
-        });
-        window.addEventListener('unhandledrejection', function(e) {
-            showBootError((e.reason && e.reason.message) || String(e.reason));
-        });
         setTimeout(function() {
-            if (!window.__APP_BOOT_OK) showBootError('Waktu muat terlalu lama (timeout). Cek koneksi internet Anda.');
+            if (window.__APP_BOOT_OK) return;
+            if (typeof React === 'undefined' || typeof ReactDOM === 'undefined' || typeof Babel === 'undefined') {
+                showBootError('Gagal memuat library aplikasi (React/Babel). Kemungkinan koneksi internet lambat atau terblokir.');
+            } else {
+                showBootError('Waktu muat terlalu lama (timeout). Cek koneksi internet Anda.');
+            }
         }, 20000);
     </script>
 
