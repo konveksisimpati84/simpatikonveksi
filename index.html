@@ -13109,6 +13109,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [driverRekapGaji, setDriverRekapGaji] = useState([]);
             const [stockItems, setStockItems] = useState([]);
             const [absensiEdits, setAbsensiEdits] = useState([]);
+            const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
             const [templates, setTemplates] = useState({});
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
@@ -13731,7 +13732,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const applyRemoteDataSnapshot = async () => {
                 if (!supabaseClient) return;
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteStockItems, remoteAbsensiEdits] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -13750,7 +13751,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     fetchStoreData('driverTransactions', []),
                     fetchStoreData('driverRekapGaji', []),
                     fetchStoreData('stockItems', []),
-                    fetchStoreData('absensiEdits', [])
+                    fetchStoreData('absensiEdits', []),
+                    fetchStoreData('absensiRawLogs', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -13900,6 +13902,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         return merged;
                     });
                 }
+                if (Array.isArray(remoteAbsensiRawLogs)) {
+                    setAbsensiRawLogs(remoteAbsensiRawLogs);
+                    safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remoteAbsensiRawLogs));
+                }
             };
 
             useEffect(() => {
@@ -13998,7 +14004,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const initData = async () => {
                     if (supabaseClient) {
                         try {
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remStockItems, remAbsensiEdits] = await Promise.all([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remStockItems, remAbsensiEdits, remAbsensiRawLogs] = await Promise.all([
                                 fetchStoreData('accounts', initialAccounts),
                                 fetchStoreData('employees', initialEmployees),
                                 fetchStoreData('orders', initialOrders),
@@ -14017,7 +14023,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 fetchStoreData('driverTransactions', []),
                                 fetchStoreData('driverRekapGaji', []),
                                 fetchStoreData('stockItems', []),
-                                fetchStoreData('absensiEdits', [])
+                                fetchStoreData('absensiEdits', []),
+                                fetchStoreData('absensiRawLogs', [])
                             ]);
 
                             const localAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
@@ -14112,6 +14119,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const next = mergeRecordLists(loadLocalData('simpati_absensi_edits_sync', []), remAbsensiEdits);
                                 setAbsensiEdits(next); safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(next));
                                 if (JSON.stringify(next) !== JSON.stringify(remAbsensiEdits)) setTimeout(() => saveToSupabase('absensiEdits', next), 0);
+                            }
+                            if (Array.isArray(remAbsensiRawLogs)) {
+                                setAbsensiRawLogs(remAbsensiRawLogs);
+                                safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remAbsensiRawLogs));
                             }
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
                         } catch (error) {
@@ -14528,6 +14539,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 });
             };
 
+            const refreshAbsensiRawLogs = async () => {
+                const remote = await fetchStoreData('absensiRawLogs', []);
+                if (Array.isArray(remote)) {
+                    setAbsensiRawLogs(remote);
+                    safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remote));
+                }
+                return Array.isArray(remote) ? remote : [];
+            };
+
             useEffect(() => {
                 const legacyTabRedirects = {
                     'riwayat_rekap_kinerja': 'laporan',
@@ -14796,7 +14816,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {activeTab === 'pengaturan' && canOpen('pengaturan') && <TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} />}
                                 {activeTab === 'master_akun' && canOpen('master_akun') && <MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} />}
                                 {activeTab === 'stock_barang' && canOpen('stock_barang') && <StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} />}
-                                {activeTab === 'absensi_finger' && canOpen('absensi_finger') && <AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} showToast={showToast} templates={templates} setTemplates={updateTemplates} />}
+                                {activeTab === 'absensi_finger' && canOpen('absensi_finger') && <AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} />}
                                 {activeMenuAllowed === false && (
                                     <Card>
                                         <div className="text-center py-10 text-gray-500 font-bold">Menu ini tidak tersedia untuk akun Anda.</div>
@@ -14811,8 +14831,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
         };
 
         // ── ABSENSI FINGER ────────────────────────────────────────────────────────
-        const AbsensiFingerView = ({ employees, setEmployees, absensiEdits, setAbsensiEdits, showToast, templates, setTemplates }) => {
-            const serverUrl = (templates?.absensiServerUrl || 'http://localhost:8081').replace(/\/$/, '');
+        const AbsensiFingerView = ({ employees, setEmployees, absensiEdits, setAbsensiEdits, absensiRawLogs, refreshAbsensiRawLogs, showToast, templates, setTemplates }) => {
             const jamMasukConfig = templates?.absensiJamMasuk || '07:00';
             const jamTelatConfig = templates?.absensiJamTelat || '07:30';
             const jamPulangConfig = templates?.absensiJamPulang || '16:30';
@@ -14822,8 +14841,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [activeTab, setActiveTab] = useState('log');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
             const [rekapMonth, setRekapMonth] = useState(new Date().toISOString().slice(0, 7));
-            const [rawLogs, setRawLogs] = useState([]);
-            const [monthLogs, setMonthLogs] = useState([]);
+            // Data absensi dibaca dari Supabase (absensiRawLogs) — disinkron oleh backend lokal,
+            // jadi tetap terlihat di device manapun walau device ini tidak terhubung ke backend.
+            const monthLogs = safeArray(absensiRawLogs);
+            const rawLogs = monthLogs.filter(l => l.tanggal === selectedDate);
             const [connStatus, setConnStatus] = useState('idle'); // idle | connecting | ok | error
             const [lastFetch, setLastFetch] = useState(null);
             const [editModal, setEditModal] = useState(null); // { pin, tanggal, nama, jamMasuk, jamPulang, note }
@@ -14835,46 +14856,25 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const pinMap = {};
             visibleEmployees.forEach(emp => { if (emp.fingerPin) pinMap[String(emp.fingerPin).trim()] = emp.name; });
 
-            const fetchLogs = async (date) => {
+            // Refresh data dari Supabase (sumber tampilan utama, bekerja dari device manapun)
+            const fetchLogs = async () => {
                 setConnStatus('connecting');
                 try {
-                    const url = `${serverUrl}/api/logs${date ? `?date=${date}` : ''}`;
-                    const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                    const json = await resp.json();
-                    setRawLogs(Array.isArray(json.data) ? json.data : []);
+                    await refreshAbsensiRawLogs();
                     setConnStatus('ok');
                     setLastFetch(new Date().toLocaleTimeString('id-ID'));
                 } catch(e) {
                     setConnStatus('error');
-                    console.error('[Absensi] Gagal fetch:', e.message);
+                    console.error('[Absensi] Gagal refresh dari Supabase:', e.message);
                 }
             };
 
-            React.useEffect(() => { fetchLogs(selectedDate); }, [selectedDate, serverUrl]);
+            React.useEffect(() => { fetchLogs(); }, []);
             React.useEffect(() => {
                 if (!autoRefresh) return;
-                const t = setInterval(() => fetchLogs(selectedDate), 30000);
+                const t = setInterval(fetchLogs, 30000);
                 return () => clearInterval(t);
-            }, [autoRefresh, selectedDate, serverUrl]);
-
-            const fetchMonthLogs = async () => {
-                try {
-                    const resp = await fetch(`${serverUrl}/api/logs`, { signal: AbortSignal.timeout(8000) });
-                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                    const json = await resp.json();
-                    setMonthLogs(Array.isArray(json.data) ? json.data : []);
-                } catch(e) {
-                    console.error('[Absensi] Gagal fetch data rekap bulanan:', e.message);
-                }
-            };
-
-            React.useEffect(() => { if (activeTab === 'rekap') fetchMonthLogs(); }, [activeTab, rekapMonth, serverUrl]);
-            React.useEffect(() => {
-                if (!autoRefresh || activeTab !== 'rekap') return;
-                const t = setInterval(fetchMonthLogs, 30000);
-                return () => clearInterval(t);
-            }, [autoRefresh, activeTab, serverUrl]);
+            }, [autoRefresh]);
 
             // Group raw logs by pin for the selected date
             const groupByPin = (logs) => {
@@ -15174,11 +15174,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <div className="flex items-start justify-between flex-wrap gap-3">
                         <div>
                             <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><IconFingerprint /> Absensi Finger</h2>
-                            <p className="text-sm text-gray-500 mt-1">Data absensi dari mesin AT-620 · Server: <code className="bg-gray-100 px-1 rounded text-xs">{serverUrl}</code></p>
+                            <p className="text-sm text-gray-500 mt-1">Data absensi dari mesin AT-620 · disinkron via cloud (Supabase), terlihat dari device manapun</p>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
                             {connBadge()}
-                            <button onClick={() => fetchLogs(selectedDate)} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-semibold hover:bg-blue-700">↻ Refresh</button>
+                            <button onClick={() => fetchLogs()} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-semibold hover:bg-blue-700">↻ Refresh</button>
                             <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
                                 <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="rounded" />
                                 Auto 30s
@@ -15188,11 +15188,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                     {connStatus === 'error' && (
                         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
-                            <strong>Gagal terhubung ke server absensi.</strong> Pastikan:
+                            <strong>Gagal memuat data absensi dari cloud.</strong> Pastikan:
                             <ol className="list-decimal ml-4 mt-1 space-y-0.5">
-                                <li>Server backend sudah dijalankan di PC konveksi (<code className="bg-red-100 px-1 rounded">node backend_terpadu_absensi_konveksi.js</code>)</li>
-                                <li>URL server sudah benar di <strong>Pengaturan Cetak → Absensi Finger</strong></li>
-                                <li>Tidak ada firewall yang memblokir port <strong>8081</strong></li>
+                                <li>Koneksi internet device ini aktif</li>
+                                <li>Server backend di PC konveksi sudah pernah berjalan untuk mengirim data terbaru ke cloud</li>
                             </ol>
                         </div>
                     )}

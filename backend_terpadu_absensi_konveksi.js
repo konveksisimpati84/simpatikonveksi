@@ -21,6 +21,33 @@ const app      = express();
 const PORT     = 8081;
 const LOG_FILE = path.join(__dirname, 'absensi_logs.json');
 
+// ── Sinkronisasi ke Supabase (agar data terlihat dari device manapun) ───────
+
+const SUPABASE_URL      = 'https://rnmbsjntfdamuhkejpxx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJubWJzam50ZmRhbXVoa2VqcHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMzM0NjIsImV4cCI6MjA5NTYwOTQ2Mn0.v_NjP9ukuufVk9XkOfPkJ1BWmd5lItHo8K0c6ckGYQ4';
+
+const syncLogsToSupabase = async () => {
+    try {
+        const resp = await fetch(`${SUPABASE_URL}/rest/v1/app_data`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                'Prefer': 'resolution=merge-duplicates,return=minimal'
+            },
+            body: JSON.stringify({ id: 'absensiRawLogs', data: attendanceLogs })
+        });
+        if (!resp.ok) {
+            console.error('[Supabase] Gagal sync log absensi:', resp.status, await resp.text());
+        } else {
+            console.log(`[Supabase] Sinkron ${attendanceLogs.length} log absensi ke cloud`);
+        }
+    } catch (e) {
+        console.error('[Supabase] Error sync ke cloud:', e.message);
+    }
+};
+
 // ── Persistensi ────────────────────────────────────────────────────────────
 
 const loadLogs = () => {
@@ -44,8 +71,15 @@ const saveLogs = (data) => {
     }
 };
 
+// Simpan ke file lokal sekaligus sinkron ke Supabase
+const persistLogs = (data) => {
+    saveLogs(data);
+    syncLogsToSupabase();
+};
+
 let attendanceLogs = loadLogs();
 console.log(`[Storage] ${attendanceLogs.length} log dimuat dari file.`);
+syncLogsToSupabase();
 
 // ── Middleware ──────────────────────────────────────────────────────────────
 
@@ -190,7 +224,7 @@ app.post('/iclock/cdata', (req, res) => {
             console.log(`✅ Absen: PIN ${pin} · ${tanggal} ${jam}`);
         });
 
-        if (newCount > 0) saveLogs(attendanceLogs);
+        if (newCount > 0) persistLogs(attendanceLogs);
         res.type('text').send(`OK: ${newCount}`);
     } else {
         res.type('text').send('OK: 0');
@@ -227,7 +261,7 @@ app.post('/api/logs/add', (req, res) => {
     };
 
     attendanceLogs.unshift(log);
-    saveLogs(attendanceLogs);
+    persistLogs(attendanceLogs);
     console.log(`[Manual] Log ditambah: PIN ${pin} · ${tanggal} ${jam}`);
     res.json({ success: true, data: log });
 });
@@ -245,7 +279,7 @@ app.put('/api/logs/:id', (req, res) => {
     attendanceLogs[idx].editedAt = new Date().toISOString();
     attendanceLogs[idx].source   = attendanceLogs[idx].source === 'mesin' ? 'mesin-edit' : attendanceLogs[idx].source;
 
-    saveLogs(attendanceLogs);
+    persistLogs(attendanceLogs);
     res.json({ success: true, data: attendanceLogs[idx] });
 });
 
@@ -257,7 +291,7 @@ app.delete('/api/logs/:id', (req, res) => {
 
     attendanceLogs[idx].isDeleted  = true;
     attendanceLogs[idx].deletedAt  = new Date().toISOString();
-    saveLogs(attendanceLogs);
+    persistLogs(attendanceLogs);
     res.json({ success: true });
 });
 
