@@ -104,9 +104,11 @@
             paymentBank2No: '',
             paymentBank2Name: '',
             absensiServerUrl: 'http://localhost:8081',
-            absensiJamMasuk: '08:00',
-            absensiJamTelat: '08:30',
-            absensiJamPulang: '17:00'
+            absensiJamMasuk: '07:00',
+            absensiJamTelat: '07:30',
+            absensiJamPulang: '16:30',
+            absensiLemburMulai: '19:00',
+            absensiLemburSelesai: '21:00'
         };
 
         const disabledMenuIds = new Set([]);
@@ -11628,9 +11630,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <p className="text-xs text-gray-500 mb-4">Masukkan URL server backend yang berjalan di PC lokal Anda. Contoh: <code className="bg-gray-100 px-1 rounded">http://192.168.1.10:8081</code></p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="md:col-span-2"><label className="block text-sm mb-1">URL Server Absensi</label><input type="text" name="absensiServerUrl" className="w-full p-2 border rounded font-mono text-sm" placeholder="http://192.168.1.10:8081" value={localTemplates.absensiServerUrl || ''} onChange={handleChange} /></div>
-                                <div><label className="block text-sm mb-1">Jam Masuk Normal</label><input type="time" name="absensiJamMasuk" className="w-full p-2 border rounded" value={localTemplates.absensiJamMasuk || '08:00'} onChange={handleChange} /></div>
-                                <div><label className="block text-sm mb-1">Batas Jam Terlambat</label><input type="time" name="absensiJamTelat" className="w-full p-2 border rounded" value={localTemplates.absensiJamTelat || '08:30'} onChange={handleChange} /></div>
-                                <div><label className="block text-sm mb-1">Jam Pulang Normal</label><input type="time" name="absensiJamPulang" className="w-full p-2 border rounded" value={localTemplates.absensiJamPulang || '17:00'} onChange={handleChange} /></div>
+                                <div className="md:col-span-2"><p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Jam Aktif (Kerja Normal)</p></div>
+                                <div><label className="block text-sm mb-1">Jam Masuk Normal</label><input type="time" name="absensiJamMasuk" className="w-full p-2 border rounded" value={localTemplates.absensiJamMasuk || '07:00'} onChange={handleChange} /></div>
+                                <div><label className="block text-sm mb-1">Batas Jam Terlambat</label><input type="time" name="absensiJamTelat" className="w-full p-2 border rounded" value={localTemplates.absensiJamTelat || '07:30'} onChange={handleChange} /></div>
+                                <div><label className="block text-sm mb-1">Jam Pulang Normal</label><input type="time" name="absensiJamPulang" className="w-full p-2 border rounded" value={localTemplates.absensiJamPulang || '16:30'} onChange={handleChange} /></div>
+                                <div className="md:col-span-2 mt-2"><p className="text-xs font-bold text-orange-500 uppercase tracking-wide mb-2">Sesi Lembur</p></div>
+                                <div><label className="block text-sm mb-1">Mulai Lembur</label><input type="time" name="absensiLemburMulai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburMulai || '19:00'} onChange={handleChange} /></div>
+                                <div><label className="block text-sm mb-1">Selesai Lembur</label><input type="time" name="absensiLemburSelesai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburSelesai || '21:00'} onChange={handleChange} /></div>
                             </div>
                         </Card>
                         <Card>
@@ -14807,9 +14813,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
         // ── ABSENSI FINGER ────────────────────────────────────────────────────────
         const AbsensiFingerView = ({ employees, setEmployees, absensiEdits, setAbsensiEdits, showToast, templates, setTemplates }) => {
             const serverUrl = (templates?.absensiServerUrl || 'http://localhost:8081').replace(/\/$/, '');
-            const jamMasukConfig = templates?.absensiJamMasuk || '08:00';
-            const jamTelatConfig = templates?.absensiJamTelat || '08:30';
-            const jamPulangConfig = templates?.absensiJamPulang || '17:00';
+            const jamMasukConfig = templates?.absensiJamMasuk || '07:00';
+            const jamTelatConfig = templates?.absensiJamTelat || '07:30';
+            const jamPulangConfig = templates?.absensiJamPulang || '16:30';
+            const lemburMulaiConfig = templates?.absensiLemburMulai || '19:00';
+            const lemburSelesaiConfig = templates?.absensiLemburSelesai || '21:00';
 
             const [activeTab, setActiveTab] = useState('log');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -14882,31 +14890,42 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Build daily summary for a date
             const buildDailySummary = (logs, date) => {
                 const groups = groupByPin(logs);
+                const mLemburMulai = timeToMinutes(lemburMulaiConfig);
                 const rows = [];
                 Object.entries(groups).forEach(([pin, entries]) => {
                     const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
-                    const rawMasuk = sorted[0]?.jam || null;
-                    const rawPulang = sorted.length > 1 ? sorted[sorted.length - 1].jam : null;
+                    // Pisah scan aktif dan scan lembur berdasarkan jam
+                    const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mLemburMulai);
+                    const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mLemburMulai);
+
+                    const rawMasuk = aktifEntries[0]?.jam || null;
+                    const rawPulang = aktifEntries.length > 1 ? aktifEntries[aktifEntries.length - 1].jam : null;
+                    const rawLemburMasuk = lemburEntries[0]?.jam || null;
+                    const rawLemburPulang = lemburEntries.length > 1 ? lemburEntries[lemburEntries.length - 1].jam : null;
+
                     const override = getEditOverride(pin, date);
                     const jamMasuk = override?.jamMasuk || rawMasuk;
                     const jamPulang = override?.jamPulang || rawPulang;
+                    const jamLemburMasuk = override?.jamLemburMasuk || rawLemburMasuk;
+                    const jamLemburPulang = override?.jamLemburPulang || rawLemburPulang;
                     const nama = pinMap[pin] || override?.namaManual || `PIN: ${pin}`;
 
                     const mMasuk = timeToMinutes(jamMasuk);
                     const mTelat = timeToMinutes(jamTelatConfig);
-                    const mPulang = timeToMinutes(jamPulang);
-                    const mPulangConfig = timeToMinutes(jamPulangConfig);
 
                     let status = 'Tepat Waktu';
                     if (mMasuk == null) status = 'Tidak Ada Data';
                     else if (mMasuk > mTelat) status = 'Terlambat';
 
+                    // Lembur = durasi sesi lembur (masuk lembur sampai pulang lembur)
                     let lemburMenit = 0;
-                    if (mPulang != null && mPulangConfig != null && mPulang > mPulangConfig) {
-                        lemburMenit = mPulang - mPulangConfig;
+                    const mLMasuk = timeToMinutes(jamLemburMasuk);
+                    const mLPulang = timeToMinutes(jamLemburPulang);
+                    if (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) {
+                        lemburMenit = mLPulang - mLMasuk;
                     }
 
-                    rows.push({ pin, nama, tanggal: date, jamMasuk, jamPulang, rawMasuk, rawPulang, status, lemburMenit, scanCount: entries.length, override, note: override?.note || '' });
+                    rows.push({ pin, nama, tanggal: date, jamMasuk, jamPulang, rawMasuk, rawPulang, jamLemburMasuk, jamLemburPulang, rawLemburMasuk, rawLemburPulang, status, lemburMenit, scanCount: entries.length, override, note: override?.note || '' });
                 });
 
                 // Add employees with finger pin that have no scan
@@ -14914,16 +14933,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const pin = String(emp.fingerPin).trim();
                     if (!groups[pin]) {
                         const override = getEditOverride(pin, date);
-                        if (override && (override.jamMasuk || override.jamPulang)) {
+                        if (override && (override.jamMasuk || override.jamPulang || override.jamLemburMasuk)) {
                             const jamMasuk = override.jamMasuk || null;
                             const jamPulang = override.jamPulang || null;
+                            const jamLemburMasuk = override.jamLemburMasuk || null;
+                            const jamLemburPulang = override.jamLemburPulang || null;
                             const mMasuk = timeToMinutes(jamMasuk);
                             const mTelat = timeToMinutes(jamTelatConfig);
-                            const mPulang = timeToMinutes(jamPulang);
-                            const mPulangConfig = timeToMinutes(jamPulangConfig);
+                            const mLMasuk = timeToMinutes(jamLemburMasuk);
+                            const mLPulang = timeToMinutes(jamLemburPulang);
                             let status = mMasuk == null ? 'Tidak Ada Data' : mMasuk > mTelat ? 'Terlambat' : 'Tepat Waktu';
-                            let lemburMenit = mPulang != null && mPulangConfig != null && mPulang > mPulangConfig ? mPulang - mPulangConfig : 0;
-                            rows.push({ pin, nama: emp.name, tanggal: date, jamMasuk, jamPulang, rawMasuk: null, rawPulang: null, status, lemburMenit, scanCount: 0, override, note: override?.note || '' });
+                            let lemburMenit = mLMasuk != null && mLPulang != null && mLPulang > mLMasuk ? mLPulang - mLMasuk : 0;
+                            rows.push({ pin, nama: emp.name, tanggal: date, jamMasuk, jamPulang, rawMasuk: null, rawPulang: null, jamLemburMasuk, jamLemburPulang, rawLemburMasuk: null, rawLemburPulang: null, status, lemburMenit, scanCount: 0, override, note: override?.note || '' });
                         }
                     }
                 });
@@ -14954,10 +14975,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             const mMasuk = timeToMinutes(edit.jamMasuk);
                             if (mMasuk > timeToMinutes(jamTelatConfig)) empMap[pin].terlambat++;
                         }
-                        if (edit.jamPulang) {
-                            const mPulang = timeToMinutes(edit.jamPulang);
-                            const mPulangC = timeToMinutes(jamPulangConfig);
-                            if (mPulang > mPulangC) empMap[pin].lemburMenit += (mPulang - mPulangC);
+                        if (edit.jamLemburMasuk && edit.jamLemburPulang) {
+                            const mLM = timeToMinutes(edit.jamLemburMasuk);
+                            const mLP = timeToMinutes(edit.jamLemburPulang);
+                            if (mLP > mLM) empMap[pin].lemburMenit += (mLP - mLM);
                         }
                     });
                 }
@@ -14968,7 +14989,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const rekapRows = buildRekap();
 
             const openEdit = (row) => {
-                setEditForm({ pin: row.pin, tanggal: row.tanggal, nama: row.nama, jamMasuk: row.jamMasuk || '', jamPulang: row.jamPulang || '', note: row.note || '' });
+                setEditForm({ pin: row.pin, tanggal: row.tanggal, nama: row.nama, jamMasuk: row.jamMasuk || '', jamPulang: row.jamPulang || '', jamLemburMasuk: row.jamLemburMasuk || '', jamLemburPulang: row.jamLemburPulang || '', note: row.note || '' });
                 setEditModal(row);
             };
 
@@ -14983,6 +15004,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     namaManual: editForm.nama,
                     jamMasuk: editForm.jamMasuk || null,
                     jamPulang: editForm.jamPulang || null,
+                    jamLemburMasuk: editForm.jamLemburMasuk || null,
+                    jamLemburPulang: editForm.jamLemburPulang || null,
                     note: editForm.note || ''
                 };
                 if (existing) {
@@ -15080,7 +15103,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <th className="py-2 px-3 text-center">Jam Masuk</th>
                                                 <th className="py-2 px-3 text-center">Jam Pulang</th>
                                                 <th className="py-2 px-3 text-center">Status</th>
-                                                <th className="py-2 px-3 text-center">Lembur</th>
+                                                <th className="py-2 px-3 text-center">Sesi Lembur</th>
                                                 <th className="py-2 px-3 text-center">Scan</th>
                                                 <th className="py-2 px-3">Catatan</th>
                                                 <th className="py-2 px-3 text-center">Aksi</th>
@@ -15095,7 +15118,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <td className="py-2 px-3 text-center font-mono font-bold text-green-700">{row.jamMasuk || <span className="text-gray-300">-</span>}</td>
                                                     <td className="py-2 px-3 text-center font-mono font-bold text-blue-700">{row.jamPulang || <span className="text-gray-300">-</span>}</td>
                                                     <td className="py-2 px-3 text-center">{statusBadge(row.status)}</td>
-                                                    <td className="py-2 px-3 text-center text-orange-700 font-bold text-xs">{row.lemburMenit > 0 ? `${minutesToTime(row.lemburMenit)} jam` : <span className="text-gray-300">-</span>}</td>
+                                                    <td className="py-2 px-3 text-center text-xs">{row.lemburMenit > 0 ? <span className="text-orange-700 font-bold">{row.jamLemburMasuk}–{row.jamLemburPulang} <span className="text-orange-500">({minutesToTime(row.lemburMenit)})</span></span> : <span className="text-gray-300">-</span>}</td>
                                                     <td className="py-2 px-3 text-center text-gray-500 text-xs">{row.scanCount}</td>
                                                     <td className="py-2 px-3 text-gray-400 text-xs max-w-[100px] truncate">{row.note}</td>
                                                     <td className="py-2 px-3 text-center">
@@ -15197,14 +15220,30 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p><span className="text-gray-500">Tanggal:</span> <strong>{editForm.tanggal}</strong></p>
                                         {editModal.rawMasuk && <p className="text-xs text-gray-400 mt-1">Data mesin: masuk {editModal.rawMasuk}{editModal.rawPulang ? ` · pulang ${editModal.rawPulang}` : ''}</p>}
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-600 mb-1">Jam Masuk</label>
-                                            <input type="time" value={editForm.jamMasuk || ''} onChange={e => setEditForm(f => ({...f, jamMasuk: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+                                    <div>
+                                        <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">Jam Aktif</p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-600 mb-1">Masuk</label>
+                                                <input type="time" value={editForm.jamMasuk || ''} onChange={e => setEditForm(f => ({...f, jamMasuk: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-600 mb-1">Pulang</label>
+                                                <input type="time" value={editForm.jamPulang || ''} onChange={e => setEditForm(f => ({...f, jamPulang: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+                                            </div>
                                         </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-600 mb-1">Jam Pulang</label>
-                                            <input type="time" value={editForm.jamPulang || ''} onChange={e => setEditForm(f => ({...f, jamPulang: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-bold text-orange-500 mb-2 uppercase tracking-wide">Sesi Lembur</p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-600 mb-1">Masuk Lembur</label>
+                                                <input type="time" value={editForm.jamLemburMasuk || ''} onChange={e => setEditForm(f => ({...f, jamLemburMasuk: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-600 mb-1">Pulang Lembur</label>
+                                                <input type="time" value={editForm.jamLemburPulang || ''} onChange={e => setEditForm(f => ({...f, jamLemburPulang: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none" />
+                                            </div>
                                         </div>
                                     </div>
                                     <div>
