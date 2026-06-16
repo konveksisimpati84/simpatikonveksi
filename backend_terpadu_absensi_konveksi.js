@@ -212,7 +212,16 @@ app.get('/api/konveksi/status', (req, res) => {
 
 // ── Start ───────────────────────────────────────────────────────────────────
 
-app.listen(PORT, '0.0.0.0', () => {
+process.on('uncaughtException', (err) => {
+    console.error('[ERROR] Uncaught Exception:', err.message);
+    console.error(err.stack);
+});
+
+process.on('exit', (code) => {
+    console.log(`[INFO] Server berhenti dengan kode: ${code}`);
+});
+
+const server = app.listen(PORT, '0.0.0.0', () => {
     const { networkInterfaces } = require('os');
     const nets = networkInterfaces();
     const ips  = [];
@@ -239,4 +248,13 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`    Server Port : ${PORT}`);
     console.log('═══════════════════════════════════════════════════');
     console.log('');
+});
+
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`[ERROR] Port ${PORT} sudah dipakai proses lain. Jalankan: taskkill /F /IM node.exe`);
+    } else {
+        console.error('[ERROR] Server error:', err.message);
+    }
+    process.exit(1);
 });
