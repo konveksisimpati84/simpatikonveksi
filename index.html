@@ -14820,7 +14820,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [editModal, setEditModal] = useState(null); // { pin, tanggal, nama, jamMasuk, jamPulang, note }
             const [editForm, setEditForm] = useState({});
             const [filterEmp, setFilterEmp] = useState('');
-            const [autoRefresh, setAutoRefresh] = useState(false);
+            const [autoRefresh, setAutoRefresh] = useState(true);
 
             const visibleEmployees = safeArray(employees).filter(isVisibleRecord);
             const pinMap = {};
