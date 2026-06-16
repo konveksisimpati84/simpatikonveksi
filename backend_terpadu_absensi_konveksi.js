@@ -147,7 +147,7 @@ app.post('/iclock/devicecmd', (req, res) => {
 // Terima push data absensi dari mesin
 app.post('/iclock/cdata', (req, res) => {
     const table   = req.query.table;
-    let rawData   = req.body;
+    let rawData   = req.rawBody || req.body;
     if (typeof rawData !== 'string') rawData = '';
 
     console.log(`[${table || 'UNKNOWN'}] panjang data: ${rawData.length} karakter`);
