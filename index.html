@@ -11693,9 +11693,41 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div><label className="block text-sm mb-1">Jam Masuk Normal</label><input type="time" name="absensiJamMasuk" className="w-full p-2 border rounded" value={localTemplates.absensiJamMasuk || '07:00'} onChange={handleChange} /></div>
                                 <div><label className="block text-sm mb-1">Batas Jam Terlambat</label><input type="time" name="absensiJamTelat" className="w-full p-2 border rounded" value={localTemplates.absensiJamTelat || '07:30'} onChange={handleChange} /></div>
                                 <div><label className="block text-sm mb-1">Jam Pulang Normal</label><input type="time" name="absensiJamPulang" className="w-full p-2 border rounded" value={localTemplates.absensiJamPulang || '16:30'} onChange={handleChange} /></div>
+                                <div className="flex flex-col justify-end">
+                                    {(() => {
+                                        const toM = t => { if(!t) return null; const [h,m] = (t||'').split(':').map(Number); return h*60+m; };
+                                        const fromM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+                                        const a = toM(localTemplates.absensiJamMasuk || '07:00');
+                                        const b = toM(localTemplates.absensiJamPulang || '16:30');
+                                        const mid = (a!=null && b!=null) ? fromM((a+b)/2) : '-';
+                                        return (
+                                            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs">
+                                                <p className="text-blue-500 font-bold uppercase tracking-wide mb-1">Titik Tengah Aktif</p>
+                                                <p className="text-blue-800 font-black text-lg">{mid}</p>
+                                                <p className="text-blue-400 mt-0.5">Scan ≤{mid} → Jam Masuk &nbsp;·&nbsp; Scan &gt;{mid} → Jam Pulang</p>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
                                 <div className="md:col-span-2 mt-2"><p className="text-xs font-bold text-orange-500 uppercase tracking-wide mb-2">Sesi Lembur</p></div>
                                 <div><label className="block text-sm mb-1">Mulai Lembur</label><input type="time" name="absensiLemburMulai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburMulai || '18:00'} onChange={handleChange} /></div>
                                 <div><label className="block text-sm mb-1">Selesai Lembur</label><input type="time" name="absensiLemburSelesai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburSelesai || '21:00'} onChange={handleChange} /></div>
+                                <div className="md:col-span-2">
+                                    {(() => {
+                                        const toM = t => { if(!t) return null; const [h,m] = (t||'').split(':').map(Number); return h*60+m; };
+                                        const fromM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+                                        const a = toM(localTemplates.absensiLemburMulai || '18:00');
+                                        const b = toM(localTemplates.absensiLemburSelesai || '21:00');
+                                        const mid = (a!=null && b!=null) ? fromM((a+b)/2) : '-';
+                                        return (
+                                            <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-xs">
+                                                <p className="text-orange-500 font-bold uppercase tracking-wide mb-1">Titik Tengah Lembur</p>
+                                                <p className="text-orange-700 font-black text-lg">{mid}</p>
+                                                <p className="text-orange-400 mt-0.5">Scan ≤{mid} → Masuk Lembur &nbsp;·&nbsp; Scan &gt;{mid} → Pulang Lembur</p>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
                             </div>
                         </Card>
                         <Card>
