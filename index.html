@@ -11985,7 +11985,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, showToast, templates }) => {
+        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates }) => {
             const [activeSubTab, setActiveSubTab] = React.useState('driver');
             const [activeRekapTab, setActiveRekapTab] = React.useState('rekap_pengiriman');
             const [search, setSearch] = React.useState('');
@@ -12200,6 +12200,31 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [rekapDriverId, setRekapDriverId] = React.useState('');
             const [rekapNote, setRekapNote] = React.useState('');
             const [selectedTripIds, setSelectedTripIds] = React.useState([]);
+            const [rekapPotonganKasbon, setRekapPotonganKasbon] = React.useState(0);
+
+            // ----- KASBON -----
+            const visibleKasbon = (driverKasbon || []).filter(isVisibleRecord);
+            const [showKasbonForm, setShowKasbonForm] = React.useState(false);
+            const [kasbonForm, setKasbonForm] = React.useState({ driverId: '', jumlah: '', keterangan: '', tanggal: new Date().toISOString().slice(0,10) });
+
+            const getKasbonAktif = (driverId) => visibleKasbon.filter(k => k.driverId === driverId && (safeMoney(k.jumlah) - safeMoney(k.sudahDipotong)) > 0);
+            const getTotalSisaKasbon = (driverId) => getKasbonAktif(driverId).reduce((s,k) => s + safeMoney(k.jumlah) - safeMoney(k.sudahDipotong), 0);
+
+            const simpanKasbon = () => {
+                if (!kasbonForm.driverId) { showToast('Pilih driver', 'error'); return; }
+                if (!safeMoney(kasbonForm.jumlah)) { showToast('Nominal kasbon wajib diisi', 'error'); return; }
+                const drv = visibleDrivers.find(d => d.id === kasbonForm.driverId);
+                const rec = { id: genId('KASBON-'), driverId: kasbonForm.driverId, driverName: drv ? drv.name : '', tanggal: kasbonForm.tanggal, jumlah: safeMoney(kasbonForm.jumlah), keterangan: kasbonForm.keterangan, sudahDipotong: 0, _syncUpdatedAt: new Date().toISOString() };
+                setDriverKasbon(prev => [...(prev||[]), rec]);
+                setKasbonForm({ driverId: '', jumlah: '', keterangan: '', tanggal: new Date().toISOString().slice(0,10) });
+                setShowKasbonForm(false);
+                showToast('Kasbon berhasil dicatat', 'success');
+            };
+
+            const hapusKasbon = (id) => {
+                setDriverKasbon(prev => prev.map(k => k.id===id ? {...k, isDeleted:true, _syncUpdatedAt:new Date().toISOString()} : k));
+                showToast('Kasbon dihapus', 'success');
+            };
 
             const visibleRekap = (driverRekapGaji||[]).filter(isVisibleRecord);
 
@@ -12213,6 +12238,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setRekapDriverId('');
                 setRekapNote('');
                 setSelectedTripIds([]);
+                setRekapPotonganKasbon(0);
                 setShowRekapModal(true);
             };
 
@@ -12226,18 +12252,34 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const drv = visibleDrivers.find(d=>d.id===rekapDriverId);
                 const trips = visibleTrx.filter(t=>selectedTripIds.includes(t.id));
                 const totalOngkir = trips.reduce((s,t)=>s+safeMoney(t.ongkir),0);
+                const potongan = Math.min(safeMoney(rekapPotonganKasbon)||0, totalOngkir);
+                const gajiDiterima = totalOngkir - potongan;
                 const newRekap = {
                     id: genId('RGAJI-'),
                     driverId: rekapDriverId,
                     driverName: drv?drv.name:'',
                     tripIds: selectedTripIds,
                     totalOngkir,
+                    potonganKasbon: potongan,
+                    gajiDiterima,
                     jumlahTrip: selectedTripIds.length,
                     note: rekapNote,
                     tanggalRekap: new Date().toISOString().slice(0,10),
                     _syncUpdatedAt: new Date().toISOString()
                 };
                 setDriverRekapGaji(prev => [...(prev||[]), newRekap]);
+                // Kurangi sudahDipotong pada kasbon aktif driver (FIFO)
+                if (potongan > 0) {
+                    let sisaPotong = potongan;
+                    setDriverKasbon(prev => (prev||[]).map(k => {
+                        if (k.driverId !== rekapDriverId || k.isDeleted) return k;
+                        const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
+                        if (sisaPotong <= 0 || sisa <= 0) return k;
+                        const potong = Math.min(sisa, sisaPotong);
+                        sisaPotong -= potong;
+                        return { ...k, sudahDipotong: safeMoney(k.sudahDipotong) + potong, _syncUpdatedAt: new Date().toISOString() };
+                    }));
+                }
                 setShowRekapModal(false);
                 showToast('Rekap gaji berhasil dibuat', 'success');
             };
@@ -12292,7 +12334,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 <div class="section-title">Detail Trip (${rekap.jumlahTrip} trip)</div>
                 <div>${rows}</div>
                 <div class="total-box">
-                    <div class="row grand"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                    <div class="row"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                    ${rekap.potonganKasbon>0?`<div class="row" style="color:#dc2626"><span>Potongan Kasbon</span><span>- ${formatRupiah(safeMoney(rekap.potonganKasbon))}</span></div>`:''}
+                    <div class="row grand" style="${rekap.potonganKasbon>0?'border-top:1px dashed #000;padding-top:5px;margin-top:4px':''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima!=null?rekap.gajiDiterima:rekap.totalOngkir))}</span></div>
                 </div>
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
                 </div></body></html>`);
@@ -12361,6 +12405,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 { id:'tarif', label:'Tarif Pengiriman', icon:'💰', activeClass:'bg-emerald-600 text-white shadow-emerald-200', inactiveClass:'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
                 { id:'transaksi', label:'Transaksi', icon:'🚚', activeClass:'bg-orange-500 text-white shadow-orange-200', inactiveClass:'bg-orange-50 text-orange-700 hover:bg-orange-100' },
                 { id:'rekap', label:'Rekap & Laporan', icon:'📊', activeClass:'bg-purple-600 text-white shadow-purple-200', inactiveClass:'bg-purple-50 text-purple-700 hover:bg-purple-100' },
+                { id:'kasbon', label:'Kasbon', icon:'💳', activeClass:'bg-red-600 text-white shadow-red-200', inactiveClass:'bg-red-50 text-red-700 hover:bg-red-100' },
             ];
 
             const selectedTarifInForm = visibleTarifs.find(t=>t.id===xForm.tarifId);
@@ -12764,6 +12809,94 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                     )}
 
+                    {/* TAB KASBON */}
+                    {activeSubTab==='kasbon' && (
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h3 className="font-bold text-gray-800">Kasbon Driver</h3>
+                                    <p className="text-xs text-gray-500 mt-0.5">Pinjaman/kasbon yang akan dipotong saat rekap gaji</p>
+                                </div>
+                                <button onClick={()=>{setKasbonForm({driverId:'',jumlah:'',keterangan:'',tanggal:new Date().toISOString().slice(0,10)});setShowKasbonForm(true);}} className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-bold">+ Kasbon Baru</button>
+                            </div>
+                            {visibleDrivers.filter(d=>getTotalSisaKasbon(d.id)>0).length > 0 && (
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                    {visibleDrivers.filter(d=>getTotalSisaKasbon(d.id)>0).map(d=>(
+                                        <div key={d.id} className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs">
+                                            <div className="font-bold text-gray-700">{d.name}</div>
+                                            <div className="text-red-600 font-black text-sm mt-0.5">{formatRupiah(getTotalSisaKasbon(d.id))}</div>
+                                            <div className="text-gray-400">sisa kasbon</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {visibleKasbon.length === 0 ? (
+                                <div className="text-center py-10 text-gray-400 italic">Belum ada kasbon tercatat.</div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead><tr className="bg-gray-50 border-b text-xs font-bold text-gray-600 text-left">
+                                            <th className="py-2 px-3">Tanggal</th>
+                                            <th className="py-2 px-3">Driver</th>
+                                            <th className="py-2 px-3 text-right">Jumlah</th>
+                                            <th className="py-2 px-3 text-right">Dipotong</th>
+                                            <th className="py-2 px-3 text-right">Sisa</th>
+                                            <th className="py-2 px-3">Keterangan</th>
+                                            <th className="py-2 px-3"></th>
+                                        </tr></thead>
+                                        <tbody>{[...visibleKasbon].sort((a,b)=>b.tanggal>a.tanggal?1:-1).map((k,idx)=>{
+                                            const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
+                                            return (
+                                                <tr key={k.id} className={`border-t ${idx%2===0?'':'bg-gray-50'}`}>
+                                                    <td className="py-2 px-3 text-gray-500 text-xs">{k.tanggal}</td>
+                                                    <td className="py-2 px-3 font-semibold">{k.driverName}</td>
+                                                    <td className="py-2 px-3 text-right font-bold text-gray-700">{formatRupiah(safeMoney(k.jumlah))}</td>
+                                                    <td className="py-2 px-3 text-right text-green-700 text-xs">{safeMoney(k.sudahDipotong)>0?formatRupiah(safeMoney(k.sudahDipotong)):'-'}</td>
+                                                    <td className="py-2 px-3 text-right font-bold">{sisa>0?<span className="text-red-600">{formatRupiah(sisa)}</span>:<span className="text-green-600 text-xs font-bold">Lunas</span>}</td>
+                                                    <td className="py-2 px-3 text-gray-400 text-xs">{k.keterangan||'-'}</td>
+                                                    <td className="py-2 px-3"><button onClick={()=>hapusKasbon(k.id)} className="text-red-300 hover:text-red-600 text-xs font-bold">✕</button></td>
+                                                </tr>
+                                            );
+                                        })}</tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* MODAL KASBON BARU */}
+                    {showKasbonForm && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+                                <div className="flex justify-between items-center p-4 border-b">
+                                    <h3 className="font-bold text-lg">Catat Kasbon Baru</h3>
+                                    <button onClick={()=>setShowKasbonForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                                </div>
+                                <div className="p-4 space-y-3">
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Driver *</label>
+                                        <select value={kasbonForm.driverId} onChange={e=>setKasbonForm(f=>({...f,driverId:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm">
+                                            <option value="">Pilih Driver</option>
+                                            {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tanggal *</label>
+                                        <input type="date" value={kasbonForm.tanggal} onChange={e=>setKasbonForm(f=>({...f,tanggal:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" />
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Nominal Kasbon (Rp) *</label>
+                                        <input type="number" min="0" value={kasbonForm.jumlah} onChange={e=>setKasbonForm(f=>({...f,jumlah:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Contoh: 200000" />
+                                    </div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Keterangan</label>
+                                        <input value={kasbonForm.keterangan} onChange={e=>setKasbonForm(f=>({...f,keterangan:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Opsional" />
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-2 p-4 border-t">
+                                    <button onClick={()=>setShowKasbonForm(false)} className="px-4 py-2 bg-gray-100 rounded text-sm">Batal</button>
+                                    <button onClick={simpanKasbon} className="px-4 py-2 bg-red-600 text-white rounded text-sm font-bold">Simpan Kasbon</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* MODAL REKAP GAJI */}
                     {showRekapModal && (
                         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -12802,6 +12935,22 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             {selectedTripIds.length>0 && (
                                                 <div className="mt-2 bg-blue-50 rounded p-2 text-sm font-semibold text-blue-700 text-right">
                                                     Total {selectedTripIds.length} trip: {formatRupiah(visibleTrx.filter(t=>selectedTripIds.includes(t.id)).reduce((s,t)=>s+safeMoney(t.ongkir),0))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {rekapDriverId && getTotalSisaKasbon(rekapDriverId) > 0 && (
+                                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                            <p className="text-xs font-bold text-red-600 mb-2">Kasbon Aktif: <span className="text-red-700">{formatRupiah(getTotalSisaKasbon(rekapDriverId))}</span></p>
+                                            <label className="block text-xs font-semibold text-gray-600 mb-1">Potong Kasbon (Rp)</label>
+                                            <input type="number" min="0" max={getTotalSisaKasbon(rekapDriverId)} value={rekapPotonganKasbon} onChange={e=>setRekapPotonganKasbon(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" placeholder="0 = tidak potong" />
+                                            {rekapPotonganKasbon > 0 && selectedTripIds.length > 0 && (
+                                                <div className="mt-2 text-xs space-y-0.5 border-t pt-2">
+                                                    {(() => { const tot = visibleTrx.filter(t=>selectedTripIds.includes(t.id)).reduce((s,t)=>s+safeMoney(t.ongkir),0); return (<>
+                                                        <div className="flex justify-between text-gray-600"><span>Total Ongkir</span><span className="font-bold">{formatRupiah(tot)}</span></div>
+                                                        <div className="flex justify-between text-red-600"><span>Potongan Kasbon</span><span className="font-bold">- {formatRupiah(rekapPotonganKasbon)}</span></div>
+                                                        <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji Diterima</span><span>{formatRupiah(Math.max(0, tot - rekapPotonganKasbon))}</span></div>
+                                                    </>); })()}
                                                 </div>
                                             )}
                                         </div>
@@ -13132,7 +13281,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 <div class="section-title">Detail Trip (${rekap.jumlahTrip} trip)</div>
                 <div>${rows}</div>
                 <div class="total-box">
-                    <div class="row grand"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                    <div class="row"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                    ${rekap.potonganKasbon>0?`<div class="row" style="color:#dc2626"><span>Potongan Kasbon</span><span>- ${formatRupiah(safeMoney(rekap.potonganKasbon))}</span></div>`:''}
+                    <div class="row grand" style="${rekap.potonganKasbon>0?'border-top:1px dashed #000;padding-top:5px;margin-top:4px':''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima!=null?rekap.gajiDiterima:rekap.totalOngkir))}</span></div>
                 </div>
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
                 </div></body></html>`);
@@ -13213,6 +13364,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [driverTarifs, setDriverTarifs] = useState([]);
             const [driverTransactions, setDriverTransactions] = useState([]);
             const [driverRekapGaji, setDriverRekapGaji] = useState([]);
+            const [driverKasbon, setDriverKasbon] = useState([]);
             const [stockItems, setStockItems] = useState([]);
             const [absensiEdits, setAbsensiEdits] = useState([]);
             const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
@@ -13848,7 +14000,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const applyRemoteDataSnapshotInner = async () => {
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -13866,6 +14018,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     fetchStoreData('driverTarifs', []),
                     fetchStoreData('driverTransactions', []),
                     fetchStoreData('driverRekapGaji', []),
+                    fetchStoreData('driverKasbon', []),
                     fetchStoreData('stockItems', []),
                     fetchStoreData('absensiEdits', []),
                     fetchStoreData('absensiRawLogs', [])
@@ -14002,6 +14155,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         return merged;
                     });
                 }
+                if (Array.isArray(remoteDriverKasbon)) {
+                    setDriverKasbon(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteDriverKasbon);
+                        safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteDriverKasbon)) setTimeout(() => saveToSupabase('driverKasbon', merged), 0);
+                        return merged;
+                    });
+                }
                 if (Array.isArray(remoteStockItems)) {
                     setStockItems(prev => {
                         const merged = mergeRecordLists(prev || [], remoteStockItems);
@@ -14120,7 +14281,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const initData = async () => {
                     if (supabaseClient) {
                         try {
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remStockItems, remAbsensiEdits, remAbsensiRawLogs] = await Promise.all([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs] = await Promise.all([
                                 fetchStoreData('accounts', initialAccounts),
                                 fetchStoreData('employees', initialEmployees),
                                 fetchStoreData('orders', initialOrders),
@@ -14138,6 +14299,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 fetchStoreData('driverTarifs', []),
                                 fetchStoreData('driverTransactions', []),
                                 fetchStoreData('driverRekapGaji', []),
+                                fetchStoreData('driverKasbon', []),
                                 fetchStoreData('stockItems', []),
                                 fetchStoreData('absensiEdits', []),
                                 fetchStoreData('absensiRawLogs', [])
@@ -14225,6 +14387,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const next = mergeRecordLists(loadLocalData('simpati_driver_rekap_gaji_sync', []), remDriverRekap);
                                 setDriverRekapGaji(next); safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(next));
                                 if (JSON.stringify(next) !== JSON.stringify(remDriverRekap)) setTimeout(() => saveToSupabase('driverRekapGaji', next), 0);
+                            }
+                            if (Array.isArray(remDriverKasbonInit)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_driver_kasbon_sync', []), remDriverKasbonInit);
+                                setDriverKasbon(next); safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remDriverKasbonInit)) setTimeout(() => saveToSupabase('driverKasbon', next), 0);
                             }
                             if (Array.isArray(remStockItems)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_stock_items_sync', []), remStockItems);
@@ -14621,6 +14788,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 });
             };
 
+            const updateDriverKasbon = (updater) => {
+                setDriverKasbon(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('driverKasbon', valid);
+                        safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(merged));
+                        saveToSupabase('driverKasbon', merged);
+                        setDriverKasbon(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             const updateStockItems = (updater) => {
                 setStockItems(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -14926,7 +15110,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} showToast={showToast} templates={templates} />}
+                                {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} />}
                                 {activeTab === 'tracking_instansi' && canOpen('tracking_instansi') && <TrackingInstansiView orders={orders} templates={templates} showToast={showToast} />}
                                 {activeTab === 'pengiriman' && canOpen('pengiriman') && <PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} />}
                                 {activeTab === 'pengaturan' && canOpen('pengaturan') && <TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} />}
