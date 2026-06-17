@@ -146,7 +146,7 @@
             absensiJamMasuk: '07:00',
             absensiJamTelat: '07:30',
             absensiJamPulang: '16:30',
-            absensiLemburMulai: '19:00',
+            absensiLemburMulai: '18:00',
             absensiLemburSelesai: '21:00'
         };
 
@@ -11678,7 +11678,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div><label className="block text-sm mb-1">Batas Jam Terlambat</label><input type="time" name="absensiJamTelat" className="w-full p-2 border rounded" value={localTemplates.absensiJamTelat || '07:30'} onChange={handleChange} /></div>
                                 <div><label className="block text-sm mb-1">Jam Pulang Normal</label><input type="time" name="absensiJamPulang" className="w-full p-2 border rounded" value={localTemplates.absensiJamPulang || '16:30'} onChange={handleChange} /></div>
                                 <div className="md:col-span-2 mt-2"><p className="text-xs font-bold text-orange-500 uppercase tracking-wide mb-2">Sesi Lembur</p></div>
-                                <div><label className="block text-sm mb-1">Mulai Lembur</label><input type="time" name="absensiLemburMulai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburMulai || '19:00'} onChange={handleChange} /></div>
+                                <div><label className="block text-sm mb-1">Mulai Lembur</label><input type="time" name="absensiLemburMulai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburMulai || '18:00'} onChange={handleChange} /></div>
                                 <div><label className="block text-sm mb-1">Selesai Lembur</label><input type="time" name="absensiLemburSelesai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburSelesai || '21:00'} onChange={handleChange} /></div>
                             </div>
                         </Card>
@@ -14889,7 +14889,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const jamMasukConfig = templates?.absensiJamMasuk || '07:00';
             const jamTelatConfig = templates?.absensiJamTelat || '07:30';
             const jamPulangConfig = templates?.absensiJamPulang || '16:30';
-            const lemburMulaiConfig = templates?.absensiLemburMulai || '19:00';
+            const lemburMulaiConfig = templates?.absensiLemburMulai || '18:00';
             const lemburSelesaiConfig = templates?.absensiLemburSelesai || '21:00';
 
             const [activeTab, setActiveTab] = useState('log');
@@ -14967,33 +14967,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mLemburMulai);
                 const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mLemburMulai);
 
-                let rawMasuk = aktifEntries[0]?.jam || null;
-                let rawPulang = aktifEntries.length > 1 ? aktifEntries[aktifEntries.length - 1].jam : null;
-                if (aktifEntries.length === 1) {
-                    const mMasukCfg = timeToMinutes(jamMasukConfig);
-                    const mPulangCfg = timeToMinutes(jamPulangConfig);
-                    const mScan = timeToMinutes(aktifEntries[0].jam);
-                    if (mMasukCfg != null && mPulangCfg != null && mScan != null) {
-                        const mMid = (mMasukCfg + mPulangCfg) / 2;
-                        if (mScan > mMid) {
-                            rawMasuk = null;
-                            rawPulang = aktifEntries[0].jam;
-                        }
-                    }
-                }
-                let rawLemburMasuk = lemburEntries[0]?.jam || null;
-                let rawLemburPulang = lemburEntries.length > 1 ? lemburEntries[lemburEntries.length - 1].jam : null;
-                if (lemburEntries.length === 1) {
-                    const mLemburSelesaiCfg = timeToMinutes(lemburSelesaiConfig);
-                    const mScanLembur = timeToMinutes(lemburEntries[0].jam);
-                    if (mLemburMulai != null && mLemburSelesaiCfg != null && mScanLembur != null) {
-                        const mMidLembur = (mLemburMulai + mLemburSelesaiCfg) / 2;
-                        if (mScanLembur > mMidLembur) {
-                            rawLemburMasuk = null;
-                            rawLemburPulang = lemburEntries[0].jam;
-                        }
-                    }
-                }
+                const mMasukCfg = timeToMinutes(jamMasukConfig);
+                const mPulangCfg = timeToMinutes(jamPulangConfig);
+                const mMid = (mMasukCfg != null && mPulangCfg != null) ? (mMasukCfg + mPulangCfg) / 2 : null;
+                const masukZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) <= mMid) : aktifEntries;
+                const pulangZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) > mMid) : [];
+                const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
+                const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
+
+                const mLemburSelesaiCfg = timeToMinutes(lemburSelesaiConfig);
+                const mMidLembur = (mLemburMulai != null && mLemburSelesaiCfg != null) ? (mLemburMulai + mLemburSelesaiCfg) / 2 : null;
+                const lemburMasukZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) <= mMidLembur) : lemburEntries;
+                const lemburPulangZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) > mMidLembur) : [];
+                const rawLemburMasuk = lemburMasukZone.length > 0 ? lemburMasukZone[0].jam : null;
+                const rawLemburPulang = lemburPulangZone.length > 0 ? lemburPulangZone[lemburPulangZone.length - 1].jam : null;
 
                 const jamMasuk = override?.jamMasuk || rawMasuk;
                 const jamPulang = override?.jamPulang || rawPulang;
@@ -15326,7 +15313,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <td className="py-2 px-3 text-center font-mono font-bold text-green-700">{row.jamMasuk || <span className="text-gray-300">-</span>}</td>
                                                     <td className="py-2 px-3 text-center font-mono font-bold text-blue-700">{row.jamPulang || <span className="text-gray-300">-</span>}</td>
                                                     <td className="py-2 px-3 text-center">{statusBadge(row.status)}</td>
-                                                    <td className="py-2 px-3 text-center text-xs">{row.lemburMenit > 0 ? <span className="text-orange-700 font-bold">{row.jamLemburMasuk}–{row.jamLemburPulang} <span className="text-orange-500">({minutesToTime(row.lemburMenit)})</span></span> : <span className="text-gray-300">-</span>}</td>
+                                                    <td className="py-2 px-3 text-center text-xs">{row.lemburMenit > 0 ? <span className="text-orange-700 font-bold">{row.jamLemburMasuk}–{row.jamLemburPulang} <span className="text-orange-500">({minutesToTime(row.lemburMenit)})</span></span> : row.jamLemburMasuk ? <span className="text-orange-400 font-bold">{row.jamLemburMasuk} <span className="text-gray-400 font-normal text-xs">(blm pulang)</span></span> : <span className="text-gray-300">-</span>}</td>
                                                     <td className="py-2 px-3 text-center text-gray-500 text-xs">{row.scanCount}</td>
                                                     <td className="py-2 px-3 text-gray-400 text-xs max-w-[100px] truncate">{row.note}</td>
                                                     <td className="py-2 px-3 text-center">
