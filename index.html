@@ -15316,6 +15316,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         {connStatus === 'ok' ? 'Tidak ada data absensi untuk tanggal ini.' : 'Menghubungkan ke server...'}
                                     </div>
                                 ) : (
+                                    <>
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm">
                                             <thead><tr className="bg-gray-50 border-b text-left text-xs font-bold text-gray-600">
@@ -15380,6 +15381,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </div>
                                         </div>
                                     )}
+                                    </>
                                 )}
                             </div>
                         )}
