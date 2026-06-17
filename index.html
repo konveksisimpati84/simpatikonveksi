@@ -12204,11 +12204,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             // ----- KASBON -----
             const visibleKasbon = (driverKasbon || []).filter(isVisibleRecord);
-            const [showKasbonForm, setShowKasbonForm] = React.useState(false);
+            const [showKasbonDriver, setShowKasbonDriver] = React.useState(null); // driverId
+            const [showKasbonAddForm, setShowKasbonAddForm] = React.useState(false);
             const [kasbonForm, setKasbonForm] = React.useState({ driverId: '', jumlah: '', keterangan: '', tanggal: new Date().toISOString().slice(0,10) });
 
             const getKasbonAktif = (driverId) => visibleKasbon.filter(k => k.driverId === driverId && (safeMoney(k.jumlah) - safeMoney(k.sudahDipotong)) > 0);
             const getTotalSisaKasbon = (driverId) => getKasbonAktif(driverId).reduce((s,k) => s + safeMoney(k.jumlah) - safeMoney(k.sudahDipotong), 0);
+
 
             const simpanKasbon = () => {
                 if (!kasbonForm.driverId) { showToast('Pilih driver', 'error'); return; }
@@ -12216,14 +12218,55 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const drv = visibleDrivers.find(d => d.id === kasbonForm.driverId);
                 const rec = { id: genId('KASBON-'), driverId: kasbonForm.driverId, driverName: drv ? drv.name : '', tanggal: kasbonForm.tanggal, jumlah: safeMoney(kasbonForm.jumlah), keterangan: kasbonForm.keterangan, sudahDipotong: 0, _syncUpdatedAt: new Date().toISOString() };
                 setDriverKasbon(prev => [...(prev||[]), rec]);
-                setKasbonForm({ driverId: '', jumlah: '', keterangan: '', tanggal: new Date().toISOString().slice(0,10) });
-                setShowKasbonForm(false);
+                setKasbonForm(f => ({ ...f, jumlah: '', keterangan: '' }));
+                setShowKasbonAddForm(false);
                 showToast('Kasbon berhasil dicatat', 'success');
             };
 
             const hapusKasbon = (id) => {
                 setDriverKasbon(prev => prev.map(k => k.id===id ? {...k, isDeleted:true, _syncUpdatedAt:new Date().toISOString()} : k));
                 showToast('Kasbon dihapus', 'success');
+            };
+
+            const printKasbonDriver = (driverId) => {
+                const drv = visibleDrivers.find(d => d.id === driverId);
+                const list = visibleKasbon.filter(k => k.driverId === driverId).sort((a,b) => a.tanggal > b.tanggal ? 1 : -1);
+                const w = window.open('','_blank','width=480,height=640');
+                if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
+                const totalJumlah = list.reduce((s,k) => s + safeMoney(k.jumlah), 0);
+                const totalDipotong = list.reduce((s,k) => s + safeMoney(k.sudahDipotong), 0);
+                const totalSisa = totalJumlah - totalDipotong;
+                const rows = list.map((k,i) => {
+                    const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
+                    return `<tr><td>${i+1}</td><td>${k.tanggal}</td><td style="text-align:right">${formatRupiah(safeMoney(k.jumlah))}</td><td style="text-align:right;color:#16a34a">${safeMoney(k.sudahDipotong)>0?formatRupiah(safeMoney(k.sudahDipotong)):'-'}</td><td style="text-align:right;font-weight:bold;color:${sisa>0?'#dc2626':'#16a34a'}">${sisa>0?formatRupiah(sisa):'Lunas'}</td><td style="color:#555;font-size:10px">${k.keterangan||'-'}</td></tr>`;
+                }).join('');
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rekap Kasbon - ${drv?drv.name:''}</title><style>
+@page{size:A4 portrait;margin:12mm}body{font-family:Arial,sans-serif;font-size:11px;color:#111}
+h2{margin:0;font-size:15px}h3{margin:4px 0 2px;font-size:12px}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ddd;padding:5px 7px}
+th{background:#f3f4f6;font-size:10px}tr:nth-child(even){background:#f9fafb}
+.total{margin-top:10px;font-size:12px;border-top:2px solid #111;padding-top:8px}
+.total div{display:flex;justify-content:space-between;padding:2px 0}
+.sisa{font-weight:900;font-size:13px;color:#dc2626}
+</style></head><body>
+<div style="text-align:center;border-bottom:2px dashed #111;padding-bottom:8px;margin-bottom:10px">
+${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px;margin-bottom:4px"><br>`:''}
+<h2>${templates?.companyName||'SIMPATI KONVEKSI'}</h2>
+<div style="font-size:11px">REKAP KASBON DRIVER</div>
+</div>
+<div><b>Driver:</b> ${drv?drv.name:'-'}</div>
+<div><b>Kendaraan:</b> ${drv?.vehicle||'-'}${drv?.plateNumber?' ('+drv.plateNumber+')':''}</div>
+<div><b>Tanggal Cetak:</b> ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
+<table><thead><tr><th>No</th><th>Tanggal</th><th style="text-align:right">Jumlah</th><th style="text-align:right">Dipotong</th><th style="text-align:right">Sisa</th><th>Keterangan</th></tr></thead>
+<tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#aaa">Belum ada kasbon</td></tr>'}</tbody></table>
+<div class="total">
+<div><span>Total Kasbon</span><span>${formatRupiah(totalJumlah)}</span></div>
+<div><span>Total Dipotong</span><span style="color:#16a34a">${formatRupiah(totalDipotong)}</span></div>
+<div class="sisa"><span>Total Sisa Kasbon</span><span>${formatRupiah(totalSisa)}</span></div>
+</div>
+</body></html>`);
+                w.document.close();
+                setTimeout(() => { w.print(); w.close(); }, 400);
             };
 
             const visibleRekap = (driverRekapGaji||[]).filter(isVisibleRecord);
@@ -12267,17 +12310,28 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     tanggalRekap: new Date().toISOString().slice(0,10),
                     _syncUpdatedAt: new Date().toISOString()
                 };
-                setDriverRekapGaji(prev => [...(prev||[]), newRekap]);
-                // Kurangi sudahDipotong pada kasbon aktif driver (FIFO)
+                // Hitung kasbonDeductions (FIFO) sebelum simpan rekap
+                const kasbonDeductions = [];
                 if (potongan > 0) {
                     let sisaPotong = potongan;
-                    setDriverKasbon(prev => (prev||[]).map(k => {
-                        if (k.driverId !== rekapDriverId || k.isDeleted) return k;
+                    for (const k of visibleKasbon.filter(k2 => k2.driverId === rekapDriverId)) {
                         const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
-                        if (sisaPotong <= 0 || sisa <= 0) return k;
+                        if (sisaPotong <= 0 || sisa <= 0) continue;
                         const potong = Math.min(sisa, sisaPotong);
                         sisaPotong -= potong;
-                        return { ...k, sudahDipotong: safeMoney(k.sudahDipotong) + potong, _syncUpdatedAt: new Date().toISOString() };
+                        kasbonDeductions.push({ kasbonId: k.id, amount: potong });
+                    }
+                }
+                newRekap.kasbonDeductions = kasbonDeductions;
+                setDriverRekapGaji(prev => [...(prev||[]), newRekap]);
+                // Terapkan potongan ke kasbon berdasarkan kasbonDeductions
+                if (kasbonDeductions.length > 0) {
+                    const dm = {};
+                    kasbonDeductions.forEach(d => { dm[d.kasbonId] = d.amount; });
+                    setDriverKasbon(prev => (prev||[]).map(k => {
+                        const amt = dm[k.id];
+                        if (!amt) return k;
+                        return { ...k, sudahDipotong: safeMoney(k.sudahDipotong) + amt, _syncUpdatedAt: new Date().toISOString() };
                     }));
                 }
                 setShowRekapModal(false);
@@ -12285,8 +12339,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const deleteRekap = (id) => {
-                setDriverRekapGaji(prev => prev.map(r=>r.id===id?{...r,isDeleted:true,_syncUpdatedAt:new Date().toISOString()}:r));
-                showToast('Rekap dihapus', 'success');
+                const rekap = visibleRekap.find(r => r.id === id);
+                setDriverRekapGaji(prev => prev.map(r => r.id===id ? {...r, isDeleted:true, _syncUpdatedAt:new Date().toISOString()} : r));
+                if (rekap && rekap.kasbonDeductions && rekap.kasbonDeductions.length > 0) {
+                    const dm = {};
+                    rekap.kasbonDeductions.forEach(d => { dm[d.kasbonId] = d.amount; });
+                    setDriverKasbon(prev => (prev||[]).map(k => {
+                        const amt = dm[k.id];
+                        if (!amt) return k;
+                        return { ...k, sudahDipotong: Math.max(0, safeMoney(k.sudahDipotong) - amt), _syncUpdatedAt: new Date().toISOString() };
+                    }));
+                    showToast('Rekap dihapus, kasbon dipulihkan', 'success');
+                } else {
+                    showToast(rekap?.potonganKasbon > 0 ? 'Rekap dihapus (kasbon tidak dapat dipulihkan otomatis — data lama)' : 'Rekap dihapus', 'success');
+                }
             };
 
             const printRekapGaji = (rekap) => {
@@ -12405,7 +12471,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 { id:'tarif', label:'Tarif Pengiriman', icon:'💰', activeClass:'bg-emerald-600 text-white shadow-emerald-200', inactiveClass:'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
                 { id:'transaksi', label:'Transaksi', icon:'🚚', activeClass:'bg-orange-500 text-white shadow-orange-200', inactiveClass:'bg-orange-50 text-orange-700 hover:bg-orange-100' },
                 { id:'rekap', label:'Rekap & Laporan', icon:'📊', activeClass:'bg-purple-600 text-white shadow-purple-200', inactiveClass:'bg-purple-50 text-purple-700 hover:bg-purple-100' },
-                { id:'kasbon', label:'Kasbon', icon:'💳', activeClass:'bg-red-600 text-white shadow-red-200', inactiveClass:'bg-red-50 text-red-700 hover:bg-red-100' },
             ];
 
             const selectedTarifInForm = visibleTarifs.find(t=>t.id===xForm.tarifId);
@@ -12449,8 +12514,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredDrivers.length===0 && <tr><td colSpan="8" className="text-center py-8 text-gray-400">Belum ada data driver</td></tr>}
-                                        {filteredDrivers.map((drv,i)=>(
+                                        {filteredDrivers.length===0 && <tr><td colSpan="9" className="text-center py-8 text-gray-400">Belum ada data driver</td></tr>}
+                                        {filteredDrivers.map((drv,i)=>{
+                                            const sisaKasbon = getTotalSisaKasbon(drv.id);
+                                            return (
                                             <tr key={drv.id} className="border-t hover:bg-gray-50">
                                                 <td className="px-3 py-2 text-gray-500">{i+1}</td>
                                                 <td className="px-3 py-2 font-medium">{drv.name}</td>
@@ -12464,13 +12531,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     </span>
                                                 </td>
                                                 <td className="px-3 py-2">
+                                                    <button onClick={()=>{setShowKasbonDriver(drv.id);setKasbonForm({driverId:drv.id,jumlah:'',keterangan:'',tanggal:new Date().toISOString().slice(0,10)});setShowKasbonAddForm(false);}} className={`text-xs font-bold px-2 py-1 rounded ${sisaKasbon>0?'bg-red-100 text-red-700 hover:bg-red-200':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                                                        💳 {sisaKasbon>0?formatRupiah(sisaKasbon):'Kasbon'}
+                                                    </button>
+                                                </td>
+                                                <td className="px-3 py-2">
                                                     <div className="flex gap-1">
                                                         <button onClick={()=>openDriverForm(drv)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
                                                         <button onClick={()=>deleteDriver(drv.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
                                                     </div>
                                                 </td>
                                             </tr>
-                                        ))}
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -12809,93 +12882,72 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                     )}
 
-                    {/* TAB KASBON */}
-                    {activeSubTab==='kasbon' && (
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <h3 className="font-bold text-gray-800">Kasbon Driver</h3>
-                                    <p className="text-xs text-gray-500 mt-0.5">Pinjaman/kasbon yang akan dipotong saat rekap gaji</p>
+                    {/* MODAL KASBON PER DRIVER */}
+                    {showKasbonDriver && (()=>{
+                        const drv = visibleDrivers.find(d=>d.id===showKasbonDriver);
+                        const drvKasbon = visibleKasbon.filter(k=>k.driverId===showKasbonDriver).sort((a,b)=>a.tanggal>b.tanggal?1:-1);
+                        const totalSisa = getTotalSisaKasbon(showKasbonDriver);
+                        return (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={()=>setShowKasbonDriver(null)}>
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+                                <div className="flex justify-between items-start p-4 border-b">
+                                    <div>
+                                        <h3 className="font-bold text-lg">💳 Kasbon — {drv?.name||'-'}</h3>
+                                        <p className="text-xs text-gray-500 mt-0.5">{drv?.vehicle||''}{drv?.plateNumber?' · '+drv.plateNumber:''}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={()=>printKasbonDriver(showKasbonDriver)} className="text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded">🖨 Cetak</button>
+                                        <button onClick={()=>setShowKasbonDriver(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                                    </div>
                                 </div>
-                                <button onClick={()=>{setKasbonForm({driverId:'',jumlah:'',keterangan:'',tanggal:new Date().toISOString().slice(0,10)});setShowKasbonForm(true);}} className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-bold">+ Kasbon Baru</button>
-                            </div>
-                            {visibleDrivers.filter(d=>getTotalSisaKasbon(d.id)>0).length > 0 && (
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                    {visibleDrivers.filter(d=>getTotalSisaKasbon(d.id)>0).map(d=>(
-                                        <div key={d.id} className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs">
-                                            <div className="font-bold text-gray-700">{d.name}</div>
-                                            <div className="text-red-600 font-black text-sm mt-0.5">{formatRupiah(getTotalSisaKasbon(d.id))}</div>
-                                            <div className="text-gray-400">sisa kasbon</div>
+                                <div className="p-4 overflow-y-auto flex-1 space-y-3">
+                                    {totalSisa > 0 && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 flex justify-between items-center"><span className="text-xs text-red-600 font-semibold">Total Sisa Kasbon</span><span className="font-black text-red-700">{formatRupiah(totalSisa)}</span></div>}
+                                    {drvKasbon.length === 0 ? (
+                                        <div className="text-center py-6 text-gray-400 italic text-sm">Belum ada kasbon untuk driver ini.</div>
+                                    ) : (
+                                        <table className="w-full text-xs">
+                                            <thead><tr className="bg-gray-50 border-b font-bold text-gray-600 text-left">
+                                                <th className="py-2 px-2">Tanggal</th>
+                                                <th className="py-2 px-2 text-right">Jumlah</th>
+                                                <th className="py-2 px-2 text-right">Dipotong</th>
+                                                <th className="py-2 px-2 text-right">Sisa</th>
+                                                <th className="py-2 px-2">Keterangan</th>
+                                                <th className="py-2 px-2"></th>
+                                            </tr></thead>
+                                            <tbody>{drvKasbon.map((k,idx)=>{
+                                                const sisa = safeMoney(k.jumlah)-safeMoney(k.sudahDipotong);
+                                                return (<tr key={k.id} className={`border-t ${idx%2===0?'':'bg-gray-50'}`}>
+                                                    <td className="py-2 px-2 text-gray-500">{k.tanggal}</td>
+                                                    <td className="py-2 px-2 text-right font-bold">{formatRupiah(safeMoney(k.jumlah))}</td>
+                                                    <td className="py-2 px-2 text-right text-green-700">{safeMoney(k.sudahDipotong)>0?formatRupiah(safeMoney(k.sudahDipotong)):'-'}</td>
+                                                    <td className="py-2 px-2 text-right font-bold">{sisa>0?<span className="text-red-600">{formatRupiah(sisa)}</span>:<span className="text-green-600">Lunas</span>}</td>
+                                                    <td className="py-2 px-2 text-gray-400">{k.keterangan||'-'}</td>
+                                                    <td className="py-2 px-2"><button onClick={()=>hapusKasbon(k.id)} className="text-red-300 hover:text-red-600 font-bold">✕</button></td>
+                                                </tr>);
+                                            })}</tbody>
+                                        </table>
+                                    )}
+                                    {showKasbonAddForm ? (
+                                        <div className="border border-red-200 rounded-lg p-3 bg-red-50 space-y-2">
+                                            <p className="text-xs font-bold text-red-600 mb-1">Tambah Kasbon Baru</p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div><label className="block text-xs text-gray-600 mb-1">Tanggal</label><input type="date" value={kasbonForm.tanggal} onChange={e=>setKasbonForm(f=>({...f,tanggal:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" /></div>
+                                                <div><label className="block text-xs text-gray-600 mb-1">Nominal (Rp)</label><input type="number" min="0" value={kasbonForm.jumlah} onChange={e=>setKasbonForm(f=>({...f,jumlah:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="0" /></div>
+                                            </div>
+                                            <div><label className="block text-xs text-gray-600 mb-1">Keterangan</label><input value={kasbonForm.keterangan} onChange={e=>setKasbonForm(f=>({...f,keterangan:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Opsional" /></div>
+                                            <div className="flex gap-2 justify-end">
+                                                <button onClick={()=>setShowKasbonAddForm(false)} className="px-3 py-1.5 bg-gray-100 rounded text-xs">Batal</button>
+                                                <button onClick={simpanKasbon} className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-bold">Simpan</button>
+                                            </div>
                                         </div>
-                                    ))}
-                                </div>
-                            )}
-                            {visibleKasbon.length === 0 ? (
-                                <div className="text-center py-10 text-gray-400 italic">Belum ada kasbon tercatat.</div>
-                            ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead><tr className="bg-gray-50 border-b text-xs font-bold text-gray-600 text-left">
-                                            <th className="py-2 px-3">Tanggal</th>
-                                            <th className="py-2 px-3">Driver</th>
-                                            <th className="py-2 px-3 text-right">Jumlah</th>
-                                            <th className="py-2 px-3 text-right">Dipotong</th>
-                                            <th className="py-2 px-3 text-right">Sisa</th>
-                                            <th className="py-2 px-3">Keterangan</th>
-                                            <th className="py-2 px-3"></th>
-                                        </tr></thead>
-                                        <tbody>{[...visibleKasbon].sort((a,b)=>b.tanggal>a.tanggal?1:-1).map((k,idx)=>{
-                                            const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
-                                            return (
-                                                <tr key={k.id} className={`border-t ${idx%2===0?'':'bg-gray-50'}`}>
-                                                    <td className="py-2 px-3 text-gray-500 text-xs">{k.tanggal}</td>
-                                                    <td className="py-2 px-3 font-semibold">{k.driverName}</td>
-                                                    <td className="py-2 px-3 text-right font-bold text-gray-700">{formatRupiah(safeMoney(k.jumlah))}</td>
-                                                    <td className="py-2 px-3 text-right text-green-700 text-xs">{safeMoney(k.sudahDipotong)>0?formatRupiah(safeMoney(k.sudahDipotong)):'-'}</td>
-                                                    <td className="py-2 px-3 text-right font-bold">{sisa>0?<span className="text-red-600">{formatRupiah(sisa)}</span>:<span className="text-green-600 text-xs font-bold">Lunas</span>}</td>
-                                                    <td className="py-2 px-3 text-gray-400 text-xs">{k.keterangan||'-'}</td>
-                                                    <td className="py-2 px-3"><button onClick={()=>hapusKasbon(k.id)} className="text-red-300 hover:text-red-600 text-xs font-bold">✕</button></td>
-                                                </tr>
-                                            );
-                                        })}</tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* MODAL KASBON BARU */}
-                    {showKasbonForm && (
-                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
-                                <div className="flex justify-between items-center p-4 border-b">
-                                    <h3 className="font-bold text-lg">Catat Kasbon Baru</h3>
-                                    <button onClick={()=>setShowKasbonForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
-                                </div>
-                                <div className="p-4 space-y-3">
-                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Driver *</label>
-                                        <select value={kasbonForm.driverId} onChange={e=>setKasbonForm(f=>({...f,driverId:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm">
-                                            <option value="">Pilih Driver</option>
-                                            {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
-                                        </select>
-                                    </div>
-                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tanggal *</label>
-                                        <input type="date" value={kasbonForm.tanggal} onChange={e=>setKasbonForm(f=>({...f,tanggal:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" />
-                                    </div>
-                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Nominal Kasbon (Rp) *</label>
-                                        <input type="number" min="0" value={kasbonForm.jumlah} onChange={e=>setKasbonForm(f=>({...f,jumlah:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Contoh: 200000" />
-                                    </div>
-                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Keterangan</label>
-                                        <input value={kasbonForm.keterangan} onChange={e=>setKasbonForm(f=>({...f,keterangan:e.target.value}))} className="w-full border rounded px-3 py-2 text-sm" placeholder="Opsional" />
-                                    </div>
-                                </div>
-                                <div className="flex justify-end gap-2 p-4 border-t">
-                                    <button onClick={()=>setShowKasbonForm(false)} className="px-4 py-2 bg-gray-100 rounded text-sm">Batal</button>
-                                    <button onClick={simpanKasbon} className="px-4 py-2 bg-red-600 text-white rounded text-sm font-bold">Simpan Kasbon</button>
+                                    ) : (
+                                        <button onClick={()=>setShowKasbonAddForm(true)} className="w-full py-2 border-2 border-dashed border-red-200 text-red-500 hover:border-red-400 hover:bg-red-50 rounded-lg text-sm font-bold">+ Tambah Kasbon</button>
+                                    )}
                                 </div>
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {/* MODAL REKAP GAJI */}
                     {showRekapModal && (
