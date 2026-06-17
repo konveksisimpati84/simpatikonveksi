@@ -14911,6 +14911,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [activeTab, setActiveTab] = useState('log');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
             const [rekapMonth, setRekapMonth] = useState(new Date().toISOString().slice(0, 7));
+            const [rekapMinggu, setRekapMinggu] = useState(0);
             // Data absensi dibaca dari Supabase (absensiRawLogs) — disinkron oleh backend lokal,
             // jadi tetap terlihat di device manapun walau device ini tidak terhubung ke backend.
             const monthLogs = safeArray(absensiRawLogs);
@@ -15038,24 +15039,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     rows.push({ pin, nama, tanggal: date, ...metrics, scanCount: entries.length, override, note: override?.note || '', hasCustomShift: !!shiftConfig });
                 });
 
-                // Add employees with finger pin that have no scan
+                // Tampilkan SEMUA karyawan ber-PIN, termasuk yang belum absen sama sekali
                 visibleEmployees.filter(e => e.fingerPin).forEach(emp => {
                     const pin = String(emp.fingerPin).trim();
                     if (!groups[pin]) {
                         const override = getEditOverride(pin, date);
+                        const hasCustomShift = !!(emp.customJamMasuk || emp.customJamTelat || emp.customJamPulang);
                         if (override && (override.jamMasuk || override.jamPulang || override.jamLemburMasuk)) {
-                            const jamMasuk = override.jamMasuk || null;
-                            const jamPulang = override.jamPulang || null;
-                            const jamLemburMasuk = override.jamLemburMasuk || null;
-                            const jamLemburPulang = override.jamLemburPulang || null;
-                            const mMasuk = timeToMinutes(jamMasuk);
-                            const mTelat = timeToMinutes(jamTelatConfig);
-                            const mLMasuk = timeToMinutes(jamLemburMasuk);
-                            const mLPulang = timeToMinutes(jamLemburPulang);
-                            let status = mMasuk == null ? 'Tidak Ada Data' : mMasuk > mTelat ? 'Terlambat' : 'Tepat Waktu';
-                            let lemburMenit = mLMasuk != null && mLPulang != null && mLPulang > mLMasuk ? mLPulang - mLMasuk : 0;
-                            const hasCustomShift = !!(emp.customJamMasuk || emp.customJamTelat || emp.customJamPulang);
-                            rows.push({ pin, nama: emp.name, tanggal: date, jamMasuk, jamPulang, rawMasuk: null, rawPulang: null, jamLemburMasuk, jamLemburPulang, rawLemburMasuk: null, rawLemburPulang: null, status, lemburMenit, scanCount: 0, override, note: override?.note || '', hasCustomShift });
+                            const shiftCfg = hasCustomShift ? { jamMasuk: emp.customJamMasuk||null, jamTelat: emp.customJamTelat||null, jamPulang: emp.customJamPulang||null } : null;
+                            const metrics = computeDayMetrics([], override, shiftCfg);
+                            rows.push({ pin, nama: emp.name, tanggal: date, ...metrics, scanCount: 0, override, note: override?.note || '', hasCustomShift });
+                        } else {
+                            // Belum absen — tetap tampilkan dengan status Tidak Ada Data
+                            rows.push({ pin, nama: emp.name, tanggal: date, jamMasuk: null, jamPulang: null, rawMasuk: null, rawPulang: null, jamLemburMasuk: null, jamLemburPulang: null, rawLemburMasuk: null, rawLemburPulang: null, status: 'Tidak Ada Data', lemburMenit: 0, scanCount: 0, override: null, note: '', hasCustomShift });
                         }
                     }
                 });
@@ -15171,6 +15167,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const buildRekap = () => {
                 const [year, month] = rekapMonth.split('-').map(Number);
                 const daysInMonth = new Date(year, month, 0).getDate();
+                // Rentang hari berdasarkan filter minggu (0 = semua, 1-5 = minggu ke-n)
+                const startDay = rekapMinggu === 0 ? 1 : (rekapMinggu - 1) * 7 + 1;
+                const endDay = rekapMinggu === 0 ? daysInMonth : Math.min(rekapMinggu * 7, daysInMonth);
                 const empMap = {};
                 visibleEmployees.filter(e => e.fingerPin).forEach(emp => {
                     empMap[String(emp.fingerPin).trim()] = { pin: String(emp.fingerPin).trim(), nama: emp.name, hadir: 0, terlambat: 0, lemburMenit: 0 };
@@ -15187,12 +15186,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     groups[key].push(l);
                 });
 
-                for (let d = 1; d <= daysInMonth; d++) {
+                for (let d = startDay; d <= endDay; d++) {
                     const dateStr = `${rekapMonth}-${String(d).padStart(2,'0')}`;
                     Object.keys(empMap).forEach(pin => {
                         const entries = groups[`${pin}|${dateStr}`] || [];
                         const override = getEditOverride(pin, dateStr);
-                        if (entries.length === 0 && !override) return; // tidak ada data sama sekali hari itu
+                        if (entries.length === 0 && !override) return;
                         const empObjR = visibleEmployees.find(e => String(e.fingerPin).trim() === pin);
                         const shiftConfigR = (empObjR?.customJamMasuk || empObjR?.customJamTelat || empObjR?.customJamPulang) ? { jamMasuk: empObjR.customJamMasuk || null, jamTelat: empObjR.customJamTelat || null, jamPulang: empObjR.customJamPulang || null } : null;
                         const metrics = computeDayMetrics(entries, override, shiftConfigR);
@@ -15207,7 +15206,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return Object.values(empMap).filter(r => !filterEmp || r.nama.toLowerCase().includes(filterEmp.toLowerCase())).sort((a,b) => a.nama.localeCompare(b.nama));
             };
 
-            const rekapRows = React.useMemo(() => buildRekap(), [monthLogs, rekapMonth, absensiEdits, employees, filterEmp]);
+            const rekapRows = React.useMemo(() => buildRekap(), [monthLogs, rekapMonth, rekapMinggu, absensiEdits, employees, filterEmp]);
 
             const openEdit = (row) => {
                 setEditForm({ pin: row.pin, tanggal: row.tanggal, nama: row.nama, jamMasuk: row.jamMasuk || '', jamPulang: row.jamPulang || '', jamLemburMasuk: row.jamLemburMasuk || '', jamLemburPulang: row.jamLemburPulang || '', note: row.note || '' });
@@ -15250,6 +15249,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (s === 'Terlambat') return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Terlambat</span>;
                 if (s === 'Tidak Ada Data') return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500">Belum Absen</span>;
                 return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">-</span>;
+            };
+            // Badge operasional 4-status untuk tampilan tabel utama
+            const operasiBadge = (row) => {
+                if (!row.jamMasuk) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">Belum Absen</span>;
+                if (row.jamPulang) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Sudah Pulang</span>;
+                if (row.status === 'Terlambat') return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Terlambat</span>;
+                return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Masuk</span>;
             };
 
             const connBadge = () => {
@@ -15328,10 +15334,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <tbody>{dailyRows.map((row, idx) => (
                                                 <tr key={`${row.pin}-${row.tanggal}`} className={`border-t ${idx % 2 === 0 ? '' : 'bg-gray-50'}`}>
                                                     <td className="py-2 px-3">
-                                                        <div className="font-semibold text-gray-800 text-sm">{row.nama}{row.hasCustomShift && <span className="ml-1 text-[10px] text-purple-500 font-bold" title="Shift khusus">⚙</span>}{row.override && <span className="ml-1 text-[10px] text-blue-500 font-bold">[edit]</span>}</div>
+                                                        <div className="font-semibold text-gray-800 text-sm">{row.nama}{row.hasCustomShift && <span className="ml-1 text-[10px] text-purple-500 font-bold" title="Shift khusus">⚙</span>}{row.override && <span className="ml-1 text-[10px] text-blue-500 font-bold">[edit]</span>}{row.note && <span className="ml-1 text-[11px]" title={row.note}>📝</span>}</div>
                                                         <div className="text-[10px] text-gray-400 font-mono">PIN: {row.pin}</div>
                                                     </td>
-                                                    <td className="py-2 px-3 text-center">{statusBadge(row.status)}</td>
+                                                    <td className="py-2 px-3 text-center">{operasiBadge(row)}</td>
                                                     <td className="py-2 px-3 text-center text-xs">{row.lemburMenit > 0 ? <span className="text-orange-600 font-bold">{minutesToTime(row.lemburMenit)}</span> : row.jamLemburMasuk ? <span className="text-orange-400 text-[10px]">masuk</span> : <span className="text-gray-300">-</span>}</td>
                                                     <td className="py-2 px-3 text-center">
                                                         <button onClick={() => setDetailRow(row)} className="text-xs font-bold text-blue-600 hover:bg-blue-50 px-2 py-1 rounded" title="Lihat detail">👁 Detail</button>
@@ -15388,17 +15394,30 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                         {activeTab === 'rekap' && (
                             <div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Bulan</label>
-                                        <input type="month" value={rekapMonth} onChange={e => setRekapMonth(e.target.value)} className="w-full p-2.5 border rounded-lg text-sm" />
+                                        <input type="month" value={rekapMonth} onChange={e => { setRekapMonth(e.target.value); setRekapMinggu(0); }} className="w-full p-2.5 border rounded-lg text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Filter Minggu</label>
+                                        <select value={rekapMinggu} onChange={e => setRekapMinggu(Number(e.target.value))} className="w-full p-2.5 border rounded-lg text-sm">
+                                            <option value={0}>Semua (1 Bulan Penuh)</option>
+                                            {[1,2,3,4,5].map(w => {
+                                                const [yr, mo] = rekapMonth.split('-').map(Number);
+                                                const dim = new Date(yr, mo, 0).getDate();
+                                                const s = (w-1)*7+1; const e2 = Math.min(w*7, dim);
+                                                if (s > dim) return null;
+                                                return <option key={w} value={w}>Minggu {w} ({s}–{e2} {new Date(yr,mo-1,1).toLocaleDateString('id-ID',{month:'short'})})</option>;
+                                            })}
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Cari Karyawan</label>
                                         <input value={filterEmp} onChange={e => setFilterEmp(e.target.value)} placeholder="Nama..." className="w-full p-2.5 border rounded-lg text-sm" />
                                     </div>
                                 </div>
-                                <p className="text-xs text-gray-400 mb-3 italic">Rekap dihitung otomatis dari data mentah mesin fingerprint sepanjang bulan. Koreksi manual lewat tombol Edit di tab Log Absensi akan diprioritaskan jika ada.</p>
+                                <p className="text-xs text-gray-400 mb-3 italic">Rekap dihitung otomatis dari data mentah mesin fingerprint. Koreksi manual lewat tombol Edit di tab Log Absensi akan diprioritaskan jika ada.</p>
                                 {rekapRows.length === 0 ? (
                                     <div className="text-center py-10 text-gray-400 italic">Belum ada data rekap. Pastikan karyawan sudah punya PIN Finger di menu Data Karyawan.</div>
                                 ) : (
