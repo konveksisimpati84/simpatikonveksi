@@ -147,7 +147,9 @@
             absensiJamTelat: '07:30',
             absensiJamPulang: '16:30',
             absensiLemburMulai: '18:00',
-            absensiLemburSelesai: '21:00'
+            absensiLemburSelesai: '21:00',
+            absensiTitikTengah: '',
+            absensiTitikTengahLembur: ''
         };
 
         const disabledMenuIds = new Set([]);
@@ -11699,12 +11701,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         const fromM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
                                         const a = toM(localTemplates.absensiJamMasuk || '07:00');
                                         const b = toM(localTemplates.absensiJamPulang || '16:30');
-                                        const mid = (a!=null && b!=null) ? fromM((a+b)/2) : '-';
+                                        const autoMid = (a!=null && b!=null) ? fromM((a+b)/2) : '-';
+                                        const isManual = !!(localTemplates.absensiTitikTengah);
+                                        const display = isManual ? localTemplates.absensiTitikTengah : autoMid;
                                         return (
-                                            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs">
-                                                <p className="text-blue-500 font-bold uppercase tracking-wide mb-1">Titik Tengah Aktif</p>
-                                                <p className="text-blue-800 font-black text-lg">{mid}</p>
-                                                <p className="text-blue-400 mt-0.5">Scan ≤{mid} → Jam Masuk &nbsp;·&nbsp; Scan &gt;{mid} → Jam Pulang</p>
+                                            <div className={`border rounded-lg px-3 py-2 text-xs ${isManual ? 'bg-indigo-50 border-indigo-300' : 'bg-blue-50 border-blue-200'}`}>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <p className={`font-bold uppercase tracking-wide ${isManual ? 'text-indigo-600' : 'text-blue-500'}`}>Titik Tengah Aktif {isManual ? '(manual)' : '(otomatis)'}</p>
+                                                    {isManual && <button type="button" onClick={() => setLocalTemplates(p => ({...p, absensiTitikTengah: ''}))} className="text-[10px] text-red-400 hover:text-red-600 font-bold">↺ Reset Otomatis</button>}
+                                                </div>
+                                                <input type="time" name="absensiTitikTengah" value={localTemplates.absensiTitikTengah || ''} onChange={handleChange} placeholder={autoMid} className={`w-full p-1.5 border rounded text-sm font-bold mb-1 ${isManual ? 'border-indigo-300 text-indigo-800' : 'border-blue-200 text-blue-700'}`} />
+                                                <p className="text-gray-400">Scan ≤{display} → Jam Masuk &nbsp;·&nbsp; Scan &gt;{display} → Jam Pulang</p>
+                                                {!isManual && <p className="text-blue-300 italic mt-0.5">Kosongkan = hitung otomatis dari Masuk+Pulang</p>}
                                             </div>
                                         );
                                     })()}
@@ -11718,12 +11726,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         const fromM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
                                         const a = toM(localTemplates.absensiLemburMulai || '18:00');
                                         const b = toM(localTemplates.absensiLemburSelesai || '21:00');
-                                        const mid = (a!=null && b!=null) ? fromM((a+b)/2) : '-';
+                                        const autoMid = (a!=null && b!=null) ? fromM((a+b)/2) : '-';
+                                        const isManual = !!(localTemplates.absensiTitikTengahLembur);
+                                        const display = isManual ? localTemplates.absensiTitikTengahLembur : autoMid;
                                         return (
-                                            <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-xs">
-                                                <p className="text-orange-500 font-bold uppercase tracking-wide mb-1">Titik Tengah Lembur</p>
-                                                <p className="text-orange-700 font-black text-lg">{mid}</p>
-                                                <p className="text-orange-400 mt-0.5">Scan ≤{mid} → Masuk Lembur &nbsp;·&nbsp; Scan &gt;{mid} → Pulang Lembur</p>
+                                            <div className={`border rounded-lg px-3 py-2 text-xs ${isManual ? 'bg-amber-50 border-amber-300' : 'bg-orange-50 border-orange-200'}`}>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <p className={`font-bold uppercase tracking-wide ${isManual ? 'text-amber-600' : 'text-orange-500'}`}>Titik Tengah Lembur {isManual ? '(manual)' : '(otomatis)'}</p>
+                                                    {isManual && <button type="button" onClick={() => setLocalTemplates(p => ({...p, absensiTitikTengahLembur: ''}))} className="text-[10px] text-red-400 hover:text-red-600 font-bold">↺ Reset Otomatis</button>}
+                                                </div>
+                                                <input type="time" name="absensiTitikTengahLembur" value={localTemplates.absensiTitikTengahLembur || ''} onChange={handleChange} placeholder={autoMid} className={`w-full p-1.5 border rounded text-sm font-bold mb-1 ${isManual ? 'border-amber-300 text-amber-800' : 'border-orange-200 text-orange-700'}`} />
+                                                <p className="text-gray-400">Scan ≤{display} → Masuk Lembur &nbsp;·&nbsp; Scan &gt;{display} → Pulang Lembur</p>
+                                                {!isManual && <p className="text-orange-300 italic mt-0.5">Kosongkan = hitung otomatis dari Mulai+Selesai Lembur</p>}
                                             </div>
                                         );
                                     })()}
@@ -14939,6 +14953,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const jamPulangConfig = templates?.absensiJamPulang || '16:30';
             const lemburMulaiConfig = templates?.absensiLemburMulai || '18:00';
             const lemburSelesaiConfig = templates?.absensiLemburSelesai || '21:00';
+            const titikTengahConfig = templates?.absensiTitikTengah || '';
+            const titikTengahLemburConfig = templates?.absensiTitikTengahLembur || '';
 
             const [activeTab, setActiveTab] = useState('log');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -15022,14 +15038,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                 const mMasukCfg = timeToMinutes(jamMasukEff);
                 const mPulangCfg = timeToMinutes(jamPulangEff);
-                const mMid = (mMasukCfg != null && mPulangCfg != null) ? (mMasukCfg + mPulangCfg) / 2 : null;
+                // Titik tengah: pakai nilai manual jika diisi, fallback auto-hitung
+                const mMid = titikTengahConfig
+                    ? timeToMinutes(titikTengahConfig)
+                    : (mMasukCfg != null && mPulangCfg != null) ? (mMasukCfg + mPulangCfg) / 2 : null;
                 const masukZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) <= mMid) : aktifEntries;
                 const pulangZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) > mMid) : [];
                 const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
                 const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
 
                 const mLemburSelesaiCfg = timeToMinutes(lemburSelesaiConfig);
-                const mMidLembur = (mLemburMulai != null && mLemburSelesaiCfg != null) ? (mLemburMulai + mLemburSelesaiCfg) / 2 : null;
+                const mMidLembur = titikTengahLemburConfig
+                    ? timeToMinutes(titikTengahLemburConfig)
+                    : (mLemburMulai != null && mLemburSelesaiCfg != null) ? (mLemburMulai + mLemburSelesaiCfg) / 2 : null;
                 const lemburMasukZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) <= mMidLembur) : lemburEntries;
                 const lemburPulangZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) > mMidLembur) : [];
                 const rawLemburMasuk = lemburMasukZone.length > 0 ? lemburMasukZone[0].jam : null;
