@@ -9345,7 +9345,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [inputDetailEmpId, setInputDetailEmpId] = useState(null);
             const [showOnlyReady, setShowOnlyReady] = useState(false);
             const [manualProdForm, setManualProdForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), description: '', qty: '', unitPrice: '' });
-            const [dailyInputForm, setDailyInputForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
+            const [dailyInputForm, setDailyInputForm] = useState({ empId: null, mode: 'harian', date: new Date().toISOString().slice(0,10), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
             const [showGenModal, setShowGenModal] = useState(false);
             const [genDateFrom, setGenDateFrom] = useState('');
             const [genDateTo, setGenDateTo] = useState('');
@@ -9679,18 +9679,42 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const handleSaveDailyInput = (empId) => {
-                const { date, workDays, dailySalary, overtimeCount, overtimeRate, note } = dailyInputForm;
-                if (!workDays && !overtimeCount) { showToast('Hari masuk atau jumlah lembur wajib diisi.', 'error'); return; }
+                const { date, workDays, dailySalary, overtimeCount, overtimeRate, note, mode } = dailyInputForm;
+                if (mode === 'lembur') {
+                    if (!overtimeCount || safeMoney(overtimeCount) <= 0) { showToast('Jumlah lembur wajib diisi.', 'error'); return; }
+                } else {
+                    if (!workDays || safeMoney(workDays) <= 0) { showToast('Hari masuk wajib diisi.', 'error'); return; }
+                }
                 const now = new Date().toISOString();
-                const newLog = { id: genId('DAY-'), date: date || now.slice(0,10), workDays: safeMoney(workDays), dailySalary: safeMoney(dailySalary), overtimeCount: safeMoney(overtimeCount), overtimeRate: safeMoney(overtimeRate), note: String(note||'').trim(), updatedAt: now, createdAt: now };
+                const isLembur = mode === 'lembur';
+                const newLog = {
+                    id: genId('DAY-'),
+                    date: date || now.slice(0,10),
+                    workDays: isLembur ? 0 : safeMoney(workDays),
+                    dailySalary: isLembur ? 0 : safeMoney(dailySalary),
+                    overtimeCount: isLembur ? safeMoney(overtimeCount) : 0,
+                    overtimeRate: isLembur ? safeMoney(overtimeRate) : 0,
+                    note: String(note||'').trim(),
+                    updatedAt: now, createdAt: now
+                };
                 setEmployees(prev => (prev||[]).map(emp => {
                     if (String(emp.id) !== String(empId)) return emp;
                     const nextLogs = [newLog, ...(Array.isArray(emp.dailySalaryLogs) ? emp.dailySalaryLogs : [])];
                     const nextTypes = [...new Set([...getEmployeeSalaryTypes(emp), 'Harian'])];
-                    return { ...emp, dailySalary: newLog.dailySalary || emp.dailySalary || 0, salaryTypes: nextTypes, salaryType: nextTypes.length > 1 ? 'Campuran' : nextTypes[0], dailySalaryLogs: nextLogs, _syncUpdatedAt: now };
+                    return { ...emp, dailySalary: (!isLembur && newLog.dailySalary) ? newLog.dailySalary : (emp.dailySalary || 0), salaryTypes: nextTypes, salaryType: nextTypes.length > 1 ? 'Campuran' : nextTypes[0], dailySalaryLogs: nextLogs, _syncUpdatedAt: now };
                 }));
-                setDailyInputForm(prev => ({ ...prev, empId: null, workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' }));
-                showToast('Gaji harian berhasil ditambahkan.', 'success');
+                setDailyInputForm(prev => ({ ...prev, empId: null, mode: 'harian', workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' }));
+                showToast(isLembur ? 'Lembur berhasil ditambahkan.' : 'Gaji harian berhasil ditambahkan.', 'success');
+            };
+
+            const handleDeleteDailyLog = (empId, logId) => {
+                if (!window.confirm('Hapus entri ini?')) return;
+                const now = new Date().toISOString();
+                setEmployees(prev => (prev||[]).map(emp => {
+                    if (String(emp.id) !== String(empId)) return emp;
+                    return { ...emp, dailySalaryLogs: (emp.dailySalaryLogs||[]).map(log => String(log.id) === String(logId) ? { ...log, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : log), _syncUpdatedAt: now };
+                }));
+                showToast('Entri dihapus.', 'success');
             };
 
             const handleDeleteManualProd = (empId, logId) => {
@@ -10849,31 +10873,48 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                 <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
                                                     <span className="font-black text-xs text-gray-700">Gaji Harian ({dDailySalaryRows.length})</span>
-                                                    <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: prev.empId === dEmp.id ? null : dEmp.id, date: new Date().toISOString().slice(0,10), workDays: '', dailySalary: String(dEmp.dailySalary || ''), overtimeCount: '', overtimeRate: '', note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">+ Input Gaji Harian</button>
+                                                    <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: (prev.empId === dEmp.id && prev.mode === 'harian') ? null : dEmp.id, mode: 'harian', date: new Date().toISOString().slice(0,10), workDays: '', dailySalary: String(dEmp.dailySalary || ''), note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">+ Input Harian</button>
                                                 </div>
-                                                {dailyInputForm.empId === dEmp.id && (
+                                                {dailyInputForm.empId === dEmp.id && dailyInputForm.mode === 'harian' && (
                                                     <div className="bg-indigo-50 border-b border-indigo-200 p-3 space-y-2">
-                                                        <div className="text-xs font-bold text-indigo-800 mb-1">Input Gaji Harian / Lembur</div>
-                                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                                        <div className="text-xs font-bold text-indigo-800 mb-1">Input Gaji Harian</div>
+                                                        <div className="grid grid-cols-3 gap-2">
                                                             <div><label className="text-xs text-gray-600">Tanggal</label><input type="date" value={dailyInputForm.date} onChange={e => setDailyInputForm(prev => ({...prev, date: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
                                                             <div><label className="text-xs text-gray-600">Hari Masuk</label><input type="number" min="0" placeholder="0" value={dailyInputForm.workDays} onChange={e => setDailyInputForm(prev => ({...prev, workDays: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
                                                             <div><label className="text-xs text-gray-600">Nominal/Hari (Rp)</label><input type="number" min="0" placeholder="0" value={dailyInputForm.dailySalary} onChange={e => setDailyInputForm(prev => ({...prev, dailySalary: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
-                                                            <div><label className="text-xs text-gray-600">Jumlah Lembur</label><input type="number" min="0" placeholder="0" value={dailyInputForm.overtimeCount} onChange={e => setDailyInputForm(prev => ({...prev, overtimeCount: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
-                                                            <div><label className="text-xs text-gray-600">Nominal Lembur (Rp)</label><input type="number" min="0" placeholder="0" value={dailyInputForm.overtimeRate} onChange={e => setDailyInputForm(prev => ({...prev, overtimeRate: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
-                                                            <div><label className="text-xs text-gray-600">Catatan</label><input type="text" placeholder="Opsional" value={dailyInputForm.note} onChange={e => setDailyInputForm(prev => ({...prev, note: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                            <div className="col-span-3"><label className="text-xs text-gray-600">Catatan</label><input type="text" placeholder="Opsional" value={dailyInputForm.note} onChange={e => setDailyInputForm(prev => ({...prev, note: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
                                                         </div>
-                                                        {(dailyInputForm.workDays > 0 || dailyInputForm.overtimeCount > 0) && <div className="text-xs text-indigo-800 font-bold">Total: {formatRupiah(parseFloat(dailyInputForm.workDays||0)*parseFloat(dailyInputForm.dailySalary||0) + parseFloat(dailyInputForm.overtimeCount||0)*parseFloat(dailyInputForm.overtimeRate||0))}</div>}
+                                                        {safeMoney(dailyInputForm.workDays) > 0 && <div className="text-xs text-indigo-800 font-bold">Total: {formatRupiah(safeMoney(dailyInputForm.workDays)*safeMoney(dailyInputForm.dailySalary))}</div>}
                                                         <div className="flex gap-2">
                                                             <button onClick={() => handleSaveDailyInput(dEmp.id)} className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700">Simpan</button>
                                                             <button onClick={() => setDailyInputForm(prev => ({...prev, empId: null}))} className="text-xs px-3 py-1.5 bg-white text-gray-600 border border-gray-300 rounded-lg font-bold hover:bg-gray-50">Batal</button>
                                                         </div>
                                                     </div>
                                                 )}
-                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Hari</th><th className="p-2 text-right">Subtotal</th></tr></thead><tbody>{dDailySalaryRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-daily-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2">{safeText(log.note,'Masuk Kerja')}</td><td className="p-2 text-right">{safeNumber(log.workDays)}h</td><td className="p-2 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>; })}{dDailySalaryRows.length===0 && <tr><td colSpan="4" className="p-4 text-center text-gray-500 italic">Belum ada.</td></tr>}</tbody></table>
+                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Hari</th><th className="p-2 text-right">Subtotal</th><th className="p-2 w-6"></th></tr></thead><tbody>{dDailySalaryRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-daily-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2 max-w-[100px] truncate">{safeText(log.note,'Masuk Kerja')}</td><td className="p-2 text-right">{safeNumber(log.workDays)}h</td><td className="p-2 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td><td className="p-2 text-center"><button onClick={() => handleDeleteDailyLog(dEmp.id, log.id)} className="text-red-400 hover:text-red-600 font-black text-sm leading-none">✕</button></td></tr>; })}{dDailySalaryRows.length===0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Belum ada.</td></tr>}</tbody></table>
                                             </div>
                                             <div className="border border-gray-200 rounded-xl overflow-hidden">
-                                                <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Lembur ({dOvertimeRows.length})</div>
-                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Jumlah</th><th className="p-2 text-right">Subtotal</th></tr></thead><tbody>{dOvertimeRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-ot-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2">{safeText(log.note,'Lembur')}</td><td className="p-2 text-right">{safeNumber(log.overtimeCount)}x</td><td className="p-2 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td></tr>; })}{dOvertimeRows.length===0 && <tr><td colSpan="4" className="p-4 text-center text-gray-500 italic">Tidak ada.</td></tr>}</tbody></table>
+                                                <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
+                                                    <span className="font-black text-xs text-gray-700">Lembur ({dOvertimeRows.length})</span>
+                                                    <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: (prev.empId === dEmp.id && prev.mode === 'lembur') ? null : dEmp.id, mode: 'lembur', date: new Date().toISOString().slice(0,10), overtimeCount: '', overtimeRate: String(dEmp.overtimeRate || ''), note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700">+ Input Lembur</button>
+                                                </div>
+                                                {dailyInputForm.empId === dEmp.id && dailyInputForm.mode === 'lembur' && (
+                                                    <div className="bg-sky-50 border-b border-sky-200 p-3 space-y-2">
+                                                        <div className="text-xs font-bold text-sky-800 mb-1">Input Lembur</div>
+                                                        <div className="grid grid-cols-3 gap-2">
+                                                            <div><label className="text-xs text-gray-600">Tanggal</label><input type="date" value={dailyInputForm.date} onChange={e => setDailyInputForm(prev => ({...prev, date: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                            <div><label className="text-xs text-gray-600">Jumlah Hari Lembur</label><input type="number" min="0" placeholder="0" value={dailyInputForm.overtimeCount} onChange={e => setDailyInputForm(prev => ({...prev, overtimeCount: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                            <div><label className="text-xs text-gray-600">Nominal Lembur (Rp)</label><input type="number" min="0" placeholder="0" value={dailyInputForm.overtimeRate} onChange={e => setDailyInputForm(prev => ({...prev, overtimeRate: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                            <div className="col-span-3"><label className="text-xs text-gray-600">Catatan</label><input type="text" placeholder="Opsional" value={dailyInputForm.note} onChange={e => setDailyInputForm(prev => ({...prev, note: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
+                                                        </div>
+                                                        {safeMoney(dailyInputForm.overtimeCount) > 0 && <div className="text-xs text-sky-800 font-bold">Total: {formatRupiah(safeMoney(dailyInputForm.overtimeCount)*safeMoney(dailyInputForm.overtimeRate))}</div>}
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => handleSaveDailyInput(dEmp.id)} className="text-xs px-3 py-1.5 bg-sky-600 text-white rounded-lg font-bold hover:bg-sky-700">Simpan</button>
+                                                            <button onClick={() => setDailyInputForm(prev => ({...prev, empId: null}))} className="text-xs px-3 py-1.5 bg-white text-gray-600 border border-gray-300 rounded-lg font-bold hover:bg-gray-50">Batal</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Jumlah</th><th className="p-2 text-right">Subtotal</th><th className="p-2 w-6"></th></tr></thead><tbody>{dOvertimeRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-ot-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2 max-w-[100px] truncate">{safeText(log.note,'Lembur')}</td><td className="p-2 text-right">{safeNumber(log.overtimeCount)}x</td><td className="p-2 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td><td className="p-2 text-center"><button onClick={() => handleDeleteDailyLog(dEmp.id, log.id)} className="text-red-400 hover:text-red-600 font-black text-sm leading-none">✕</button></td></tr>; })}{dOvertimeRows.length===0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Tidak ada.</td></tr>}</tbody></table>
                                             </div>
                                             <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                 <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Kasbon</div>
