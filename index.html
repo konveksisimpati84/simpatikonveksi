@@ -10361,8 +10361,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (rankMonth && !(r.dateProcessed || '').startsWith(rankMonth)) return;
                     const id = String(r.empId);
                     const emp = visibleEmployees.find(e => String(e.id) === id);
-                    if (!empMap[id]) empMap[id] = { id, name: r.empName || emp?.name || '', division: r.division || (emp ? getEmployeeDivisions(emp).join(', ') : ''), direkap: 0, pending: 0 };
+                    if (!empMap[id]) empMap[id] = { id, name: r.empName || emp?.name || '', division: r.division || (emp ? getEmployeeDivisions(emp).join(', ') : ''), direkap: 0, pending: 0, gajiDirekap: 0 };
                     empMap[id].direkap += safeMoney(r.total);
+                    empMap[id].gajiDirekap += safeMoney(r.netSalary ?? r.totalWage);
                 });
                 // Dari workLogs pending (belum direkap, sudah checkAfter)
                 safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
@@ -10373,7 +10374,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             const emp = visibleEmployees.find(e => String(e.id) === String(l.empId));
                             if (!emp) return;
                             const id = String(l.empId);
-                            if (!empMap[id]) empMap[id] = { id, name: emp.name || '', division: getEmployeeDivisions(emp).join(', '), direkap: 0, pending: 0 };
+                            if (!empMap[id]) empMap[id] = { id, name: emp.name || '', division: getEmployeeDivisions(emp).join(', '), direkap: 0, pending: 0, gajiDirekap: 0 };
                             empMap[id].pending += getWorkLogSubmittedQty(l);
                         });
                     });
@@ -10386,9 +10387,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             if (!emp) return false;
                             return getEmployeeDivisions(emp).some(d => normalizeText(d) === normalizeText(rankDivFilter));
                         }
-                        return e.total > 0;
+                        return e.total > 0 || e.gajiDirekap > 0;
                     })
-                    .sort((a, b) => b[rankSortBy] - a[rankSortBy]);
+                    .sort((a, b) => {
+                        if (rankSortBy === 'gaji_desc') return b.gajiDirekap - a.gajiDirekap;
+                        if (rankSortBy === 'gaji_asc') return a.gajiDirekap - b.gajiDirekap;
+                        return b[rankSortBy] - a[rankSortBy];
+                    });
             }, [safeRekapForReport.length, safeOrdersForReport.length, rankMonth, rankDivFilter, rankSortBy, visibleEmployees.length, rekapKinerja?.length]);
 
             return (
@@ -10704,6 +10709,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <option value="total">Total Pcs</option>
                                         <option value="direkap">Sudah Direkap</option>
                                         <option value="pending">Belum Direkap</option>
+                                        <option value="gaji_desc">Gaji Bersih ↓ Tertinggi</option>
+                                        <option value="gaji_asc">Gaji Bersih ↑ Terendah</option>
                                     </select>
                                 </div>
                                 <div className="ml-auto text-xs text-gray-400 italic">{rankingData.length} karyawan · {rankMonth ? `Periode ${rankMonth}` : 'Semua periode'}{rankDivFilter !== 'Semua' ? ` · ${rankDivFilter}` : ''}</div>
@@ -10717,6 +10724,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <span className="w-28 text-right">✅ Direkap</span>
                                 <span className="w-28 text-right">⏳ Pending</span>
                                 <span className="w-28 text-right">Total</span>
+                                <span className="w-32 text-right hidden md:block">💰 Total Gaji</span>
                             </div>
                             {rankingData.length === 0 ? (
                                 <div className="p-8 text-center text-gray-400 italic">Belum ada data produksi untuk periode ini.</div>
@@ -10743,6 +10751,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </div>
                                         <div className="w-28 text-right flex-shrink-0">
                                             <span className="font-black text-blue-700 text-sm">{e.total} pcs</span>
+                                        </div>
+                                        <div className="w-32 text-right flex-shrink-0 hidden md:block">
+                                            {e.gajiDirekap > 0
+                                                ? <span className="font-bold text-purple-700 text-sm">{formatRupiah(e.gajiDirekap)}</span>
+                                                : <span className="text-gray-300 text-sm">-</span>}
                                         </div>
                                     </div>
                                 );
