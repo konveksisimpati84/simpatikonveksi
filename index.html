@@ -9347,6 +9347,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [rankMonth, setRankMonth] = useState(new Date().toISOString().slice(0,7));
             const [rankDivFilter, setRankDivFilter] = useState('Semua');
             const [rankSortBy, setRankSortBy] = useState('total');
+            const [rekapSortBy, setRekapSortBy] = useState('terbaru');
             const [cashAdvanceDeduction, setCashAdvanceDeduction] = useState('');
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             // printOptions dihapus — pilihan direkap kini langsung dikontrol oleh selectedKeys per kategori
@@ -10154,6 +10155,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const ap = pinnedRekapIds.has(a.id) ? 1 : 0;
                 const bp = pinnedRekapIds.has(b.id) ? 1 : 0;
                 if (ap !== bp) return bp - ap;
+                if (rekapSortBy === 'gaji_desc') return safeMoney(b.netSalary ?? b.totalWage) - safeMoney(a.netSalary ?? a.totalWage);
+                if (rekapSortBy === 'gaji_asc') return safeMoney(a.netSalary ?? a.totalWage) - safeMoney(b.netSalary ?? b.totalWage);
+                if (rekapSortBy === 'nama') return (a.empName || '').localeCompare(b.empName || '');
+                if (rekapSortBy === 'tanggal') return (b.dateProcessed || '').localeCompare(a.dateProcessed || '');
                 return String(b.id).localeCompare(String(a.id));
             });
             const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
@@ -10602,6 +10607,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <Card><h3 className="text-xs font-bold text-gray-500">Komisi Marketing</h3><p className="text-xl font-black text-purple-700">{formatRupiah(rekapSummary.commission)}</p></Card>
                             <Card><h3 className="text-xs font-bold text-gray-500">Kasbon Dipotong</h3><p className="text-xl font-black text-orange-700">{formatRupiah(rekapSummary.kasbon)}</p></Card>
                             <Card><h3 className="text-xs font-bold text-gray-500">Gaji Bersih</h3><p className="text-xl font-black text-blue-700">{formatRupiah(rekapSummary.net)}</p></Card>
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-semibold text-gray-500">Urutkan:</label>
+                                <select value={rekapSortBy} onChange={e => { setRekapSortBy(e.target.value); setRekapListPage(1); }} className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white">
+                                    <option value="terbaru">Terbaru</option>
+                                    <option value="gaji_desc">Gaji Bersih ↓ Tertinggi</option>
+                                    <option value="gaji_asc">Gaji Bersih ↑ Terendah</option>
+                                    <option value="nama">Nama A–Z</option>
+                                    <option value="tanggal">Tanggal Rekap ↓</option>
+                                </select>
+                            </div>
+                            <div className="text-xs text-gray-400 ml-auto">{rekapListTotal} rekap</div>
                         </div>
                         {pinnedRekapIds.size > 0 && (
                             <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-3 rounded-xl flex items-center justify-between gap-4">
