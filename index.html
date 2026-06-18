@@ -9507,7 +9507,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 `);
                 const overtimeRows = overtimeLogs.map(log => `
                     <div class="item-row">
-                        <span><b>${log.date || '-'}</b><small>${log.note || 'Lembur'} | ${log.overtimeCount || 0} jam</small></span>
+                        <span><b>${log.date || '-'}</b><small>${log.note || 'Lembur'} | ${log.overtimeCount || 0} hari</small></span>
                         <span>${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</span>
                     </div>
                 `);
