@@ -9342,6 +9342,31 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 try { localStorage.setItem('simpati_pinned_emp_ids', JSON.stringify(arr)); } catch(e) {}
                 if (supabaseClient) supabaseClient.from('app_data').upsert({ id: 'pinned_emp_ids', data: arr }).then(({ error }) => { if (error) console.error('[pin] Gagal simpan ke Supabase:', error); });
             }, [pinnedEmpIds]);
+            const [pinnedRekapIds, setPinnedRekapIds] = useState(() => { try { const s = JSON.parse(localStorage.getItem('simpati_pinned_rekap_ids') || '[]'); return new Set(Array.isArray(s) ? s : []); } catch(e) { return new Set(); } });
+            const pinnedRekapInitialized = React.useRef(false);
+            const pinnedRekapFromPoll = React.useRef(false);
+            React.useEffect(() => {
+                if (!supabaseClient) { pinnedRekapInitialized.current = true; return; }
+                const fetchRPins = async () => {
+                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', 'pinned_rekap_ids').single();
+                    if (!error && data?.data && Array.isArray(data.data)) {
+                        pinnedRekapFromPoll.current = true;
+                        setPinnedRekapIds(new Set(data.data));
+                        try { localStorage.setItem('simpati_pinned_rekap_ids', JSON.stringify(data.data)); } catch(e) {}
+                    }
+                    pinnedRekapInitialized.current = true;
+                };
+                fetchRPins();
+                const interval = setInterval(fetchRPins, 30000);
+                return () => clearInterval(interval);
+            }, []);
+            React.useEffect(() => {
+                if (!pinnedRekapInitialized.current) return;
+                if (pinnedRekapFromPoll.current) { pinnedRekapFromPoll.current = false; return; }
+                const arr = [...pinnedRekapIds];
+                try { localStorage.setItem('simpati_pinned_rekap_ids', JSON.stringify(arr)); } catch(e) {}
+                if (supabaseClient) supabaseClient.from('app_data').upsert({ id: 'pinned_rekap_ids', data: arr }).then(({ error }) => { if (error) console.error('[pin] Gagal simpan rekap ke Supabase:', error); });
+            }, [pinnedRekapIds]);
             const [inputDetailEmpId, setInputDetailEmpId] = useState(null);
             const [showOnlyReady, setShowOnlyReady] = useState(false);
             const [manualProdForm, setManualProdForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), description: '', qty: '', unitPrice: '' });
@@ -10078,6 +10103,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     ], searchTerm);
                 })
                 .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+            const sortedRekaps = [...visibleRekaps].sort((a, b) => {
+                const ap = pinnedRekapIds.has(a.id) ? 1 : 0;
+                const bp = pinnedRekapIds.has(b.id) ? 1 : 0;
+                if (ap !== bp) return bp - ap;
+                return String(b.id).localeCompare(String(a.id));
+            });
+            const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
+            const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, count: 0 } : visibleRekaps
+                .filter(r => pinnedRekapIds.has(r.id))
+                .reduce((acc, r) => ({ net: acc.net + safeMoney(r.netSalary ?? r.totalWage), count: acc.count + 1 }), { net: 0, count: 0 });
             const rekapSummary = {
                 employees: new Set(visibleRekaps.map(r => String(r.empId || r.empName))).size,
                 pcs: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.total), 0),
@@ -10432,10 +10467,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <Card><h3 className="text-xs font-bold text-gray-500">Kasbon Dipotong</h3><p className="text-xl font-black text-orange-700">{formatRupiah(rekapSummary.kasbon)}</p></Card>
                             <Card><h3 className="text-xs font-bold text-gray-500">Gaji Bersih</h3><p className="text-xl font-black text-blue-700">{formatRupiah(rekapSummary.net)}</p></Card>
                         </div>
+                        {pinnedRekapIds.size > 0 && (
+                            <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-3 rounded-xl flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <span className="font-black text-sm">📌 {pinnedRekapIds.size} Rekap Disematkan</span>
+                                    <span className="text-sm text-amber-100">Total Gaji Bersih: <strong className="text-white">{formatRupiah(pinnedRekapSummary.net)}</strong></span>
+                                </div>
+                                <button onClick={() => setPinnedRekapIds(new Set())} className="flex-shrink-0 text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold transition-colors">✕ Hapus Sematan</button>
+                            </div>
+                        )}
                         <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-gray-50 text-gray-600">
                                     <tr>
+                                        <th className="p-3 font-semibold w-8 text-center">📌</th>
                                         <th className="p-3 font-semibold">Tanggal</th>
                                         <th className="p-3 font-semibold">Nama Karyawan</th>
                                         <th className="p-3 font-semibold">Divisi</th>
@@ -10445,13 +10490,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {visibleRekaps.map(rekap => {
+                                    {pagedRekaps.map(rekap => {
                                         const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                                         const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                         const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
+                                        const isPinned = pinnedRekapIds.has(rekap.id);
                                         return (
-                                            <tr key={rekap.id} className="border-t border-gray-100 hover:bg-gray-50">
+                                            <tr key={rekap.id} className={`border-t border-gray-100 hover:bg-gray-50 ${isPinned ? 'bg-orange-50' : ''}`}>
+                                                <td className="p-3 text-center">
+                                                    <button onClick={() => setPinnedRekapIds(prev => { const next = new Set(prev); isPinned ? next.delete(rekap.id) : next.add(rekap.id); return next; })} title={isPinned ? 'Lepas Sematan' : 'Sematkan'} className={`text-base leading-none transition-opacity ${isPinned ? 'opacity-100' : 'opacity-30 hover:opacity-70'}`}>📌</button>
+                                                </td>
                                                 <td className="p-3 text-gray-600 text-xs">{rekap.dateProcessed || '-'}</td>
                                                 <td className="p-3 font-bold text-gray-800">{rekap.empName || emp?.name || '-'}</td>
                                                 <td className="p-3 text-gray-600">{rekap.division || emp?.division || '-'}</td>
@@ -10469,10 +10518,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         );
                                     })}
-                                    {visibleRekaps.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-gray-500 italic">{searchTerm ? 'Tidak ada rekap yang cocok dengan pencarian.' : 'Belum ada rekap kinerja.'}</td></tr>}
+                                    {visibleRekaps.length === 0 && <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">{searchTerm ? 'Tidak ada rekap yang cocok dengan pencarian.' : 'Belum ada rekap kinerja.'}</td></tr>}
                                 </tbody>
                             </table>
                         </div>
+                        {rekapListTotalPages > 1 && (
+                            <Card>
+                                <Paginator page={rekapListPage} setPage={setRekapListPage} totalPages={rekapListTotalPages} total={rekapListTotal} pageSize={15} label="rekap" />
+                            </Card>
+                        )}
                     </div>
                     ) : null}
 
