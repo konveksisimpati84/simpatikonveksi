@@ -1701,6 +1701,7 @@
                                     </div>
                                 </div>
                                 <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={newEmp.dailySalary} onChange={e => setNewEmp({...newEmp, dailySalary: e.target.value})} /></div>
+                                <div><label className="block text-sm mb-1 font-semibold">Tarif Lembur/hari</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="Nominal lembur per hari" value={newEmp.overtimeRate || ''} onChange={e => setNewEmp({...newEmp, overtimeRate: e.target.value})} /></div>
                                 {((newEmp.salaryTypes||['Produksi']).includes('Marketing') || getEmployeeDivisions(newEmp).includes('Marketing')) && (
                                   <div className="md:col-span-2 bg-purple-50 border border-purple-200 rounded-lg p-4">
                                     <div className="text-sm font-bold text-purple-800 mb-3">Pengaturan Komisi Marketing</div>
@@ -1939,6 +1940,8 @@
                                                     </div>
                                                 </div>
                                     <div className="md:col-span-2"><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(editEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setEditEmp({...editEmp, salaryTypes: (editEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, salaryTypes: [...(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
+                                    <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={editEmp.dailySalary || ''} onChange={e => setEditEmp({...editEmp, dailySalary: e.target.value})} /></div>
+                                    <div><label className="block text-sm mb-1 font-semibold">Tarif Lembur/hari</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="Nominal lembur per hari" value={editEmp.overtimeRate || ''} onChange={e => setEditEmp({...editEmp, overtimeRate: e.target.value})} /></div>
                                     {((editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes('Marketing') || getEmployeeDivisions(editEmp).includes('Marketing')) && (
                                       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                                         <div className="text-sm font-bold text-purple-800 mb-3">Pengaturan Komisi Marketing</div>
@@ -9301,7 +9304,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates }) => {
+        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [] }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [detailRekapId, setDetailRekapId] = useState(null);
@@ -9343,6 +9346,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [showOnlyReady, setShowOnlyReady] = useState(false);
             const [manualProdForm, setManualProdForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), description: '', qty: '', unitPrice: '' });
             const [dailyInputForm, setDailyInputForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
+            const [showGenModal, setShowGenModal] = useState(false);
+            const [genDateFrom, setGenDateFrom] = useState('');
+            const [genDateTo, setGenDateTo] = useState('');
+            const [genPreview, setGenPreview] = useState(null);
             const safeOrdersForReport = Array.isArray(orders) ? orders : [];
             const safeEmployeesForReport = Array.isArray(employees) ? employees : [];
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
@@ -10092,6 +10099,75 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return { net: acc.net + net, count: acc.count + 1 };
                 }, { net: 0, count: 0 });
 
+            const previewGenAbsensi = () => {
+                if (!genDateFrom || !genDateTo || genDateFrom > genDateTo) {
+                    showToast('Isi periode tanggal yang valid.', 'error');
+                    return;
+                }
+                const ttm = (t) => { if (!t) return null; const [h,m] = t.split(':').map(Number); return h*60+m; };
+                const lmCfg = templates?.absensiLemburMulai || '18:00';
+                const lsCfg = templates?.absensiLemburSelesai || '21:00';
+                const ttCfg = templates?.absensiTitikTengah || '';
+                const ttLCfg = templates?.absensiTitikTengahLembur || '';
+                const mLM = ttm(lmCfg);
+                const mLS = ttm(lsCfg);
+                const mMidLembur = ttLCfg ? ttm(ttLCfg) : (mLM != null && mLS != null ? (mLM + mLS) / 2 : null);
+                const dates = [];
+                const cur = new Date(genDateFrom);
+                const end = new Date(genDateTo);
+                while (cur <= end) { dates.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate()+1); }
+                const targetEmps = visibleEmployees.filter(emp => emp.fingerPin && getEmployeeSalaryTypes(emp).includes('Harian'));
+                const results = [];
+                targetEmps.forEach(emp => {
+                    const pin = String(emp.fingerPin).trim();
+                    let hadir = 0, lembur = 0;
+                    const jmCfg = emp.customJamMasuk || templates?.absensiJamMasuk || '07:00';
+                    const jpCfg = emp.customJamPulang || templates?.absensiJamPulang || '16:30';
+                    const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
+                    const mMid = ttCfg ? ttm(ttCfg) : (mMasukCfg != null && mPulangCfg != null ? (mMasukCfg + mPulangCfg) / 2 : null);
+                    dates.forEach(date => {
+                        const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin) === pin);
+                        const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
+                        const sorted = [...dayLogs].sort((a,b) => a.jam > b.jam ? 1 : -1);
+                        const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mLM);
+                        const lemb = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mLM);
+                        const masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
+                        const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
+                        const jamMasuk = override?.jamMasuk || rawMasuk;
+                        if (jamMasuk) hadir++;
+                        const lMasukZone = mMidLembur != null ? lemb.filter(e => ttm(e.jam) <= mMidLembur) : lemb;
+                        const lPulangZone = mMidLembur != null ? lemb.filter(e => ttm(e.jam) > mMidLembur) : [];
+                        const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
+                        const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length-1].jam : null;
+                        const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
+                        const jlPulang = override?.jamLemburPulang || rawLPulang;
+                        const mLMasuk = ttm(jlMasuk), mLPulang = ttm(jlPulang);
+                        const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
+                        if (lemburMenit >= 120) lembur++;
+                    });
+                    if (hadir > 0 || lembur > 0) results.push({ emp, hadir, lembur, dailySalaryRate: safeMoney(emp.dailySalary)||0, overtimeRateVal: safeMoney(emp.overtimeRate)||0, totalGaji: (hadir*(safeMoney(emp.dailySalary)||0)) + (lembur*(safeMoney(emp.overtimeRate)||0)) });
+                });
+                setGenPreview(results);
+            };
+
+            const doGenerateSalaryFromAbsensi = () => {
+                if (!genPreview || genPreview.length === 0) return;
+                const now = new Date().toISOString();
+                const empMap = {};
+                genPreview.forEach(r => { empMap[r.emp.id] = r; });
+                setEmployees(prev => (prev||[]).map(emp => {
+                    const res = empMap[emp.id];
+                    if (!res) return emp;
+                    const newLog = { id: genId('DAY-'), date: genDateTo, workDays: res.hadir, dailySalary: safeMoney(emp.dailySalary)||0, overtimeCount: res.lembur, overtimeRate: safeMoney(emp.overtimeRate)||0, note: `Auto absensi ${genDateFrom} s/d ${genDateTo}`, fromAbsensi: true, createdAt: now, updatedAt: now };
+                    const nextLogs = [newLog, ...(Array.isArray(emp.dailySalaryLogs) ? emp.dailySalaryLogs : [])];
+                    const nextTypes = [...new Set([...getEmployeeSalaryTypes(emp), 'Harian'])];
+                    return { ...emp, dailySalaryLogs: nextLogs, salaryTypes: nextTypes, salaryType: nextTypes.length > 1 ? 'Campuran' : nextTypes[0], _syncUpdatedAt: now };
+                }));
+                showToast(`Generate selesai: ${genPreview.length} karyawan. Periksa riwayat gaji sebelum rekap.`, 'success');
+                setShowGenModal(false);
+                setGenPreview(null);
+            };
+
             return (
                 <div className="space-y-6">
                     <div>
@@ -10108,6 +10184,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="flex-1">
                                 <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari karyawan, divisi, order, instansi, jenis produksi, tahap, tanggal, status, kasbon, catatan..." />
                             </div>
+                            <button
+                                onClick={() => { setShowGenModal(true); setGenPreview(null); setGenDateFrom(''); setGenDateTo(''); }}
+                                className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm border bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50 transition-all"
+                                title="Generate gaji harian otomatis dari data absensi finger"
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01"/></svg>
+                                Generate Absensi
+                            </button>
                             <button
                                 onClick={() => setShowOnlyReady(prev => !prev)}
                                 className={`flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm border transition-all ${showOnlyReady ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-green-700 border-green-300 hover:bg-green-50'}`}
@@ -10551,6 +10635,55 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>
                     )}
+
+                    {showGenModal && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                            <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+                                <div className="flex items-center justify-between p-5 border-b">
+                                    <div>
+                                        <h3 className="font-bold text-lg text-indigo-900">Generate Gaji dari Absensi</h3>
+                                        <p className="text-xs text-gray-500 mt-0.5">Hanya karyawan bertipe gaji Harian + PIN finger yang diproses</p>
+                                    </div>
+                                    <button onClick={() => { setShowGenModal(false); setGenPreview(null); }} className="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+                                </div>
+                                <div className="p-5 space-y-4">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="block text-sm font-semibold mb-1">Dari Tanggal</label><input type="date" className="w-full p-2 border rounded" value={genDateFrom} onChange={e => { setGenDateFrom(e.target.value); setGenPreview(null); }} /></div>
+                                        <div><label className="block text-sm font-semibold mb-1">Sampai Tanggal</label><input type="date" className="w-full p-2 border rounded" value={genDateTo} onChange={e => { setGenDateTo(e.target.value); setGenPreview(null); }} /></div>
+                                    </div>
+                                    <button onClick={previewGenAbsensi} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700">Cek Preview</button>
+                                    {genPreview !== null && (
+                                        genPreview.length === 0 ? (
+                                            <div className="text-center text-sm text-gray-500 italic py-4 bg-gray-50 rounded-lg">Tidak ada data absensi ditemukan untuk periode ini.</div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <div className="text-xs font-bold text-gray-600 uppercase tracking-wide">{genPreview.length} Karyawan akan diisi otomatis:</div>
+                                                <div className="border rounded-lg overflow-hidden">
+                                                    <table className="w-full text-sm">
+                                                        <thead className="bg-gray-50 text-xs text-gray-600"><tr><th className="p-2 text-left">Karyawan</th><th className="p-2 text-center">Hadir</th><th className="p-2 text-center">Lembur</th><th className="p-2 text-right">Est. Gaji</th></tr></thead>
+                                                        <tbody>{genPreview.map(r => (
+                                                            <tr key={r.emp.id} className="border-t">
+                                                                <td className="p-2 font-bold text-gray-800">{r.emp.name}<div className="text-[10px] text-gray-400">{getEmployeeDivisions(r.emp).join(', ')}</div></td>
+                                                                <td className="p-2 text-center">{r.hadir} hari</td>
+                                                                <td className="p-2 text-center">{r.lembur > 0 ? <span className="text-orange-600 font-bold">{r.lembur} hari</span> : <span className="text-gray-300">-</span>}</td>
+                                                                <td className="p-2 text-right font-black text-green-700">{formatRupiah(r.totalGaji)}</td>
+                                                            </tr>
+                                                        ))}</tbody>
+                                                    </table>
+                                                </div>
+                                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">Data ini akan ditambahkan ke riwayat gaji harian masing-masing karyawan. Anda bisa koreksi sebelum rekap.</div>
+                                                <div className="flex gap-2 pt-1">
+                                                    <button onClick={() => { setShowGenModal(false); setGenPreview(null); }} className="flex-1 py-2 bg-gray-200 rounded-lg font-bold text-sm">Batal</button>
+                                                    <button onClick={doGenerateSalaryFromAbsensi} className="flex-1 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700">Simpan ke Riwayat Gaji</button>
+                                                </div>
+                                            </div>
+                                        )
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {inputDetailEmpId && (() => {
                         const dEmp = (employees || []).find(e => String(e.id) === String(inputDetailEmpId));
                         if (!dEmp) return null;
@@ -15220,7 +15353,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 {activeTab === 'input_order' && canOpen('input_order') && <InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} />}
                                 {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} manualPurchases={manualPurchases} setManualPurchases={updateManualPurchases} manualVendorPayments={manualVendorPayments} setManualVendorPayments={updateManualVendorPayments} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
+                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
