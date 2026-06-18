@@ -9350,6 +9350,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [genDateFrom, setGenDateFrom] = useState('');
             const [genDateTo, setGenDateTo] = useState('');
             const [genPreview, setGenPreview] = useState(null);
+            const [genSelectedIds, setGenSelectedIds] = useState(new Set());
             const safeOrdersForReport = Array.isArray(orders) ? orders : [];
             const safeEmployeesForReport = Array.isArray(employees) ? employees : [];
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
@@ -10148,13 +10149,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (hadir > 0 || lembur > 0) results.push({ emp, hadir, lembur, dailySalaryRate: safeMoney(emp.dailySalary)||0, overtimeRateVal: safeMoney(emp.overtimeRate)||0, totalGaji: (hadir*(safeMoney(emp.dailySalary)||0)) + (lembur*(safeMoney(emp.overtimeRate)||0)) });
                 });
                 setGenPreview(results);
+                setGenSelectedIds(new Set(results.map(r => r.emp.id)));
             };
 
             const doGenerateSalaryFromAbsensi = () => {
                 if (!genPreview || genPreview.length === 0) return;
+                const toProcess = genPreview.filter(r => genSelectedIds.has(r.emp.id));
+                if (toProcess.length === 0) { showToast('Pilih minimal 1 karyawan.', 'error'); return; }
                 const now = new Date().toISOString();
                 const empMap = {};
-                genPreview.forEach(r => { empMap[r.emp.id] = r; });
+                toProcess.forEach(r => { empMap[r.emp.id] = r; });
                 setEmployees(prev => (prev||[]).map(emp => {
                     const res = empMap[emp.id];
                     if (!res) return emp;
@@ -10163,9 +10167,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const nextTypes = [...new Set([...getEmployeeSalaryTypes(emp), 'Harian'])];
                     return { ...emp, dailySalaryLogs: nextLogs, salaryTypes: nextTypes, salaryType: nextTypes.length > 1 ? 'Campuran' : nextTypes[0], _syncUpdatedAt: now };
                 }));
-                showToast(`Generate selesai: ${genPreview.length} karyawan. Periksa riwayat gaji sebelum rekap.`, 'success');
+                showToast(`Generate selesai: ${toProcess.length} karyawan. Periksa riwayat gaji sebelum rekap.`, 'success');
                 setShowGenModal(false);
                 setGenPreview(null);
+                setGenSelectedIds(new Set());
             };
 
             return (
@@ -10655,29 +10660,50 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     {genPreview !== null && (
                                         genPreview.length === 0 ? (
                                             <div className="text-center text-sm text-gray-500 italic py-4 bg-gray-50 rounded-lg">Tidak ada data absensi ditemukan untuk periode ini.</div>
-                                        ) : (
-                                            <div className="space-y-2">
-                                                <div className="text-xs font-bold text-gray-600 uppercase tracking-wide">{genPreview.length} Karyawan akan diisi otomatis:</div>
-                                                <div className="border rounded-lg overflow-hidden">
-                                                    <table className="w-full text-sm">
-                                                        <thead className="bg-gray-50 text-xs text-gray-600"><tr><th className="p-2 text-left">Karyawan</th><th className="p-2 text-center">Hadir</th><th className="p-2 text-center">Lembur</th><th className="p-2 text-right">Est. Gaji</th></tr></thead>
-                                                        <tbody>{genPreview.map(r => (
-                                                            <tr key={r.emp.id} className="border-t">
-                                                                <td className="p-2 font-bold text-gray-800">{r.emp.name}<div className="text-[10px] text-gray-400">{getEmployeeDivisions(r.emp).join(', ')}</div></td>
-                                                                <td className="p-2 text-center">{r.hadir} hari</td>
-                                                                <td className="p-2 text-center">{r.lembur > 0 ? <span className="text-orange-600 font-bold">{r.lembur} hari</span> : <span className="text-gray-300">-</span>}</td>
-                                                                <td className="p-2 text-right font-black text-green-700">{formatRupiah(r.totalGaji)}</td>
-                                                            </tr>
-                                                        ))}</tbody>
-                                                    </table>
+                                        ) : (() => {
+                                            const allChecked = genPreview.every(r => genSelectedIds.has(r.emp.id));
+                                            const noneChecked = genPreview.every(r => !genSelectedIds.has(r.emp.id));
+                                            const selectedRows = genPreview.filter(r => genSelectedIds.has(r.emp.id));
+                                            const totalEstGaji = selectedRows.reduce((s, r) => s + r.totalGaji, 0);
+                                            return (
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="text-xs font-bold text-gray-600 uppercase tracking-wide">{genPreview.length} Karyawan ditemukan:</div>
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => setGenSelectedIds(new Set(genPreview.map(r => r.emp.id)))} className={`text-xs px-2 py-1 rounded font-bold border transition-colors ${allChecked ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Pilih Semua</button>
+                                                            <button onClick={() => setGenSelectedIds(new Set())} className={`text-xs px-2 py-1 rounded font-bold border transition-colors ${noneChecked ? 'bg-red-100 text-red-700 border-red-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Batal Semua</button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="border rounded-lg overflow-hidden">
+                                                        <table className="w-full text-sm">
+                                                            <thead className="bg-gray-50 text-xs text-gray-600"><tr><th className="p-2 w-8"></th><th className="p-2 text-left">Karyawan</th><th className="p-2 text-center">Hadir</th><th className="p-2 text-center">Lembur</th><th className="p-2 text-right">Est. Gaji</th></tr></thead>
+                                                            <tbody>{genPreview.map(r => {
+                                                                const checked = genSelectedIds.has(r.emp.id);
+                                                                const isZero = r.totalGaji === 0;
+                                                                return (
+                                                                    <tr key={r.emp.id} onClick={() => setGenSelectedIds(prev => { const n = new Set(prev); checked ? n.delete(r.emp.id) : n.add(r.emp.id); return n; })} className={`border-t cursor-pointer transition-colors ${checked ? 'bg-white hover:bg-indigo-50/40' : 'bg-gray-50/80 opacity-50 hover:opacity-70'}`}>
+                                                                        <td className="p-2 text-center"><input type="checkbox" checked={checked} readOnly className="w-4 h-4 accent-indigo-600 cursor-pointer" /></td>
+                                                                        <td className="p-2 font-bold text-gray-800">{r.emp.name}<div className="text-[10px] text-gray-400">{getEmployeeDivisions(r.emp).join(', ')}</div></td>
+                                                                        <td className="p-2 text-center">{r.hadir} hari</td>
+                                                                        <td className="p-2 text-center">{r.lembur > 0 ? <span className="text-orange-600 font-bold">{r.lembur} hari</span> : <span className="text-gray-300">-</span>}</td>
+                                                                        <td className={`p-2 text-right font-black ${isZero ? 'text-gray-400' : 'text-green-700'}`}>{formatRupiah(r.totalGaji)}{isZero && <div className="text-[9px] font-normal text-orange-500">belum ada tarif</div>}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}</tbody>
+                                                        </table>
+                                                    </div>
+                                                    <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-xs">
+                                                        <span className="text-indigo-700 font-bold">{selectedRows.length} dari {genPreview.length} karyawan dipilih</span>
+                                                        <span className="text-indigo-900 font-black">Total: {formatRupiah(totalEstGaji)}</span>
+                                                    </div>
+                                                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">Data ini akan ditambahkan ke riwayat gaji harian masing-masing karyawan. Anda bisa koreksi sebelum rekap.</div>
+                                                    <div className="flex gap-2 pt-1">
+                                                        <button onClick={() => { setShowGenModal(false); setGenPreview(null); setGenSelectedIds(new Set()); }} className="flex-1 py-2 bg-gray-200 rounded-lg font-bold text-sm">Batal</button>
+                                                        <button onClick={doGenerateSalaryFromAbsensi} disabled={selectedRows.length === 0} className="flex-1 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed">Simpan {selectedRows.length > 0 ? `(${selectedRows.length})` : ''} ke Riwayat Gaji</button>
+                                                    </div>
                                                 </div>
-                                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">Data ini akan ditambahkan ke riwayat gaji harian masing-masing karyawan. Anda bisa koreksi sebelum rekap.</div>
-                                                <div className="flex gap-2 pt-1">
-                                                    <button onClick={() => { setShowGenModal(false); setGenPreview(null); }} className="flex-1 py-2 bg-gray-200 rounded-lg font-bold text-sm">Batal</button>
-                                                    <button onClick={doGenerateSalaryFromAbsensi} className="flex-1 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700">Simpan ke Riwayat Gaji</button>
-                                                </div>
-                                            </div>
-                                        )
+                                            );
+                                        })()
                                     )}
                                 </div>
                             </div>
