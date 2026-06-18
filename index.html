@@ -9344,6 +9344,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [selectedItemKeys, setSelectedItemKeys] = useState(new Set());
             const [searchTerm, setSearchTerm] = useState('');
             const [activeReportTab, setActiveReportTab] = useState('input');
+            const [rankMonth, setRankMonth] = useState(new Date().toISOString().slice(0,7));
+            const [rankDivFilter, setRankDivFilter] = useState('Semua');
+            const [rankSortBy, setRankSortBy] = useState('total');
             const [cashAdvanceDeduction, setCashAdvanceDeduction] = useState('');
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             // printOptions dihapus — pilihan direkap kini langsung dikontrol oleh selectedKeys per kategori
@@ -10346,6 +10349,43 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setGenSelectedIds(new Set());
             };
 
+            const rankingData = React.useMemo(() => {
+                const empMap = {};
+                // Dari rekapKinerja (sudah direkap) — filter per bulan dateProcessed
+                safeRekapForReport.filter(isVisibleRecord).forEach(r => {
+                    if (rankMonth && !(r.dateProcessed || '').startsWith(rankMonth)) return;
+                    const id = String(r.empId);
+                    const emp = visibleEmployees.find(e => String(e.id) === id);
+                    if (!empMap[id]) empMap[id] = { id, name: r.empName || emp?.name || '', division: r.division || (emp ? getEmployeeDivisions(emp).join(', ') : ''), direkap: 0, pending: 0 };
+                    empMap[id].direkap += safeMoney(r.total);
+                });
+                // Dari workLogs pending (belum direkap, sudah checkAfter)
+                safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
+                    if (!order.progress) return;
+                    Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
+                        if (!getActiveProductionStageIds(order).includes(stage)) return;
+                        safeArray(data?.workLogs).filter(l => !l.isDeleted && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter).forEach(l => {
+                            const emp = visibleEmployees.find(e => String(e.id) === String(l.empId));
+                            if (!emp) return;
+                            const id = String(l.empId);
+                            if (!empMap[id]) empMap[id] = { id, name: emp.name || '', division: getEmployeeDivisions(emp).join(', '), direkap: 0, pending: 0 };
+                            empMap[id].pending += getWorkLogSubmittedQty(l);
+                        });
+                    });
+                });
+                return Object.values(empMap)
+                    .map(e => ({ ...e, total: e.direkap + e.pending }))
+                    .filter(e => {
+                        if (rankDivFilter !== 'Semua') {
+                            const emp = visibleEmployees.find(v => String(v.id) === String(e.id));
+                            if (!emp) return false;
+                            return getEmployeeDivisions(emp).some(d => normalizeText(d) === normalizeText(rankDivFilter));
+                        }
+                        return e.total > 0;
+                    })
+                    .sort((a, b) => b[rankSortBy] - a[rankSortBy]);
+            }, [safeRekapForReport.length, safeOrdersForReport.length, rankMonth, rankDivFilter, rankSortBy, visibleEmployees.length, rekapKinerja?.length]);
+
             return (
                 <div className="space-y-6">
                     <div>
@@ -10355,6 +10395,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <div className="flex gap-4 border-b border-gray-200 pb-2">
                         <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Input / Laporan Kinerja</button>
                         <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
+                        <button onClick={() => setActiveReportTab('ranking')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'ranking' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🏆 Ranking Produksi</button>
                         
                     </div>
                     <Card>
@@ -10622,6 +10663,76 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <Paginator page={rekapListPage} setPage={setRekapListPage} totalPages={rekapListTotalPages} total={rekapListTotal} pageSize={15} label="rekap" />
                             </Card>
                         )}
+                    </div>
+                    ) : activeReportTab === 'ranking' ? (
+                    <div className="space-y-4">
+                        <Card>
+                            <div className="flex flex-wrap gap-3 items-center">
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-semibold text-gray-500">Periode:</label>
+                                    <input type="month" value={rankMonth} onChange={e => setRankMonth(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-2 py-1.5" />
+                                    {rankMonth && <button onClick={() => setRankMonth('')} className="text-xs text-blue-600 hover:underline">Semua</button>}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-semibold text-gray-500">Divisi:</label>
+                                    <select value={rankDivFilter} onChange={e => setRankDivFilter(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white">
+                                        <option>Semua</option>
+                                        {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi'].map(d => <option key={d}>{d}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-semibold text-gray-500">Urutkan:</label>
+                                    <select value={rankSortBy} onChange={e => setRankSortBy(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white">
+                                        <option value="total">Total Pcs</option>
+                                        <option value="direkap">Sudah Direkap</option>
+                                        <option value="pending">Belum Direkap</option>
+                                    </select>
+                                </div>
+                                <div className="ml-auto text-xs text-gray-400 italic">{rankingData.length} karyawan · {rankMonth ? `Periode ${rankMonth}` : 'Semua periode'}{rankDivFilter !== 'Semua' ? ` · ${rankDivFilter}` : ''}</div>
+                            </div>
+                        </Card>
+                        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                            <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-2 items-center">
+                                <span className="w-8 text-center">#</span>
+                                <span className="flex-1">Karyawan</span>
+                                <span className="w-28 text-center hidden sm:block">Divisi</span>
+                                <span className="w-28 text-right">✅ Direkap</span>
+                                <span className="w-28 text-right">⏳ Pending</span>
+                                <span className="w-28 text-right">Total</span>
+                            </div>
+                            {rankingData.length === 0 ? (
+                                <div className="p-8 text-center text-gray-400 italic">Belum ada data produksi untuk periode ini.</div>
+                            ) : rankingData.map((e, idx) => {
+                                const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null;
+                                const pct = rankingData[0].total > 0 ? Math.round((e.total / rankingData[0].total) * 100) : 0;
+                                return (
+                                    <div key={e.id} className={`flex items-center gap-2 px-4 py-3 border-b border-gray-100 last:border-b-0 ${idx < 3 ? 'bg-yellow-50/40' : 'hover:bg-gray-50'}`}>
+                                        <div className="w-8 text-center text-base leading-none flex-shrink-0">
+                                            {medal || <span className="text-xs font-bold text-gray-400">{idx + 1}</span>}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold text-gray-800 text-sm">{e.name}</div>
+                                            <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
+                                                <div className="bg-blue-500 h-1 rounded-full transition-all" style={{width: `${pct}%`}}></div>
+                                            </div>
+                                        </div>
+                                        <div className="w-28 text-center text-xs text-gray-500 hidden sm:block flex-shrink-0">{e.division}</div>
+                                        <div className="w-28 text-right flex-shrink-0">
+                                            <span className="font-bold text-green-700 text-sm">{e.direkap > 0 ? `${e.direkap} pcs` : <span className="text-gray-300">-</span>}</span>
+                                        </div>
+                                        <div className="w-28 text-right flex-shrink-0">
+                                            <span className={`font-bold text-sm ${e.pending > 0 ? 'text-yellow-600' : 'text-gray-300'}`}>{e.pending > 0 ? `${e.pending} pcs` : '-'}</span>
+                                        </div>
+                                        <div className="w-28 text-right flex-shrink-0">
+                                            <span className="font-black text-blue-700 text-sm">{e.total} pcs</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="text-[11px] text-gray-400 px-1">
+                            ✅ Direkap = dari Rekap Kinerja yang sudah disimpan (filter bulan berlaku) · ⏳ Pending = workLog sudah dicek admin tapi belum direkap gaji (semua periode)
+                        </div>
                     </div>
                     ) : null}
 
