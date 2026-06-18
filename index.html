@@ -10227,10 +10227,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
                         if (lemburMenit >= 120) lembur++;
                     });
-                    if (hadir > 0 || lembur > 0) results.push({ emp, hadir, lembur, dailySalaryRate: safeMoney(emp.dailySalary)||0, overtimeRateVal: safeMoney(emp.overtimeRate)||0, totalGaji: (hadir*(safeMoney(emp.dailySalary)||0)) + (lembur*(safeMoney(emp.overtimeRate)||0)) });
+                    if (hadir > 0 || lembur > 0) {
+                        const existingLog = safeArray(emp.dailySalaryLogs).filter(isVisibleRecord).find(log =>
+                            log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
+                            log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom
+                        );
+                        const alreadyRekaped = !!existingLog;
+                        const existingPeriod = alreadyRekaped ? `${existingLog.absensiDateFrom} s/d ${existingLog.absensiDateTo}` : null;
+                        results.push({ emp, hadir, lembur, dailySalaryRate: safeMoney(emp.dailySalary)||0, overtimeRateVal: safeMoney(emp.overtimeRate)||0, totalGaji: (hadir*(safeMoney(emp.dailySalary)||0)) + (lembur*(safeMoney(emp.overtimeRate)||0)), alreadyRekaped, existingPeriod });
+                    }
                 });
                 setGenPreview(results);
-                setGenSelectedIds(new Set(results.map(r => r.emp.id)));
+                setGenSelectedIds(new Set(results.filter(r => !r.alreadyRekaped).map(r => r.emp.id)));
             };
 
             const doGenerateSalaryFromAbsensi = () => {
@@ -10243,7 +10251,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setEmployees(prev => (prev||[]).map(emp => {
                     const res = empMap[emp.id];
                     if (!res) return emp;
-                    const newLog = { id: genId('DAY-'), date: genDateTo, workDays: res.hadir, dailySalary: safeMoney(emp.dailySalary)||0, overtimeCount: res.lembur, overtimeRate: safeMoney(emp.overtimeRate)||0, note: `Auto absensi ${genDateFrom} s/d ${genDateTo}`, fromAbsensi: true, createdAt: now, updatedAt: now };
+                    const newLog = { id: genId('DAY-'), date: genDateTo, workDays: res.hadir, dailySalary: safeMoney(emp.dailySalary)||0, overtimeCount: res.lembur, overtimeRate: safeMoney(emp.overtimeRate)||0, note: `Auto absensi ${genDateFrom} s/d ${genDateTo}`, fromAbsensi: true, absensiDateFrom: genDateFrom, absensiDateTo: genDateTo, createdAt: now, updatedAt: now };
                     const nextLogs = [newLog, ...(Array.isArray(emp.dailySalaryLogs) ? emp.dailySalaryLogs : [])];
                     const nextTypes = [...new Set([...getEmployeeSalaryTypes(emp), 'Harian'])];
                     return { ...emp, dailySalaryLogs: nextLogs, salaryTypes: nextTypes, salaryType: nextTypes.length > 1 ? 'Campuran' : nextTypes[0], _syncUpdatedAt: now };
@@ -10778,16 +10786,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         genPreview.length === 0 ? (
                                             <div className="text-center text-sm text-gray-500 italic py-4 bg-gray-50 rounded-lg">Tidak ada data absensi ditemukan untuk periode ini.</div>
                                         ) : (() => {
-                                            const allChecked = genPreview.every(r => genSelectedIds.has(r.emp.id));
-                                            const noneChecked = genPreview.every(r => !genSelectedIds.has(r.emp.id));
+                                            const eligibleRows = genPreview.filter(r => !r.alreadyRekaped);
+                                            const allChecked = eligibleRows.length > 0 && eligibleRows.every(r => genSelectedIds.has(r.emp.id));
+                                            const noneChecked = eligibleRows.every(r => !genSelectedIds.has(r.emp.id));
                                             const selectedRows = genPreview.filter(r => genSelectedIds.has(r.emp.id));
                                             const totalEstGaji = selectedRows.reduce((s, r) => s + r.totalGaji, 0);
+                                            const alreadyCount = genPreview.filter(r => r.alreadyRekaped).length;
                                             return (
                                                 <div className="space-y-2">
                                                     <div className="flex items-center justify-between">
-                                                        <div className="text-xs font-bold text-gray-600 uppercase tracking-wide">{genPreview.length} Karyawan ditemukan:</div>
+                                                        <div className="text-xs font-bold text-gray-600 uppercase tracking-wide">
+                                                            {genPreview.length} Karyawan ditemukan
+                                                            {alreadyCount > 0 && <span className="ml-2 text-orange-600 normal-case font-semibold">({alreadyCount} sudah direkap)</span>}
+                                                        </div>
                                                         <div className="flex gap-2">
-                                                            <button onClick={() => setGenSelectedIds(new Set(genPreview.map(r => r.emp.id)))} className={`text-xs px-2 py-1 rounded font-bold border transition-colors ${allChecked ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Pilih Semua</button>
+                                                            <button onClick={() => setGenSelectedIds(new Set(eligibleRows.map(r => r.emp.id)))} disabled={eligibleRows.length === 0} className={`text-xs px-2 py-1 rounded font-bold border transition-colors disabled:opacity-40 ${allChecked ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Pilih Semua</button>
                                                             <button onClick={() => setGenSelectedIds(new Set())} className={`text-xs px-2 py-1 rounded font-bold border transition-colors ${noneChecked ? 'bg-red-100 text-red-700 border-red-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Batal Semua</button>
                                                         </div>
                                                     </div>
@@ -10795,6 +10808,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         <table className="w-full text-sm">
                                                             <thead className="bg-gray-50 text-xs text-gray-600"><tr><th className="p-2 w-8"></th><th className="p-2 text-left">Karyawan</th><th className="p-2 text-center">Hadir</th><th className="p-2 text-center">Lembur</th><th className="p-2 text-right">Est. Gaji</th></tr></thead>
                                                             <tbody>{genPreview.map(r => {
+                                                                if (r.alreadyRekaped) {
+                                                                    return (
+                                                                        <tr key={r.emp.id} className="border-t bg-orange-50">
+                                                                            <td className="p-2 text-center"><input type="checkbox" checked={false} disabled className="w-4 h-4 cursor-not-allowed opacity-40" /></td>
+                                                                            <td className="p-2">
+                                                                                <div className="font-bold text-gray-400">{r.emp.name}</div>
+                                                                                <div className="text-[10px] text-gray-300">{getEmployeeDivisions(r.emp).join(', ')}</div>
+                                                                                <div className="text-[10px] text-orange-500 font-semibold mt-0.5">⚠ Sudah direkap ({r.existingPeriod})</div>
+                                                                            </td>
+                                                                            <td className="p-2 text-center text-gray-300">{r.hadir} hari</td>
+                                                                            <td className="p-2 text-center text-gray-300">{r.lembur > 0 ? `${r.lembur} hari` : '-'}</td>
+                                                                            <td className="p-2 text-right text-gray-300 font-black">{formatRupiah(r.totalGaji)}</td>
+                                                                        </tr>
+                                                                    );
+                                                                }
                                                                 const checked = genSelectedIds.has(r.emp.id);
                                                                 const isZero = r.totalGaji === 0;
                                                                 return (
