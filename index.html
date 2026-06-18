@@ -2279,6 +2279,16 @@
             const visibleEmployees = (employees || []).filter(isVisibleRecord);
             const visibleEmployeeIds = new Set(visibleEmployees.map(e => String(e.id)));
             const filteredProductionOrders = safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm));
+            const [colorFilter, setColorFilter] = useState(null);
+            const getOrderColorKey = (order) => {
+                if (order.status === 'Terkirim') return 'terkirim';
+                if (order.status === 'Siap Kirim') return 'siap';
+                const d = Math.ceil((new Date(order.deadline) - new Date()) / 86400000);
+                if (d <= 7) return 'terlambat';
+                if (d <= 14) return 'sedang';
+                return 'normal';
+            };
+            const displayProductionOrders = colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders;
 
             const isKaryawanMode = authUser?.role === 'Karyawan';
             const myEmpData = isKaryawanMode ? visibleEmployees.find(e => (
@@ -3252,16 +3262,17 @@ window.addEventListener('load',function(){
                         </Card>
                     )}
 
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-[11px] text-gray-500 shadow-sm">
-                        <span className="font-bold text-gray-600">Keterangan Warna Card:</span>
-                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-purple-500 flex-shrink-0"></span> Terkirim</span>
-                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-500 flex-shrink-0"></span> Siap Kirim</span>
-                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-500 flex-shrink-0"></span> Terlambat (deadline lewat)</span>
-                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-yellow-400 flex-shrink-0"></span> Sedang Proses</span>
-                        <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-blue-500 flex-shrink-0"></span> Normal (belum deadline)</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-[11px] text-gray-500 shadow-sm">
+                        <span className="font-bold text-gray-600 mr-1">Filter Warna:</span>
+                        {[{k:'terkirim',c:'bg-purple-500',l:'Terkirim'},{k:'siap',c:'bg-green-500',l:'Siap Kirim'},{k:'terlambat',c:'bg-red-500',l:'Terlambat'},{k:'sedang',c:'bg-yellow-400',l:'Sedang Proses'},{k:'normal',c:'bg-blue-500',l:'Normal'}].map(({k,c,l}) => (
+                            <button key={k} onClick={() => setColorFilter(prev => prev === k ? null : k)} className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${colorFilter===k?'bg-gray-100 border-gray-400 font-bold text-gray-800':'border-transparent hover:bg-gray-100'}`}>
+                                <span className={`inline-block w-2.5 h-3.5 rounded-sm ${c} flex-shrink-0`}></span>{l}
+                            </button>
+                        ))}
+                        {colorFilter && <button onClick={() => setColorFilter(null)} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {filteredProductionOrders.map(order => {
+                        {displayProductionOrders.map(order => {
                             const today = new Date();
                             const deadlineDate = new Date(order.deadline);
                             const diffTime = deadlineDate - today;
@@ -3333,7 +3344,7 @@ window.addEventListener('load',function(){
                                 </Card>
                             );
                         })}
-                        {filteredProductionOrders.length === 0 && (
+                        {displayProductionOrders.length === 0 && (
                             <div className="col-span-full p-8 text-center text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang diproses.'}</div>
                         )}
                     </div>
@@ -3347,6 +3358,7 @@ window.addEventListener('load',function(){
             const [searchTerm, setSearchTerm] = useState('');
             const [activeShippingTab, setActiveShippingTab] = useState('manajemen');
             const [expandedClients, setExpandedClients] = useState({});
+            const [shipColorFilter, setShipColorFilter] = useState(null);
             const toggleClientExpand = (client) => setExpandedClients(prev => ({ ...prev, [client]: !prev[client] }));
             const [shipModalOrderId, setShipModalOrderId] = useState(null);
             const safeOrders = (orders || []).filter(isVisibleOrder);
@@ -3574,6 +3586,16 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
 
             const activeOrders = safeOrders.filter(o => !o?.isArchived);
             const filteredActiveOrders = activeOrders.filter(o => matchesSearch(orderSearchFields(o), searchTerm));
+            const getShipOrderColorKey = (order) => {
+                const isFS = Object.keys(order.sizes||{}).every(sz => (order.shipped?.[sz]||0) >= (order.sizes[sz]||0));
+                if (order.status === 'Terkirim' || isFS) return 'terkirim';
+                const s = getFinishingSetorTotal(order);
+                const t = parseInt(order.total)||0;
+                if (s >= t && t > 0) return 'siap';
+                if (s > 0) return 'sedang';
+                return 'belum';
+            };
+            const displayShipOrders = shipColorFilter ? filteredActiveOrders.filter(o => getShipOrderColorKey(o) === shipColorFilter) : filteredActiveOrders;
             const ordersByClient = filteredActiveOrders.reduce((acc, o) => {
                 if (!acc[o.client]) acc[o.client] = [];
                 acc[o.client].push(o);
@@ -3659,23 +3681,24 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                             <Card>
                                 <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID order, klien, tipe produksi..." />
                             </Card>
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-[11px] text-gray-500 shadow-sm">
-                                <span className="font-bold text-gray-600">Keterangan Warna:</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-purple-400 flex-shrink-0"></span> Terkirim / Selesai</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-400 flex-shrink-0"></span> Siap Kirim (finishing penuh)</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-yellow-400 flex-shrink-0"></span> Sedang Proses (sebagian selesai)</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-400 flex-shrink-0"></span> Belum Ada Setor Finishing</span>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-[11px] text-gray-500 shadow-sm">
+                                <span className="font-bold text-gray-600 mr-1">Filter Warna:</span>
+                                {[{k:'terkirim',c:'bg-purple-400',l:'Terkirim / Selesai'},{k:'siap',c:'bg-green-400',l:'Siap Kirim'},{k:'sedang',c:'bg-yellow-400',l:'Sedang Proses'},{k:'belum',c:'bg-red-400',l:'Belum Setor Finishing'}].map(({k,c,l}) => (
+                                    <button key={k} onClick={() => setShipColorFilter(prev => prev === k ? null : k)} className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${shipColorFilter===k?'bg-gray-100 border-gray-400 font-bold text-gray-800':'border-transparent hover:bg-gray-100'}`}>
+                                        <span className={`inline-block w-2.5 h-3.5 rounded-sm ${c} flex-shrink-0`}></span>{l}
+                                    </button>
+                                ))}
+                                {shipColorFilter && <button onClick={() => setShipColorFilter(null)} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                             </div>
 
-                            {filteredActiveOrders.length === 0 ? (
+                            {displayShipOrders.length === 0 ? (
                                 <div className="p-10 text-center text-gray-400 bg-white rounded-xl border border-dashed border-gray-300">
                                     <div className="text-4xl mb-3">📦</div>
-                                    <div className="font-bold text-gray-500">{searchTerm ? 'Tidak ada order yang cocok.' : 'Belum ada order produksi aktif.'}</div>
-                                    <div className="text-sm mt-1 text-gray-400">{!searchTerm && 'Hijau = siap kirim penuh · Kuning = sebagian · Merah = belum ada setor finishing'}</div>
+                                    <div className="font-bold text-gray-500">{shipColorFilter ? 'Tidak ada order dengan warna ini.' : searchTerm ? 'Tidak ada order yang cocok.' : 'Belum ada order produksi aktif.'}</div>
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {Object.entries(filteredActiveOrders.reduce((acc, o) => { if (!acc[o.client]) acc[o.client] = []; acc[o.client].push(o); return acc; }, {})).map(([clientName, clientOrders]) => {
+                                    {Object.entries(displayShipOrders.reduce((acc, o) => { if (!acc[o.client]) acc[o.client] = []; acc[o.client].push(o); return acc; }, {})).map(([clientName, clientOrders]) => {
                                         const isExpanded = !!expandedClients[clientName];
                                         let hasRed = false, hasYellow = false, hasGreen = false, allDone = true;
                                         clientOrders.forEach(o => {
@@ -5114,11 +5137,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         )}
                         {vendorGroups.length > 0 && (
                             <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
-                                    <span className="font-bold text-gray-600">Keterangan Warna:</span>
-                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-400 flex-shrink-0"></span> Lunas</span>
-                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-orange-400 flex-shrink-0"></span> Termin / Bayar Sebagian</span>
-                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-400 flex-shrink-0"></span> Belum Bayar</span>
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
+                                    <span className="font-bold text-gray-600 mr-1">Filter Warna:</span>
+                                    {[{v:'Lunas',c:'bg-green-400',l:'Lunas'},{v:'Termin / Bayar Sebagian',c:'bg-orange-400',l:'Termin / Bayar Sebagian'},{v:'Belum Bayar',c:'bg-red-400',l:'Belum Bayar'}].map(({v,c,l}) => (
+                                        <button key={v} onClick={() => setPaymentStatusFilter(prev => prev === v ? 'Semua' : v)} className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${paymentStatusFilter===v?'bg-gray-100 border-gray-400 font-bold text-gray-800':'border-transparent hover:bg-gray-100'}`}>
+                                            <span className={`inline-block w-2.5 h-3.5 rounded-sm ${c} flex-shrink-0`}></span>{l}
+                                        </button>
+                                    ))}
+                                    {paymentStatusFilter !== 'Semua' && <button onClick={() => setPaymentStatusFilter('Semua')} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                                 </div>
                                 <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
                                     <span className="flex-1">Vendor / Nota</span>
@@ -5821,11 +5847,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <div className="p-8 text-center text-gray-400 italic">Belum ada data biaya.</div>
                         ) : (
                             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
-                                    <span className="font-bold text-gray-600">Keterangan Warna:</span>
-                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-400 flex-shrink-0"></span> Lunas / Uang Masuk</span>
-                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-yellow-400 flex-shrink-0"></span> Dibayar Sebagian</span>
-                                    <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-400 flex-shrink-0"></span> Belum Dibayar (Uang Keluar)</span>
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
+                                    <span className="font-bold text-gray-600 mr-1">Filter Warna:</span>
+                                    {[{v:'Lunas',c:'bg-green-400',l:'Lunas / Uang Masuk'},{v:'Dibayar Sebagian',c:'bg-yellow-400',l:'Dibayar Sebagian'},{v:'Belum Dibayar',c:'bg-red-400',l:'Belum Dibayar'}].map(({v,c,l}) => (
+                                        <button key={v} onClick={() => setPayStatusFilter(prev => prev === v ? 'Semua' : v)} className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${payStatusFilter===v?'bg-gray-100 border-gray-400 font-bold text-gray-800':'border-transparent hover:bg-gray-100'}`}>
+                                            <span className={`inline-block w-2.5 h-3.5 rounded-sm ${c} flex-shrink-0`}></span>{l}
+                                        </button>
+                                    ))}
+                                    {payStatusFilter !== 'Semua' && <button onClick={() => setPayStatusFilter('Semua')} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                                 </div>
                                 <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
                                     <span className="w-20 flex-shrink-0">Tanggal</span>
@@ -6789,11 +6818,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>
                         <div className="bg-white divide-y divide-gray-100">
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-gray-50 border-b border-gray-100 text-[11px] text-gray-500">
-                                <span className="font-bold text-gray-600">Keterangan Warna:</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-500 flex-shrink-0"></span> Lunas</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-orange-400 flex-shrink-0"></span> Termin / Cicilan</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-red-400 flex-shrink-0"></span> Belum Dibayar</span>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2 bg-gray-50 border-b border-gray-100 text-[11px] text-gray-500">
+                                <span className="font-bold text-gray-600 mr-1">Filter Warna:</span>
+                                {[{v:'Lunas',c:'bg-green-500',l:'Lunas'},{v:'Termin',c:'bg-orange-400',l:'Termin / Cicilan'},{v:'Belum Dibayar',c:'bg-red-400',l:'Belum Dibayar'}].map(({v,c,l}) => (
+                                    <button key={v} onClick={() => setStatusFilter(prev => prev === v ? 'Semua' : v)} className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${statusFilter===v?'bg-gray-100 border-gray-400 font-bold text-gray-800':'border-transparent hover:bg-gray-100'}`}>
+                                        <span className={`inline-block w-2.5 h-3.5 rounded-sm ${c} flex-shrink-0`}></span>{l}
+                                    </button>
+                                ))}
+                                {statusFilter !== 'Semua' && <button onClick={() => setStatusFilter('Semua')} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                             </div>
                             {pagedInvoices.length === 0 && (
                                 <div className="p-10 text-center text-gray-400 italic flex flex-col items-center gap-3">
@@ -9433,7 +9465,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const bPinned = pinnedEmpIds.has(b.id) ? 0 : 1;
                 return aPinned - bPinned;
             });
-            const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedReportEmployees, total: empTotal } = usePagination(sortedReportEmployees, 10);
+            const [empColorFilter, setEmpColorFilter] = useState(null);
+            const colorFilteredEmp = empColorFilter === 'pinned' ? sortedReportEmployees.filter(e => pinnedEmpIds.has(e.id))
+                : empColorFilter === 'pending' ? sortedReportEmployees.filter(e => empIdsWithPendingSalary.has(String(e.id)))
+                : empColorFilter === 'bersih' ? sortedReportEmployees.filter(e => !empIdsWithPendingSalary.has(String(e.id)))
+                : sortedReportEmployees;
+            const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedReportEmployees, total: empTotal } = usePagination(colorFilteredEmp, 10);
 
             const toggleSelection = (key) => {
                 setSelectedItemKeys(prev => {
@@ -10389,11 +10426,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         )}
                         <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
-                                <span className="font-bold text-gray-600">Keterangan Warna:</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-orange-400 flex-shrink-0"></span> Disematkan / Prioritas</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-yellow-400 flex-shrink-0"></span> Ada pekerjaan belum direkap</span>
-                                <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-3.5 rounded-sm bg-green-400 flex-shrink-0"></span> Semua sudah direkap / bersih</span>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2 bg-white border-b border-gray-100 text-[11px] text-gray-500">
+                                <span className="font-bold text-gray-600 mr-1">Filter Warna:</span>
+                                {[{k:'pinned',c:'bg-orange-400',l:'Disematkan / Prioritas'},{k:'pending',c:'bg-yellow-400',l:'Belum Direkap'},{k:'bersih',c:'bg-green-400',l:'Sudah Direkap / Bersih'}].map(({k,c,l}) => (
+                                    <button key={k} onClick={() => { setEmpColorFilter(prev => prev === k ? null : k); setEmpPage(1); }} className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${empColorFilter===k?'bg-gray-100 border-gray-400 font-bold text-gray-800':'border-transparent hover:bg-gray-100'}`}>
+                                        <span className={`inline-block w-2.5 h-3.5 rounded-sm ${c} flex-shrink-0`}></span>{l}
+                                    </button>
+                                ))}
+                                {empColorFilter && <button onClick={() => { setEmpColorFilter(null); setEmpPage(1); }} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                             </div>
                             <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
                                 <span className="w-4 flex-shrink-0">Pin</span>
