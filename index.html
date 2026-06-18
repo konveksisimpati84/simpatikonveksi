@@ -9657,7 +9657,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 });
                 
                 const now = new Date().toISOString();
-                if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || Array.isArray(rekapToDelete.dailySalaryLogs)) {
+                if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || Array.isArray(rekapToDelete.dailySalaryLogs) || (rekapToDelete.items || []).some(item => item.isManual)) {
                     setEmployees(prev => (prev || []).map(emp => {
                         if (String(emp.id) !== String(rekapToDelete.empId)) return emp;
                         const nextCashAdvances = (emp.cashAdvances || []).map(item => {
@@ -9675,7 +9675,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
                         });
                         const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
-                        return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, _syncUpdatedAt: now };
+                        const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                        return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
                     }));
                 }
                 if (Array.isArray(rekapToDelete.marketingInvoiceIds) && setInvoices) {
@@ -9825,7 +9826,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         return log?.isReported === true;
                     })
                 );
-                if (alreadyReported) {
+                // Guard tambahan: cek manual production log yang sudah punya rekapId
+                const manualAlreadyReported = selectedItems.filter(item => item.isManual).some(item => {
+                    const emp = visibleEmployees.find(e => String(e.id) === String(modalData.empId));
+                    const log = safeArray(emp?.manualProductionLogs).find(l => String(l.id) === String(item.manualLogId));
+                    return log?.rekapId && String(log.rekapId).trim() !== '';
+                });
+                if (alreadyReported || manualAlreadyReported) {
                     showToast("Beberapa item sudah pernah direkap. Tutup modal dan coba lagi.", "error");
                     return;
                 }
@@ -10265,24 +10272,39 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const doTarikSemuaRekap = () => {
                 const rekaped = (genPreview || []).filter(r => r.alreadyRekaped);
                 if (rekaped.length === 0) return;
-                if (!window.confirm(`Tarik semua rekap periode ${genDateFrom} s/d ${genDateTo}?\n\n${rekaped.length} karyawan akan dihapus log rekap absensinya dan bisa direkap ulang.\n\nData absensi fingerprint tidak terpengaruh.`)) return;
+                // Cek berapa yang sudah direkap ke Rekap Kinerja (punya rekapId) — tidak bisa ditarik dari sini
+                const sudahRekap = rekaped.filter(r => {
+                    const emp = employees.find(e => String(e.id) === String(r.emp.id));
+                    return safeArray(emp?.dailySalaryLogs).some(log =>
+                        log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
+                        log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom && !log.isDeleted && log.rekapId
+                    );
+                });
+                const bisaDitarik = rekaped.length - sudahRekap.length;
+                let msg = `Tarik rekap absensi periode ${genDateFrom} s/d ${genDateTo}?\n\n`;
+                if (bisaDitarik > 0) msg += `✅ ${bisaDitarik} karyawan akan ditarik dan bisa generate ulang.\n`;
+                if (sudahRekap.length > 0) msg += `⚠️ ${sudahRekap.length} karyawan TIDAK bisa ditarik karena log absensinya sudah masuk Rekap Kinerja.\n   Batalkan rekap gaji dulu di tab "Rekap Kinerja" untuk karyawan tersebut.\n`;
+                msg += `\nData absensi fingerprint tidak terpengaruh.`;
+                if (bisaDitarik === 0) { showToast(`Semua log sudah masuk Rekap Kinerja. Batalkan rekap gaji dulu di tab Rekap Kinerja.`, 'error'); return; }
+                if (!window.confirm(msg)) return;
                 const now = new Date().toISOString();
                 const rekapedIds = new Set(rekaped.map(r => String(r.emp.id)));
+                let tarikCount = 0;
                 setEmployees(prev => (prev||[]).map(emp => {
                     if (!rekapedIds.has(String(emp.id))) return emp;
-                    return {
-                        ...emp,
-                        dailySalaryLogs: (emp.dailySalaryLogs||[]).map(log => {
-                            if (log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
-                                log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom && !log.isDeleted) {
-                                return { ...log, isDeleted: true, deletedAt: now };
-                            }
-                            return log;
-                        }),
-                        _syncUpdatedAt: now
-                    };
+                    let changed = false;
+                    const nextLogs = (emp.dailySalaryLogs||[]).map(log => {
+                        if (log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
+                            log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom && !log.isDeleted && !log.rekapId) {
+                            changed = true;
+                            return { ...log, isDeleted: true, deletedAt: now };
+                        }
+                        return log;
+                    });
+                    if (changed) tarikCount++;
+                    return { ...emp, dailySalaryLogs: nextLogs, _syncUpdatedAt: now };
                 }));
-                showToast(`${rekaped.length} rekap berhasil ditarik. Klik "Cek Preview" untuk generate ulang.`, 'success');
+                showToast(`${bisaDitarik} rekap berhasil ditarik. Klik "Cek Preview" untuk generate ulang.`, 'success');
                 setGenPreview(null);
                 setGenSelectedIds(new Set());
             };
