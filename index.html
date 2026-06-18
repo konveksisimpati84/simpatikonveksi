@@ -10262,6 +10262,31 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setGenSelectedIds(new Set());
             };
 
+            const doTarikSemuaRekap = () => {
+                const rekaped = (genPreview || []).filter(r => r.alreadyRekaped);
+                if (rekaped.length === 0) return;
+                if (!window.confirm(`Tarik semua rekap periode ${genDateFrom} s/d ${genDateTo}?\n\n${rekaped.length} karyawan akan dihapus log rekap absensinya dan bisa direkap ulang.\n\nData absensi fingerprint tidak terpengaruh.`)) return;
+                const now = new Date().toISOString();
+                const rekapedIds = new Set(rekaped.map(r => String(r.emp.id)));
+                setEmployees(prev => (prev||[]).map(emp => {
+                    if (!rekapedIds.has(String(emp.id))) return emp;
+                    return {
+                        ...emp,
+                        dailySalaryLogs: (emp.dailySalaryLogs||[]).map(log => {
+                            if (log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
+                                log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom && !log.isDeleted) {
+                                return { ...log, isDeleted: true, deletedAt: now };
+                            }
+                            return log;
+                        }),
+                        _syncUpdatedAt: now
+                    };
+                }));
+                showToast(`${rekaped.length} rekap berhasil ditarik. Klik "Cek Preview" untuk generate ulang.`, 'success');
+                setGenPreview(null);
+                setGenSelectedIds(new Set());
+            };
+
             return (
                 <div className="space-y-6">
                     <div>
@@ -10841,6 +10866,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         <span className="text-indigo-700 font-bold">{selectedRows.length} dari {genPreview.length} karyawan dipilih</span>
                                                         <span className="text-indigo-900 font-black">Total: {formatRupiah(totalEstGaji)}</span>
                                                     </div>
+                                                    {alreadyCount > 0 && (
+                                                        <div className="bg-orange-50 border border-orange-300 rounded-lg p-3 flex items-center justify-between gap-3">
+                                                            <div className="text-xs text-orange-800">
+                                                                <span className="font-bold">⚠ {alreadyCount} karyawan</span> sudah direkap periode ini. Tarik dulu jika ingin generate ulang.
+                                                            </div>
+                                                            <button onClick={doTarikSemuaRekap} className="flex-shrink-0 text-xs px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-bold transition-colors whitespace-nowrap">Tarik Semua Rekap</button>
+                                                        </div>
+                                                    )}
                                                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">Data ini akan ditambahkan ke riwayat gaji harian masing-masing karyawan. Anda bisa koreksi sebelum rekap.</div>
                                                     <div className="flex gap-2 pt-1">
                                                         <button onClick={() => { setShowGenModal(false); setGenPreview(null); setGenSelectedIds(new Set()); }} className="flex-1 py-2 bg-gray-200 rounded-lg font-bold text-sm">Batal</button>
