@@ -9583,7 +9583,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 <head>
                     <title>SG - ${data.empName}</title>
                     <style>
-                        @page { size: 80mm 210mm; margin: 4mm; }
+                        @page { size: 80mm auto; margin: 4mm; }
                         html, body { width: 72mm; }
                         body { font-family: Arial, sans-serif; color: #000; line-height: 1.28; margin: 0 auto; padding: 0; font-size: 11.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                         .receipt { width: 72mm; margin: 0 auto; box-sizing: border-box; }
@@ -12118,7 +12118,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 <div className="min-h-screen bg-gray-100 p-4">
                     <style>{`
                         @media print {
-                            @page { size: 80mm 210mm; margin: 4mm; }
+                            @page { size: 80mm auto; margin: 4mm; }
                             html, body { width: 72mm; background: #fff !important; }
                             body { margin: 0 auto !important; padding: 0 !important; }
                             .share-print-hidden { display: none !important; }
@@ -12784,7 +12784,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const w = window.open('','_blank','width=420,height=700');
                 if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
                 w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SD - ${drv?.name || 'Driver'}</title><style>
-                    @page{size:80mm 210mm;margin:4mm;}
+                    @page{size:80mm auto;margin:4mm;}
                     html,body{width:72mm;}
                     body{font-family:Arial,sans-serif;color:#000;line-height:1.28;margin:0 auto;padding:0;font-size:11.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
                     .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
@@ -13002,7 +13002,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
                 const rows = trips.map(t=>{const trf=visibleTarifs.find(x=>x.id===t.tarifId);const rute=trf?trf.from+' → '+trf.to:'-';return `<div class="item-row"><span><b>${rute}</b><small>${t.date}${t.tripType==='pp'?' &bull; PP':''}${t.note?' &bull; '+t.note:''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`;}).join('');
                 w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SD - ${drv?.name || 'Driver'}</title><style>
-                    @page{size:80mm 210mm;margin:4mm;}
+                    @page{size:80mm auto;margin:4mm;}
                     html,body{width:72mm;}
                     body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
                     .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
@@ -13935,7 +13935,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 if (!w) return;
                 const rows = trips.map(t=>{const trf=tarifs.find(x=>x.id===t.tarifId);const rute=trf?trf.from+' → '+trf.to:'-';return `<div class="item-row"><span><b>${rute}</b><small>${t.date}${t.tripType==='pp'?' &bull; PP':''}${t.note?' &bull; '+t.note:''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`;}).join('');
                 w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SD - ${drv?.name || 'Driver'}</title><style>
-                    @page{size:80mm 210mm;margin:4mm;}
+                    @page{size:80mm auto;margin:4mm;}
                     html,body{width:72mm;}
                     body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
                     .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
