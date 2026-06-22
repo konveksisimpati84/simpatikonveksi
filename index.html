@@ -9348,6 +9348,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
         const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [] }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
+            const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
+            const [showDeletedRekaps, setShowDeletedRekaps] = useState(false);
             const [detailRekapId, setDetailRekapId] = useState(null);
             const [selectionConfirm, setSelectionConfirm] = useState(null);
             const [selectedItemKeys, setSelectedItemKeys] = useState(new Set());
@@ -9752,6 +9754,68 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setRekapKinerja(prev => (prev || []).map(r => String(r.id) === String(deleteRekapConfirmId) ? { ...r, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : r));
                 setDeleteRekapConfirmId(null);
                 showToast("Rekap dibatalkan, pekerjaan kembali bisa diedit.", "success");
+            };
+
+            const handleRestoreRekap = () => {
+                const rekap = (rekapKinerja || []).find(r => String(r.id) === String(restoreRekapConfirmId));
+                if (!rekap) return;
+                const now = new Date().toISOString();
+                // Re-kunci work logs menjadi isReported: true
+                const logsToRelock = (rekap.items || []).flatMap(item =>
+                    (item.logIds || []).map(l => ({ orderId: item.orderId, stageId: l.stageId, logId: l.logId }))
+                );
+                if (logsToRelock.length > 0) {
+                    setOrders(prevOrders => {
+                        const newOrders = [...(prevOrders || [])];
+                        logsToRelock.forEach(target => {
+                            const orderIndex = newOrders.findIndex(o => String(o.id) === String(target.orderId));
+                            if (orderIndex > -1) {
+                                const order = { ...newOrders[orderIndex] };
+                                const stageData = { ...(order.progress?.[target.stageId] || { workLogs: [] }) };
+                                const workLogs = [...(stageData.workLogs || [])];
+                                const logIndex = workLogs.findIndex(l => String(l.id) === String(target.logId));
+                                if (logIndex > -1) workLogs[logIndex] = { ...workLogs[logIndex], isReported: true, isReportedChangedAt: now, _syncUpdatedAt: now };
+                                stageData.workLogs = workLogs;
+                                order.progress = { ...(order.progress || {}), [target.stageId]: stageData };
+                                order._syncUpdatedAt = now;
+                                newOrders[orderIndex] = order;
+                            }
+                        });
+                        return newOrders;
+                    });
+                }
+                // Re-tandai dailySalaryLogs dan manualProductionLogs dengan rekapId
+                const rekapLogIds = new Set((rekap.dailySalaryLogs || []).map(l => String(l.id || l.date)));
+                const rekapManualIds = new Set((rekap.items || []).filter(i => i.isManual).map(i => String(i.manualLogId)));
+                if (rekapLogIds.size > 0 || rekapManualIds.size > 0) {
+                    setEmployees(prev => (prev || []).map(emp => {
+                        if (String(emp.id) !== String(rekap.empId)) return emp;
+                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log =>
+                            rekapLogIds.has(String(log.id || log.date)) && !log.rekapId
+                                ? { ...log, rekapId: rekap.id, rekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
+                                : log
+                        );
+                        const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log =>
+                            rekapManualIds.has(String(log.id)) && !log.rekapId
+                                ? { ...log, rekapId: rekap.id, rekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
+                                : log
+                        );
+                        return { ...emp, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
+                    }));
+                }
+                // Re-tandai invoice komisi marketing
+                if (Array.isArray(rekap.marketingInvoiceIds) && rekap.marketingInvoiceIds.length > 0 && setInvoices) {
+                    setInvoices(prev => (prev || []).map(inv =>
+                        rekap.marketingInvoiceIds.some(id => String(id) === String(inv.id)) && !inv.commissionRekapId
+                            ? { ...inv, commissionRekapId: rekap.id, commissionRekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
+                            : inv
+                    ));
+                }
+                // Pulihkan rekap: hapus flag isDeleted
+                const { isDeleted: _d, deletedAt: _da, restoredForEdit: _re, ...cleanRekap } = rekap;
+                setRekapKinerja(prev => (prev || []).map(r => String(r.id) === String(rekap.id) ? { ...cleanRekap, _syncUpdatedAt: now } : r));
+                setRestoreRekapConfirmId(null);
+                showToast(`Rekap ${rekap.empName} berhasil dipulihkan.`, 'success');
             };
 
             const getRekapItemKey = (item) => `${item.orderId}-${item.stage}`;
@@ -10176,6 +10240,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         rekap.cashAdvanceDeductionNote, statusText, itemText
                     ], searchTerm);
                 })
+                .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+            const deletedRekaps = safeRekapForReport
+                .filter(r => r.isDeleted)
+                .filter(r => matchesSearch([r.id, r.empName, r.division, r.dateProcessed], searchTerm))
                 .sort((a, b) => String(b.id).localeCompare(String(a.id)));
             const sortedRekaps = [...visibleRekaps].sort((a, b) => {
                 const ap = pinnedRekapIds.has(a.id) ? 1 : 0;
@@ -10721,6 +10789,47 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <Paginator page={rekapListPage} setPage={setRekapListPage} totalPages={rekapListTotalPages} total={rekapListTotal} pageSize={15} label="rekap" />
                             </Card>
                         )}
+                        {deletedRekaps.length > 0 && (
+                            <div className="mt-4">
+                                <button onClick={() => setShowDeletedRekaps(v => !v)} className={`flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-lg border transition-colors ${showDeletedRekaps ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                                    <span>🗑</span>
+                                    <span>{showDeletedRekaps ? 'Sembunyikan' : 'Tampilkan'} Rekap Terhapus</span>
+                                    <span className="bg-red-100 text-red-700 text-xs font-black px-2 py-0.5 rounded-full">{deletedRekaps.length}</span>
+                                </button>
+                                {showDeletedRekaps && (
+                                    <div className="mt-3 bg-white border border-red-200 rounded-xl shadow-sm overflow-hidden">
+                                        <div className="px-4 py-2 bg-red-50 border-b border-red-100 text-xs font-bold text-red-700">Rekap yang sudah dibatalkan — bisa dipulihkan kembali</div>
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="bg-gray-50 text-gray-500 text-xs">
+                                                <tr>
+                                                    <th className="p-3 font-semibold">Tanggal</th>
+                                                    <th className="p-3 font-semibold">Nama Karyawan</th>
+                                                    <th className="p-3 font-semibold">Divisi</th>
+                                                    <th className="p-3 font-semibold text-right">Gaji Bersih</th>
+                                                    <th className="p-3 font-semibold text-center">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {deletedRekaps.map(rekap => {
+                                                    const netSalary = safeMoney(rekap.netSalary ?? rekap.totalWage);
+                                                    return (
+                                                        <tr key={rekap.id} className="border-t border-gray-100 bg-red-50/40">
+                                                            <td className="p-3 text-gray-500 text-xs">{rekap.dateProcessed || '-'}</td>
+                                                            <td className="p-3 font-bold text-gray-500 line-through">{rekap.empName || '-'}</td>
+                                                            <td className="p-3 text-gray-400">{rekap.division || '-'}</td>
+                                                            <td className="p-3 text-right text-gray-400 font-bold">{formatRupiah(netSalary)}</td>
+                                                            <td className="p-3 text-center">
+                                                                <button onClick={() => setRestoreRekapConfirmId(rekap.id)} className="text-xs font-bold bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors">Pulihkan</button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     ) : activeReportTab === 'ranking' ? (
                     <div className="space-y-4">
@@ -11021,6 +11130,24 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>
                     )}
+                    {restoreRekapConfirmId && (() => {
+                        const rekap = (rekapKinerja || []).find(r => String(r.id) === String(restoreRekapConfirmId));
+                        return (
+                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
+                                <div className="bg-white p-6 rounded-xl w-80 shadow-xl">
+                                    <h3 className="font-bold mb-1 text-green-700">Pulihkan Rekap?</h3>
+                                    <p className="text-sm font-semibold text-gray-800 mb-1">{rekap?.empName || '-'}</p>
+                                    <p className="text-sm text-gray-600 mb-1">Tanggal: {rekap?.dateProcessed || '-'}</p>
+                                    <p className="text-sm text-gray-600 mb-4">Rekap akan dimunculkan kembali di daftar Rekap Kinerja dan item pekerjaan terkait akan dikunci kembali.</p>
+                                    {safeMoney(rekap?.cashAdvanceDeduction) > 0 && <p className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded p-2 mb-4">⚠ Rekap ini punya potongan kasbon Rp{formatRupiah(rekap.cashAdvanceDeduction)}. Potongan kasbon <strong>tidak dipulihkan otomatis</strong> — periksa data kasbon karyawan setelah pemulihan.</p>}
+                                    <div className="flex justify-end space-x-2">
+                                        <button onClick={() => setRestoreRekapConfirmId(null)} className="px-4 py-2 bg-gray-200 rounded text-sm font-medium">Batal</button>
+                                        <button onClick={handleRestoreRekap} className="px-4 py-2 bg-green-600 text-white rounded text-sm font-medium">Pulihkan</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {showGenModal && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
