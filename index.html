@@ -9887,7 +9887,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const handleOpenRekapModal = (empId, items) => {
                 const emp = visibleEmployees.find(e => String(e.id) === String(empId));
                 const selectedKeys = new Set((items || []).map(getRekapItemKey));
-                const allDailyLogs = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId);
+                const allDailyLogs = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                 const selectedDailyKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0).map(log => String(log.id || log.date)));
                 const selectedOvertimeKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => String(log.id || log.date)));
                 const mktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
@@ -11299,8 +11299,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             dUnsettledItems.push({ orderId: `manual-${log.id}`, client: '-', type: 'Manual', stage: 'manual', stageLabel: log.description || 'Pekerjaan Manual', sizes: `${qty} pcs`, qty, unitPrice, wageTotal, isManual: true, manualLogId: log.id, manualDate: log.date, logIds: [] });
                             dTotalUnsettledWage += wageTotal;
                         });
-                        const dDailySalaryRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
-                        const dOvertimeRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
+                        const dDailySalaryRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
+                        const dOvertimeRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                         const dCashAdvanceRows = safeArray(getEmployeeCashAdvances(dEmp));
                         const dMarketingRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(dEmp?.name) && !inv?.commissionRekapId).map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
                         const dTotalDailySalary = dDailySalaryRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
