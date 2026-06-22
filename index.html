@@ -10816,6 +10816,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                 </div>
                                 <div className="p-5 overflow-y-auto space-y-4">
+                                    {modalCashAdvanceSummary.remaining > 0 && (
+                                        <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-300 rounded-lg px-4 py-3">
+                                            <span className="text-yellow-500 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+                                            <div>
+                                                <div className="font-black text-yellow-800 text-sm">Karyawan ini memiliki kasbon aktif</div>
+                                                <div className="text-xs text-yellow-700 mt-0.5">Sisa kasbon: <b>{formatRupiah(modalCashAdvanceSummary.remaining)}</b> — jangan lupa isi jumlah potongan di bagian <b>Potongan Kasbon</b> di bawah sebelum mencetak.</div>
+                                            </div>
+                                        </div>
+                                    )}
                                     {/* Pilihan cetak — master toggle per kategori */}
                                     <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                                         <h4 className="font-black text-slate-800 mb-2 text-sm">Pilihan Data yang Akan Direkap &amp; Dicetak</h4>
@@ -12173,7 +12182,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                             <div className="border-y border-dashed border-black py-2 mt-2 text-[11px]">
                                 <div className="flex justify-between gap-2"><span>Total Pcs</span><span className="font-bold">{rekap.total || 0} pcs</span></div>
-                                <div className="flex justify-between gap-2 text-[13px] font-black mt-1"><span>Total Keseluruhan</span><span>{formatReceiptMoney(rekap.totalWage || 0)}</span></div>
+                                {safeMoney(rekap.cashAdvanceDeduction) > 0 ? (
+                                    <>
+                                        <div className="flex justify-between gap-2 mt-1"><span>Total Bruto</span><span className="font-bold">{formatReceiptMoney(rekap.totalWage || 0)}</span></div>
+                                        <div className="flex justify-between gap-2 mt-0.5 text-red-600"><span>Potongan Kasbon</span><span className="font-bold">- {formatReceiptMoney(rekap.cashAdvanceDeduction)}</span></div>
+                                        <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Gaji Bersih</span><span>{formatReceiptMoney(rekap.netSalary ?? (safeMoney(rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)))}</span></div>
+                                    </>
+                                ) : (
+                                    <div className="flex justify-between gap-2 text-[13px] font-black mt-1"><span>Total Keseluruhan</span><span>{formatReceiptMoney(rekap.totalWage || 0)}</span></div>
+                                )}
                             </div>
                             <div className="text-center text-[9px] text-gray-500 mt-2">Simpan struk ini sebagai bukti rekap gaji produksi.</div>
                         </div>
