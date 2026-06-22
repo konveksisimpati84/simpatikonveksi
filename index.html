@@ -9658,7 +9658,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div>
                                 <div>Hormat Kami,</div>
                                 ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:100px;object-fit:contain;display:block;margin:0 auto;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : '<div style="height:48px"></div>'}
-                                <div class="signature-line">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
+                                <div class="signature-line">${(templates?.companyName || 'Simpati Konveksi')}</div>
                             </div>
                         </div>
                         <div class="footer-note">Simpan struk ini sebagai bukti rekap gaji karyawan.</div>
@@ -12855,7 +12855,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <div>
                         <div>Hormat Kami,</div>
                         ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:100px;object-fit:contain;display:block;margin:0 auto;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : '<div style="height:36px"></div>'}
-                        <div style="border-top:1px solid #000;padding-top:3px">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
+                        <div style="border-top:1px solid #000;padding-top:3px">${(templates?.companyName || 'Simpati Konveksi')}</div>
                     </div>
                 </div>
                 <div class="footer-note">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
