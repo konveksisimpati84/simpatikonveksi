@@ -9971,7 +9971,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const selectedWage = selectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0);
 
                 const empForRekap = visibleEmployees.find(e => String(e.id) === String(modalData.empId));
-                const allUnrekapedLogs = getEmployeeDailySalaryLogs(empForRekap).filter(log => !log.rekapId);
+                const allUnrekapedLogs = getEmployeeDailySalaryLogs(empForRekap).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                 const dailySalaryLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
                 const overtimeLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
                 const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap].map(l => [String(l.id || l.date), l])).values()];
@@ -10353,9 +10353,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
                     const mMid = ttCfg ? ttm(ttCfg) : (mMasukCfg != null && mPulangCfg != null ? (mMasukCfg + mPulangCfg) / 2 : null);
                     // Find existing absensi logs that overlap with requested range
+                    // Abaikan log yatim: rekapId ada tapi rekapnya tidak ada / sudah terhapus
                     const existingAbsensiLogs = safeArray(emp.dailySalaryLogs).filter(isVisibleRecord).filter(log =>
                         log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
-                        log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom
+                        log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom &&
+                        (!log.rekapId || safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)))
                     );
                     // Dates already covered by existing logs — skip these
                     const coveredDates = new Set(dates.filter(d =>
@@ -10425,7 +10427,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const emp = employees.find(e => String(e.id) === String(r.emp.id));
                     return safeArray(emp?.dailySalaryLogs).some(log =>
                         log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
-                        log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom && !log.isDeleted && log.rekapId
+                        log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom && !log.isDeleted && log.rekapId &&
+                        safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))
                     );
                 });
                 const bisaDitarik = rekaped.length - sudahRekap.length;
@@ -10648,8 +10651,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 });
 
                                 const myHistory = safeArray(rekapKinerja).filter(r => !r.isDeleted && String(r.empId) === String(emp.id)).reverse();
-                                const dailySalaryRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
-                                const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
+                                const dailySalaryRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
+                                const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                                 const cashAdvanceRows = safeArray(getEmployeeCashAdvances(emp));
                                 const marketingRows = safeArray(safeInvoicesForReport)
                                     .filter(isVisibleRecord)
