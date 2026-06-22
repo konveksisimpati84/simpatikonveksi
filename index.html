@@ -9660,7 +9660,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     printWindow.document.write(printContent);
                     printWindow.document.close();
                     printWindow.focus();
-                    setTimeout(() => { printWindow.print(); }, 250);
+                    const doPrint = () => {
+                        const h = printWindow.document.body.scrollHeight;
+                        const s = printWindow.document.createElement('style');
+                        s.textContent = `@page{size:80mm ${h + 12}px !important;margin:4mm;}`;
+                        printWindow.document.head.appendChild(s);
+                        printWindow.print();
+                    };
+                    if (printWindow.document.readyState === 'complete') { setTimeout(doPrint, 150); }
+                    else { printWindow.onload = () => setTimeout(doPrint, 100); }
                 } else {
                     showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
                 }
@@ -12832,7 +12840,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 <div class="footer-note">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
                 </div></body></html>`);
                 w.document.close();
-                setTimeout(()=>{ w.print(); w.close(); }, 500);
+                const doPrintStruk = () => { const h = w.document.body.scrollHeight; const s = w.document.createElement('style'); s.textContent = `@page{size:80mm ${h+12}px !important;margin:4mm;}`; w.document.head.appendChild(s); w.print(); w.close(); };
+                if (w.document.readyState === 'complete') { setTimeout(doPrintStruk, 150); } else { w.onload = () => setTimeout(doPrintStruk, 100); }
             };
 
             // ----- REKAP GAJI -----
@@ -13047,7 +13056,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
                 </div></body></html>`);
                 w.document.close();
-                setTimeout(()=>{w.print();w.close();},500);
+                const doPrintRekap = () => { const h = w.document.body.scrollHeight; const s = w.document.createElement('style'); s.textContent = `@page{size:80mm ${h+12}px !important;margin:4mm;}`; w.document.head.appendChild(s); w.print(); w.close(); };
+                if (w.document.readyState === 'complete') { setTimeout(doPrintRekap, 150); } else { w.onload = () => setTimeout(doPrintRekap, 100); }
             };
 
             const copyRekapGajiLink = async (rekap) => {
@@ -13980,7 +13990,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
                 </div></body></html>`);
                 w.document.close();
-                setTimeout(()=>{w.print();w.close();},500);
+                const doPrintRekap = () => { const h = w.document.body.scrollHeight; const s = w.document.createElement('style'); s.textContent = `@page{size:80mm ${h+12}px !important;margin:4mm;}`; w.document.head.appendChild(s); w.print(); w.close(); };
+                if (w.document.readyState === 'complete') { setTimeout(doPrintRekap, 150); } else { w.onload = () => setTimeout(doPrintRekap, 100); }
             };
 
             return (
