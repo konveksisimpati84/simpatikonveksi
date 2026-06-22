@@ -9432,7 +9432,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const dow = firstDay.getDay(); // 0=Sun,1=Mon..6=Sat
                 const offset = dow === 0 ? -6 : 1 - dow; // shift back to Monday
                 const firstMon = new Date(yr, mo-1, 1 + offset);
-                const fmt = (d) => d.toISOString().split('T')[0];
+                const fmt = (d) => { const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; };
                 const weeks = [];
                 let ws = new Date(firstMon);
                 let n = 1;
@@ -9463,7 +9463,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             if (logs.length > 0) hasProd = true;
                         });
                     });
-                    const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => !log.rekapId && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
+                    const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
                     const hasMarketing = safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
                     const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => !log.rekapId && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd) ids.add(String(emp.id));
