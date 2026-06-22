@@ -12121,7 +12121,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const RekapGajiShareView = ({ rekapId, employees, rekapKinerja, templates }) => {
+        const RekapGajiShareView = ({ rekapId, employees, rekapKinerja, templates, invoices }) => {
             const rekap = (rekapKinerja || []).filter(isVisibleRecord).find(r => String(r.id) === String(rekapId));
             const employee = (employees || []).filter(isVisibleRecord).find(emp => String(emp.id) === String(rekap?.empId));
             const formatReceiptMoney = (num) => formatRupiah(num || 0).replace(/\s/g, '');
@@ -12139,6 +12139,24 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const empName = employee?.name || rekap.empName || rekap.empId || '-';
             const division = employee?.division || rekap.division || '-';
+            const safeInvs = (invoices || []).filter(isVisibleRecord);
+            const relatedInvoices = safeInvs.filter(inv => (rekap.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
+            const dailyLogs = Array.isArray(rekap.dailySalaryLogs) ? rekap.dailySalaryLogs : [];
+            const dailyOnlyLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
+            const overtimeLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
+
+            const SectionTitle = ({ title }) => (
+                <div className="mt-2 pt-1 pb-0.5 border-t border-b border-dashed border-black text-[10px] font-black uppercase">{title}</div>
+            );
+            const ItemRow = ({ label, sub, value }) => (
+                <div className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300">
+                    <span className="text-[9.4px]">
+                        <span className="font-bold">{label}</span>
+                        {sub && <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{sub}</small>}
+                    </span>
+                    <span className="text-right font-bold whitespace-nowrap text-[9.4px]">{value}</span>
+                </div>
+            );
 
             return (
                 <div className="min-h-screen bg-gray-100 p-4">
@@ -12167,58 +12185,78 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="text-center border-b border-dashed border-black pb-2 mb-2">
                                 {templates?.companyLogo && <img src={templates.companyLogo} className="mx-auto object-contain mb-1" style={{ maxHeight: 38, maxWidth: 64 }} />}
                                 <h2 className="font-black uppercase leading-tight text-sm">{templates?.companyName || 'SIMPATI KONVEKSI'}</h2>
-                                <p className="text-[11px] mt-1">Slip Gaji Produksi</p>
+                                <p className="text-[10.5px] mt-1">SLIP GAJI KARYAWAN</p>
                             </div>
 
-                            <div className="border-b border-dashed border-black pb-2 mb-2 text-[11px]">
+                            <div className="border-b border-dashed border-black pb-2 mb-1 text-[11px]">
                                 <div className="flex justify-between gap-2"><span className="text-gray-600">Nama</span><span className="font-bold text-right">{empName}</span></div>
-                                <div className="flex justify-between gap-2"><span className="text-gray-600">Divisi / Tahap</span><span className="font-bold text-right">{division}</span></div>
+                                <div className="flex justify-between gap-2"><span className="text-gray-600">Jabatan</span><span className="font-bold text-right">{division}</span></div>
                                 <div className="flex justify-between gap-2"><span className="text-gray-600">Tanggal Cetak</span><span className="font-bold text-right">{rekap.dateProcessed}</span></div>
                                 <div className="flex justify-between gap-2"><span className="text-gray-600">ID Rekap</span><span className="font-bold text-right">{rekap.id}</span></div>
                             </div>
 
-                            <table className="w-full border-collapse table-fixed text-[9.4px]">
-                                <thead>
-                                    <tr className="border-y border-dashed border-black">
-                                        <th className="py-1 text-left" style={{ width: '6%' }}>No.</th>
-                                        <th className="py-1 text-left" style={{ width: '30%' }}>Instansi<br /><span className="text-[8.6px] text-gray-500">(Jenis Produksi)</span></th>
-                                        <th className="py-1 text-left" style={{ width: '24%' }}>Rincian Ukuran</th>
-                                        <th className="py-1 text-right" style={{ width: '8%' }}>Jml</th>
-                                        <th className="py-1 text-right" style={{ width: '15%' }}>Harga</th>
-                                        <th className="py-1 text-right" style={{ width: '17%' }}>Gaji</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(rekap.items || []).map((item, idx) => (
-                                        <tr key={`${item.orderId}-${item.stage}-${idx}`} className="border-b border-dashed border-gray-300 align-top">
-                                            <td className="py-1 pr-1 text-center">{idx + 1}</td>
-                                            <td className="py-1 pr-1 break-words">
-                                                <div className="font-bold">{item.client || '-'}</div>
-                                                <div className="text-[8.6px] text-gray-500">({item.type || '-'})</div>
-                                                <div className="text-[8.6px] text-gray-500">{item.stageLabel || item.stage || '-'}</div>
-                                            </td>
-                                            <td className="py-1 pr-1 break-words">{item.sizes || '-'}</td>
-                                            <td className="py-1 pr-1 text-right font-bold">{item.qty || 0}</td>
-                                            <td className="py-1 pr-1 text-right whitespace-nowrap text-[8.8px]">{formatReceiptMoney(item.unitPrice || 0)}</td>
-                                            <td className="py-1 text-right whitespace-nowrap text-[8.8px] font-bold">{formatReceiptMoney(item.wageTotal || 0)}</td>
-                                        </tr>
+                            {relatedInvoices.length > 0 && (
+                                <>
+                                    <SectionTitle title="Komisi Marketing" />
+                                    {relatedInvoices.map((inv, idx) => (
+                                        <ItemRow key={idx} label={inv.id || '-'} sub={`${inv.customer || '-'} | ${inv.date || rekap.dateProcessed || '-'}`} value={formatReceiptMoney(getInvoiceCommissionTotal(inv))} />
                                     ))}
-                                </tbody>
-                            </table>
+                                </>
+                            )}
 
-                            <div className="border-y border-dashed border-black py-2 mt-2 text-[11px]">
-                                <div className="flex justify-between gap-2"><span>Total Pcs</span><span className="font-bold">{rekap.total || 0} pcs</span></div>
-                                {safeMoney(rekap.cashAdvanceDeduction) > 0 ? (
-                                    <>
-                                        <div className="flex justify-between gap-2 mt-1"><span>Total Bruto</span><span className="font-bold">{formatReceiptMoney(rekap.totalWage || 0)}</span></div>
-                                        <div className="flex justify-between gap-2 mt-0.5 text-red-600"><span>Potongan Kasbon</span><span className="font-bold">- {formatReceiptMoney(rekap.cashAdvanceDeduction)}</span></div>
-                                        <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Gaji Bersih</span><span>{formatReceiptMoney(rekap.netSalary ?? (safeMoney(rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)))}</span></div>
-                                    </>
-                                ) : (
-                                    <div className="flex justify-between gap-2 text-[13px] font-black mt-1"><span>Total Keseluruhan</span><span>{formatReceiptMoney(rekap.totalWage || 0)}</span></div>
-                                )}
+                            {(rekap.items || []).length > 0 && (
+                                <>
+                                    <SectionTitle title="Gaji Produksi" />
+                                    {(rekap.items || []).map((item, idx) => (
+                                        <ItemRow key={idx} label={`${item.orderId || '-'} - ${item.stageLabel || item.stage || '-'}`} sub={`${item.client ? item.client + ' · ' : ''}${item.type || '-'} | ${item.qty || 0} x ${formatReceiptMoney(item.unitPrice || 0)}`} value={formatReceiptMoney(item.wageTotal || 0)} />
+                                    ))}
+                                </>
+                            )}
+
+                            {dailyOnlyLogs.length > 0 && (
+                                <>
+                                    <SectionTitle title="Gaji Harian" />
+                                    {dailyOnlyLogs.map((log, idx) => (
+                                        <ItemRow key={idx} label={log.date || '-'} sub={`${log.note || 'Gaji harian'} | ${log.workDays || 0} hari`} value={formatReceiptMoney(getDailySalaryLogTotal(log).daily)} />
+                                    ))}
+                                </>
+                            )}
+
+                            {overtimeLogs.length > 0 && (
+                                <>
+                                    <SectionTitle title="Lembur" />
+                                    {overtimeLogs.map((log, idx) => (
+                                        <ItemRow key={idx} label={log.date || '-'} sub={`${log.note || 'Lembur'} | ${log.overtimeCount || 0} hari`} value={formatReceiptMoney(getDailySalaryLogTotal(log).overtime)} />
+                                    ))}
+                                </>
+                            )}
+
+                            {safeMoney(rekap.cashAdvanceDeduction) > 0 && (
+                                <>
+                                    <SectionTitle title="Potongan - Kasbon" />
+                                    <ItemRow label="Bayar kasbon sekarang" sub={`Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(rekap.employeeCashAdvanceSnapshot?.remaining) - safeMoney(rekap.cashAdvanceDeduction)))}`} value={formatReceiptMoney(rekap.cashAdvanceDeduction || 0)} />
+                                </>
+                            )}
+
+                            <div className="border-t border-b border-dashed border-black py-2 mt-2 text-[11px]">
+                                <div className="flex justify-between gap-2 mt-0.5"><span>Total Pendapatan</span><span className="font-bold">{formatReceiptMoney(rekap.grossSalary || rekap.totalWage || 0)}</span></div>
+                                <div className="flex justify-between gap-2 mt-0.5"><span>Total Potongan</span><span className="font-bold">{formatReceiptMoney(rekap.cashAdvanceDeduction || 0)}</span></div>
+                                <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Total Diterima</span><span>{formatReceiptMoney(rekap.netSalary ?? rekap.totalWage ?? 0)}</span></div>
                             </div>
-                            <div className="text-center text-[9px] text-gray-500 mt-2">Simpan struk ini sebagai bukti rekap gaji produksi.</div>
+
+                            <div className="grid grid-cols-2 gap-2 mt-4 text-center text-[9px]" style={{alignItems:'stretch'}}>
+                                <div className="flex flex-col items-center" style={{minHeight:'70px'}}>
+                                    <div>Penerima</div>
+                                    <div className="w-full mt-auto pt-1" style={{borderTop:'1px solid #000'}}>{empName}</div>
+                                </div>
+                                <div className="flex flex-col items-center" style={{minHeight:'70px'}}>
+                                    <div>Hormat Kami,</div>
+                                    {templates?.signatureImage && <img src={templates.signatureImage} style={{maxHeight:'48px', maxWidth:'90px', objectFit:'contain', display:'block', margin:'6px auto 0', transform:`scale(${(templates?.signatureSize||100)/100})`, transformOrigin:'center center'}} />}
+                                    <div className="w-full mt-auto pt-1" style={{borderTop:'1px solid #000'}}>{templates?.companyName || 'Simpati Konveksi'}</div>
+                                </div>
+                            </div>
+
+                            <div className="text-center text-[9px] text-gray-500 mt-2">Simpan struk ini sebagai bukti rekap gaji karyawan.</div>
                         </div>
                     </div>
                 </div>
@@ -15661,6 +15699,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                             employees={employees}
                             rekapKinerja={rekapKinerja}
                             templates={templates}
+                            invoices={invoices}
                         />
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     </>
