@@ -13082,6 +13082,17 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     ${rekap.potonganKasbon>0?`<div class="row" style="color:#dc2626"><span>Potongan Kasbon</span><span>- ${formatRupiah(safeMoney(rekap.potonganKasbon))}</span></div>`:''}
                     <div class="row grand" style="${rekap.potonganKasbon>0?'border-top:1px dashed #000;padding-top:5px;margin-top:4px':''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima!=null?rekap.gajiDiterima:rekap.totalOngkir))}</span></div>
                 </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;text-align:center;font-size:9px;align-items:stretch">
+                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
+                        <div>Penerima,</div>
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">&nbsp;</div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
+                        <div>Hormat Kami,</div>
+                        ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(templates?.companyName || 'Simpati Konveksi')}</div>
+                    </div>
+                </div>
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
                 </div></body></html>`);
                 w.document.close();
@@ -14015,6 +14026,17 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     <div class="row"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
                     ${rekap.potonganKasbon>0?`<div class="row" style="color:#dc2626"><span>Potongan Kasbon</span><span>- ${formatRupiah(safeMoney(rekap.potonganKasbon))}</span></div>`:''}
                     <div class="row grand" style="${rekap.potonganKasbon>0?'border-top:1px dashed #000;padding-top:5px;margin-top:4px':''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima!=null?rekap.gajiDiterima:rekap.totalOngkir))}</span></div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;text-align:center;font-size:9px;align-items:stretch">
+                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
+                        <div>Penerima,</div>
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">&nbsp;</div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
+                        <div>Hormat Kami,</div>
+                        ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(templates?.companyName || 'Simpati Konveksi')}</div>
+                    </div>
                 </div>
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
                 </div></body></html>`);
