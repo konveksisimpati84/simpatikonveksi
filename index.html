@@ -9379,7 +9379,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     pinnedInitialized.current = true;
                 };
                 fetchPins();
-                const interval = setInterval(fetchPins, 30000);
+                const interval = setInterval(fetchPins, 300000);
                 return () => clearInterval(interval);
             }, []);
             React.useEffect(() => {
@@ -9404,7 +9404,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     pinnedRekapInitialized.current = true;
                 };
                 fetchRPins();
-                const interval = setInterval(fetchRPins, 30000);
+                const interval = setInterval(fetchRPins, 300000);
                 return () => clearInterval(interval);
             }, []);
             React.useEffect(() => {
@@ -14931,7 +14931,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             };
 
             const applyRemoteDataSnapshotInner = async () => {
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -14951,8 +14951,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     fetchStoreData('driverRekapGaji', []),
                     fetchStoreData('driverKasbon', []),
                     fetchStoreData('stockItems', []),
-                    fetchStoreData('absensiEdits', []),
-                    fetchStoreData('absensiRawLogs', [])
+                    fetchStoreData('absensiEdits', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -15109,10 +15108,6 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         if (JSON.stringify(merged) !== JSON.stringify(remoteAbsensiEdits)) setTimeout(() => saveToSupabase('absensiEdits', merged), 0);
                         return merged;
                     });
-                }
-                if (Array.isArray(remoteAbsensiRawLogs)) {
-                    setAbsensiRawLogs(remoteAbsensiRawLogs);
-                    safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remoteAbsensiRawLogs));
                 }
             };
 
@@ -15381,6 +15376,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 initData();
             }, []);
 
+            const lastRefreshRef = React.useRef(0);
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
 
@@ -15388,10 +15384,13 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     applyRemoteDataSnapshot().catch(err => console.error('Gagal refresh data Supabase:', err));
                 };
 
-                const intervalId = setInterval(refresh, 60000);
-                const handleFocus = () => refresh();
+                const intervalId = setInterval(() => { lastRefreshRef.current = Date.now(); refresh(); }, 60000);
+                const handleFocus = () => {
+                    const now = Date.now();
+                    if (now - lastRefreshRef.current > 60000) { lastRefreshRef.current = now; refresh(); }
+                };
                 const handleVisibility = () => {
-                    if (!document.hidden) refresh();
+                    if (!document.hidden) { const now = Date.now(); if (now - lastRefreshRef.current > 60000) { lastRefreshRef.current = now; refresh(); } }
                 };
 
                 window.addEventListener('focus', handleFocus);
