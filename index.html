@@ -9617,8 +9617,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         .total-box { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 7px 0; margin-top: 6px; }
                         .total-row { display: flex; justify-content: space-between; gap: 6px; margin: 3px 0; }
                         .grand-total { font-size: 13px; font-weight: 900; }
-                        .signature { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; text-align: center; font-size: 9px; }
-                        .signature-line { margin-top: 28px; border-top: 1px solid #000; padding-top: 3px; }
+                        .signature { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; text-align: center; font-size: 9px; align-items: stretch; }
+                        .sig-box { display: flex; flex-direction: column; align-items: center; min-height: 70px; }
+                        .sig-img { max-height: 48px; max-width: 90px; object-fit: contain; display: block; margin: 6px auto 0; }
+                        .signature-line { margin-top: auto; border-top: 1px solid #000; padding-top: 3px; width: 100%; }
                         .footer-note { text-align: center; font-size: 9px; margin-top: 9px; color: #444; }
                         @media screen {
                             body { background: #f3f4f6; padding: 12px 0; }
@@ -9654,10 +9656,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
 
                         <div class="signature">
-                            <div><div>Penerima</div><div class="signature-line">${data.empName || ''}</div></div>
-                            <div>
+                            <div class="sig-box">
+                                <div>Penerima</div>
+                                <div class="signature-line">${data.empName || ''}</div>
+                            </div>
+                            <div class="sig-box">
                                 <div>Hormat Kami,</div>
-                                ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:100px;object-fit:contain;display:block;margin:0 auto;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : '<div style="height:48px"></div>'}
+                                ${(templates?.signatureImage) ? `<img class="sig-img" src="${templates.signatureImage}" style="transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
                                 <div class="signature-line">${(templates?.companyName || 'Simpati Konveksi')}</div>
                             </div>
                         </div>
@@ -12850,12 +12855,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <div class="total-row grand-total"><span>ONGKIR</span><span>${formatRupiah(safeMoney(trx.ongkir))}</span></div>
                     ${trx.note?`<div class="total-row" style="font-size:10px;color:#555;margin-top:4px"><span>Catatan</span><span>${trx.note}</span></div>`:''}
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;text-align:center;font-size:9px">
-                    <div><div>Penerima,</div><div style="margin-top:36px;border-top:1px solid #000;padding-top:3px">(________________)</div></div>
-                    <div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;text-align:center;font-size:9px;align-items:stretch">
+                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
+                        <div>Penerima,</div>
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">(________________)</div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
                         <div>Hormat Kami,</div>
-                        ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:100px;object-fit:contain;display:block;margin:0 auto;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : '<div style="height:36px"></div>'}
-                        <div style="border-top:1px solid #000;padding-top:3px">${(templates?.companyName || 'Simpati Konveksi')}</div>
+                        ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(templates?.companyName || 'Simpati Konveksi')}</div>
                     </div>
                 </div>
                 <div class="footer-note">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
