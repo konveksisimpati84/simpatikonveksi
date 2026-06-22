@@ -10280,12 +10280,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const results = [];
                 targetEmps.forEach(emp => {
                     const pin = String(emp.fingerPin).trim();
-                    let hadir = 0, lembur = 0;
                     const jmCfg = emp.customJamMasuk || templates?.absensiJamMasuk || '07:00';
                     const jpCfg = emp.customJamPulang || templates?.absensiJamPulang || '16:30';
                     const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
                     const mMid = ttCfg ? ttm(ttCfg) : (mMasukCfg != null && mPulangCfg != null ? (mMasukCfg + mPulangCfg) / 2 : null);
-                    dates.forEach(date => {
+                    // Find existing absensi logs that overlap with requested range
+                    const existingAbsensiLogs = safeArray(emp.dailySalaryLogs).filter(isVisibleRecord).filter(log =>
+                        log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
+                        log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom
+                    );
+                    // Dates already covered by existing logs — skip these
+                    const coveredDates = new Set(dates.filter(d =>
+                        existingAbsensiLogs.some(log => d >= log.absensiDateFrom && d <= log.absensiDateTo)
+                    ));
+                    const uncoveredDates = dates.filter(d => !coveredDates.has(d));
+                    const skippedCount = coveredDates.size;
+                    let hadir = 0, lembur = 0;
+                    uncoveredDates.forEach(date => {
                         const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin) === pin);
                         const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
                         const sorted = [...dayLogs].sort((a,b) => a.jam > b.jam ? 1 : -1);
@@ -10305,14 +10316,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
                         if (lemburMenit >= 120) lembur++;
                     });
-                    if (hadir > 0 || lembur > 0) {
-                        const existingLog = safeArray(emp.dailySalaryLogs).filter(isVisibleRecord).find(log =>
-                            log.fromAbsensi && log.absensiDateFrom && log.absensiDateTo &&
-                            log.absensiDateFrom <= genDateTo && log.absensiDateTo >= genDateFrom
-                        );
-                        const alreadyRekaped = !!existingLog;
-                        const existingPeriod = alreadyRekaped ? `${existingLog.absensiDateFrom} s/d ${existingLog.absensiDateTo}` : null;
-                        results.push({ emp, hadir, lembur, dailySalaryRate: safeMoney(emp.dailySalary)||0, overtimeRateVal: safeMoney(emp.overtimeRate)||0, totalGaji: (hadir*(safeMoney(emp.dailySalary)||0)) + (lembur*(safeMoney(emp.overtimeRate)||0)), alreadyRekaped, existingPeriod });
+                    // alreadyRekaped only when ALL dates in range are already covered
+                    const alreadyRekaped = uncoveredDates.length === 0 && existingAbsensiLogs.length > 0;
+                    const existingLog = existingAbsensiLogs[0] || null;
+                    const existingPeriod = existingLog ? `${existingLog.absensiDateFrom} s/d ${existingLog.absensiDateTo}` : null;
+                    if (hadir > 0 || lembur > 0 || alreadyRekaped) {
+                        results.push({ emp, hadir, lembur, dailySalaryRate: safeMoney(emp.dailySalary)||0, overtimeRateVal: safeMoney(emp.overtimeRate)||0, totalGaji: (hadir*(safeMoney(emp.dailySalary)||0)) + (lembur*(safeMoney(emp.overtimeRate)||0)), alreadyRekaped, existingPeriod, skippedCount });
                     }
                 });
                 setGenPreview(results);
@@ -11079,11 +11088,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                             <td className="p-2">
                                                                                 <div className="font-bold text-gray-400">{r.emp.name}</div>
                                                                                 <div className="text-[10px] text-gray-300">{getEmployeeDivisions(r.emp).join(', ')}</div>
-                                                                                <div className="text-[10px] text-orange-500 font-semibold mt-0.5">⚠ Sudah direkap ({r.existingPeriod})</div>
+                                                                                <div className="text-[10px] text-orange-500 font-semibold mt-0.5">⚠ Semua tanggal sudah direkap ({r.existingPeriod})</div>
                                                                             </td>
-                                                                            <td className="p-2 text-center text-gray-300">{r.hadir} hari</td>
-                                                                            <td className="p-2 text-center text-gray-300">{r.lembur > 0 ? `${r.lembur} hari` : '-'}</td>
-                                                                            <td className="p-2 text-right text-gray-300 font-black">{formatRupiah(r.totalGaji)}</td>
+                                                                            <td className="p-2 text-center text-gray-300">-</td>
+                                                                            <td className="p-2 text-center text-gray-300">-</td>
+                                                                            <td className="p-2 text-right text-gray-300 font-black">-</td>
                                                                         </tr>
                                                                     );
                                                                 }
@@ -11092,7 +11101,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                 return (
                                                                     <tr key={r.emp.id} onClick={() => setGenSelectedIds(prev => { const n = new Set(prev); checked ? n.delete(r.emp.id) : n.add(r.emp.id); return n; })} className={`border-t cursor-pointer transition-colors ${checked ? 'bg-white hover:bg-indigo-50/40' : 'bg-gray-50/80 opacity-50 hover:opacity-70'}`}>
                                                                         <td className="p-2 text-center"><input type="checkbox" checked={checked} readOnly className="w-4 h-4 accent-indigo-600 cursor-pointer" /></td>
-                                                                        <td className="p-2 font-bold text-gray-800">{r.emp.name}<div className="text-[10px] text-gray-400">{getEmployeeDivisions(r.emp).join(', ')}</div></td>
+                                                                        <td className="p-2 font-bold text-gray-800">{r.emp.name}<div className="text-[10px] text-gray-400">{getEmployeeDivisions(r.emp).join(', ')}</div>{r.skippedCount > 0 && <div className="text-[10px] text-blue-500 mt-0.5">ℹ {r.skippedCount} tgl dilewati (sudah direkap)</div>}</td>
                                                                         <td className="p-2 text-center">{r.hadir} hari</td>
                                                                         <td className="p-2 text-center">{r.lembur > 0 ? <span className="text-orange-600 font-bold">{r.lembur} hari</span> : <span className="text-gray-300">-</span>}</td>
                                                                         <td className={`p-2 text-right font-black ${isZero ? 'text-gray-400' : 'text-green-700'}`}>{formatRupiah(r.totalGaji)}{isZero && <div className="text-[9px] font-normal text-orange-500">belum ada tarif</div>}</td>
