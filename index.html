@@ -6170,6 +6170,7 @@ tbody td.r{text-align:right}tbody td.c{text-align:center}
 <div class="info-grid"><div class="info-box"><div class="info-label">Informasi Klien</div><div class="info-name">${safe(client?.name||'-')}</div><div class="info-detail">${safe(client?.address||'-')}</div><div class="info-detail">PIC: ${safe(client?.pic||'-')}</div><div class="info-detail">Telp: ${safe(client?.phone||'-')}</div></div><div class="info-box"><div class="info-label">Ringkasan Saldo</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px"><div style="font-size:10px;color:#64748b">Total Setoran</div><div style="font-size:10px;font-weight:700;text-align:right;color:#059669">${formatRupiah(summary.dp)}</div><div style="font-size:10px;color:#64748b">Dipakai Invoice</div><div style="font-size:10px;font-weight:700;text-align:right;color:#ea580c">${formatRupiah(summary.usedDp)}</div><div style="font-size:10px;color:#64748b">Sisa Saldo</div><div style="font-size:11px;font-weight:900;text-align:right;color:#047857">${formatRupiah(summary.saldoDp)}</div><div style="font-size:10px;color:#64748b">Piutang</div><div style="font-size:10px;font-weight:700;text-align:right;color:#dc2626">${formatRupiah(summary.receivable)}</div></div></div></div>
 <div class="section"><div class="section-title">Riwayat Setoran Saldo</div><table><thead><tr><th class="c" style="width:32px">No</th><th>Tanggal</th><th class="r">Nominal</th><th>Metode</th><th>No. Order</th><th>Catatan</th></tr></thead><tbody>${dpRowsHtml}</tbody><tfoot><tr class="tfoot-row"><td colspan="2" class="label">Total Setoran</td><td class="r" style="color:#86efac">${formatRupiah(summary.dp)}</td><td colspan="3"></td></tr></tfoot></table></div>
 ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoice yang Memakai Saldo</div><table><thead><tr><th class="c" style="width:32px">No</th><th>No Invoice</th><th>Tanggal</th><th class="r">Total Invoice</th><th class="r">Saldo Dipakai</th></tr></thead><tbody>${invRowsHtml}</tbody><tfoot><tr class="tfoot-row"><td colspan="4" class="label">Total Saldo Dipakai</td><td class="r" style="color:#fed7aa">${formatRupiah(summary.usedDp)}</td></tr></tfoot></table></div>` : ''}
+<div style="display:flex;justify-content:flex-end;margin-top:10mm;padding-top:4mm;border-top:1px solid #9ca3af"><div style="text-align:center;width:200px;position:relative"><div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:0;position:relative;z-index:0">Hormat Kami,</div>${(tmpl||{}).signatureImage?`<img src="${(tmpl||{}).signatureImage}" style="max-height:120px;max-width:175px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2;transform:scale(${((tmpl||{}).signatureSize||100)/100});transform-origin:center center"/>`:'<div style="height:65px"></div>'}<div style="font-size:12px;font-weight:700;color:#1e3a5f;text-decoration:underline;text-underline-offset:3px;position:relative;z-index:0">${coNm}</div><div style="font-size:10px;color:#64748b;margin-top:3px;position:relative;z-index:0">Administration</div></div></div>
 <div class="footer"><div class="footer-left">Dokumen ini digenerate otomatis oleh sistem &bull; ${coNm}</div><div class="footer-right">Sisa Saldo Aktif: <b style="color:#047857">${formatRupiah(summary.saldoDp)}</b></div></div>
 </div></body></html>`;
                 const w = window.open('', '_blank');
@@ -9654,7 +9655,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                         <div class="signature">
                             <div><div>Penerima</div><div class="signature-line">${data.empName || ''}</div></div>
-                            <div><div>Admin</div><div class="signature-line">${templates?.laporanSignatureLeft || 'Admin'}</div></div>
+                            <div>
+                                <div>Hormat Kami,</div>
+                                ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:100px;object-fit:contain;display:block;margin:0 auto;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : '<div style="height:48px"></div>'}
+                                <div class="signature-line">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
+                            </div>
                         </div>
                         <div class="footer-note">Simpan struk ini sebagai bukti rekap gaji karyawan.</div>
                     </div>
@@ -12844,6 +12849,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 <div class="total-box">
                     <div class="total-row grand-total"><span>ONGKIR</span><span>${formatRupiah(safeMoney(trx.ongkir))}</span></div>
                     ${trx.note?`<div class="total-row" style="font-size:10px;color:#555;margin-top:4px"><span>Catatan</span><span>${trx.note}</span></div>`:''}
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;text-align:center;font-size:9px">
+                    <div><div>Penerima,</div><div style="margin-top:36px;border-top:1px solid #000;padding-top:3px">(________________)</div></div>
+                    <div>
+                        <div>Hormat Kami,</div>
+                        ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:100px;object-fit:contain;display:block;margin:0 auto;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : '<div style="height:36px"></div>'}
+                        <div style="border-top:1px solid #000;padding-top:3px">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
+                    </div>
                 </div>
                 <div class="footer-note">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
                 </div></body></html>`);
