@@ -10118,7 +10118,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const alreadyPaid = (rekap.payments || []).reduce((s, p) => s + safeMoney(p.amount), 0);
                 if (amount > net - alreadyPaid + 0.01) { showToast('Jumlah melebihi sisa yang harus dibayar.', 'error'); return; }
                 const newPayment = { id: genId('PAY-'), date: payFormDate || new Date().toISOString().split('T')[0], amount, method: payFormMethod || 'Transfer', note: payFormNote || '', createdAt: new Date().toISOString() };
-                updateRekapKinerja(prev => (prev || []).map(r => {
+                setRekapKinerja(prev => (prev || []).map(r => {
                     if (String(r.id) !== String(rekapId)) return r;
                     const updatedPayments = [...(r.payments || []), newPayment];
                     const totalPaid = updatedPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
@@ -10131,7 +10131,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const handleDeletePayment = (rekapId, paymentId) => {
-                updateRekapKinerja(prev => (prev || []).map(r => {
+                setRekapKinerja(prev => (prev || []).map(r => {
                     if (String(r.id) !== String(rekapId)) return r;
                     const net = safeMoney(r.netSalary ?? (safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction)));
                     const updatedPayments = (r.payments || []).filter(p => String(p.id) !== String(paymentId));
