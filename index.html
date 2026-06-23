@@ -581,6 +581,9 @@
             if (status === 'Belum Bayar') colors = "bg-red-100 text-red-800";
             if (status === 'Terkirim' || status === 'Sudah Dicetak' || status === 'Sudah Direkap') colors = "bg-purple-100 text-purple-800";
             if (status === 'Sudah Dibeli' || status === 'Dibeli & Dicetak') colors = "bg-green-100 text-green-800";
+            if (status === 'Sudah Dibayar') colors = "bg-green-100 text-green-800";
+            if (status === 'Dibayar Sebagian') colors = "bg-yellow-100 text-yellow-800";
+            if (status === 'Belum Dibayar') colors = "bg-red-100 text-red-700";
             const label = status === 'Pending' ? 'Pending / Belum Dikerjakan' : status;
             return <span className={`px-2 py-1 text-xs font-semibold rounded-full ${colors}`}>{label}</span>;
         };
@@ -9351,6 +9354,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
             const [showDeletedRekaps, setShowDeletedRekaps] = useState(false);
             const [detailRekapId, setDetailRekapId] = useState(null);
+            const [detailRekapTab, setDetailRekapTab] = useState('rincian');
+            const [payFormAmount, setPayFormAmount] = useState('');
+            const [payFormMethod, setPayFormMethod] = useState('Transfer');
+            const [payFormDate, setPayFormDate] = useState(new Date().toISOString().split('T')[0]);
+            const [payFormNote, setPayFormNote] = useState('');
             const [selectionConfirm, setSelectionConfirm] = useState(null);
             const [selectedItemKeys, setSelectedItemKeys] = useState(new Set());
             const [searchTerm, setSearchTerm] = useState('');
@@ -10013,6 +10021,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     cashAdvanceDeductionNote: cashAdvanceDeductionNote || '',
                     netSalary,
                     employeeCashAdvanceSnapshot: empCashAdvanceSummary,
+                    payments: [],
+                    paymentStatus: 'belum',
                     _syncUpdatedAt: new Date().toISOString()
                 };
                 
@@ -10097,6 +10107,39 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const printExistingRekap = (rekap) => {
                 const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                 triggerPrint({ ...rekap, empName: emp?.name || rekap.empName || '-', division: (emp ? getEmployeeDivisions(emp).join(', ') : null) || rekap.division || '-' });
+            };
+
+            const handleAddPayment = (rekapId) => {
+                const amount = parseFloat(String(payFormAmount).replace(/[^0-9]/g, '')) || 0;
+                if (!amount || amount <= 0) { showToast('Jumlah pembayaran tidak valid.', 'error'); return; }
+                const rekap = (rekapKinerja || []).find(r => String(r.id) === String(rekapId));
+                if (!rekap) return;
+                const net = safeMoney(rekap.netSalary ?? (safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)));
+                const alreadyPaid = (rekap.payments || []).reduce((s, p) => s + safeMoney(p.amount), 0);
+                if (amount > net - alreadyPaid + 0.01) { showToast('Jumlah melebihi sisa yang harus dibayar.', 'error'); return; }
+                const newPayment = { id: genId('PAY-'), date: payFormDate || new Date().toISOString().split('T')[0], amount, method: payFormMethod || 'Transfer', note: payFormNote || '', createdAt: new Date().toISOString() };
+                updateRekapKinerja(prev => (prev || []).map(r => {
+                    if (String(r.id) !== String(rekapId)) return r;
+                    const updatedPayments = [...(r.payments || []), newPayment];
+                    const totalPaid = updatedPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                    const paymentStatus = totalPaid <= 0 ? 'belum' : totalPaid >= net ? 'lunas' : 'sebagian';
+                    return { ...r, payments: updatedPayments, paymentStatus };
+                }));
+                setPayFormAmount('');
+                setPayFormNote('');
+                showToast('Pembayaran berhasil ditambahkan.', 'success');
+            };
+
+            const handleDeletePayment = (rekapId, paymentId) => {
+                updateRekapKinerja(prev => (prev || []).map(r => {
+                    if (String(r.id) !== String(rekapId)) return r;
+                    const net = safeMoney(r.netSalary ?? (safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction)));
+                    const updatedPayments = (r.payments || []).filter(p => String(p.id) !== String(paymentId));
+                    const totalPaid = updatedPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                    const paymentStatus = totalPaid <= 0 ? 'belum' : totalPaid >= net ? 'lunas' : 'sebagian';
+                    return { ...r, payments: updatedPayments, paymentStatus };
+                }));
+                showToast('Pembayaran dihapus.', 'success');
             };
 
             const getRekapShareLink = (rekap) => `${window.location.href.split('#')[0]}#rekap-gaji=${encodeURIComponent(rekap.id)}`;
@@ -10761,6 +10804,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                         const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
                                         const isPinned = pinnedRekapIds.has(rekap.id);
+                                        const payBadge = !Array.isArray(rekap.payments) ? 'Sudah Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
                                         return (
                                             <tr key={rekap.id} className={`border-t border-gray-100 hover:bg-gray-50 ${isPinned ? 'bg-orange-50' : ''}`}>
                                                 <td className="p-3 text-center">
@@ -10770,7 +10814,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <td className="p-3 font-bold text-gray-800">{rekap.empName || emp?.name || '-'}</td>
                                                 <td className="p-3 text-gray-600">{rekap.division || emp?.division || '-'}</td>
                                                 <td className="p-3 text-right font-black text-blue-700">{formatRupiah(netSalary)}</td>
-                                                <td className="p-3 text-center"><Badge status="Sudah Dibayar" /></td>
+                                                <td className="p-3 text-center"><Badge status={payBadge} /></td>
                                                 <td className="p-3">
                                                     <div className="flex justify-center gap-1.5">
                                                         <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg"><IconEye /></button>
@@ -11433,65 +11477,149 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
                         const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
+                        const payments = Array.isArray(rekap.payments) ? rekap.payments : [];
+                        const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                        const sisaBayar = Math.max(0, netSalary - totalPaid);
+                        const payStatus = !Array.isArray(rekap.payments) ? 'lunas' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary ? 'lunas' : 'sebagian';
+                        const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
+                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); };
                         return (
-                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setDetailRekapId(null)}>
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={closeModal}>
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                                     <div className="bg-gradient-to-r from-green-600 to-teal-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
                                         <div>
                                             <div className="text-white font-black text-base">{rekap.empName || '-'}</div>
                                             <div className="text-green-100 text-xs mt-0.5">{rekap.division || '-'} · Rekap: {rekap.dateProcessed || '-'} · <span className="font-mono">{rekap.id}</span></div>
                                         </div>
-                                        <button onClick={() => setDetailRekapId(null)} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold flex-shrink-0">✕</button>
+                                        <button onClick={closeModal} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold flex-shrink-0">✕</button>
+                                    </div>
+                                    <div className="flex border-b border-gray-200 bg-gray-50 flex-shrink-0">
+                                        <button onClick={() => setDetailRekapTab('rincian')} className={`flex-1 py-2.5 text-sm font-bold transition-colors ${detailRekapTab === 'rincian' ? 'text-green-700 border-b-2 border-green-600 bg-white' : 'text-gray-500 hover:text-gray-700'}`}>Rincian</button>
+                                        <button onClick={() => setDetailRekapTab('pembayaran')} className={`flex-1 py-2.5 text-sm font-bold transition-colors ${detailRekapTab === 'pembayaran' ? 'text-green-700 border-b-2 border-green-600 bg-white' : 'text-gray-500 hover:text-gray-700'}`}>Pembayaran</button>
                                     </div>
                                     <div className="overflow-y-auto flex-1 p-5 space-y-4">
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
-                                                <div className="text-xs text-gray-400 mb-1">Total Pcs</div>
-                                                <div className="font-black text-gray-800 text-lg">{rekap.total || 0}</div>
-                                                <div className="text-xs text-gray-400">pcs</div>
+                                        {detailRekapTab === 'rincian' && (<>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+                                                    <div className="text-xs text-gray-400 mb-1">Total Pcs</div>
+                                                    <div className="font-black text-gray-800 text-lg">{rekap.total || 0}</div>
+                                                    <div className="text-xs text-gray-400">pcs</div>
+                                                </div>
+                                                <div className="bg-green-50 rounded-xl p-3 border border-green-100 text-center">
+                                                    <div className="text-xs text-gray-400 mb-1">Gaji Bruto</div>
+                                                    <div className="font-black text-green-700">{formatRupiah(grossSalary)}</div>
+                                                </div>
+                                                <div className="bg-orange-50 rounded-xl p-3 border border-orange-100 text-center">
+                                                    <div className="text-xs text-gray-400 mb-1">Pot. Kasbon</div>
+                                                    <div className="font-black text-orange-700">{formatRupiah(deduction)}</div>
+                                                </div>
+                                                <div className="bg-blue-50 rounded-xl p-3 border border-blue-200 text-center">
+                                                    <div className="text-xs text-gray-400 mb-1">Gaji Bersih</div>
+                                                    <div className="font-black text-blue-700 text-lg">{formatRupiah(netSalary)}</div>
+                                                </div>
                                             </div>
-                                            <div className="bg-green-50 rounded-xl p-3 border border-green-100 text-center">
-                                                <div className="text-xs text-gray-400 mb-1">Gaji Bruto</div>
-                                                <div className="font-black text-green-700">{formatRupiah(grossSalary)}</div>
+                                            {rekap.cashAdvanceDeductionNote && (
+                                                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800"><span className="font-bold">Catatan Kasbon:</span> {rekap.cashAdvanceDeductionNote}</div>
+                                            )}
+                                            <div>
+                                                <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Detail Pekerjaan ({(rekap.items || []).length} item)</div>
+                                                <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                                                    <table className="w-full text-xs text-left">
+                                                        <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Order / Klien</th><th className="p-2.5 font-semibold">Jenis</th><th className="p-2.5 font-semibold">Tahap</th><th className="p-2.5 font-semibold">Ukuran</th><th className="p-2.5 font-semibold text-right">Qty</th><th className="p-2.5 font-semibold text-right">Harga</th><th className="p-2.5 font-semibold text-right">Subtotal</th></tr></thead>
+                                                        <tbody>
+                                                            {(rekap.items || []).map((item, idx) => (
+                                                                <tr key={idx} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
+                                                                    <td className="p-2.5 font-bold text-blue-700">{item.orderId}<div className="text-gray-500 font-normal text-xs">{item.client}</div></td>
+                                                                    <td className="p-2.5 text-gray-700">{item.type || '-'}</td>
+                                                                    <td className="p-2.5 text-gray-700">{item.stageLabel || item.stage || '-'}</td>
+                                                                    <td className="p-2.5 text-gray-700">{item.sizes || '-'}</td>
+                                                                    <td className="p-2.5 text-right font-bold">{item.qty || 0}</td>
+                                                                    <td className="p-2.5 text-right text-gray-600">{formatRupiah(item.unitPrice || 0)}</td>
+                                                                    <td className="p-2.5 text-right font-black text-green-700">{formatRupiah(item.wageTotal || 0)}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
                                             </div>
-                                            <div className="bg-orange-50 rounded-xl p-3 border border-orange-100 text-center">
-                                                <div className="text-xs text-gray-400 mb-1">Pot. Kasbon</div>
-                                                <div className="font-black text-orange-700">{formatRupiah(deduction)}</div>
+                                        </>)}
+                                        {detailRekapTab === 'pembayaran' && (<>
+                                            <div className={`rounded-xl p-3 text-center font-black text-sm border ${payStatus === 'lunas' ? 'bg-green-50 border-green-200 text-green-700' : payStatus === 'sebagian' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-red-50 border-red-200 text-red-700'}`}>{payStatusLabel}</div>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 text-center">
+                                                    <div className="text-xs text-gray-400 mb-1">Gaji Bersih</div>
+                                                    <div className="font-black text-blue-700">{formatRupiah(netSalary)}</div>
+                                                </div>
+                                                <div className="bg-green-50 rounded-xl p-3 border border-green-100 text-center">
+                                                    <div className="text-xs text-gray-400 mb-1">Sudah Dibayar</div>
+                                                    <div className="font-black text-green-700">{formatRupiah(totalPaid)}</div>
+                                                </div>
+                                                <div className="bg-orange-50 rounded-xl p-3 border border-orange-100 text-center">
+                                                    <div className="text-xs text-gray-400 mb-1">Sisa</div>
+                                                    <div className="font-black text-orange-700">{formatRupiah(sisaBayar)}</div>
+                                                </div>
                                             </div>
-                                            <div className="bg-blue-50 rounded-xl p-3 border border-blue-200 text-center">
-                                                <div className="text-xs text-gray-400 mb-1">Gaji Bersih</div>
-                                                <div className="font-black text-blue-700 text-lg">{formatRupiah(netSalary)}</div>
+                                            <div>
+                                                <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Riwayat Pembayaran</div>
+                                                {payments.length === 0 ? (
+                                                    <div className="text-center text-gray-400 italic text-sm py-4 border border-dashed border-gray-200 rounded-xl">Belum ada pembayaran</div>
+                                                ) : (
+                                                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                                        <table className="w-full text-xs text-left">
+                                                            <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold">Metode</th><th className="p-2.5 font-semibold text-right">Jumlah</th><th className="p-2.5 font-semibold">Catatan</th><th className="p-2.5"></th></tr></thead>
+                                                            <tbody>
+                                                                {payments.map((pay, idx) => (
+                                                                    <tr key={pay.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
+                                                                        <td className="p-2.5 text-gray-700">{pay.date || '-'}</td>
+                                                                        <td className="p-2.5 text-gray-700">{pay.method || '-'}</td>
+                                                                        <td className="p-2.5 text-right font-black text-green-700">{formatRupiah(safeMoney(pay.amount))}</td>
+                                                                        <td className="p-2.5 text-gray-500">{pay.note || '-'}</td>
+                                                                        <td className="p-2.5 text-center"><button onClick={() => handleDeletePayment(rekap.id, pay.id)} title="Hapus" className="text-red-500 hover:text-red-700 text-base font-bold px-1.5 py-0.5 rounded hover:bg-red-50">×</button></td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                )}
                                             </div>
-                                        </div>
-                                        {rekap.cashAdvanceDeductionNote && (
-                                            <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800"><span className="font-bold">Catatan Kasbon:</span> {rekap.cashAdvanceDeductionNote}</div>
-                                        )}
-                                        <div>
-                                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Detail Pekerjaan ({(rekap.items || []).length} item)</div>
-                                            <div className="overflow-x-auto border border-gray-200 rounded-xl">
-                                                <table className="w-full text-xs text-left">
-                                                    <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Order / Klien</th><th className="p-2.5 font-semibold">Jenis</th><th className="p-2.5 font-semibold">Tahap</th><th className="p-2.5 font-semibold">Ukuran</th><th className="p-2.5 font-semibold text-right">Qty</th><th className="p-2.5 font-semibold text-right">Harga</th><th className="p-2.5 font-semibold text-right">Subtotal</th></tr></thead>
-                                                    <tbody>
-                                                        {(rekap.items || []).map((item, idx) => (
-                                                            <tr key={idx} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
-                                                                <td className="p-2.5 font-bold text-blue-700">{item.orderId}<div className="text-gray-500 font-normal text-xs">{item.client}</div></td>
-                                                                <td className="p-2.5 text-gray-700">{item.type || '-'}</td>
-                                                                <td className="p-2.5 text-gray-700">{item.stageLabel || item.stage || '-'}</td>
-                                                                <td className="p-2.5 text-gray-700">{item.sizes || '-'}</td>
-                                                                <td className="p-2.5 text-right font-bold">{item.qty || 0}</td>
-                                                                <td className="p-2.5 text-right text-gray-600">{formatRupiah(item.unitPrice || 0)}</td>
-                                                                <td className="p-2.5 text-right font-black text-green-700">{formatRupiah(item.wageTotal || 0)}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
+                                            {sisaBayar > 0 && (
+                                                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                                    <div className="text-xs font-bold text-gray-600 mb-3">Tambah Pembayaran</div>
+                                                    <div className="space-y-2.5">
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div>
+                                                                <label className="text-xs text-gray-500 mb-1 block">Jumlah (Rp)</label>
+                                                                <input type="number" value={payFormAmount} onChange={e => setPayFormAmount(e.target.value)} placeholder={`Maks ${formatRupiah(sisaBayar)}`} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs text-gray-500 mb-1 block">Metode</label>
+                                                                <select value={payFormMethod} onChange={e => setPayFormMethod(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                                                                    <option>Transfer</option>
+                                                                    <option>Tunai</option>
+                                                                    <option>Dompet Digital</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div>
+                                                                <label className="text-xs text-gray-500 mb-1 block">Tanggal</label>
+                                                                <input type="date" value={payFormDate} onChange={e => setPayFormDate(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs text-gray-500 mb-1 block">Catatan (opsional)</label>
+                                                                <input type="text" value={payFormNote} onChange={e => setPayFormNote(e.target.value)} placeholder="Misal: Bayar tahap 1" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                                                            </div>
+                                                        </div>
+                                                        <button onClick={() => handleAddPayment(rekap.id)} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">+ Simpan Pembayaran</button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>)}
                                     </div>
                                     <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 flex-shrink-0">
-                                        <button onClick={() => { setDetailRekapId(null); printExistingRekap(rekap); }} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak</button>
+                                        <button onClick={() => { closeModal(); printExistingRekap(rekap); }} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak</button>
                                         <button onClick={() => { copyRekapShareLink(rekap); }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconCheckCircle /> Salin Link</button>
-                                        <button onClick={() => setDetailRekapId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
+                                        <button onClick={closeModal} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
                                     </div>
                                 </div>
                             </div>
