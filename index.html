@@ -17071,7 +17071,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
                         <Card className="border-l-4 border-l-green-500"><h3 className="text-sm font-bold text-gray-500">Total Masuk</h3><p className="text-2xl font-black text-green-700 mt-2">{totalMasuk}</p><p className="text-xs text-gray-400 mt-1">{visibleItems.filter(i => i.type === 'Masuk').length} transaksi</p></Card>
                         <Card className="border-l-4 border-l-red-500"><h3 className="text-sm font-bold text-gray-500">Total Keluar</h3><p className="text-2xl font-black text-red-700 mt-2">{totalKeluar}</p><p className="text-xs text-gray-400 mt-1">{visibleItems.filter(i => i.type === 'Keluar').length} transaksi</p></Card>
-                        <Card className="border-l-4 border-l-teal-500"><h3 className="text-sm font-bold text-gray-500">Saldo</h3><p className="text-2xl font-black text-teal-700 mt-2">{totalMasuk - totalKeluar}</p><p className="text-xs text-gray-400 mt-1">unit tersedia</p></Card>
+                        <Card className="border-l-4 border-l-teal-500"><h3 className="text-sm font-bold text-gray-500">Stok Tersedia</h3><p className="text-2xl font-black text-teal-700 mt-2">{totalMasuk - totalKeluar}</p><p className="text-xs text-gray-400 mt-1">unit tersedia</p></Card>
                         <Card className="border-l-4 border-l-blue-500"><h3 className="text-sm font-bold text-gray-500">Klien Aktif</h3><p className="text-2xl font-black text-blue-700 mt-2">{clientNames.length}</p><p className="text-xs text-gray-400 mt-1">klien punya stock</p></Card>
                     </div>
 
@@ -17105,7 +17105,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                     <span className="text-xs text-gray-400">{itemList.length} jenis barang</span>
                                                 </div>
                                                 <div className="flex items-center gap-3">
-                                                    <span className={`text-sm font-black ${totalSaldo > 0 ? 'text-teal-700' : totalSaldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>Saldo: {totalSaldo}</span>
+                                                    <span className={`text-sm font-black ${totalSaldo > 0 ? 'text-teal-700' : totalSaldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>Stok: {totalSaldo}</span>
                                                 </div>
                                             </button>
                                             {isExpanded && (
@@ -17116,7 +17116,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                             <th className="py-2 px-4">Satuan</th>
                                                             <th className="py-2 px-4 text-right">Masuk</th>
                                                             <th className="py-2 px-4 text-right">Keluar</th>
-                                                            <th className="py-2 px-4 text-right">Saldo</th>
+                                                            <th className="py-2 px-4 text-right">Stok</th>
                                                             <th className="py-2 px-4 text-center">Aksi</th>
                                                         </tr></thead>
                                                         <tbody>{itemList.map((iItem, idx) => {
@@ -17184,7 +17184,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                 <div className="font-black text-red-700 text-lg">{totalKeluarItem} <span className="text-xs font-normal">{iUnit}</span></div>
                                             </div>
                                             <div className={`rounded-xl p-3 border text-center ${saldo > 0 ? 'bg-teal-50 border-teal-100' : saldo === 0 ? 'bg-gray-50 border-gray-200' : 'bg-red-50 border-red-200'}`}>
-                                                <div className="text-xs text-gray-400 mb-1">Saldo</div>
+                                                <div className="text-xs text-gray-400 mb-1">Stok Tersedia</div>
                                                 <div className={`font-black text-lg ${saldo > 0 ? 'text-teal-700' : saldo === 0 ? 'text-gray-500' : 'text-red-700'}`}>{saldo} <span className="text-xs font-normal">{iUnit}</span></div>
                                             </div>
                                         </div>
@@ -17201,7 +17201,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                             <th className="p-2.5 font-semibold text-center">Tipe</th>
                                                             <th className="p-2.5 font-semibold text-right">Jumlah</th>
                                                             <th className="p-2.5 font-semibold">Catatan</th>
-                                                            <th className="p-2.5 font-semibold text-right">Saldo</th>
+                                                            <th className="p-2.5 font-semibold text-right">Stok</th>
                                                             <th className="p-2.5 font-semibold text-center">Aksi</th>
                                                         </tr></thead>
                                                         <tbody>{txnsWithBalance.map((t, idx) => (
@@ -17282,7 +17282,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                     </div>
                                     <div className="p-5 space-y-4">
                                         <div className="bg-gray-50 rounded-xl p-3 flex items-center justify-between border border-gray-200">
-                                            <span className="text-sm text-gray-500">Saldo saat ini</span>
+                                            <span className="text-sm text-gray-500">Stok saat ini</span>
                                             <span className="font-black text-gray-800 text-lg">{adjustItem.saldo} <span className="text-xs font-normal text-gray-400">{adjustItem.unit}</span></span>
                                         </div>
                                         <div>
