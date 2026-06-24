@@ -1697,7 +1697,7 @@
                                 <div><label className="block text-sm mb-1 font-semibold">PIN Finger</label><input type="text" className="w-full p-2 border rounded" placeholder="PIN di mesin absensi" value={newEmp.fingerPin || ''} onChange={e => setNewEmp({...newEmp, fingerPin: e.target.value})} /></div>
                                 <div className="md:col-span-2 bg-purple-50 border border-purple-100 rounded-lg p-3">
                                     <div className="text-xs font-bold text-purple-700 mb-2">⚙ Shift Jam Khusus <span className="font-normal text-gray-500">(opsional)</span></div>
-                                    <div className="grid grid-cols-3 gap-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                         <div><label className="block text-xs mb-1 text-gray-600">Jam Masuk</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={newEmp.customJamMasuk || ''} onChange={e => setNewEmp({...newEmp, customJamMasuk: e.target.value || ''})} /></div>
                                         <div><label className="block text-xs mb-1 text-gray-600">Batas Telat</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={newEmp.customJamTelat || ''} onChange={e => setNewEmp({...newEmp, customJamTelat: e.target.value || ''})} /></div>
                                         <div><label className="block text-xs mb-1 text-gray-600">Jam Pulang</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={newEmp.customJamPulang || ''} onChange={e => setNewEmp({...newEmp, customJamPulang: e.target.value || ''})} /></div>
@@ -1936,7 +1936,7 @@
                                     <div><label className="block text-sm mb-1 font-semibold">PIN Finger</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" placeholder="PIN di mesin absensi" value={editEmp.fingerPin || ''} onChange={e => setEditEmp({...editEmp, fingerPin: e.target.value})} /></div>
                                                 <div className="md:col-span-2 bg-purple-50 border border-purple-100 rounded-lg p-3">
                                                     <div className="text-xs font-bold text-purple-700 mb-2">⚙ Shift Jam Khusus <span className="font-normal text-gray-500">(opsional — kosongkan untuk ikut setting global)</span></div>
-                                                    <div className="grid grid-cols-3 gap-2">
+                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                                         <div><label className="block text-xs mb-1 text-gray-600">Jam Masuk</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={editEmp.customJamMasuk || ''} onChange={e => setEditEmp({...editEmp, customJamMasuk: e.target.value || ''})} /></div>
                                                         <div><label className="block text-xs mb-1 text-gray-600">Batas Telat</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={editEmp.customJamTelat || ''} onChange={e => setEditEmp({...editEmp, customJamTelat: e.target.value || ''})} /></div>
                                                         <div><label className="block text-xs mb-1 text-gray-600">Jam Pulang</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={editEmp.customJamPulang || ''} onChange={e => setEditEmp({...editEmp, customJamPulang: e.target.value || ''})} /></div>
@@ -1968,8 +1968,8 @@
                     )}
 
                     {deleteConfirmId && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
-                            <div className="bg-white p-6 rounded-xl w-80">
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                            <div className="bg-white p-6 rounded-xl w-full max-w-sm">
                                 <h3 className="font-bold mb-2">Hapus?</h3>
                                 <div className="flex justify-end space-x-2">
                                     <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 bg-gray-200 rounded">Batal</button>
@@ -12946,8 +12946,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     )}
 
                     {deleteConfirmId && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
-                            <div className="bg-white p-6 rounded-xl w-80">
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                            <div className="bg-white p-6 rounded-xl w-full max-w-sm">
                                 <h3 className="font-bold mb-2">Hapus Akun?</h3>
                                 <div className="flex justify-end space-x-2">
                                     <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 bg-gray-200 rounded">Batal</button>
