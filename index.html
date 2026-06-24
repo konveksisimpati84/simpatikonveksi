@@ -16867,7 +16867,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const [printStokNote, setPrintStokNote] = useState('');
 
             const visibleClients = safeArray(clients).filter(isVisibleRecord);
-            const visibleItems = safeArray(stockItems).filter(isVisibleRecord);
+            const allVisibleItems = safeArray(stockItems).filter(isVisibleRecord);
+            const visibleItems = allVisibleItems.filter(i => !i._isStickerNote);
+            const stickerNotesData = allVisibleItems.filter(i => i._isStickerNote);
 
             const allClientNames = [...new Set(visibleClients.map(c => c.name).filter(Boolean))].sort();
             const clientNames = [...new Set(visibleItems.map(i => i.clientName).filter(Boolean))].sort();
@@ -16903,6 +16905,23 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 if (!confirm(`Hapus "${item.itemName}"?`)) return;
                 setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, isDeleted: true } : i));
                 showToast('Data dihapus');
+            };
+
+            const handlePrintStok = () => {
+                if (!printStokItem) return;
+                if (printStokNote.trim()) {
+                    setStockItems(prev => [...prev, {
+                        id: Date.now().toString() + Math.random().toString(36).slice(2),
+                        _isStickerNote: true,
+                        clientName: printStokItem.clientName,
+                        itemName: printStokItem.itemName,
+                        note: printStokNote.trim(),
+                        date: new Date().toISOString().split('T')[0],
+                        createdAt: new Date().toISOString(),
+                    }]);
+                }
+                doPrint({ ...printStokItem, type: 'Tersedia', date: new Date().toISOString().split('T')[0], note: printStokNote });
+                setPrintStokItem(null);
             };
 
             const handleSaveAdjust = () => {
@@ -17282,13 +17301,30 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                         <span className="text-sm text-gray-500">Stok tersedia</span>
                                         <span className="font-black text-teal-700 text-lg">{printStokItem.qty} <span className="text-xs font-normal text-gray-400">{printStokItem.unit}</span></span>
                                     </div>
+                                    {(() => {
+                                        const recentNotes = stickerNotesData
+                                            .filter(n => n.clientName === printStokItem.clientName && n.itemName === printStokItem.itemName && n.note)
+                                            .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+                                            .reduce((acc, n) => { if (!acc.includes(n.note)) acc.push(n.note); return acc; }, [])
+                                            .slice(0, 5);
+                                        return recentNotes.length > 0 ? (
+                                            <div>
+                                                <div className="text-xs font-bold text-gray-500 mb-2">Riwayat catatan:</div>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {recentNotes.map(n => (
+                                                        <button key={n} onClick={() => setPrintStokNote(n)} className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${printStokNote === n ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-100 hover:bg-blue-50 hover:text-blue-700 border-gray-200 text-gray-700'}`}>{n}</button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ) : null;
+                                    })()}
                                     <div>
                                         <label className="text-xs font-bold text-gray-600 mb-1 block">Catatan (opsional)</label>
                                         <input
                                             type="text"
                                             value={printStokNote}
                                             onChange={e => setPrintStokNote(e.target.value)}
-                                            onKeyDown={e => { if (e.key === 'Enter') { doPrint({ ...printStokItem, type: 'Tersedia', date: new Date().toISOString().split('T')[0], note: printStokNote }); setPrintStokItem(null); } }}
+                                            onKeyDown={e => { if (e.key === 'Enter') handlePrintStok(); }}
                                             placeholder="Misal: Gudang A, Rak 3..."
                                             className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                                             autoFocus
@@ -17296,7 +17332,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                     </div>
                                     <div className="flex gap-2 pt-1">
                                         <button onClick={() => setPrintStokItem(null)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm">Batal</button>
-                                        <button onClick={() => { doPrint({ ...printStokItem, type: 'Tersedia', date: new Date().toISOString().split('T')[0], note: printStokNote }); setPrintStokItem(null); }} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"><IconPrinter /> Cetak Sticker</button>
+                                        <button onClick={handlePrintStok} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"><IconPrinter /> Cetak Sticker</button>
                                     </div>
                                 </div>
                             </div>
