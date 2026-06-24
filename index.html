@@ -16656,7 +16656,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                     </div>
                                                     <button onClick={() => setDetailRow(null)} className="text-gray-400 hover:text-gray-600 text-xl font-bold leading-none">&times;</button>
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-3 mb-4">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                                                     <div className="bg-green-50 rounded-xl p-3 text-center">
                                                         <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Jam Masuk</div>
                                                         <div className="font-black text-xl text-green-700">{detailRow.jamMasuk || '-'}</div>
@@ -16810,7 +16810,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                     </div>
                                     <div>
                                         <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">Jam Aktif</p>
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-600 mb-1">Masuk</label>
                                                 <input type="time" value={editForm.jamMasuk || ''} onChange={e => setEditForm(f => ({...f, jamMasuk: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
@@ -16823,7 +16823,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                     </div>
                                     <div>
                                         <p className="text-xs font-bold text-orange-500 mb-2 uppercase tracking-wide">Sesi Lembur</p>
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-600 mb-1">Masuk Lembur</label>
                                                 <input type="time" value={editForm.jamLemburMasuk || ''} onChange={e => setEditForm(f => ({...f, jamLemburMasuk: e.target.value}))} className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none" />
