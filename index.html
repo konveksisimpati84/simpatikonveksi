@@ -16966,7 +16966,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     ? `<img src="${companyLogo}" style="max-height:10mm;max-width:18mm;object-fit:contain;" />`
                     : `<div style="font-size:10px;font-weight:900;color:#1e3a5f;line-height:1;">${companyName}</div>${companySubtitle ? `<div style="font-size:7px;color:#64748b;">${companySubtitle}</div>` : ''}`;
 
-                const typeColor = item.type === 'Masuk' ? '#16a34a' : item.type === 'Keluar' ? '#dc2626' : '#d97706';
+                const typeColor = item.type === 'Masuk' ? '#16a34a' : item.type === 'Keluar' ? '#dc2626' : item.type === 'Tersedia' ? '#0d9488' : '#d97706';
 
                 const printContent = `<!DOCTYPE html><html><head><title>Sticker Stock - ${item.clientName}</title>
                 <style>
@@ -17132,6 +17132,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                         <div className="flex gap-1.5 justify-center">
                                                                             <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
                                                                             <button onClick={() => { const s = iItem.masuk - iItem.keluar; setAdjustItem({ clientName: cKey, itemName: iItem.itemName, unit: iItem.unit || 'pcs', saldo: s }); setAdjustTargetQty(String(s)); setAdjustNote(''); }} className="text-xs px-2.5 py-1 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-yellow-200 rounded font-semibold">Sesuaikan</button>
+                                                                            <button onClick={() => doPrint({ clientName: cKey, itemName: iItem.itemName, qty: iItem.masuk - iItem.keluar, unit: iItem.unit || 'pcs', type: 'Tersedia', date: new Date().toISOString().split('T')[0], note: '' })} className="p-1 text-blue-500 hover:bg-blue-50 rounded" title="Cetak Sticker Stok"><IconPrinter /></button>
                                                                         </div>
                                                                     </td>
                                                                 </tr>
@@ -17213,10 +17214,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                 <td className="p-2.5 text-gray-500">{t.note || '-'}</td>
                                                                 <td className={`p-2.5 text-right font-black ${t.balance >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{t.balance} {iUnit}</td>
                                                                 <td className="p-2.5 text-center">
-                                                                    <div className="flex gap-1 justify-center">
-                                                                        <button onClick={() => doPrint(t)} className="p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Cetak Sticker"><IconPrinter /></button>
-                                                                        <button onClick={() => handleDeleteTrx(t.id, t.type)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title={t.type === 'Masuk' ? 'Hapus (stok berkurang)' : 'Hapus (stok kembali)'}><IconTrash /></button>
-                                                                    </div>
+                                                                    <button onClick={() => handleDeleteTrx(t.id, t.type)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title={t.type === 'Masuk' ? 'Hapus (stok berkurang)' : 'Hapus (stok kembali)'}><IconTrash /></button>
                                                                 </td>
                                                             </tr>
                                                         ))}</tbody>
