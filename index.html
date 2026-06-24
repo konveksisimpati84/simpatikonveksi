@@ -10785,6 +10785,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         )}
                         <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                            <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-gray-50 text-gray-600">
                                     <tr>
@@ -10830,6 +10831,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     {visibleRekaps.length === 0 && <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">{searchTerm ? 'Tidak ada rekap yang cocok dengan pencarian.' : 'Belum ada rekap kinerja.'}</td></tr>}
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                         {rekapListTotalPages > 1 && (
                             <Card>
@@ -10846,6 +10848,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {showDeletedRekaps && (
                                     <div className="mt-3 bg-white border border-red-200 rounded-xl shadow-sm overflow-hidden">
                                         <div className="px-4 py-2 bg-red-50 border-b border-red-100 text-xs font-bold text-red-700">Rekap yang sudah dibatalkan — bisa dipulihkan kembali</div>
+                                        <div className="overflow-x-auto">
                                         <table className="w-full text-sm text-left">
                                             <thead className="bg-gray-50 text-gray-500 text-xs">
                                                 <tr>
@@ -10873,6 +10876,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 })}
                                             </tbody>
                                         </table>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -11166,8 +11170,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     )}
 
                     {deleteRekapConfirmId && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
-                            <div className="bg-white p-6 rounded-xl w-80 shadow-xl">
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                            <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-xl">
                                 <h3 className="font-bold mb-2">Batalkan Rekap?</h3>
                                 <p className="text-sm text-gray-600 mb-4">Laporan ini akan dihapus dan pekerjaan karyawan yang terkait akan dikembalikan ke status "Belum Direkap".</p>
                                 <div className="flex justify-end space-x-2">
@@ -11180,8 +11184,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     {restoreRekapConfirmId && (() => {
                         const rekap = (rekapKinerja || []).find(r => String(r.id) === String(restoreRekapConfirmId));
                         return (
-                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
-                                <div className="bg-white p-6 rounded-xl w-80 shadow-xl">
+                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                                <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-xl">
                                     <h3 className="font-bold mb-1 text-green-700">Pulihkan Rekap?</h3>
                                     <p className="text-sm font-semibold text-gray-800 mb-1">{rekap?.empName || '-'}</p>
                                     <p className="text-sm text-gray-600 mb-1">Tanggal: {rekap?.dateProcessed || '-'}</p>
@@ -11415,7 +11419,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 {dailyInputForm.empId === dEmp.id && dailyInputForm.mode === 'harian' && (
                                                     <div className="bg-indigo-50 border-b border-indigo-200 p-3 space-y-2">
                                                         <div className="text-xs font-bold text-indigo-800 mb-1">Input Gaji Harian</div>
-                                                        <div className="grid grid-cols-3 gap-2">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                                             <div><label className="text-xs text-gray-600">Tanggal</label><input type="date" value={dailyInputForm.date} onChange={e => setDailyInputForm(prev => ({...prev, date: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
                                                             <div><label className="text-xs text-gray-600">Hari Masuk</label><input type="number" min="0" placeholder="0" value={dailyInputForm.workDays} onChange={e => setDailyInputForm(prev => ({...prev, workDays: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
                                                             <div><label className="text-xs text-gray-600">Nominal/Hari (Rp)</label><input type="number" min="0" placeholder="0" value={dailyInputForm.dailySalary} onChange={e => setDailyInputForm(prev => ({...prev, dailySalary: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
@@ -11438,7 +11442,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 {dailyInputForm.empId === dEmp.id && dailyInputForm.mode === 'lembur' && (
                                                     <div className="bg-sky-50 border-b border-sky-200 p-3 space-y-2">
                                                         <div className="text-xs font-bold text-sky-800 mb-1">Input Lembur</div>
-                                                        <div className="grid grid-cols-3 gap-2">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                                             <div><label className="text-xs text-gray-600">Tanggal</label><input type="date" value={dailyInputForm.date} onChange={e => setDailyInputForm(prev => ({...prev, date: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
                                                             <div><label className="text-xs text-gray-600">Jumlah Hari Lembur</label><input type="number" min="0" placeholder="0" value={dailyInputForm.overtimeCount} onChange={e => setDailyInputForm(prev => ({...prev, overtimeCount: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
                                                             <div><label className="text-xs text-gray-600">Nominal Lembur (Rp)</label><input type="number" min="0" placeholder="0" value={dailyInputForm.overtimeRate} onChange={e => setDailyInputForm(prev => ({...prev, overtimeRate: e.target.value}))} className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mt-0.5" /></div>
@@ -11545,7 +11549,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </>)}
                                         {detailRekapTab === 'pembayaran' && (<>
                                             <div className={`rounded-xl p-3 text-center font-black text-sm border ${payStatus === 'lunas' ? 'bg-green-50 border-green-200 text-green-700' : payStatus === 'sebagian' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-red-50 border-red-200 text-red-700'}`}>{payStatusLabel}</div>
-                                            <div className="grid grid-cols-3 gap-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                 <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 text-center">
                                                     <div className="text-xs text-gray-400 mb-1">Gaji Bersih</div>
                                                     <div className="font-black text-blue-700">{formatRupiah(netSalary)}</div>
