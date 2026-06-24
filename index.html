@@ -16863,6 +16863,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const [adjustItem, setAdjustItem] = useState(null);
             const [adjustTargetQty, setAdjustTargetQty] = useState('');
             const [adjustNote, setAdjustNote] = useState('');
+            const [printStokItem, setPrintStokItem] = useState(null);
+            const [printStokNote, setPrintStokNote] = useState('');
 
             const visibleClients = safeArray(clients).filter(isVisibleRecord);
             const visibleItems = safeArray(stockItems).filter(isVisibleRecord);
@@ -17132,7 +17134,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                         <div className="flex gap-1.5 justify-center">
                                                                             <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
                                                                             <button onClick={() => { const s = iItem.masuk - iItem.keluar; setAdjustItem({ clientName: cKey, itemName: iItem.itemName, unit: iItem.unit || 'pcs', saldo: s }); setAdjustTargetQty(String(s)); setAdjustNote(''); }} className="text-xs px-2.5 py-1 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-yellow-200 rounded font-semibold">Sesuaikan</button>
-                                                                            <button onClick={() => doPrint({ clientName: cKey, itemName: iItem.itemName, qty: iItem.masuk - iItem.keluar, unit: iItem.unit || 'pcs', type: 'Tersedia', date: new Date().toISOString().split('T')[0], note: '' })} className="p-1 text-blue-500 hover:bg-blue-50 rounded" title="Cetak Sticker Stok"><IconPrinter /></button>
+                                                                            <button onClick={() => { setPrintStokItem({ clientName: cKey, itemName: iItem.itemName, qty: iItem.masuk - iItem.keluar, unit: iItem.unit || 'pcs' }); setPrintStokNote(''); }} className="p-1 text-blue-500 hover:bg-blue-50 rounded" title="Cetak Sticker Stok"><IconPrinter /></button>
                                                                         </div>
                                                                     </td>
                                                                 </tr>
@@ -17264,6 +17266,42 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                             </div>
                         );
                     })()}
+
+                    {printStokItem && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setPrintStokItem(null)}>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                                <div className="bg-gradient-to-r from-blue-600 to-cyan-600 px-5 py-4 rounded-t-2xl flex items-center justify-between">
+                                    <div>
+                                        <div className="text-white font-black text-base">Cetak Sticker Stok</div>
+                                        <div className="text-blue-100 text-xs mt-0.5">{printStokItem.itemName} · {printStokItem.clientName}</div>
+                                    </div>
+                                    <button onClick={() => setPrintStokItem(null)} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold">✕</button>
+                                </div>
+                                <div className="p-5 space-y-4">
+                                    <div className="bg-gray-50 rounded-xl p-3 flex items-center justify-between border border-gray-200">
+                                        <span className="text-sm text-gray-500">Stok tersedia</span>
+                                        <span className="font-black text-teal-700 text-lg">{printStokItem.qty} <span className="text-xs font-normal text-gray-400">{printStokItem.unit}</span></span>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-600 mb-1 block">Catatan (opsional)</label>
+                                        <input
+                                            type="text"
+                                            value={printStokNote}
+                                            onChange={e => setPrintStokNote(e.target.value)}
+                                            onKeyDown={e => { if (e.key === 'Enter') { doPrint({ ...printStokItem, type: 'Tersedia', date: new Date().toISOString().split('T')[0], note: printStokNote }); setPrintStokItem(null); } }}
+                                            placeholder="Misal: Gudang A, Rak 3..."
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <div className="flex gap-2 pt-1">
+                                        <button onClick={() => setPrintStokItem(null)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm">Batal</button>
+                                        <button onClick={() => { doPrint({ ...printStokItem, type: 'Tersedia', date: new Date().toISOString().split('T')[0], note: printStokNote }); setPrintStokItem(null); }} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"><IconPrinter /> Cetak Sticker</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {adjustItem && (() => {
                         const target = Number(String(adjustTargetQty).replace(/[^0-9]/g, ''));
