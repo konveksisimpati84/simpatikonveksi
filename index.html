@@ -17103,7 +17103,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                     <td className="py-2.5 px-4 text-center">
                                                                         <div className="flex gap-1.5 justify-center">
                                                                             <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
-                                                                            <button onClick={() => openForm({ clientName: cKey, itemName: iItem.itemName, unit: iItem.unit, qty: '', type: 'Penyesuaian', date: new Date().toISOString().split('T')[0], note: '' })} className="text-xs px-2.5 py-1 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-yellow-200 rounded font-semibold">Sesuaikan</button>
+                                                                            <button onClick={() => { setForm({ clientName: cKey, itemName: iItem.itemName, unit: iItem.unit || 'pcs', qty: '', type: 'Penyesuaian', date: new Date().toISOString().split('T')[0], note: '' }); setEditItem(null); setShowForm(true); }} className="text-xs px-2.5 py-1 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-yellow-200 rounded font-semibold">Sesuaikan</button>
                                                                         </div>
                                                                     </td>
                                                                 </tr>
