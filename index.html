@@ -16848,10 +16848,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
 
         // ── STOCK BARANG ─────────────────────────────────────────────────────────
         const StockBarangView = ({ stockItems, setStockItems, clients, showToast, templates }) => {
-            const [activeTab, setActiveTab] = useState('per_klien');
             const [filterClient, setFilterClient] = useState('');
-            const [filterType, setFilterType] = useState('Semua');
             const [searchTerm, setSearchTerm] = useState('');
+            const [expandedClients, setExpandedClients] = useState(new Set());
             const [showForm, setShowForm] = useState(false);
             const [editItem, setEditItem] = useState(null);
             const emptyForm = { clientName: '', itemName: '', qty: '', unit: 'pcs', type: 'Masuk', date: new Date().toISOString().split('T')[0], note: '' };
@@ -16899,6 +16898,15 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 if (!confirm(`Hapus "${item.itemName}"?`)) return;
                 setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, isDeleted: true } : i));
                 showToast('Data dihapus');
+            };
+
+            const handleDeleteTrx = (txId, txType) => {
+                const msg = txType === 'Masuk'
+                    ? 'Hapus transaksi masuk ini? Stok akan berkurang.'
+                    : 'Hapus transaksi ini? Stok akan dikembalikan.';
+                if (!confirm(msg)) return;
+                setStockItems(prev => prev.map(i => i.id === txId ? { ...i, isDeleted: true } : i));
+                showToast('Transaksi dihapus.', 'success');
             };
 
             const handleAmbilStok = (itemName, unit, saldo) => {
@@ -16992,23 +17000,33 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const totalMasuk = visibleItems.filter(i => i.type === 'Masuk').reduce((s, i) => s + (i.qty || 0), 0);
             const totalKeluar = visibleItems.filter(i => i.type === 'Keluar').reduce((s, i) => s + (i.qty || 0), 0);
 
-            // Per Klien: flat list filtered by client + type + search
-            const perKlienItems = visibleItems.filter(i => {
-                if (filterClient && i.clientName !== filterClient) return false;
-                if (filterType !== 'Semua' && i.type !== filterType) return false;
-                return matchesSearch([i.clientName, i.itemName, i.type, i.unit, i.note, i.date], searchTerm);
-            }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-
-            // Rekap Total
-            const rekapMap = {};
+            // Grouped by clientName → itemName
+            const rekapPerClient = {};
             visibleItems.forEach(i => {
-                const k = (i.itemName || '').toLowerCase();
-                if (!rekapMap[k]) rekapMap[k] = { itemName: i.itemName, unit: i.unit, masuk: 0, keluar: 0, clients: new Set() };
-                if (i.type === 'Masuk') rekapMap[k].masuk += (i.qty || 0);
-                else if (i.type === 'Keluar') rekapMap[k].keluar += (i.qty || 0);
-                rekapMap[k].clients.add(i.clientName);
+                const cKey = i.clientName || '(Tanpa Klien)';
+                const iKey = (i.itemName || '').toLowerCase();
+                if (!rekapPerClient[cKey]) rekapPerClient[cKey] = {};
+                if (!rekapPerClient[cKey][iKey]) rekapPerClient[cKey][iKey] = { itemName: i.itemName, unit: i.unit || 'pcs', masuk: 0, keluar: 0 };
+                if (i.type === 'Masuk') rekapPerClient[cKey][iKey].masuk += (i.qty || 0);
+                else if (i.type === 'Keluar') rekapPerClient[cKey][iKey].keluar += (i.qty || 0);
             });
-            const rekapList = Object.values(rekapMap).filter(r => matchesSearch([r.itemName], searchTerm));
+
+            const filteredClientList = Object.keys(rekapPerClient).filter(cKey => {
+                if (filterClient && cKey !== filterClient) return false;
+                if (searchTerm) {
+                    const items = Object.values(rekapPerClient[cKey]);
+                    return matchesSearch([cKey, ...items.map(i => i.itemName)], searchTerm);
+                }
+                return true;
+            }).sort();
+
+            const toggleClient = (cKey) => {
+                setExpandedClients(prev => {
+                    const next = new Set(prev);
+                    if (next.has(cKey)) next.delete(cKey); else next.add(cKey);
+                    return next;
+                });
+            };
 
             return (
                 <div className="space-y-6">
@@ -17030,103 +17048,70 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     </div>
 
                     <Card>
-                        <div className="flex gap-2 mb-4 border-b pb-3">
-                            <button onClick={() => { setActiveTab('per_klien'); setSearchTerm(''); }} className={`px-3 py-1.5 rounded text-sm font-semibold transition-colors ${activeTab === 'per_klien' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Per Klien</button>
-                            <button onClick={() => { setActiveTab('rekap'); setSearchTerm(''); }} className={`px-3 py-1.5 rounded text-sm font-semibold transition-colors ${activeTab === 'rekap' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Rekap Total</button>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                            <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari klien, nama barang..." />
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Klien / Instansi</label>
+                                <select className="w-full p-2.5 border rounded-lg text-sm" value={filterClient} onChange={e => { setFilterClient(e.target.value); setExpandedClients(new Set()); }}>
+                                    <option value="">Semua Klien</option>
+                                    {clientNames.map(n => <option key={n} value={n}>{n}</option>)}
+                                </select>
+                            </div>
                         </div>
 
-                        {activeTab === 'per_klien' && (
-                            <div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                                    <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari nama barang, catatan..." />
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Klien / Instansi</label>
-                                        <select className="w-full p-2.5 border rounded-lg text-sm" value={filterClient} onChange={e => setFilterClient(e.target.value)}>
-                                            <option value="">Semua Klien</option>
-                                            {clientNames.map(n => <option key={n} value={n}>{n}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Tipe</label>
-                                        <select className="w-full p-2.5 border rounded-lg text-sm" value={filterType} onChange={e => setFilterType(e.target.value)}>
-                                            <option>Semua</option><option>Masuk</option><option>Keluar</option><option>Penyesuaian</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                {perKlienItems.length === 0 ? (
-                                    <div className="text-center py-10 text-gray-400 italic">Belum ada data stock barang.</div>
-                                ) : (
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm">
-                                            <thead><tr className="bg-gray-50 border-b text-left text-xs font-bold text-gray-600">
-                                                <th className="py-2 px-3">Tanggal</th>
-                                                <th className="py-2 px-3">Klien / Instansi</th>
-                                                <th className="py-2 px-3">Nama Barang</th>
-                                                <th className="py-2 px-3">Tipe</th>
-                                                <th className="py-2 px-3 text-right">Jumlah</th>
-                                                <th className="py-2 px-3">Satuan</th>
-                                                <th className="py-2 px-3">Catatan</th>
-                                                <th className="py-2 px-3 text-center">Aksi</th>
-                                            </tr></thead>
-                                            <tbody>{perKlienItems.map((item, idx) => (
-                                                <tr key={item.id} className={`border-t ${idx % 2 === 0 ? '' : 'bg-gray-50'}`}>
-                                                    <td className="py-2 px-3 text-gray-500 whitespace-nowrap">{item.date}</td>
-                                                    <td className="py-2 px-3 font-semibold text-gray-700">{item.clientName}</td>
-                                                    <td className="py-2 px-3 text-gray-800">{item.itemName}</td>
-                                                    <td className="py-2 px-3"><span className={`text-xs font-bold px-2 py-0.5 rounded-full ${typeColor(item.type)}`}>{item.type}</span></td>
-                                                    <td className="py-2 px-3 text-right font-bold">{item.qty}</td>
-                                                    <td className="py-2 px-3 text-gray-500">{item.unit}</td>
-                                                    <td className="py-2 px-3 text-gray-400 text-xs max-w-[120px] truncate">{item.note}</td>
-                                                    <td className="py-2 px-3">
-                                                        <div className="flex gap-1 justify-center">
-                                                            <button onClick={() => doPrint(item)} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Cetak Sticker"><IconPrinter /></button>
-                                                            <button onClick={() => openForm(item)} className="p-1 text-yellow-600 hover:bg-yellow-50 rounded" title="Edit"><IconEdit /></button>
-                                                            <button onClick={() => handleDelete(item)} className="p-1 text-red-500 hover:bg-red-50 rounded" title="Hapus"><IconTrash /></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}</tbody>
-                                        </table>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {activeTab === 'rekap' && (
-                            <div>
-                                <div className="mb-4">
-                                    <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari nama barang..." />
-                                </div>
-                                {rekapList.length === 0 ? (
-                                    <div className="text-center py-10 text-gray-400 italic">Belum ada data.</div>
-                                ) : (
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm">
-                                            <thead><tr className="bg-gray-50 border-b text-left text-xs font-bold text-gray-600">
-                                                <th className="py-2 px-3">Nama Barang</th>
-                                                <th className="py-2 px-3">Satuan</th>
-                                                <th className="py-2 px-3 text-right">Total Masuk</th>
-                                                <th className="py-2 px-3 text-right">Total Keluar</th>
-                                                <th className="py-2 px-3 text-right">Saldo</th>
-                                                <th className="py-2 px-3 text-right">Jml Klien</th>
-                                                <th className="py-2 px-3 text-center">Aksi</th>
-                                            </tr></thead>
-                                            <tbody>{rekapList.map((r, idx) => (
-                                                <tr key={r.itemName} className={`border-t ${idx % 2 === 0 ? '' : 'bg-gray-50'}`}>
-                                                    <td className="py-2 px-3 font-semibold text-gray-800">{r.itemName}</td>
-                                                    <td className="py-2 px-3 text-gray-500">{r.unit}</td>
-                                                    <td className="py-2 px-3 text-right text-green-700 font-bold">{r.masuk}</td>
-                                                    <td className="py-2 px-3 text-right text-red-700 font-bold">{r.keluar}</td>
-                                                    <td className={`py-2 px-3 text-right font-bold ${r.masuk - r.keluar >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{r.masuk - r.keluar}</td>
-                                                    <td className="py-2 px-3 text-right text-gray-500">{r.clients.size}</td>
-                                                    <td className="py-2 px-3 text-center">
-                                                        <button onClick={() => { setHistoryItem({ itemName: r.itemName, unit: r.unit }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
-                                                    </td>
-                                                </tr>
-                                            ))}</tbody>
-                                        </table>
-                                    </div>
-                                )}
+                        {filteredClientList.length === 0 ? (
+                            <div className="text-center py-10 text-gray-400 italic">Belum ada data stock barang.</div>
+                        ) : (
+                            <div className="space-y-2">
+                                {filteredClientList.map(cKey => {
+                                    const itemMap = rekapPerClient[cKey];
+                                    const itemList = Object.values(itemMap);
+                                    const totalSaldo = itemList.reduce((s, i) => s + (i.masuk - i.keluar), 0);
+                                    const isExpanded = expandedClients.has(cKey);
+                                    return (
+                                        <div key={cKey} className="border border-gray-200 rounded-xl overflow-hidden">
+                                            <button onClick={() => toggleClient(cKey)} className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-gray-400 text-sm font-bold">{isExpanded ? '▼' : '▶'}</span>
+                                                    <span className="font-bold text-gray-800 text-sm">{cKey}</span>
+                                                    <span className="text-xs text-gray-400">{itemList.length} jenis barang</span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <span className={`text-sm font-black ${totalSaldo > 0 ? 'text-teal-700' : totalSaldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>Saldo: {totalSaldo}</span>
+                                                </div>
+                                            </button>
+                                            {isExpanded && (
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-sm">
+                                                        <thead><tr className="bg-white border-b border-gray-100 text-left text-xs font-bold text-gray-500">
+                                                            <th className="py-2 px-4">Nama Barang</th>
+                                                            <th className="py-2 px-4">Satuan</th>
+                                                            <th className="py-2 px-4 text-right">Masuk</th>
+                                                            <th className="py-2 px-4 text-right">Keluar</th>
+                                                            <th className="py-2 px-4 text-right">Saldo</th>
+                                                            <th className="py-2 px-4 text-center">Aksi</th>
+                                                        </tr></thead>
+                                                        <tbody>{itemList.map((iItem, idx) => {
+                                                            const saldo = iItem.masuk - iItem.keluar;
+                                                            return (
+                                                                <tr key={iItem.itemName} className={`border-t border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
+                                                                    <td className="py-2.5 px-4 font-semibold text-gray-800">{iItem.itemName}</td>
+                                                                    <td className="py-2.5 px-4 text-gray-500">{iItem.unit}</td>
+                                                                    <td className="py-2.5 px-4 text-right text-green-700 font-bold">{iItem.masuk}</td>
+                                                                    <td className="py-2.5 px-4 text-right text-red-700 font-bold">{iItem.keluar}</td>
+                                                                    <td className={`py-2.5 px-4 text-right font-black ${saldo > 0 ? 'text-teal-700' : saldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>{saldo}</td>
+                                                                    <td className="py-2.5 px-4 text-center">
+                                                                        <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}</tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </Card>
@@ -17134,8 +17119,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     {historyItem && (() => {
                         const iName = historyItem.itemName;
                         const iUnit = historyItem.unit || 'pcs';
+                        const iClient = historyItem.clientName || '';
                         const txns = visibleItems
-                            .filter(i => (i.itemName || '').toLowerCase() === (iName || '').toLowerCase())
+                            .filter(i => (i.itemName || '').toLowerCase() === (iName || '').toLowerCase() && (!iClient || i.clientName === iClient))
                             .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
                         let running = 0;
                         const txnsWithBalance = txns.map(t => {
@@ -17152,7 +17138,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                     <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
                                         <div>
                                             <div className="text-white font-black text-base">{iName}</div>
-                                            <div className="text-teal-100 text-xs mt-0.5">Riwayat transaksi stok barang</div>
+                                            <div className="text-teal-100 text-xs mt-0.5">{iClient ? iClient + ' · ' : ''}Riwayat transaksi stok barang</div>
                                         </div>
                                         <button onClick={() => setHistoryItem(null)} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold flex-shrink-0">✕</button>
                                     </div>
@@ -17185,6 +17171,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                             <th className="p-2.5 font-semibold text-right">Jumlah</th>
                                                             <th className="p-2.5 font-semibold">Catatan</th>
                                                             <th className="p-2.5 font-semibold text-right">Saldo</th>
+                                                            <th className="p-2.5 font-semibold text-center">Hapus</th>
                                                         </tr></thead>
                                                         <tbody>{txnsWithBalance.map((t, idx) => (
                                                             <tr key={t.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
@@ -17194,6 +17181,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                 <td className={`p-2.5 text-right font-black ${t.type === 'Masuk' ? 'text-green-700' : t.type === 'Keluar' ? 'text-red-700' : 'text-yellow-700'}`}>{t.type === 'Masuk' ? '+' : t.type === 'Keluar' ? '-' : ''}{t.qty} {iUnit}</td>
                                                                 <td className="p-2.5 text-gray-500">{t.note || '-'}</td>
                                                                 <td className={`p-2.5 text-right font-black ${t.balance >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{t.balance} {iUnit}</td>
+                                                                <td className="p-2.5 text-center">
+                                                                    <button onClick={() => handleDeleteTrx(t.id, t.type)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title={t.type === 'Masuk' ? 'Hapus (stok berkurang)' : 'Hapus (stok kembali)'}><IconTrash /></button>
+                                                                </td>
                                                             </tr>
                                                         ))}</tbody>
                                                     </table>
