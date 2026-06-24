@@ -1129,7 +1129,7 @@
 
                                     <div className="p-4 bg-gray-50 rounded border">
                                         <label className="block font-bold mb-2 text-sm">Ubah Rincian Ukuran</label>
-                                        <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
                                             {editSizeInputs.map((s, i) => (
                                                 <div key={s.id}>
                                                     <input type="text" className="w-full text-center text-xs font-bold bg-transparent border-b border-gray-300 outline-none focus:border-blue-500" value={s.label} onChange={e => {const n=[...editSizeInputs]; n[i].label=e.target.value; setEditSizeInputs(n)}} placeholder="Size"/>
@@ -2145,7 +2145,7 @@
                                     <label className="block text-sm font-semibold text-gray-800">Input Ukuran dan Jumlah (Pcs)</label>
                                     <button type="button" onClick={handleAddSize} className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-md font-medium transition-colors">+ Tambah Kolom Ukuran</button>
                                 </div>
-                                <div className="grid grid-cols-4 md:grid-cols-8 gap-4">
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
                                     {sizeInputs.map((size, index) => (
                                         <div key={size.id}>
                                             <input type="text" className="w-full text-xs text-center font-bold text-gray-700 mb-1 bg-transparent border-b border-gray-300 focus:border-blue-500 focus:outline-none" value={size.label} onChange={e => handleSizeLabelChange(index, e.target.value)} placeholder="Ukuran" />
