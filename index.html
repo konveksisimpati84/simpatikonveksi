@@ -17171,7 +17171,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                             <th className="p-2.5 font-semibold text-right">Jumlah</th>
                                                             <th className="p-2.5 font-semibold">Catatan</th>
                                                             <th className="p-2.5 font-semibold text-right">Saldo</th>
-                                                            <th className="p-2.5 font-semibold text-center">Hapus</th>
+                                                            <th className="p-2.5 font-semibold text-center">Aksi</th>
                                                         </tr></thead>
                                                         <tbody>{txnsWithBalance.map((t, idx) => (
                                                             <tr key={t.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
@@ -17182,7 +17182,10 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                 <td className="p-2.5 text-gray-500">{t.note || '-'}</td>
                                                                 <td className={`p-2.5 text-right font-black ${t.balance >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{t.balance} {iUnit}</td>
                                                                 <td className="p-2.5 text-center">
-                                                                    <button onClick={() => handleDeleteTrx(t.id, t.type)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title={t.type === 'Masuk' ? 'Hapus (stok berkurang)' : 'Hapus (stok kembali)'}><IconTrash /></button>
+                                                                    <div className="flex gap-1 justify-center">
+                                                                        <button onClick={() => doPrint(t)} className="p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Cetak Sticker"><IconPrinter /></button>
+                                                                        <button onClick={() => handleDeleteTrx(t.id, t.type)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title={t.type === 'Masuk' ? 'Hapus (stok berkurang)' : 'Hapus (stok kembali)'}><IconTrash /></button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))}</tbody>
