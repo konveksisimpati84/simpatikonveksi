@@ -17101,7 +17101,10 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                     <td className="py-2.5 px-4 text-right text-red-700 font-bold">{iItem.keluar}</td>
                                                                     <td className={`py-2.5 px-4 text-right font-black ${saldo > 0 ? 'text-teal-700' : saldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>{saldo}</td>
                                                                     <td className="py-2.5 px-4 text-center">
-                                                                        <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
+                                                                        <div className="flex gap-1.5 justify-center">
+                                                                            <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
+                                                                            <button onClick={() => openForm({ clientName: cKey, itemName: iItem.itemName, unit: iItem.unit, qty: '', type: 'Penyesuaian', date: new Date().toISOString().split('T')[0], note: '' })} className="text-xs px-2.5 py-1 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-yellow-200 rounded font-semibold">Sesuaikan</button>
+                                                                        </div>
                                                                     </td>
                                                                 </tr>
                                                             );
