@@ -9096,7 +9096,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <>
                             <Card>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4">Buku Kas Masuk</h3>
-                                <div className="overflow-x-auto">
+                                <div className="overflow-x-auto hidden md:block">
                                     <table className="w-full text-sm text-left border-collapse">
                                         <thead>
                                             <tr className="bg-[#1e3a5f] text-white">
@@ -9130,10 +9130,35 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </tbody>
                                     </table>
                                 </div>
+                                <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
+                                    {[
+                                        ...invoiceRows.map(inv => ({ date: inv.date || '-', ref: inv.id || '-', sumber: 'Invoice', ket: inv.customer || '-', nominal: getInvoicePaid(inv) })),
+                                        ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
+                                    ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                        <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                                    <span className="font-mono text-xs text-gray-500">{r.ref}</span>
+                                                    <span className="px-1.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">{r.sumber}</span>
+                                                </div>
+                                                <div className="text-sm text-gray-700 truncate">{r.ket}</div>
+                                                <div className="text-xs text-gray-400 mt-0.5">{r.date}</div>
+                                            </div>
+                                            <div className="text-sm font-black text-green-700 shrink-0">{formatRupiah(r.nominal)}</div>
+                                        </div>
+                                    ))}
+                                    {invoiceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Masuk').length === 0 && (
+                                        <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas masuk pada periode ini.</div>
+                                    )}
+                                    <div className="px-4 py-3 bg-green-50 border-t-2 border-green-400 flex justify-between items-center">
+                                        <span className="font-black text-green-800 text-sm">TOTAL KAS MASUK</span>
+                                        <span className="font-black text-green-800 text-sm">{formatRupiah(invoiceRows.reduce((s, inv) => s + getInvoicePaid(inv), 0) + expenseRows.filter(r => r.type === 'Uang Masuk').reduce((s, r) => s + safeMoney(r.amount), 0))}</span>
+                                    </div>
+                                </div>
                             </Card>
                             <Card>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4">Buku Kas Keluar</h3>
-                                <div className="overflow-x-auto">
+                                <div className="overflow-x-auto hidden md:block">
                                     <table className="w-full text-sm text-left border-collapse">
                                         <thead>
                                             <tr className="bg-[#1e3a5f] text-white">
@@ -9168,6 +9193,33 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         </tbody>
                                     </table>
+                                </div>
+                                <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
+                                    {[
+                                        ...materialRows.map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
+                                        ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
+                                        ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
+                                        ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
+                                    ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                        <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                                    <span className="font-mono text-xs text-gray-500">{r.ref}</span>
+                                                    <span className="px-1.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800">{r.sumber}</span>
+                                                </div>
+                                                <div className="text-sm text-gray-700 truncate">{r.ket}</div>
+                                                <div className="text-xs text-gray-400 mt-0.5">{r.date}</div>
+                                            </div>
+                                            <div className="text-sm font-black text-red-700 shrink-0">{formatRupiah(r.nominal)}</div>
+                                        </div>
+                                    ))}
+                                    {materialRows.length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
+                                        <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas keluar pada periode ini.</div>
+                                    )}
+                                    <div className="px-4 py-3 bg-red-50 border-t-2 border-red-400 flex justify-between items-center">
+                                        <span className="font-black text-red-800 text-sm">TOTAL KAS KELUAR</span>
+                                        <span className="font-black text-red-800 text-sm">{formatRupiah(totalBeban)}</span>
+                                    </div>
                                 </div>
                             </Card>
                         </>
@@ -12003,7 +12055,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <div className="mb-4 max-w-lg">
                             <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari tanggal, ID order, klien, barang..." />
                         </div>
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto hidden md:block">
                             <table className="w-full text-left border-collapse">
                                 <thead>
                                     <tr className="bg-gray-50 border-b border-gray-200">
@@ -12054,6 +12106,41 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     )}
                                 </tbody>
                             </table>
+                        </div>
+                        <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
+                            {pagedOrders.map(order => {
+                                const sizesDetails = sortSizeKeys(Object.keys(order.sizes || {}))
+                                    .map((size) => `${size}(${order.sizes[size]})`).join(', ');
+                                return (
+                                    <div key={order.id} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 mb-0.5">
+                                                <span className="font-medium text-blue-600 text-sm">{order.id}</span>
+                                                <span className="text-xs text-gray-400">{order.date}</span>
+                                            </div>
+                                            <div className="font-bold text-gray-800 text-sm truncate">{order.client}</div>
+                                            <div className="text-xs text-gray-500 mt-0.5">{order.type}</div>
+                                            {sizesDetails && <div className="text-xs text-gray-400 mt-0.5 truncate">{sizesDetails}</div>}
+                                            <div className="text-sm font-bold text-green-600 mt-1">{order.total} pcs terkirim</div>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, isArchived: false } : o));
+                                                showToast("Order dikembalikan ke proses aktif.", "success");
+                                            }}
+                                            className="text-orange-600 hover:text-orange-800 bg-orange-50 hover:bg-orange-100 p-2 rounded-md transition-colors shrink-0"
+                                            title="Batalkan Arsip / Kembalikan ke Proses"
+                                        >
+                                            <IconRestore />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                            {filteredFinishedOrders.length === 0 && (
+                                <div className="px-4 py-8 text-center text-gray-500 italic text-sm">
+                                    {searchTerm ? 'Tidak ada riwayat produksi yang cocok dengan pencarian.' : 'Belum ada data produksi yang telah diarsipkan.'}
+                                </div>
+                            )}
                         </div>
                         <Paginator page={page} setPage={setPage} totalPages={totalPages} total={total} pageSize={25} label="order selesai" />
                     </Card>
