@@ -6028,7 +6028,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     ))}
                                     {payStatusFilter !== 'Semua' && <button onClick={() => setPayStatusFilter('Semua')} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                                 </div>
-                                <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
+                                <div className="hidden md:flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
                                     <span className="w-20 flex-shrink-0">Tanggal</span>
                                     <span className="flex-1">Kategori · Penerima</span>
                                     <span className="w-24 text-center hidden sm:block">Jenis</span>
@@ -6048,12 +6048,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     const rowBg = status === 'Lunas' ? 'bg-green-50/30' : status === 'Dibayar Sebagian' ? 'bg-yellow-50/30' : isMasuk ? 'bg-green-50/30' : 'bg-red-50/20';
                                     return (
                                         <React.Fragment key={item.id}>
-                                            <div className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg} hover:brightness-[0.97] transition-all`}>
+                                            <div className={`hidden md:flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg} hover:brightness-[0.97] transition-all`}>
                                                 <div className="w-20 flex-shrink-0 text-xs text-gray-500 font-mono">{item.date}</div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="font-bold text-gray-900 text-sm truncate">{item.category}</div>
                                                     <div className="text-xs text-gray-400 truncate">{item.party || <span className="italic">—</span>} {item.note ? `· ${item.note}` : ''}</div>
-                                                    <div className={`text-sm font-black mt-0.5 md:hidden ${isMasuk ? 'text-green-700' : 'text-red-700'}`}>{formatRupiah(item.amount)}{!isMasuk && paid > 0 && <span className="text-[10px] font-normal text-gray-400 ml-1">Bayar: {formatRupiah(paid)}</span>}</div>
                                                 </div>
                                                 <div className="w-24 text-center hidden sm:block flex-shrink-0"><Badge status={item.type} /></div>
                                                 <div className="w-32 text-right hidden md:block flex-shrink-0">
@@ -6066,6 +6065,28 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                     <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
                                                     <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
                                                     <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
+                                                </div>
+                                            </div>
+                                            <div className={`md:hidden px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg}`}>
+                                                <div className="flex items-start gap-3">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 mb-0.5">
+                                                            <span className="text-xs text-gray-500 font-mono shrink-0">{item.date}</span>
+                                                            <Badge status={item.type} />
+                                                        </div>
+                                                        <div className="font-bold text-gray-900 text-sm truncate">{item.category}</div>
+                                                        <div className="text-xs text-gray-400 truncate">{item.party || <span className="italic">—</span>}{item.note ? ` · ${item.note}` : ''}</div>
+                                                        <div className={`text-sm font-black mt-1 ${isMasuk ? 'text-green-700' : 'text-red-700'}`}>{formatRupiah(item.amount)}{!isMasuk && paid > 0 && <span className="text-[10px] font-normal text-gray-400 ml-1">· Bayar: {formatRupiah(paid)}</span>}</div>
+                                                    </div>
+                                                    <div className="shrink-0 flex flex-col items-end gap-1.5">
+                                                        {payStatusBadge(status)}
+                                                        <div className="flex gap-1 mt-0.5">
+                                                            <button onClick={() => setExpandedIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))} title="Rincian" className={`p-1.5 rounded-lg border transition-colors ${isExpanded ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100'}`}><IconEye /></button>
+                                                            <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                            <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
+                                                            <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                             {isExpanded && (
@@ -9564,7 +9585,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 </button>
                                             </div>
                                         </div>
-                                        <div className="overflow-x-auto">
+                                        <div className="overflow-x-auto hidden md:block">
                                             <table className="w-full text-sm">
                                                 <thead className="bg-purple-50"><tr>
                                                     <th className="p-2 text-left">Tanggal</th>
@@ -9603,6 +9624,44 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <tr className="bg-purple-50 font-bold border-t-2"><td colSpan="6" className="p-2 text-right">Total Komisi {row.marketing}{row.isSubMarketing ? ' (Sub)' : ''}</td><td className="p-2 text-right text-purple-800">{formatRupiah(row.totalCommission)}</td></tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                        <div className="md:hidden divide-y divide-gray-100">
+                                            {row.invoices.sort((a,b) => String(b.date||'').localeCompare(String(a.date||''))).map(inv => {
+                                                const comm = row.isSubMarketing ? getInvoiceSubMarketingCommissionTotal(inv) : getInvoiceCommissionTotal(inv);
+                                                const commType = row.isSubMarketing ? (inv.subMarketingCommissionType || 'Persen') : (inv.commissionType || 'Persen');
+                                                const commVal = row.isSubMarketing ? inv.subMarketingCommissionValue : inv.commissionValue;
+                                                const payStatus = getInvoicePaymentStatus(inv);
+                                                const isPercs = String(commType).toLowerCase() === 'persen';
+                                                const commLabel = isPercs ? `${commVal || 0}%` : `${formatRupiah(commVal || 0)}/pcs`;
+                                                const statusBadge = payStatus === 'Lunas'
+                                                    ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span>
+                                                    : payStatus === 'Termin'
+                                                    ? <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span>
+                                                    : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;
+                                                return (
+                                                    <div key={inv.id} className="px-4 py-3">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <div className="min-w-0">
+                                                                <span className="font-bold text-blue-700 text-sm">{inv.id}</span>
+                                                                <span className="text-xs text-gray-400 ml-2">{inv.date || '-'}</span>
+                                                            </div>
+                                                            {statusBadge}
+                                                        </div>
+                                                        <div className="text-sm text-gray-700 mt-0.5 truncate">{inv.customer || '-'}</div>
+                                                        <div className="flex items-end justify-between mt-1.5">
+                                                            <span className="text-xs text-gray-500">Nilai: {formatRupiah(getInvoiceTotals(inv).total)}</span>
+                                                            <div className="text-right">
+                                                                <span className="text-[10px] text-gray-400 block">{commType} ({commLabel})</span>
+                                                                <span className="font-black text-purple-700 text-sm">{formatRupiah(comm)}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            <div className="px-4 py-2.5 bg-purple-50 flex justify-between items-center">
+                                                <span className="text-sm font-bold text-gray-700">Total Komisi {row.marketing}{row.isSubMarketing ? ' (Sub)' : ''}</span>
+                                                <span className="font-black text-purple-800">{formatRupiah(row.totalCommission)}</span>
+                                            </div>
                                         </div>
                                     </Card>
                                 ))}
