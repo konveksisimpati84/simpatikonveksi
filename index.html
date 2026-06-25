@@ -13678,7 +13678,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari driver..." className="border rounded px-3 py-2 text-sm w-56" />
                                 <button onClick={()=>openDriverForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">+ Tambah Driver</button>
                             </div>
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto hidden md:block">
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="bg-gray-50 text-left">
@@ -13726,6 +13726,33 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                     </tbody>
                                 </table>
                             </div>
+                            <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
+                                {filteredDrivers.length===0 && <div className="py-8 text-center text-gray-400 text-sm">Belum ada data driver</div>}
+                                {filteredDrivers.map((drv)=>{
+                                    const sisaKasbon = getTotalSisaKasbon(drv.id);
+                                    return (
+                                    <div key={drv.id} className="px-4 py-3 flex items-start gap-3">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                                <span className="font-bold text-gray-900 text-sm">{drv.name}</span>
+                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${drv.isActive!==false?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}`}>{drv.isActive!==false?'Aktif':'Nonaktif'}</span>
+                                            </div>
+                                            <div className="text-xs text-gray-500">{drv.phone||'-'} · {drv.vehicle||'-'}{drv.plateNumber ? ` (${drv.plateNumber})` : ''}</div>
+                                            {drv.address && <div className="text-xs text-gray-400 mt-0.5 truncate">{drv.address}</div>}
+                                        </div>
+                                        <div className="flex flex-col gap-1 items-end shrink-0">
+                                            <button onClick={()=>{setShowKasbonDriver(drv.id);setKasbonForm({driverId:drv.id,jumlah:'',keterangan:'',tanggal:new Date().toISOString().slice(0,10)});setShowKasbonAddForm(false);}} className={`text-xs font-bold px-2 py-1 rounded ${sisaKasbon>0?'bg-red-100 text-red-700':'bg-gray-100 text-gray-500'}`}>
+                                                💳 {sisaKasbon>0?formatRupiah(sisaKasbon):'Kasbon'}
+                                            </button>
+                                            <div className="flex gap-1">
+                                                <button onClick={()=>openDriverForm(drv)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
+                                                <button onClick={()=>deleteDriver(drv.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    );
+                                })}
+                            </div>
                         </Card>
                     )}
 
@@ -13736,7 +13763,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari tarif..." className="border rounded px-3 py-2 text-sm w-56" />
                                 <button onClick={()=>openTarifForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">+ Tambah Tarif</button>
                             </div>
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto hidden md:block">
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="bg-gray-50 text-left">
@@ -13782,6 +13809,29 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                     </tbody>
                                 </table>
                             </div>
+                            <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
+                                {filteredTarifs.length===0 && <div className="py-8 text-center text-gray-400 text-sm">Belum ada data tarif</div>}
+                                {filteredTarifs.map((t)=>(
+                                    <div key={t.id} className="px-4 py-3 flex items-start gap-3">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                                <span className="font-bold text-gray-900 text-sm">{t.from} → {t.to}</span>
+                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${t.pricingType==='per_km'?'bg-purple-100 text-purple-700':'bg-blue-100 text-blue-700'}`}>{t.pricingType==='per_km'?'Per KM':'Per KG'}</span>
+                                            </div>
+                                            <div className="text-xs text-gray-700 mt-0.5">
+                                                <span className="font-bold">{t.pricingType==='per_km' ? `${formatRupiah(safeMoney(t.pricePerKm))}/km` : `${formatRupiah(safeMoney(t.pricePerKg))}/kg`}</span>
+                                                {t.jarak ? ` · ${t.jarak} km` : ''}
+                                                {` · Min: ${formatRupiah(safeMoney(t.minPrice))}`}
+                                            </div>
+                                            {t.note && <div className="text-xs text-gray-400 mt-0.5 truncate">{t.note}</div>}
+                                        </div>
+                                        <div className="flex gap-1 shrink-0">
+                                            <button onClick={()=>openTarifForm(t)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
+                                            <button onClick={()=>deleteTarif(t.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </Card>
                     )}
 
@@ -13802,7 +13852,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 <input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm" />
                                 <button onClick={()=>openTrxForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold ml-auto">+ Transaksi Baru</button>
                             </div>
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto hidden md:block">
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="bg-gray-50 text-left">
@@ -13853,6 +13903,43 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                         })}
                                     </tbody>
                                 </table>
+                            </div>
+                            <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
+                                {pagedTrx.length===0 && <div className="py-8 text-center text-gray-400 text-sm">Tidak ada transaksi ditemukan</div>}
+                                {pagedTrx.map((t)=>{
+                                    const trf = visibleTarifs.find(x=>x.id===t.tarifId);
+                                    return (
+                                    <div key={t.id} className="px-4 py-3">
+                                        <div className="flex items-start gap-3">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                                    <span className="font-bold text-gray-900 text-sm">{t.driverName||'-'}</span>
+                                                    <select value={t.status||'Menunggu'} onChange={e=>updateStatus(t.id,e.target.value)}
+                                                        className={`text-xs font-bold px-2 py-0.5 rounded border-0 cursor-pointer ${statusColor(t.status||'Menunggu')}`}>
+                                                        {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="text-xs text-gray-500">{t.date} · {trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' ? ' (PP)' : ''}</div>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    <span className="text-xs text-gray-400">{trf?.pricingType==='per_km' ? (t.distance ? `${t.distance} km` : '-') : (t.weight ? `${t.weight} kg` : '-')}</span>
+                                                    <span className="font-bold text-blue-700 text-sm">{formatRupiah(safeMoney(t.ongkir))}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col gap-1 items-end shrink-0">
+                                                <div className="flex gap-1">
+                                                    <button onClick={()=>printStruk(t)} title="Cetak" className="text-slate-600 bg-gray-50 p-1.5 rounded hover:bg-gray-100"><IconPrinter /></button>
+                                                    <button onClick={()=>shareViaWA(t)} title="WA" className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded font-bold">WA</button>
+                                                    <button onClick={()=>copyShareLink(t)} title="Link" className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold">Link</button>
+                                                </div>
+                                                <div className="flex gap-1">
+                                                    <button onClick={()=>openTrxForm(t)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
+                                                    <button onClick={()=>deleteTrx(t.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    );
+                                })}
                             </div>
                             {trxTotalPages>1 && (
                                 <div className="flex justify-center gap-2 mt-4">
