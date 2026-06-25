@@ -6802,9 +6802,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             }, {}));
             const statusClass = (status) => status === 'Lunas' ? 'bg-green-100 text-green-800' : status === 'Termin' ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800';
             const statusStyles = {
-                'Lunas': { bar: 'bg-green-500', badge: 'bg-green-100 text-green-800', border: 'border-l-green-500' },
-                'Termin': { bar: 'bg-orange-400', badge: 'bg-orange-100 text-orange-800', border: 'border-l-orange-400' },
-                'Belum Dibayar': { bar: 'bg-red-400', badge: 'bg-red-100 text-red-700', border: 'border-l-red-400' },
+                'Lunas': { bar: 'bg-green-500', badge: 'bg-green-200 text-green-900 font-black', border: 'border-l-green-600' },
+                'Termin': { bar: 'bg-orange-500', badge: 'bg-orange-200 text-orange-900 font-black', border: 'border-l-orange-500' },
+                'Belum Dibayar': { bar: 'bg-red-500', badge: 'bg-red-200 text-red-900 font-black', border: 'border-l-red-500' },
             };
             return (
                 <>
@@ -7054,7 +7054,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const style = statusStyles[status] || statusStyles['Belum Dibayar'];
                                 const paidPct = totals.total > 0 ? Math.min(100, Math.round(paid / totals.total * 100)) : 0;
                                 const initials = (inv.customer || 'C').split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase();
-                                const rowBg = status === 'Lunas' ? 'bg-green-50/60' : status === 'Termin' ? 'bg-amber-50/60' : 'bg-red-50/40';
+                                const rowBg = status === 'Lunas' ? 'bg-green-100/75' : status === 'Termin' ? 'bg-amber-100/75' : 'bg-red-100/75';
                                 return (
                                     <React.Fragment key={inv.id}>
                                         <div className={`border-l-4 ${style.border} ${rowBg} px-5 py-3.5 hover:brightness-95 transition-all`}>
