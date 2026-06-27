@@ -16705,7 +16705,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         </header>
 
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'p-0 bg-gray-100 overflow-hidden' : 'p-4 md:p-8 bg-gray-50/50 overflow-y-auto'}`}>
-                            {activeTab === 'label_maker' && canOpen('label_maker') && <LabelMakerView />}
+                            {activeTab === 'label_maker' && canOpen('label_maker') && <LabelMakerView templates={templates} setTemplates={updateTemplates} />}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {activeTab === 'dashboard' && canOpen('dashboard') && <DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} />}
                                 {activeTab === 'antrean' && canOpen('antrean') && <AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />}
@@ -18005,7 +18005,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
         };
 
         // ── LABEL MAKER ──────────────────────────────────────────────────────────
-        const LabelMakerView = () => {
+        const LabelMakerView = ({ templates, setTemplates }) => {
             const LM_PAPER_SIZES = { A4:{width:210,height:297}, F4:{width:210,height:330}, Letter:{width:215.9,height:279.4} };
             const LM_FONTS = [
                 { label:'Serif (Times)', value:'serif' },
@@ -18030,16 +18030,24 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const [massGenMode, setMassGenMode] = useState('massal');
             const [individualLabels, setIndividualLabels] = useState(LM_DEFAULT.individualLabels);
             const [zoom, setZoom] = useState(0.7);
-            const [savedTemplates, setSavedTemplates] = useState([]);
+            const savedTemplates = Array.isArray(templates?.labelTemplates) ? templates.labelTemplates : [];
             const [showPrintTip, setShowPrintTip] = useState(false);
             const [isExporting, setIsExporting] = useState(false);
             const previewTimerRef = React.useRef(null);
             const [previewKey, setPreviewKey] = React.useState(0);
             const latestForPreview = React.useRef({ massGenMode: 'massal', individualLabels: LM_DEFAULT.individualLabels, massGen: LM_DEFAULT.massGen });
 
+            // Migrasi satu kali: pindahkan template lama dari localStorage ke Supabase (via objek templates)
             useEffect(() => {
-                const saved = localStorage.getItem('simpati_label_templates');
-                if (saved) try { setSavedTemplates(JSON.parse(saved)); } catch(e) {}
+                try {
+                    const oldRaw = localStorage.getItem('simpati_label_templates');
+                    if (!oldRaw) return;
+                    const old = JSON.parse(oldRaw);
+                    if (Array.isArray(old) && old.length > 0 && (!Array.isArray(templates?.labelTemplates) || templates.labelTemplates.length === 0)) {
+                        setTemplates(prev => ({ ...prev, labelTemplates: old }));
+                    }
+                    localStorage.removeItem('simpati_label_templates');
+                } catch(e) {}
             }, []);
 
             const workW = () => paper.width - paper.marginLeft - paper.marginRight;
@@ -18094,7 +18102,23 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 const f = e.target.files[0];
                 if (!f) return;
                 const r = new FileReader();
-                r.onloadend = () => setDesign(d => ({...d, logoUrl:r.result}));
+                r.onload = (ev) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const MAX = 600; // cukup tajam untuk cetak label kecil, ukuran data jauh lebih ringan
+                        let w = img.width, h = img.height;
+                        if (w > MAX || h > MAX) {
+                            if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
+                            else { w = Math.round(w * MAX / h); h = MAX; }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        setDesign(d => ({...d, logoUrl: canvas.toDataURL('image/png')})); // PNG: jaga transparansi & sisi tajam
+                    };
+                    img.onerror = () => setDesign(d => ({...d, logoUrl: ev.target.result})); // fallback bila gagal proses
+                    img.src = ev.target.result;
+                };
                 r.readAsDataURL(f);
             };
             const handlePrint = () => {
@@ -18271,8 +18295,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 const name = prompt('Nama template:');
                 if (!name) return;
                 const updated = [...savedTemplates, {id:Date.now(), name, paper, design, massGen, massGenMode, individualLabels}];
-                setSavedTemplates(updated);
-                localStorage.setItem('simpati_label_templates', JSON.stringify(updated));
+                setTemplates(prev => ({ ...prev, labelTemplates: updated }));
             };
             const doLoad = (t) => {
                 setPaper(t.paper); setDesign(t.design); setMassGen(t.massGen||[]);
@@ -18281,8 +18304,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             };
             const doDelete = (id) => {
                 const updated = savedTemplates.filter(t => t.id !== id);
-                setSavedTemplates(updated);
-                localStorage.setItem('simpati_label_templates', JSON.stringify(updated));
+                setTemplates(prev => ({ ...prev, labelTemplates: updated }));
             };
 
             // Icon mikro
