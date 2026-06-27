@@ -9756,6 +9756,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [genDateTo, setGenDateTo] = useState('');
             const [genPreview, setGenPreview] = useState(null);
             const [genSelectedIds, setGenSelectedIds] = useState(new Set());
+            const [genSearchTerm, setGenSearchTerm] = useState('');
             const [genMonth, setGenMonth] = useState(new Date().toISOString().slice(0,7));
             const getMonthWeeks = (ym) => {
                 if (!ym) return [];
@@ -11566,7 +11567,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <h3 className="font-bold text-lg text-indigo-900">Generate Gaji dari Absensi</h3>
                                         <p className="text-xs text-gray-500 mt-0.5">Hanya karyawan bertipe gaji Harian + PIN finger yang diproses</p>
                                     </div>
-                                    <button onClick={() => { setShowGenModal(false); setGenPreview(null); }} className="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+                                    <button onClick={() => { setShowGenModal(false); setGenPreview(null); setGenSearchTerm(''); }} className="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
                                 </div>
                                 <div className="p-5 space-y-4">
                                     <div>
@@ -11613,10 +11614,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                             <button onClick={() => setGenSelectedIds(new Set())} className={`text-xs px-2 py-1 rounded font-bold border transition-colors ${noneChecked ? 'bg-red-100 text-red-700 border-red-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Batal Semua</button>
                                                         </div>
                                                     </div>
+                                                    <div className="relative">
+                                                        <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                                                        <input type="text" value={genSearchTerm} onChange={e => setGenSearchTerm(e.target.value)} placeholder="Cari nama karyawan..." className="w-full pl-9 pr-8 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
+                                                        {genSearchTerm && <button onClick={() => setGenSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 font-bold text-lg leading-none">&times;</button>}
+                                                    </div>
+                                                    {(() => {
+                                                        const filteredPreview = genSearchTerm.trim() ? genPreview.filter(r => String(r.emp.name || '').toLowerCase().includes(genSearchTerm.trim().toLowerCase())) : genPreview;
+                                                        return (
                                                     <div className="border rounded-lg overflow-hidden">
                                                         <table className="w-full text-sm">
                                                             <thead className="bg-gray-50 text-xs text-gray-600"><tr><th className="p-2 w-8"></th><th className="p-2 text-left">Karyawan</th><th className="p-2 text-center">Hadir</th><th className="p-2 text-center">Lembur</th><th className="p-2 text-right">Est. Gaji</th></tr></thead>
-                                                            <tbody>{genPreview.map(r => {
+                                                            <tbody>{filteredPreview.length === 0 ? (
+                                                                <tr><td colSpan="5" className="p-4 text-center text-gray-400 italic text-xs">Tidak ada karyawan cocok dengan "{genSearchTerm}"</td></tr>
+                                                            ) : filteredPreview.map(r => {
                                                                 if (r.alreadyRekaped) {
                                                                     return (
                                                                         <tr key={r.emp.id} className="border-t bg-orange-50">
@@ -11646,6 +11657,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                             })}</tbody>
                                                         </table>
                                                     </div>
+                                                        );
+                                                    })()}
                                                     <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-xs">
                                                         <span className="text-indigo-700 font-bold">{selectedRows.length} dari {genPreview.length} karyawan dipilih</span>
                                                         <span className="text-indigo-900 font-black">Total: {formatRupiah(totalEstGaji)}</span>
@@ -11660,7 +11673,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     )}
                                                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">Data ini akan ditambahkan ke riwayat gaji harian masing-masing karyawan. Anda bisa koreksi sebelum rekap.</div>
                                                     <div className="flex gap-2 pt-1">
-                                                        <button onClick={() => { setShowGenModal(false); setGenPreview(null); setGenSelectedIds(new Set()); }} className="flex-1 py-2 bg-gray-200 rounded-lg font-bold text-sm">Batal</button>
+                                                        <button onClick={() => { setShowGenModal(false); setGenPreview(null); setGenSelectedIds(new Set()); setGenSearchTerm(''); }} className="flex-1 py-2 bg-gray-200 rounded-lg font-bold text-sm">Batal</button>
                                                         <button onClick={doGenerateSalaryFromAbsensi} disabled={selectedRows.length === 0} className="flex-1 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed">Simpan {selectedRows.length > 0 ? `(${selectedRows.length})` : ''} ke Riwayat Gaji</button>
                                                     </div>
                                                 </div>
