@@ -15549,6 +15549,20 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 return merged;
             };
 
+            // Gabungkan daftar bahan per-item (by id) agar bahan yang baru ditambahkan tidak hilang
+            // saat sinkronisasi. Item tanpa id (data lama) dipertahankan dari sisi yang lebih banyak.
+            const mergeMaterialLists = (localMats, remoteMats) => {
+                const local = Array.isArray(localMats) ? localMats : [];
+                const remote = Array.isArray(remoteMats) ? remoteMats : [];
+                const localWithId = local.filter(m => m && m.id != null);
+                const remoteWithId = remote.filter(m => m && m.id != null);
+                const localNoId = local.filter(m => m && m.id == null);
+                const remoteNoId = remote.filter(m => m && m.id == null);
+                const mergedWithId = mergeRecordLists(localWithId, remoteWithId);
+                const noId = localNoId.length >= remoteNoId.length ? localNoId : remoteNoId;
+                return [...mergedWithId, ...noId];
+            };
+
             const mergeOrderRecords = (localOrder, remoteOrder) => {
                 if (!localOrder) return remoteOrder;
                 if (!remoteOrder) return localOrder;
@@ -15580,8 +15594,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     merged.shipped = preferLocal ? { ...(localOrder.shipped || {}) } : { ...(remoteOrder.shipped || {}) };
                 }
 
-                if ((!merged.materials || merged.materials.length === 0) && Array.isArray(remoteOrder.materials)) merged.materials = remoteOrder.materials;
-                if (remoteTime > localTime && Array.isArray(remoteOrder.materials) && remoteOrder.materials.length > 0) merged.materials = remoteOrder.materials;
+                merged.materials = mergeMaterialLists(localOrder.materials, remoteOrder.materials);
                 return merged;
             };
 
