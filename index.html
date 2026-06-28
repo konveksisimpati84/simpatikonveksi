@@ -3817,7 +3817,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
         const PembelianBahanView = ({ orders, setOrders, showToast, templates, manualPurchases, setManualPurchases, manualVendorPayments, setManualVendorPayments }) => {
             const [selectedOrder, setSelectedOrder] = useState(null);
             const [materials, setMaterials] = useState([]);
-            const [activeTab, setActiveTab] = useState('daftar_order'); // 'daftar_order' atau 'rekap_vendor'
+            const [activeTab, setActiveTab] = useState('daftar_order'); // 'daftar_order', 'rekap_vendor', atau 'riwayat_bahan'
             const [searchTerm, setSearchTerm] = useState('');
             const [statusFilter, setStatusFilter] = useState('Semua');
             const [paymentStatusFilter, setPaymentStatusFilter] = useState('Semua');
@@ -3829,6 +3829,10 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const [manualFormOpen, setManualFormOpen] = useState(null);
             const [manualFormRow, setManualFormRow] = useState({ name: '', spec: '', qty: '', unit: 'Meter', price: '', note: '', purchaseStatus: 'Sudah Dibeli' });
             const [editManualId, setEditManualId] = useState(null);
+            const [riwayatSearch, setRiwayatSearch] = useState('');
+            const [riwayatYearFilter, setRiwayatYearFilter] = useState('Semua');
+            const [expandedRiwayatIds, setExpandedRiwayatIds] = useState({});
+            const toggleRiwayat = (id) => setExpandedRiwayatIds(prev => ({ ...prev, [id]: !prev[id] }));
 
             const materialOrders = (orders || []).filter(isVisibleOrder);
             const activeOrders = materialOrders.filter(o => {
@@ -3851,6 +3855,18 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const materialNameSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.name || '').trim()).filter(Boolean)))].sort();
             const vendorSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.vendor || '').trim()).filter(Boolean)))].sort();
             const specSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.spec || mat.color || '').trim()).filter(Boolean)))].sort();
+
+            // Riwayat Bahan: semua order yang punya bahan (termasuk Selesai & Terkirim) untuk referensi historis
+            const riwayatBahanOrders = materialOrders
+                .filter(o => orderNeedsMaterials(o) && getActiveMaterials(o).length > 0)
+                .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+            const riwayatYears = ['Semua', ...new Set(riwayatBahanOrders.map(o => String(o.date || o.createdAt || '').slice(0, 4)).filter(Boolean)).values()].filter(Boolean);
+            const filteredRiwayatBahan = riwayatBahanOrders.filter(o => {
+                const yearMatch = riwayatYearFilter === 'Semua' || String(o.date || o.createdAt || '').startsWith(riwayatYearFilter);
+                const searchMatch = !riwayatSearch.trim() || matchesSearch(orderSearchFields(o), riwayatSearch);
+                return yearMatch && searchMatch;
+            });
+            const { page: riwayatPage, setPage: setRiwayatPage, totalPages: riwayatTotalPages, paged: pagedRiwayat, total: riwayatTotal } = usePagination(filteredRiwayatBahan, 20);
 
             const openMaterialModal = (order) => {
                 setSelectedOrder(order);
@@ -4583,6 +4599,128 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 </Card>
             );
 
+            const renderRiwayatBahan = () => (
+                <Card>
+                    <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                        <div className="flex-1">
+                            <SearchField value={riwayatSearch} onChange={setRiwayatSearch} placeholder="Cari klien, jenis barang, nama bahan, vendor..." />
+                        </div>
+                        <select
+                            className="w-full sm:w-44 p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium"
+                            value={riwayatYearFilter}
+                            onChange={e => { setRiwayatYearFilter(e.target.value); setRiwayatPage(1); }}
+                        >
+                            {riwayatYears.map(y => <option key={y} value={y}>{y === 'Semua' ? 'Semua Tahun' : `Tahun ${y}`}</option>)}
+                        </select>
+                    </div>
+                    <div className="text-xs text-gray-500 mb-3">{filteredRiwayatBahan.length} order ditemukan — klik ▼ pada baris untuk lihat daftar bahan</div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 border-b border-gray-200">
+                                    <th className="p-3 text-sm font-semibold text-gray-600">Tanggal</th>
+                                    <th className="p-3 text-sm font-semibold text-gray-600">ID Order</th>
+                                    <th className="p-3 text-sm font-semibold text-gray-600">Klien / Instansi</th>
+                                    <th className="p-3 text-sm font-semibold text-gray-600">Barang & Qty</th>
+                                    <th className="p-3 text-sm font-semibold text-gray-600">Jumlah Bahan</th>
+                                    <th className="p-3 text-sm font-semibold text-gray-600">Total Biaya Bahan</th>
+                                    <th className="p-3 text-sm font-semibold text-gray-600">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pagedRiwayat.map(order => {
+                                    const mats = getActiveMaterials(order);
+                                    const totalBahan = mats.reduce((sum, m) => sum + getMaterialLineTotal(m), 0);
+                                    const isExpanded = !!expandedRiwayatIds[order.id];
+                                    const vendors = [...new Set(mats.map(m => normalizeVendorName(m.vendor)))];
+                                    return (
+                                        <React.Fragment key={order.id}>
+                                            <tr
+                                                className="border-b border-gray-100 hover:bg-amber-50 transition-colors cursor-pointer"
+                                                onClick={() => toggleRiwayat(order.id)}
+                                            >
+                                                <td className="p-3 text-sm text-gray-500">{String(order.date || '').slice(0, 10) || '-'}</td>
+                                                <td className="p-3 text-sm font-medium text-blue-600">{order.id}</td>
+                                                <td className="p-3 text-sm font-bold text-gray-800">{order.client}</td>
+                                                <td className="p-3 text-sm text-gray-600">{order.type} <span className="font-bold">({order.total} pcs)</span></td>
+                                                <td className="p-3 text-sm text-gray-700">
+                                                    <span className="font-bold text-indigo-700">{mats.length}</span> jenis
+                                                    <span className="ml-1 text-xs text-gray-400">▼</span>
+                                                </td>
+                                                <td className="p-3 text-sm font-bold text-red-700">{formatRupiah(totalBahan)}</td>
+                                                <td className="p-3">
+                                                    <Badge status={getMaterialStatusLabel(order.materialStatus || 'Belum')} />
+                                                </td>
+                                            </tr>
+                                            {isExpanded && (
+                                                <tr className="bg-amber-50/60">
+                                                    <td colSpan="7" className="px-6 py-4">
+                                                        <div className="text-xs font-bold text-gray-500 uppercase mb-3 tracking-wide">
+                                                            Rincian Bahan — {order.client} ({order.type}, {order.total} pcs)
+                                                        </div>
+                                                        <div className="overflow-x-auto">
+                                                            <table className="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
+                                                                <thead>
+                                                                    <tr className="bg-gray-100">
+                                                                        <th className="px-3 py-2 text-left font-semibold text-gray-600">Nama Bahan</th>
+                                                                        <th className="px-3 py-2 text-left font-semibold text-gray-600">Spesifikasi</th>
+                                                                        <th className="px-3 py-2 text-center font-semibold text-gray-600">Qty</th>
+                                                                        <th className="px-3 py-2 text-left font-semibold text-gray-600">Satuan</th>
+                                                                        <th className="px-3 py-2 text-right font-semibold text-gray-600">Harga Satuan</th>
+                                                                        <th className="px-3 py-2 text-right font-semibold text-gray-600">Total</th>
+                                                                        <th className="px-3 py-2 text-left font-semibold text-gray-600">Vendor / Toko</th>
+                                                                        <th className="px-3 py-2 text-center font-semibold text-gray-600">Tgl Beli</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {mats.map((mat, i) => (
+                                                                        <tr key={mat.id || i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                                                            <td className="px-3 py-2 font-bold text-gray-800">{mat.name || '-'}</td>
+                                                                            <td className="px-3 py-2 text-gray-600">{mat.spec || mat.color || '-'}</td>
+                                                                            <td className="px-3 py-2 text-center font-bold text-indigo-700">{mat.qty || 0}</td>
+                                                                            <td className="px-3 py-2 text-gray-600">{mat.unit || '-'}</td>
+                                                                            <td className="px-3 py-2 text-right text-gray-700">{formatRupiah(mat.price || 0)}</td>
+                                                                            <td className="px-3 py-2 text-right font-bold text-red-700">{formatRupiah(getMaterialLineTotal(mat))}</td>
+                                                                            <td className="px-3 py-2 font-medium text-blue-700">{normalizeVendorName(mat.vendor)}</td>
+                                                                            <td className="px-3 py-2 text-center text-gray-500">{String(mat.purchaseDate || '').slice(0, 10) || '-'}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                                    <tr className="bg-red-50 border-t-2 border-red-200">
+                                                                        <td colSpan="5" className="px-3 py-2 font-bold text-gray-700 text-right">TOTAL BIAYA BAHAN:</td>
+                                                                        <td className="px-3 py-2 font-black text-red-700 text-right">{formatRupiah(totalBahan)}</td>
+                                                                        <td colSpan="2" className="px-3 py-2 text-xs text-gray-500">
+                                                                            {vendors.length > 0 && <span>Vendor: {vendors.join(', ')}</span>}
+                                                                        </td>
+                                                                    </tr>
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                        <div className="mt-2 flex justify-end">
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); openMaterialModal(order); }}
+                                                                className="text-xs bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
+                                                            >
+                                                                <IconEdit /> Edit Bahan Order Ini
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
+                                {filteredRiwayatBahan.length === 0 && (
+                                    <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">
+                                        {riwayatSearch ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada riwayat pembelian bahan.'}
+                                    </td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    <Paginator page={riwayatPage} setPage={setRiwayatPage} totalPages={riwayatTotalPages} total={riwayatTotal} pageSize={20} label="riwayat order bahan" />
+                </Card>
+            );
+
             const getManualVendorPaidTotal = (vendorName, batchDateKey) => {
                 const key = getMaterialBatchKey(vendorName, batchDateKey);
                 return safeArray((manualVendorPayments || {})[key]).reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
@@ -4893,49 +5031,63 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             return (
                 <div className="space-y-6">
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-800">{activeTab === 'rekap_vendor' ? 'Rekap Pembelian Bahan' : 'Manajemen Pembelian Bahan'}</h2>
-                        <p className="text-gray-500 text-sm mt-1">{activeTab === 'rekap_vendor' ? 'Rekap nota bahan per vendor/toko beserta termin pembayaran.' : 'Input pembelian bahan berdasarkan order produksi yang sudah masuk.'}</p>
+                        <h2 className="text-2xl font-bold text-gray-800">
+                            {activeTab === 'rekap_vendor' ? 'Rekap Pembelian Bahan' : activeTab === 'riwayat_bahan' ? 'Riwayat Pembelian Bahan' : 'Manajemen Pembelian Bahan'}
+                        </h2>
+                        <p className="text-gray-500 text-sm mt-1">
+                            {activeTab === 'rekap_vendor' ? 'Rekap nota bahan per vendor/toko beserta termin pembayaran.'
+                            : activeTab === 'riwayat_bahan' ? 'Lihat semua rincian bahan dari order lama sebagai referensi. Klik baris untuk melihat detail.'
+                            : 'Input pembelian bahan berdasarkan order produksi yang sudah masuk.'}
+                        </p>
                     </div>
 
                     <div className="flex gap-4 border-b border-gray-200 pb-2">
-                        <button 
+                        <button
                             onClick={() => setActiveTab('daftar_order')}
                             className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeTab === 'daftar_order' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                         >
                             Input Pembelian
                         </button>
-                        <button 
+                        <button
                             onClick={() => setActiveTab('rekap_vendor')}
                             className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'rekap_vendor' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                         >
                             <IconBarChart /> Rekap Pembelian
                         </button>
+                        <button
+                            onClick={() => setActiveTab('riwayat_bahan')}
+                            className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'riwayat_bahan' ? 'border-amber-600 text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        >
+                            <IconHistory /> Riwayat Bahan
+                        </button>
                     </div>
 
-                    <Card>
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                            <div className="md:col-span-2">
-                                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan, status..." />
+                    {activeTab !== 'riwayat_bahan' && (
+                        <Card>
+                            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                                <div className="md:col-span-2">
+                                    <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan, status..." />
+                                </div>
+                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                                    <option value="Semua">Semua Status Bahan</option>
+                                    <option value="Belum">Belum</option>
+                                    <option value="Direkap">Direkap</option>
+                                    <option value="Dibeli Sebagian">Dibeli Sebagian</option>
+                                    <option value="Selesai">Selesai</option>
+                                    <option value="Tidak Perlu">Tidak Perlu</option>
+                                </select>
+                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={paymentStatusFilter} onChange={e => setPaymentStatusFilter(e.target.value)}>
+                                    <option value="Semua">Semua Pembayaran</option>
+                                    <option value="Belum Bayar">Belum Bayar</option>
+                                    <option value="Termin / Bayar Sebagian">Termin / Bayar Sebagian</option>
+                                    <option value="Lunas">Lunas</option>
+                                </select>
+                                <input type="date" className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dateFilter} onChange={e => setDateFilter(e.target.value)} title="Filter tanggal masuk, deadline, atau tanggal beli" />
                             </div>
-                            <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                                <option value="Semua">Semua Status Bahan</option>
-                                <option value="Belum">Belum</option>
-                                <option value="Direkap">Direkap</option>
-                                <option value="Dibeli Sebagian">Dibeli Sebagian</option>
-                                <option value="Selesai">Selesai</option>
-                                <option value="Tidak Perlu">Tidak Perlu</option>
-                            </select>
-                            <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={paymentStatusFilter} onChange={e => setPaymentStatusFilter(e.target.value)}>
-                                <option value="Semua">Semua Pembayaran</option>
-                                <option value="Belum Bayar">Belum Bayar</option>
-                                <option value="Termin / Bayar Sebagian">Termin / Bayar Sebagian</option>
-                                <option value="Lunas">Lunas</option>
-                            </select>
-                            <input type="date" className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dateFilter} onChange={e => setDateFilter(e.target.value)} title="Filter tanggal masuk, deadline, atau tanggal beli" />
-                        </div>
-                    </Card>
+                        </Card>
+                    )}
 
-                    {activeTab === 'daftar_order' ? renderDaftarOrder() : renderRekapVendor()}
+                    {activeTab === 'daftar_order' ? renderDaftarOrder() : activeTab === 'rekap_vendor' ? renderRekapVendor() : renderRiwayatBahan()}
 
                     {selectedOrder && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
