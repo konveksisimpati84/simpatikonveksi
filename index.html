@@ -4374,14 +4374,38 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         _syncUpdatedAt: now
                     }));
                 const activeMaterialCount = validMaterials.filter(m => !m.isDeleted).length;
-                
+
+                // Deteksi bahan yang vendor/tanggalnya diedit agar pembayaran tidak yatim (Bug A).
+                const oldMaterialsById = new Map(getActiveMaterials(selectedOrder).map(m => [String(m.id), m]));
+                const newActiveBatchKeys = new Set(validMaterials.filter(x => !x.isDeleted).map(x => getMaterialBatchKey(x.vendor, getMaterialBatchDateKey(selectedOrder, x))));
+                const rekeyMoves = validMaterials
+                    .filter(m => !m.isDeleted && oldMaterialsById.has(String(m.id)))
+                    .map(m => {
+                        const oldM = oldMaterialsById.get(String(m.id));
+                        return { oldKey: getMaterialBatchKey(oldM.vendor, getMaterialBatchDateKey(selectedOrder, oldM)), newKey: getMaterialBatchKey(m.vendor, getMaterialBatchDateKey(selectedOrder, m)) };
+                    })
+                    .filter(mv => mv.oldKey !== mv.newKey);
+
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) === String(selectedOrder.id)) {
                         const nextStatus = activeMaterialCount === 0 ? 'Belum' : 'Selesai';
                         const nextOrderStatus = activeMaterialCount === 0 ? (hasProductionStarted(o) ? o.status : 'Pending') : getOrderStatusAfterMaterialPurchase(o);
-                        return { 
-                            ...o, 
-                            materials: validMaterials, 
+                        // Pindahkan pembayaran & status-beli dari batchKey lama ke baru HANYA bila batchKey
+                        // lama tidak lagi dipakai bahan aktif manapun (akan yatim). Uang tidak pernah hilang.
+                        const nextPayments = { ...(o.materialPayments || {}) };
+                        const nextPurchasedBatches = { ...(o.materialPurchasedBatches || {}) };
+                        rekeyMoves.forEach(move => {
+                            if (!newActiveBatchKeys.has(move.oldKey) && Array.isArray(nextPayments[move.oldKey]) && nextPayments[move.oldKey].length) {
+                                nextPayments[move.newKey] = [...(nextPayments[move.newKey] || []), ...nextPayments[move.oldKey]];
+                                delete nextPayments[move.oldKey];
+                                if (nextPurchasedBatches[move.oldKey]) { nextPurchasedBatches[move.newKey] = true; delete nextPurchasedBatches[move.oldKey]; }
+                            }
+                        });
+                        return {
+                            ...o,
+                            materials: validMaterials,
+                            materialPayments: nextPayments,
+                            materialPurchasedBatches: nextPurchasedBatches,
                             materialStatus: nextStatus,
                             materialPurchasedAt: nextStatus === 'Selesai' ? (o.materialPurchasedAt || now) : o.materialPurchasedAt,
                             materialLastActionAt: now,
