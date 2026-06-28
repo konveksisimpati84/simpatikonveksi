@@ -16202,6 +16202,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setRiwayatPengiriman(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('riwayatPengiriman', valid);
                         safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(merged));
@@ -16219,6 +16220,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setExpenses(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_expenses_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('expenses', valid);
                         safeLocalSet('simpati_expenses_sync', JSON.stringify(merged));
@@ -16236,6 +16238,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setInvoices(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_invoices_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('invoices', valid);
                         safeLocalSet('simpati_invoices_sync', JSON.stringify(merged));
@@ -16253,6 +16256,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setClients(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_clients_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('clients', valid);
                         safeLocalSet('simpati_clients_sync', JSON.stringify(merged));
@@ -16270,6 +16274,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setManualPurchases(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('manualPurchases', valid);
                         safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(merged));
