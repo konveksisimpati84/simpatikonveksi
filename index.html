@@ -5172,8 +5172,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const manualPaidAlready = getManualVendorPaidTotal(vendor, batchDateKey);
                 const manualRemaining = Math.max(0, manualTotal - manualPaidAlready);
                 const totalRemaining = orderRemaining + manualRemaining;
-                const orderShare = totalRemaining > 0 ? Math.round((orderRemaining / totalRemaining) * totalAmount) : (orderGroups.length > 0 ? totalAmount : 0);
-                const manualShare = totalAmount - orderShare;
+                if (totalRemaining <= 0) { showToast("Nota ini sudah lunas, tidak ada sisa tagihan.", "error"); return; }
+                const payAmount = Math.min(totalAmount, totalRemaining); // jangan melebihi sisa tagihan agar tidak ada uang "hilang"
+                let orderShare = Math.min(orderRemaining, Math.round((orderRemaining / totalRemaining) * payAmount));
+                let manualShare = Math.min(manualRemaining, payAmount - orderShare);
+                orderShare = Math.min(orderRemaining, payAmount - manualShare); // sisa pembulatan dikembalikan ke order
                 if (orderShare > 0 && orderGroups.length > 0) {
                     let left = orderShare;
                     setOrders(prevOrders => prevOrders.map(order => {
@@ -5196,7 +5199,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     setManualVendorPayments(prev => ({ ...(prev || {}), [batchKey]: [...safeArray((prev || {})[batchKey]), payment] }));
                 }
                 setPaymentInputs(prev => ({ ...prev, [inputKey]: { amount: '', note: '', date: '', method: 'Transfer' } }));
-                showToast(`Pembayaran ${formatRupiah(totalAmount)} berhasil dicatat.`, "success");
+                showToast(payAmount < totalAmount ? `Pembayaran dicatat ${formatRupiah(payAmount)} (dibatasi sisa tagihan).` : `Pembayaran ${formatRupiah(payAmount)} berhasil dicatat.`, "success");
             };
 
             const renderRekapVendor = () => {
