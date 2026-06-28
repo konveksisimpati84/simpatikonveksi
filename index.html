@@ -5182,7 +5182,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
                         const paid = getVendorPaidTotal(order, vendor, batchDateKey);
                         const rem = Math.max(0, t - paid);
-                        const applied = rem > 0 ? Math.min(rem, left) : Math.min(left, t);
+                        const applied = Math.min(rem, left);
                         if (applied <= 0) return order;
                         left -= applied;
                         const nextPayments = { ...(order.materialPayments || {}) };
