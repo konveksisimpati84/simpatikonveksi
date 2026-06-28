@@ -3904,15 +3904,17 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) === String(selectedOrder.id)) {
-                        const nextStatus = activeMaterialCount === 0 ? 'Belum' : 'Selesai';
+                        // 'Direkap' agar order tetap terlihat di daftar aktif pembelian bahan;
+                        // status 'Selesai' baru ditetapkan setelah user menandai per-vendor sudah dibeli.
+                        const nextStatus = activeMaterialCount === 0 ? 'Belum' : 'Direkap';
                         const nextOrderStatus = activeMaterialCount === 0 ? (hasProductionStarted(o) ? o.status : 'Pending') : getOrderStatusAfterMaterialPurchase(o);
-                        return { 
-                            ...o, 
-                            materials: validMaterials, 
+                        return {
+                            ...o,
+                            materials: validMaterials,
                             materialStatus: nextStatus,
-                            materialPurchasedAt: nextStatus === 'Selesai' ? (o.materialPurchasedAt || now) : o.materialPurchasedAt,
+                            materialPurchasedAt: o.materialPurchasedAt,
                             materialLastActionAt: now,
-                            materialLastAction: nextStatus === 'Selesai' ? 'Bahan Diinput dan Sudah Dibelanjakan' : 'Disimpan',
+                            materialLastAction: activeMaterialCount === 0 ? 'Disimpan' : 'Bahan Diinput - Menunggu Konfirmasi Pembelian',
                             status: nextOrderStatus
                         };
                     }
