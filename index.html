@@ -336,9 +336,9 @@
         const getActiveMaterials = (order) => (order?.materials || []).filter(item => item && !item.isDeleted);
 
         const getMaterialStatusLabel = (status) => {
-            if (status === 'Selesai') return 'Sudah Dibeli';
+            if (status === 'Selesai') return 'Selesai';
             if (status === 'Dibeli Sebagian') return 'Dibeli Sebagian';
-            if (status === 'Direkap' || status === 'Dicetak') return 'Sudah Direkap';
+            if (status === 'Direkap' || status === 'Dicetak') return 'Direkap';
             if (status === 'Tidak Perlu') return 'Tidak Perlu Bahan';
             return 'Belum Dibeli';
         };
@@ -385,6 +385,20 @@
                 const [vendor, batchDateKey] = key.split('|||');
                 return isVendorMaterialSettled(order, vendor, batchDateKey);
             });
+        };
+
+        const computeMaterialStatus = (order) => {
+            const activeMats = getActiveMaterials(order);
+            if (activeMats.length === 0) return 'Belum';
+            const batchKeys = getOrderMaterialBatchKeys(order);
+            if (batchKeys.length === 0) return 'Direkap';
+            const settledCount = batchKeys.filter(key => {
+                const [vendor, batchDateKey] = key.split('|||');
+                return isVendorMaterialSettled(order, vendor, batchDateKey);
+            }).length;
+            if (settledCount === 0) return 'Direkap';
+            if (settledCount === batchKeys.length) return 'Selesai';
+            return 'Dibeli Sebagian';
         };
 
         const getWorkLogTakenQty = (log) => parseInt(log?.qty) || 0;
@@ -3838,7 +3852,8 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const activeOrders = materialOrders.filter(o => {
                 const status = o?.materialStatus || 'Belum';
                 const orderStatus = o?.status || 'Pending';
-                return orderNeedsMaterials(o) && !o?.isArchived && orderStatus !== 'Terkirim' && ['Belum', 'Dibeli Sebagian', 'Direkap', 'Dicetak'].includes(status);
+                return orderNeedsMaterials(o) && !o?.isArchived && !o?.materialIsArchived && orderStatus !== 'Terkirim'
+                    && ['Belum', 'Direkap', 'Dibeli Sebagian', 'Dicetak', 'Selesai'].includes(status);
             });
             const rekapOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.isArchived && o?.status !== 'Terkirim' && getActiveMaterials(o).length > 0);
             const filterOrder = (order) => {
@@ -3856,10 +3871,10 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const vendorSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.vendor || '').trim()).filter(Boolean)))].sort();
             const specSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.spec || mat.color || '').trim()).filter(Boolean)))].sort();
 
-            // Riwayat Bahan: semua order yang punya bahan (termasuk Selesai & Terkirim) untuk referensi historis
+            // Riwayat Bahan: hanya order yang sudah diarsipkan (materialIsArchived=true) untuk referensi historis
             const riwayatBahanOrders = materialOrders
-                .filter(o => orderNeedsMaterials(o) && getActiveMaterials(o).length > 0)
-                .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+                .filter(o => orderNeedsMaterials(o) && getActiveMaterials(o).length > 0 && !!o.materialIsArchived)
+                .sort((a, b) => new Date(b.materialArchivedAt || b.date || b.createdAt || 0) - new Date(a.materialArchivedAt || a.date || a.createdAt || 0));
             const riwayatYears = ['Semua', ...new Set(riwayatBahanOrders.map(o => String(o.date || o.createdAt || '').slice(0, 4)).filter(Boolean)).values()].filter(Boolean);
             const filteredRiwayatBahan = riwayatBahanOrders.filter(o => {
                 const yearMatch = riwayatYearFilter === 'Semua' || String(o.date || o.createdAt || '').startsWith(riwayatYearFilter);
@@ -3947,14 +3962,14 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (!ids.some(id => String(id) === String(o.id))) return o;
                     const nextMaterials = materialsByOrder[o.id] || o.materials || [];
+                    const printedMatsCount = getActiveMaterials({ materials: nextMaterials }).length;
                     return {
                         ...o,
                         materials: nextMaterials,
-                        materialStatus: getActiveMaterials({ materials: nextMaterials }).length > 0 ? 'Selesai' : 'Belum',
-                        status: getActiveMaterials({ materials: nextMaterials }).length > 0 ? getOrderStatusAfterMaterialPurchase(o) : o.status,
+                        materialStatus: printedMatsCount > 0 ? 'Direkap' : 'Belum',
                         materialPrintedAt: now,
                         materialLastActionAt: now,
-                        materialLastAction: 'Direkap dan Sudah Dibelanjakan',
+                        materialLastAction: 'Direkap - Menunggu Konfirmasi Pembelian',
                         materialPrintCount: (parseInt(o.materialPrintCount) || 0) + 1
                     };
                 }));
@@ -3990,12 +4005,12 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         { id: genId('PAY-'), date: payDate, amount, method, note, vendor: vendorKey, batchDateKey, createdAt: now }
                     ];
                     const checkOrder = { ...o, materialPayments: nextPayments };
-                    const allSettled = areAllOrderMaterialsSettled(checkOrder);
-                    const anyPurchased = Object.values(checkOrder.materialPurchasedVendors || {}).some(Boolean) || Object.values(checkOrder.materialPurchasedBatches || {}).some(Boolean);
+                    const nextMatStatus = computeMaterialStatus(checkOrder);
+                    const allSettled = nextMatStatus === 'Selesai';
                     return {
                         ...o,
                         materialPayments: nextPayments,
-                        materialStatus: allSettled ? 'Selesai' : (anyPurchased ? 'Dibeli Sebagian' : (o.materialStatus === 'Belum' ? 'Direkap' : (o.materialStatus || 'Direkap'))),
+                        materialStatus: nextMatStatus,
                         materialPurchasedAt: allSettled ? now : o.materialPurchasedAt,
                         materialLastActionAt: now,
                         materialLastAction: allSettled ? 'Pembayaran Lunas' : 'Tambah Pembayaran Termin',
@@ -4033,10 +4048,12 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         { id: `PAY-${Date.now()}-${order.id}`, date: payDate, amount: applied, method, note, vendor: normalizeVendorName(vendorName), batchDateKey, createdAt: now }
                     ];
                     const checkOrder = { ...order, materialPayments: nextPayments };
+                    const nextMatStatus = computeMaterialStatus(checkOrder);
                     return {
                         ...order,
                         materialPayments: nextPayments,
-                        materialStatus: areAllOrderMaterialsSettled(checkOrder) ? 'Selesai' : 'Dibeli Sebagian',
+                        materialStatus: nextMatStatus,
+                        materialPurchasedAt: nextMatStatus === 'Selesai' ? now : order.materialPurchasedAt,
                         materialLastActionAt: now,
                         materialLastAction: 'Tambah Pembayaran Termin Vendor',
                         status: getOrderStatusAfterMaterialPurchase(order)
@@ -4060,6 +4077,26 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     };
                 }));
                 showToast("Termin pembayaran dihapus.", "success");
+            };
+
+            const archiveMaterialOrder = (orderId) => {
+                const now = new Date().toISOString();
+                setOrders(prevOrders => prevOrders.map(o =>
+                    String(o.id) === String(orderId)
+                        ? { ...o, materialIsArchived: true, materialArchivedAt: now, materialLastActionAt: now, materialLastAction: 'Diarsipkan ke Riwayat Bahan' }
+                        : o
+                ));
+                showToast("Order diarsipkan ke Riwayat Bahan.", "success");
+            };
+
+            const unarchiveMaterialOrder = (orderId) => {
+                const now = new Date().toISOString();
+                setOrders(prevOrders => prevOrders.map(o =>
+                    String(o.id) === String(orderId)
+                        ? { ...o, materialIsArchived: false, materialLastActionAt: now, materialLastAction: 'Dikembalikan ke Daftar Aktif' }
+                        : o
+                ));
+                showToast("Order dikembalikan ke daftar aktif.", "success");
             };
 
             const editVendorPayment = (orderId, vendorName, batchDateKey, payment) => {
@@ -4107,11 +4144,12 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPurchasedBatches = { ...(o.materialPurchasedBatches || {}), [batchKey]: true };
                     const checkOrder = { ...o, materialPurchasedBatches: nextPurchasedBatches };
-                    const allSettled = areAllOrderMaterialsSettled(checkOrder);
+                    const nextMatStatus = computeMaterialStatus(checkOrder);
+                    const allSettled = nextMatStatus === 'Selesai';
                     return {
                         ...o,
                         materialPurchasedBatches: nextPurchasedBatches,
-                        materialStatus: allSettled ? 'Selesai' : 'Dibeli Sebagian',
+                        materialStatus: nextMatStatus,
                         materialPurchasedAt: allSettled ? now : o.materialPurchasedAt,
                         materialLastActionAt: now,
                         materialLastAction: allSettled ? 'Sudah Dibeli & Lunas' : `Vendor ${vendorKey} Sudah Dibelanjakan`,
@@ -4562,12 +4600,23 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                     <Badge status={getMaterialStatusLabel(matStatus)} />
                                                 </td>
                                                 <td className="p-3 text-center">
-                                                    <button
-                                                        onClick={() => openMaterialModal(order)}
-                                                        className="text-sm bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1 mx-auto"
-                                                    >
-                                                        <IconEdit /> Rincian Bahan
-                                                    </button>
+                                                    <div className="flex flex-col gap-1 items-center">
+                                                        <button
+                                                            onClick={() => openMaterialModal(order)}
+                                                            className="text-sm bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
+                                                        >
+                                                            <IconEdit /> Rincian Bahan
+                                                        </button>
+                                                        {matStatus === 'Selesai' && (
+                                                            <button
+                                                                onClick={() => archiveMaterialOrder(order.id)}
+                                                                className="text-xs bg-green-50 border border-green-300 text-green-700 hover:bg-green-100 px-3 py-1 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
+                                                                title="Pindahkan ke Riwayat Bahan"
+                                                            >
+                                                                ✓ Arsipkan
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                             {isExpanded && mats.length > 0 && (
@@ -4695,12 +4744,19 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                                 </tbody>
                                                             </table>
                                                         </div>
-                                                        <div className="mt-2 flex justify-end">
+                                                        <div className="mt-2 flex justify-end gap-2 flex-wrap">
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); openMaterialModal(order); }}
                                                                 className="text-xs bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
                                                             >
-                                                                <IconEdit /> Edit Bahan Order Ini
+                                                                <IconEdit /> Edit Bahan
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); unarchiveMaterialOrder(order.id); }}
+                                                                className="text-xs bg-amber-50 border border-amber-300 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
+                                                                title="Kembalikan ke daftar aktif untuk beli bahan lagi"
+                                                            >
+                                                                ↩ Beli Lagi
                                                             </button>
                                                         </div>
                                                     </td>
@@ -4711,7 +4767,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 })}
                                 {filteredRiwayatBahan.length === 0 && (
                                     <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">
-                                        {riwayatSearch ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada riwayat pembelian bahan.'}
+                                        {riwayatSearch ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada riwayat bahan yang diarsipkan. Order dengan status Selesai bisa diarsipkan dari tab Daftar Order.'}
                                     </td></tr>
                                 )}
                             </tbody>
@@ -10821,6 +10877,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     // Menyiapkan field bahan (materials) agar order lama tidak error
                     if (!updatedO.materials || !Array.isArray(updatedO.materials)) updatedO.materials = [];
                     if (!updatedO.materialStatus) updatedO.materialStatus = 'Belum';
+                    if (updatedO.materialStatus === 'Dicetak') updatedO.materialStatus = 'Direkap';
                     if (!updatedO.materialPrintCount) updatedO.materialPrintCount = 0;
                     if (!updatedO.materialPayments || typeof updatedO.materialPayments !== 'object') updatedO.materialPayments = {};
                     if (!Array.isArray(updatedO.purchaseReceipts)) updatedO.purchaseReceipts = [];
