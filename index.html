@@ -429,7 +429,6 @@
             const payments = order?.materialPayments || {};
             const key = batchDateKey ? getMaterialBatchKey(vendorName, batchDateKey) : normalizeVendorName(vendorName);
             if (batchDateKey && Array.isArray(payments[key])) return payments[key];
-            if (batchDateKey && Array.isArray(payments[normalizeVendorName(vendorName)])) return payments[normalizeVendorName(vendorName)];
             return Array.isArray(payments[key]) ? payments[key] : [];
         };
         const getVendorPaidTotal = (order, vendorName, batchDateKey = '') => getVendorPayments(order, vendorName, batchDateKey).reduce((sum, pay) => sum + (parseFloat(pay?.amount) || 0), 0);
@@ -5152,7 +5151,21 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const deleteManualPurchase = (id) => {
                 const now = new Date().toISOString();
+                const target = safeArray(manualPurchases).find(mp => String(mp.id) === String(id));
                 setManualPurchases(prev => safeArray(prev).map(mp => String(mp.id) === String(id) ? { ...mp, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : mp));
+                // Bug D: jika ini item manual terakhir di batch-nya, hapus pembayaran manual agar tidak yatim
+                if (target) {
+                    const batchKey = getMaterialBatchKey(target.vendor, target.purchaseDate);
+                    const othersInBatch = safeArray(manualPurchases).some(mp => String(mp.id) !== String(id) && !mp.isDeleted && getMaterialBatchKey(mp.vendor, mp.purchaseDate) === batchKey);
+                    if (!othersInBatch) {
+                        setManualVendorPayments(prev => {
+                            if (!prev || !prev[batchKey]) return prev;
+                            const next = { ...prev };
+                            delete next[batchKey];
+                            return next;
+                        });
+                    }
+                }
                 showToast("Bahan manual dihapus.", "success");
             };
             const saveNewVendorManual = () => {
