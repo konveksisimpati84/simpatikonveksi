@@ -412,7 +412,7 @@
         const normalizeVendorName = (vendor) => String(vendor || 'Tanpa Vendor').trim() || 'Tanpa Vendor';
         const getMaterialQty = (item) => parseFloat(String(item?.qty ?? 0).replace(',', '.')) || 0;
         const getMaterialUnitPrice = (item) => parseFloat(String(item?.price ?? 0).replace(',', '.')) || 0;
-        const getMaterialLineTotal = (item) => getMaterialQty(item) * getMaterialUnitPrice(item);
+        const getMaterialLineTotal = (item) => Math.round(getMaterialQty(item) * getMaterialUnitPrice(item));
         const getMaterialBatchDateKey = (order, material) => {
             const rawDate = material?.purchaseDate || material?.materialBatchDate || order?.materialBatchDate || order?.materialPrintedAt || order?.materialLastActionAt || order?.date || order?.createdAt || new Date().toISOString();
             const parsed = new Date(rawDate);
