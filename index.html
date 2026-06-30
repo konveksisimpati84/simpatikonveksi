@@ -15388,40 +15388,6 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 });
             };
 
-            const PURCHASE_RESET_VERSION = '2026-06-06-purchase-clean-start-v1';
-
-            const shouldResetPurchaseData = () => {
-                return localStorage.getItem('simpati_purchase_reset_version') !== PURCHASE_RESET_VERSION;
-            };
-
-            const resetPurchaseDataForCleanStart = (ordersList) => {
-                const now = new Date().toISOString();
-                return patchOrders(ordersList).map(order => {
-                    if (!order || order.isDeleted || order.isArchived || order.status === 'Terkirim') return order;
-                    const materialStatus = order?.processFlow?.materials === false ? 'Tidak Perlu' : 'Belum';
-                    return {
-                        ...order,
-                        materials: [],
-                        materialPayments: {},
-                        purchaseReceipts: [],
-                        vendorPayments: [],
-                        purchaseHistory: [],
-                        materialPurchasedVendors: {},
-                        materialPurchasedBatches: {},
-                        materialBatchDate: null,
-                        materialPrintedAt: null,
-                        materialPurchasedAt: null,
-                        materialLastActionAt: now,
-                        materialLastAction: 'Reset pembelian bahan lama',
-                        materialPrintCount: 0,
-                        purchaseNotes: '',
-                        materialStatus,
-                        status: order.status === 'Pembelian Bahan' ? 'Pending' : order.status,
-                        _syncUpdatedAt: now
-                    };
-                });
-            };
-
             const loadLocalData = (key, initial) => {
                 const saved = localStorage.getItem(key);
                 if (saved) {
