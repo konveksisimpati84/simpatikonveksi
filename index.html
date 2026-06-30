@@ -5423,7 +5423,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
                         const paid = getVendorPaidTotal(order, vendor, batchDateKey);
                         const rem = Math.max(0, t - paid);
-                        const applied = rem > 0 ? Math.min(rem, left) : Math.min(left, t);
+                        const applied = rem > 0 ? Math.min(rem, left) : 0;
                         if (applied <= 0) return order;
                         left -= applied;
                         const nextPayments = { ...(order.materialPayments || {}) };
@@ -10879,7 +10879,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const modalSelectedTotal = modalSelectedItems.reduce((sum, item) => sum + (parseInt(item.qty) || 0), 0);
             const modalSelectedWage = modalSelectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0);
             const modalEmployee = modalData ? visibleEmployees.find(emp => String(emp.id) === String(modalData.empId)) : null;
-            const modalDailySalaryLogs = getEmployeeDailySalaryLogs(modalEmployee).filter(log => !log.rekapId);
+            const modalDailySalaryLogs = getEmployeeDailySalaryLogs(modalEmployee).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
             const modalAllDailyLogs = modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
             const modalAllOvertimeLogs = modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
             const selectedDailyLogs = modalAllDailyLogs.filter(log => modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
@@ -10952,8 +10952,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId);
                 const manualProdWage = manualProdRows.reduce((s, l) => s + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
                 const totalProdWage = prodWage + manualProdWage;
-                const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
-                const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
+                const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
+                const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                 const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
                 const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                 const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
@@ -10981,8 +10981,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId);
                     const manualProdWage = manualProdRows.reduce((s, l) => s + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
                     const totalProdWage = prodWage + manualProdWage;
-                    const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).daily > 0);
-                    const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => !log.rekapId && getDailySalaryLogTotal(log).overtime > 0);
+                    const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
+                    const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                     const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
                     const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                     const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
@@ -12044,7 +12044,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div className="bg-sky-50 rounded-xl p-3 border border-sky-100 text-center"><div className="text-xs text-gray-400 mb-1">Gaji Lembur</div><div className="font-black text-sky-700 text-sm">{formatRupiah(dTotalOvertimeSalary)}</div></div>
                                             <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-center"><div className="text-xs text-gray-400 mb-1">Total Pendapatan</div><div className="font-black text-slate-800 text-sm">{formatRupiah(dTotalIncome)}</div></div>
                                             <div className="bg-orange-50 rounded-xl p-3 border border-orange-100 text-center"><div className="text-xs text-gray-400 mb-1">Sisa Kasbon</div><div className="font-black text-orange-700 text-sm">{formatRupiah(dCashAdvanceSummary.remaining)}</div></div>
-                                            <div className="md:col-span-2 bg-blue-50 rounded-xl p-3 border border-blue-200 text-center"><div className="text-xs text-gray-400 mb-1">Gaji Bersih (Proyeksi)</div><div className="font-black text-blue-700 text-xl">{formatRupiah(dNetSalary)}</div></div>
+                                            <div className="md:col-span-2 bg-blue-50 rounded-xl p-3 border border-blue-200 text-center"><div className="text-xs text-gray-400 mb-1">Gaji Bersih (Proyeksi, jika kasbon dipotong semua)</div><div className="font-black text-blue-700 text-xl">{formatRupiah(dNetSalary)}</div></div>
                                         </div>
                                         <div className="border border-gray-200 rounded-xl overflow-hidden">
                                             <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
