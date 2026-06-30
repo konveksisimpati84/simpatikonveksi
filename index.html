@@ -7050,7 +7050,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 </div></body></html>`;
                 const w = window.open('', '_blank'); if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
             };
-            const commissionRows = Object.values(visibleInvoices.reduce((acc, inv) => {
+            const commissionRows = Object.values(safeInvoiceRows.filter(isVisibleRecord).reduce((acc, inv) => {
                 const key = inv.marketing || 'Tanpa Marketing';
                 if (!acc[key]) acc[key] = { marketing: key, isSubMarketing: false, invoices: 0, pcs: 0, sales: 0, commission: 0 };
                 acc[key].invoices += 1; acc[key].pcs += getInvoicePcsTotal(inv); acc[key].sales += getInvoiceTotals(inv).total; acc[key].commission += getInvoiceCommissionTotal(inv);
