@@ -6029,6 +6029,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [searchTerm, setSearchTerm] = useState('');
             const [typeFilter, setTypeFilter] = useState('Semua');
             const [payStatusFilter, setPayStatusFilter] = useState('Semua');
+            const [monthFilter, setMonthFilter] = useState('');
             const [expandedIds, setExpandedIds] = useState({});
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [payForm, setPayForm] = useState({});
@@ -6050,7 +6051,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const addItem = () => setForm(prev => ({ ...prev, items: [...prev.items, emptyItem()] }));
             const removeItem = (idx) => { if (form.items.length <= 1) return; setForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) })); };
 
-            const visibleExpenses = (expenses || []).filter(isVisibleRecord).filter(item => {
+            const allExpenses = (expenses || []).filter(isVisibleRecord);
+            const expenseMonths = [...new Set(allExpenses.map(item => (item.date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
+            const visibleExpenses = allExpenses.filter(item => {
+                if (monthFilter && !(item.date || '').startsWith(monthFilter)) return false;
                 if (typeFilter !== 'Semua' && item.type !== typeFilter) return false;
                 if (payStatusFilter !== 'Semua' && getExpenseStatus(item) !== payStatusFilter) return false;
                 return matchesSearch([item.date, item.type, item.category, item.amount, item.method, item.party, item.note, ...(item.items || []).map(it => it.desc), ...(item.items || []).map(it => it.unit)], searchTerm);
@@ -6181,6 +6185,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
 
             const addPayment = (itemId) => {
+                const targetItem = (expenses || []).find(i => String(i.id) === String(itemId));
+                if (!targetItem || targetItem.type === 'Uang Masuk') return;
                 const pf = payForm[itemId] || emptyPayForm;
                 const amt = safeMoney(pf.amount);
                 if (amt <= 0) return showToast('Isi nominal pembayaran.', 'error');
@@ -6267,6 +6273,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari tanggal, jenis, kategori, keterangan..." />
                             <div><label className="block text-xs font-bold text-gray-600 mb-1">Jenis</label><select className="w-full p-3 border rounded-lg" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option>Semua</option><option>Uang Masuk</option><option>Uang Keluar</option></select></div>
                             <div><label className="block text-xs font-bold text-gray-600 mb-1">Status Bayar</label><select className="w-full p-3 border rounded-lg" value={payStatusFilter} onChange={e => setPayStatusFilter(e.target.value)}><option>Semua</option><option>Belum Dibayar</option><option>Dibayar Sebagian</option><option>Lunas</option></select></div>
+                            <div><label className="block text-xs font-bold text-gray-600 mb-1">Periode</label><select className="w-full p-3 border rounded-lg" value={monthFilter} onChange={e => setMonthFilter(e.target.value)}><option value="">Semua Periode</option>{expenseMonths.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
                         </div>
                         {visibleExpenses.length === 0 ? (
                             <div className="p-8 text-center text-gray-400 italic">Belum ada data biaya.</div>
