@@ -14093,6 +14093,11 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const buatRekap = () => {
                 if (!rekapDriverId) { showToast('Pilih driver terlebih dahulu', 'error'); return; }
                 if (selectedTripIds.length===0) { showToast('Pilih minimal 1 trip', 'error'); return; }
+                const sisaKasbonDriver = getTotalSisaKasbon(rekapDriverId);
+                if (rekapPotonganKasbon > 0 && rekapPotonganKasbon > sisaKasbonDriver) {
+                    showToast(`Potongan kasbon melebihi sisa kasbon (${formatRupiah(sisaKasbonDriver)})`, 'error');
+                    return;
+                }
                 const drv = visibleDrivers.find(d=>d.id===rekapDriverId);
                 const trips = visibleTrx.filter(t=>selectedTripIds.includes(t.id));
                 const totalOngkir = trips.reduce((s,t)=>s+safeMoney(t.ongkir),0);
@@ -18063,7 +18068,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                     <span className="text-xs text-gray-400">{itemList.length} jenis barang</span>
                                                 </div>
                                                 <div className="flex items-center gap-3">
-                                                    <span className={`text-sm font-black ${totalSaldo > 0 ? 'text-teal-700' : totalSaldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>Stok: {totalSaldo}</span>
+                                                    <span className={`text-sm font-black ${totalSaldo > 0 ? 'text-teal-700' : totalSaldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>{totalSaldo < 0 && <span className="text-xs bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded mr-1">⚠ NEGATIF</span>}Stok: {totalSaldo}</span>
                                                 </div>
                                             </button>
                                             {isExpanded && (
@@ -18088,7 +18093,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                     <td className="py-2.5 px-4 text-gray-500">{iItem.unit}</td>
                                                                     <td className="py-2.5 px-4 text-right text-green-700 font-bold">{iItem.masuk}</td>
                                                                     <td className="py-2.5 px-4 text-right text-red-700 font-bold">{iItem.keluar}</td>
-                                                                    <td className={`py-2.5 px-4 text-right font-black ${saldo > 0 ? 'text-teal-700' : saldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>{saldo}</td>
+                                                                    <td className={`py-2.5 px-4 text-right font-black ${saldo > 0 ? 'text-teal-700' : saldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>{saldo < 0 && <span className="text-xs bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded mr-1" title="Stok negatif! Cek riwayat transaksi">NEGATIF</span>}{saldo}</td>
                                                                     <td className="py-2.5 px-4 text-center">
                                                                         <div className="flex gap-1.5 justify-center">
                                                                             <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
@@ -18148,6 +18153,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                             <div className={`rounded-xl p-3 border text-center ${saldo > 0 ? 'bg-teal-50 border-teal-100' : saldo === 0 ? 'bg-gray-50 border-gray-200' : 'bg-red-50 border-red-200'}`}>
                                                 <div className="text-xs text-gray-400 mb-1">Stok Tersedia</div>
                                                 <div className={`font-black text-lg ${saldo > 0 ? 'text-teal-700' : saldo === 0 ? 'text-gray-500' : 'text-red-700'}`}>{saldo} <span className="text-xs font-normal">{iUnit}</span></div>
+                                                {saldo < 0 && <div className="text-xs font-bold text-red-600 mt-1 bg-red-100 rounded px-2 py-0.5">⚠ Stok Negatif!</div>}
                                             </div>
                                         </div>
                                         <div>
@@ -18173,7 +18179,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                                 <td className="p-2.5 text-center"><span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${t.type === 'Masuk' ? 'bg-green-100 text-green-700' : t.type === 'Keluar' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{t.type}</span></td>
                                                                 <td className={`p-2.5 text-right font-black ${t.type === 'Masuk' ? 'text-green-700' : t.type === 'Keluar' ? 'text-red-700' : 'text-yellow-700'}`}>{t.type === 'Masuk' ? '+' : t.type === 'Keluar' ? '-' : ''}{t.qty} {iUnit}</td>
                                                                 <td className="p-2.5 text-gray-500">{t.note || '-'}</td>
-                                                                <td className={`p-2.5 text-right font-black ${t.balance >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{t.balance} {iUnit}</td>
+                                                                <td className={`p-2.5 text-right font-black ${t.balance >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{t.balance < 0 && <span className="text-xs bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded mr-1" title="Stok negatif pada titik ini">⚠</span>}{t.balance} {iUnit}</td>
                                                                 <td className="p-2.5 text-center">
                                                                     <button onClick={() => handleDeleteTrx(t.id, t.type)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title={t.type === 'Masuk' ? 'Hapus (stok berkurang)' : 'Hapus (stok kembali)'}><IconTrash /></button>
                                                                 </td>
