@@ -11441,6 +11441,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
                                         const isPinned = pinnedRekapIds.has(rekap.id);
                                         const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
+                                        const totalPaidDesktop = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
+                                        const sisaGajiDesktop = Math.max(0, netSalary - totalPaidDesktop);
                                         return (
                                             <tr key={rekap.id} className={`border-t border-gray-100 hover:brightness-95 transition-all ${isPinned ? 'bg-orange-100/75' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75' : 'bg-red-100/75'}`}>
                                                 <td className="p-3 text-center">
@@ -11449,7 +11451,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <td className="p-3 text-gray-600 text-xs">{rekap.dateProcessed || '-'}</td>
                                                 <td className="p-3 font-bold text-gray-800">{rekap.empName || emp?.name || '-'}</td>
                                                 <td className="p-3 text-gray-600">{rekap.division || emp?.division || '-'}</td>
-                                                <td className="p-3 text-right font-black text-blue-700">{formatRupiah(netSalary)}</td>
+                                                <td className="p-3 text-right">
+                                                    <div className="font-black text-blue-700">{formatRupiah(netSalary)}</div>
+                                                    {payBadge === 'Dibayar Sebagian' && <div className="text-xs font-semibold text-red-500 mt-0.5">Sisa: {formatRupiah(sisaGajiDesktop)}</div>}
+                                                </td>
                                                 <td className="p-3 text-center"><Badge status={payBadge} /></td>
                                                 <td className="p-3">
                                                     <div className="flex justify-center gap-1.5">
@@ -11474,7 +11479,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                     const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
                                     const isPinned = pinnedRekapIds.has(rekap.id);
-                                    const payBadge = !Array.isArray(rekap.payments) ? 'Sudah Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
+                                    const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
+                                    const totalPaidMobile = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
+                                    const sisaGajiMobile = Math.max(0, netSalary - totalPaidMobile);
                                     return (
                                         <div key={rekap.id} className={`px-4 py-3 border-l-4 ${isPinned ? 'bg-orange-100/75 border-l-orange-500' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75 border-l-green-600' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75 border-l-amber-500' : 'bg-red-100/75 border-l-red-500'}`}>
                                             <div className="flex items-start gap-2 mb-1.5">
@@ -11483,7 +11490,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <div className="font-bold text-gray-800 text-sm">{rekap.empName || emp?.name || '-'}</div>
                                                     <div className="text-xs text-gray-500 mt-0.5">{rekap.division || emp?.division || '-'} · {rekap.dateProcessed || '-'}</div>
                                                     <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-sm font-black text-blue-700">{formatRupiah(netSalary)}</span>
+                                                        <div>
+                                                            <span className="text-sm font-black text-blue-700">{formatRupiah(netSalary)}</span>
+                                                            {payBadge === 'Dibayar Sebagian' && <div className="text-xs font-semibold text-red-500">Sisa: {formatRupiah(sisaGajiMobile)}</div>}
+                                                        </div>
                                                         <Badge status={payBadge} />
                                                     </div>
                                                 </div>
