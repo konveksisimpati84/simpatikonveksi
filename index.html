@@ -8669,9 +8669,32 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 ...safeOrders
                     .filter(order => Array.isArray(order.materials) && getActiveMaterials(order).length > 0)
                     .flatMap(order => {
+                        const status = order.materialStatus || 'Belum';
+                        if (!['Direkap', 'Dibeli Sebagian', 'Selesai'].includes(status)) return [];
                         const paymentRows = getOrderPaymentRows(order);
-                        if (paymentRows.length > 0) return paymentRows;
-                        if (order.materialStatus !== 'Selesai') return [];
+                        const materialTotal = getFinanceOrderMaterialTotal(order);
+                        const paidTotal = paymentRows.reduce((s, r) => s + r.total, 0);
+                        const remaining = Math.max(0, materialTotal - paidTotal);
+                        const vendorList = [...new Set(getActiveMaterials(order).map(item => String(item.vendor || 'Tanpa Vendor').trim() || 'Tanpa Vendor'))];
+                        if (paymentRows.length > 0) {
+                            const rows = [...paymentRows];
+                            if (remaining > 0) {
+                                rows.push({
+                                    id: `${order.id}-hutang`,
+                                    orderId: order.id,
+                                    date: getMaterialDate(order),
+                                    client: order.client || '-',
+                                    type: order.type || '-',
+                                    totalPcs: parseInt(order.total) || 0,
+                                    total: remaining,
+                                    vendors: vendorList,
+                                    materials: getActiveMaterials(order),
+                                    isPayment: false,
+                                    isHutang: true
+                                });
+                            }
+                            return rows;
+                        }
                         return [{
                             id: order.id,
                             orderId: order.id,
@@ -8679,10 +8702,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             client: order.client || '-',
                             type: order.type || '-',
                             totalPcs: parseInt(order.total) || 0,
-                            total: getFinanceOrderMaterialTotal(order),
-                            vendors: [...new Set(getActiveMaterials(order).map(item => String(item.vendor || 'Tanpa Vendor').trim() || 'Tanpa Vendor'))],
+                            total: materialTotal,
+                            vendors: vendorList,
                             materials: getActiveMaterials(order),
-                            isPayment: false
+                            isPayment: false,
+                            isHutang: status !== 'Selesai'
                         }];
                     }),
                 ...safeArray(manualPurchases).filter(isVisibleRecord).map(mp => ({
@@ -8754,6 +8778,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             });
 
             const totalMaterial = materialRows.reduce((sum, row) => sum + row.total, 0);
+            const totalMaterialPaid = materialRows.filter(r => !r.isHutang).reduce((sum, r) => sum + r.total, 0);
             const totalWage = wageRows.reduce((sum, row) => sum + row.netSalary, 0);
             const totalGrossWage = wageRows.reduce((sum, row) => sum + row.grossSalary, 0);
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
@@ -8816,6 +8841,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             // Beban
             const totalBeban = totalMaterial + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
+            const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
             const labaBersih = totalPendapatan - totalBeban;
             const labaKotor = totalPendapatan - totalMaterial;
 
@@ -8883,6 +8909,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
             const vendorSummary = Object.values(materialRows.reduce((acc, row) => {
+                if (row.isHutang) return acc;
                 if (row.isPayment) {
                     (row.vendors || ['Tanpa Vendor']).forEach(vendorName => {
                         const vendor = String(vendorName || 'Tanpa Vendor').trim() || 'Tanpa Vendor';
@@ -9066,7 +9093,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     }))
                 ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
                 const kaskeluarRows = [
-                    ...materialRows.map(r => ({
+                    ...materialRows.filter(r => !r.isHutang).map(r => ({
                         date: r.date || '-',
                         ref: r.orderId || r.id || '-',
                         sumber: 'Pembelian Bahan',
@@ -9463,7 +9490,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </thead>
                                         <tbody>
                                             {[
-                                                ...materialRows.map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
+                                                ...materialRows.filter(r => !r.isHutang).map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
                                                 ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                                 ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                                                 ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
@@ -9476,19 +9503,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <td className="p-3 text-right font-black text-red-700">{formatRupiah(r.nominal)}</td>
                                                 </tr>
                                             ))}
-                                            {materialRows.length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
+                                            {materialRows.filter(r => !r.isHutang).length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
                                                 <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas keluar pada periode ini.</td></tr>
                                             )}
                                             <tr className="bg-red-50 font-black border-t-2 border-red-400">
                                                 <td colSpan="4" className="p-3 text-red-800">TOTAL KAS KELUAR</td>
-                                                <td className="p-3 text-right text-red-800">{formatRupiah(totalBeban)}</td>
+                                                <td className="p-3 text-right text-red-800">{formatRupiah(totalBebanKas)}</td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
                                     {[
-                                        ...materialRows.map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
+                                        ...materialRows.filter(r => !r.isHutang).map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
                                         ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                         ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                                         ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
@@ -9505,12 +9532,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div className="text-sm font-black text-red-700 shrink-0">{formatRupiah(r.nominal)}</div>
                                         </div>
                                     ))}
-                                    {materialRows.length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
+                                    {materialRows.filter(r => !r.isHutang).length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
                                         <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas keluar pada periode ini.</div>
                                     )}
                                     <div className="px-4 py-3 bg-red-50 border-t-2 border-red-400 flex justify-between items-center">
                                         <span className="font-black text-red-800 text-sm">TOTAL KAS KELUAR</span>
-                                        <span className="font-black text-red-800 text-sm">{formatRupiah(totalBeban)}</span>
+                                        <span className="font-black text-red-800 text-sm">{formatRupiah(totalBebanKas)}</span>
                                     </div>
                                 </div>
                             </Card>
