@@ -4442,6 +4442,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 const ids = Array.isArray(orderIds) ? orderIds : [orderIds];
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (!ids.some(id => String(id) === String(o.id))) return o;
+                    if (o.materialStatus === 'Selesai') return o;
                     const nextMaterials = materialsByOrder[o.id] || o.materials || [];
                     const printedMatsCount = getActiveMaterials({ materials: nextMaterials }).length;
                     return {
@@ -4475,6 +4476,20 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 if (amount <= 0) {
                     showToast("Isi nominal pembayaran termin terlebih dahulu.", "error");
                     return;
+                }
+                const currentOrder = orders.find(o => String(o.id) === String(orderId));
+                if (currentOrder) {
+                    const sisaBayar = getVendorRemainingPayment(currentOrder, vendorName, batchDateKey);
+                    if (amount > sisaBayar) {
+                        showToast(`Pembayaran melebihi sisa hutang vendor (${formatRupiah(sisaBayar)})`, 'error');
+                        return;
+                    }
+                    const existingPayments = (currentOrder.materialPayments || {})[batchKey] || [];
+                    const isDuplicate = existingPayments.some(p => p.date === payDate && p.amount === amount);
+                    if (isDuplicate) {
+                        showToast('Pembayaran dengan nominal dan tanggal yang sama sudah pernah dicatat', 'error');
+                        return;
+                    }
                 }
                 const now = new Date().toISOString();
                 setOrders(prevOrders => prevOrders.map(o => {
