@@ -11440,7 +11440,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                         const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
                                         const isPinned = pinnedRekapIds.has(rekap.id);
-                                        const payBadge = !Array.isArray(rekap.payments) ? 'Sudah Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
+                                        const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
                                         return (
                                             <tr key={rekap.id} className={`border-t border-gray-100 hover:brightness-95 transition-all ${isPinned ? 'bg-orange-100/75' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75' : 'bg-red-100/75'}`}>
                                                 <td className="p-3 text-center">
@@ -12164,7 +12164,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const payments = Array.isArray(rekap.payments) ? rekap.payments : [];
                         const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
                         const sisaBayar = Math.max(0, netSalary - totalPaid);
-                        const payStatus = !Array.isArray(rekap.payments) ? 'lunas' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary ? 'lunas' : 'sebagian';
+                        const payStatus = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'belum' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary ? 'lunas' : 'sebagian';
                         const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
                         const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); };
                         return (
@@ -12202,6 +12202,27 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <div className="font-black text-blue-700 text-lg">{formatRupiah(netSalary)}</div>
                                                 </div>
                                             </div>
+                                            {(() => {
+                                                const prodSalary = safeMoney(rekap.productionSalary ?? rekap.totalWage);
+                                                const dailySal = safeMoney(rekap.dailySalary);
+                                                const overtimeSal = safeMoney(rekap.overtimeSalary);
+                                                const mktComm = safeMoney(rekap.marketingCommission);
+                                                const hasMultiple = [prodSalary, dailySal, overtimeSal, mktComm].filter(v => v > 0).length > 1;
+                                                if (!hasMultiple) return null;
+                                                return (
+                                                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                                                        <div className="text-xs font-bold text-gray-500 mb-2">Rincian Gaji Bruto</div>
+                                                        <div className="flex flex-wrap gap-2 text-xs items-center">
+                                                            {prodSalary > 0 && <span className="bg-blue-50 border border-blue-100 rounded-lg px-2 py-1">Produksi: <b className="text-blue-700">{formatRupiah(prodSalary)}</b></span>}
+                                                            {dailySal > 0 && <span className="bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1">Harian: <b className="text-indigo-700">{formatRupiah(dailySal)}</b></span>}
+                                                            {overtimeSal > 0 && <span className="bg-sky-50 border border-sky-100 rounded-lg px-2 py-1">Lembur: <b className="text-sky-700">{formatRupiah(overtimeSal)}</b></span>}
+                                                            {mktComm > 0 && <span className="bg-purple-50 border border-purple-100 rounded-lg px-2 py-1">Komisi: <b className="text-purple-700">{formatRupiah(mktComm)}</b></span>}
+                                                            <span className="text-gray-400">=</span>
+                                                            <span className="bg-green-50 border border-green-200 rounded-lg px-2 py-1">Bruto: <b className="text-green-700">{formatRupiah(grossSalary)}</b></span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
                                             {rekap.cashAdvanceDeductionNote && (
                                                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-800"><span className="font-bold">Catatan Kasbon:</span> {rekap.cashAdvanceDeductionNote}</div>
                                             )}
@@ -12226,6 +12247,74 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     </table>
                                                 </div>
                                             </div>
+                                            {(() => {
+                                                const allDailyLogs = Array.isArray(rekap.dailySalaryLogs) ? rekap.dailySalaryLogs : [];
+                                                const dailyOnlyLogs = allDailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
+                                                const overtimeLogs = allDailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
+                                                const mktInvoices = safeInvoicesForReport.filter(inv => (rekap.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
+                                                return (<>
+                                                    {dailyOnlyLogs.length > 0 && (
+                                                        <div>
+                                                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Gaji Harian ({dailyOnlyLogs.length} entri)</div>
+                                                            <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                                                                <table className="w-full text-xs text-left">
+                                                                    <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold">Keterangan</th><th className="p-2.5 font-semibold text-right">Hari</th><th className="p-2.5 font-semibold text-right">Subtotal</th></tr></thead>
+                                                                    <tbody>
+                                                                        {dailyOnlyLogs.map((log, idx) => (
+                                                                            <tr key={idx} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
+                                                                                <td className="p-2.5 text-gray-700">{log.date || '-'}</td>
+                                                                                <td className="p-2.5 text-gray-600">{log.note || 'Masuk kerja'}</td>
+                                                                                <td className="p-2.5 text-right font-bold">{log.workDays || 0}</td>
+                                                                                <td className="p-2.5 text-right font-black text-indigo-700">{formatRupiah(getDailySalaryLogTotal(log).daily)}</td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {overtimeLogs.length > 0 && (
+                                                        <div>
+                                                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Lembur ({overtimeLogs.length} entri)</div>
+                                                            <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                                                                <table className="w-full text-xs text-left">
+                                                                    <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold">Keterangan</th><th className="p-2.5 font-semibold text-right">Jumlah</th><th className="p-2.5 font-semibold text-right">Subtotal</th></tr></thead>
+                                                                    <tbody>
+                                                                        {overtimeLogs.map((log, idx) => (
+                                                                            <tr key={idx} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
+                                                                                <td className="p-2.5 text-gray-700">{log.date || '-'}</td>
+                                                                                <td className="p-2.5 text-gray-600">{log.note || 'Lembur'}</td>
+                                                                                <td className="p-2.5 text-right font-bold">{log.overtimeCount || 0}x</td>
+                                                                                <td className="p-2.5 text-right font-black text-sky-700">{formatRupiah(getDailySalaryLogTotal(log).overtime)}</td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {mktInvoices.length > 0 && (
+                                                        <div>
+                                                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Komisi Marketing ({mktInvoices.length} invoice)</div>
+                                                            <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                                                                <table className="w-full text-xs text-left">
+                                                                    <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Invoice</th><th className="p-2.5 font-semibold">Customer</th><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold text-right">Komisi</th></tr></thead>
+                                                                    <tbody>
+                                                                        {mktInvoices.map((inv, idx) => (
+                                                                            <tr key={inv.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
+                                                                                <td className="p-2.5 font-bold text-blue-700">{inv.id}</td>
+                                                                                <td className="p-2.5 text-gray-700">{inv.customer || '-'}</td>
+                                                                                <td className="p-2.5 text-gray-500">{inv.date || '-'}</td>
+                                                                                <td className="p-2.5 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </>);
+                                            })()}
                                         </>)}
                                         {detailRekapTab === 'pembayaran' && (<>
                                             <div className={`rounded-xl p-3 text-center font-black text-sm border ${payStatus === 'lunas' ? 'bg-green-50 border-green-200 text-green-700' : payStatus === 'sebagian' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-red-50 border-red-200 text-red-700'}`}>{payStatusLabel}</div>
