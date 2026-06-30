@@ -8741,7 +8741,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     vendors: [String(mp.vendor || 'Tanpa Vendor').trim()],
                     materials: [mp],
                     isPayment: false,
-                    isManual: true
+                    isManual: true,
+                    isHutang: mp.purchaseStatus === 'Belum Dibeli' || mp.purchaseStatus === 'Termin'
                 }))
             ];
 
@@ -8843,7 +8844,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalClientDpIncome = clientDpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalManualIncome = expenseRows.filter(row => row.type === 'Uang Masuk').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
-            const totalMarketingCommission = invoiceRows.reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
+            // Hanya invoice yang BELUM di-rekap — yang sudah di-rekap komisinnya sudah masuk totalWage
+            const totalMarketingCommission = invoiceRows.filter(inv => !inv.commissionRekapId).reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
             const totalIncomeAll = totalInvoiceIncome + totalClientDpIncome + totalManualIncome;
             const totalExpense = totalMaterial + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
             const netBalance = totalIncomeAll - totalExpense;
@@ -8862,7 +8864,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             // Beban
             const totalBeban = totalMaterial + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
-            const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
+            // Buku Kas = kas yang benar-benar keluar; komisi belum direkap bukan kas keluar
+            const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense;
             const labaBersih = totalPendapatan - totalBeban;
             const labaKotor = totalPendapatan - totalMaterial;
 
