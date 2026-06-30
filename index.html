@@ -8470,19 +8470,28 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <p className="text-xs text-gray-400 italic">Belum ada catatan bagi hasil.</p>
                                                 ) : (
                                                     <div className="space-y-2">
-                                                        {records.map(r => (
-                                                            <div key={r.id} className="bg-white border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-2">
-                                                                <div className="min-w-0">
-                                                                    <div className="text-xs font-bold text-gray-700">{r.invoiceId} — {r.invoiceCustomer}</div>
-                                                                    <div className="text-xs text-gray-400">{r.tanggal} · {r.invoiceType} · {(r.bagiHasilType||'per_pcs')==='persen' ? `Total Invoice ${formatRupiah(r.invoiceTotal||0)} × ${r.bagiHasilPersen||0}%` : `${r.pcs} pcs × ${formatRupiah(r.bagiHasilPerPcs)}`}</div>
-                                                                    {r.note && <div className="text-xs text-gray-400 italic">"{r.note}"</div>}
-                                                                </div>
-                                                                <div className="flex items-center gap-2 shrink-0">
-                                                                    <div className="font-black text-green-700 text-sm">{formatRupiah(r.totalBagiHasil)}</div>
-                                                                    <button onClick={() => setDeleteBHConfirm(r.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded"><IconTrash /></button>
-                                                                </div>
-                                                            </div>
-                                                        ))}
+                                                        {(() => {
+                                                            let kumulatif = 0;
+                                                            return [...records]
+                                                                .sort((a, b) => (a.tanggal || '').localeCompare(b.tanggal || ''))
+                                                                .map(r => {
+                                                                    kumulatif += parseFloat(r.totalBagiHasil) || 0;
+                                                                    return (
+                                                                        <div key={r.id} className="bg-white border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-2">
+                                                                            <div className="min-w-0">
+                                                                                <div className="text-xs font-bold text-gray-700">{r.invoiceId} — {r.invoiceCustomer}</div>
+                                                                                <div className="text-xs text-gray-400">{r.tanggal} · {r.invoiceType} · {(r.bagiHasilType||'per_pcs')==='persen' ? `Total Invoice ${formatRupiah(r.invoiceTotal||0)} × ${r.bagiHasilPersen||0}%` : `${r.pcs} pcs × ${formatRupiah(r.bagiHasilPerPcs)}`}</div>
+                                                                                {r.note && <div className="text-xs text-gray-400 italic">"{r.note}"</div>}
+                                                                                <div className="text-xs text-indigo-500 font-semibold mt-0.5">Kumulatif: {formatRupiah(kumulatif)}</div>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 shrink-0">
+                                                                                <div className="font-black text-green-700 text-sm">{formatRupiah(r.totalBagiHasil)}</div>
+                                                                                <button onClick={() => setDeleteBHConfirm(r.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded"><IconTrash /></button>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                });
+                                                        })()}
                                                     </div>
                                                 )}
                                             </div>
@@ -14016,6 +14025,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const simpanKasbon = () => {
                 if (!kasbonForm.driverId) { showToast('Pilih driver', 'error'); return; }
                 if (!safeMoney(kasbonForm.jumlah)) { showToast('Nominal kasbon wajib diisi', 'error'); return; }
+                const sisaKasbonAktif = getTotalSisaKasbon(kasbonForm.driverId);
+                if (sisaKasbonAktif > 0) {
+                    const totalNanti = sisaKasbonAktif + safeMoney(kasbonForm.jumlah);
+                    if (!confirm(`Driver ini masih punya sisa kasbon ${formatRupiah(sisaKasbonAktif)}.\nTotal kasbon aktif akan menjadi ${formatRupiah(totalNanti)}.\n\nLanjutkan tambah kasbon?`)) return;
+                }
                 const drv = visibleDrivers.find(d => d.id === kasbonForm.driverId);
                 const rec = { id: genId('KASBON-'), driverId: kasbonForm.driverId, driverName: drv ? drv.name : '', tanggal: kasbonForm.tanggal, jumlah: safeMoney(kasbonForm.jumlah), keterangan: kasbonForm.keterangan, sudahDipotong: 0, _syncUpdatedAt: new Date().toISOString() };
                 setDriverKasbon(prev => [...(prev||[]), rec]);
