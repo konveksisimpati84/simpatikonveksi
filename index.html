@@ -6793,6 +6793,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const totalPaid = visibleInvoices.reduce((sum, inv) => sum + getInvoicePaidTotal(inv), 0);
             const totalDp = visibleInvoices.reduce((sum, inv) => sum + getInvoiceDpAmount(inv), 0);
             const totalRemaining = Math.max(0, totalInvoice - totalPaid);
+            const totalPcs = visibleInvoices.reduce((sum, inv) => sum + getInvoicePcsTotal(inv), 0);
             const resetForm = () => {
                 setForm({ ...emptyInvoice, invoiceItems: [newItem()], invoiceDp: { ...emptyInvoice.invoiceDp } });
                 setEditId(null);
@@ -7090,6 +7091,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <div className="text-xs text-blue-100 font-semibold">Belum Lunas</div>
                                     <div className="text-lg font-black text-red-300">{visibleInvoices.filter(inv => getInvoicePaymentStatus(inv) !== 'Lunas').length}</div>
                                 </div>
+                                <div className="bg-white/15 backdrop-blur rounded-xl px-4 py-2 text-center">
+                                    <div className="text-xs text-blue-100 font-semibold">Total Pcs</div>
+                                    <div className="text-lg font-black text-yellow-300">{totalPcs.toLocaleString('id-ID')} pcs</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -7274,7 +7279,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><IconBarChart /></div>
                                 <div>
                                     <h3 className="text-white font-black text-base">Daftar Invoice</h3>
-                                    <p className="text-slate-300 text-xs">{visibleInvoices.length} invoice ditemukan</p>
+                                    <p className="text-slate-300 text-xs">{visibleInvoices.length} invoice · {totalPcs.toLocaleString('id-ID')} pcs</p>
                                 </div>
                             </div>
                             <div className="flex flex-col md:flex-row gap-2 md:items-center">
