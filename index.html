@@ -4349,9 +4349,9 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 return matchesSearch(orderSearchFields(order), searchTerm) && matchesStatus && matchesDate;
             };
             const filteredActiveOrders = activeOrders.filter(filterOrder)
-                .sort((a, b) => new Date(b.materialLastActionAt || b.date || b.createdAt || 0) - new Date(a.materialLastActionAt || a.date || a.createdAt || 0));
+                .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const filteredRekapOrders = rekapOrders.filter(filterOrder)
-                .sort((a, b) => new Date(b.materialLastActionAt || b.date || b.createdAt || 0) - new Date(a.materialLastActionAt || a.date || a.createdAt || 0));
+                .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
             const toggleMatOrder = (id) => setExpandedMatOrderIds(prev => ({ ...prev, [id]: !prev[id] }));
             const { page: bahanPage, setPage: setBahanPage, totalPages: bahanTotalPages, paged: pagedActiveOrders, total: bahanTotal } = usePagination(filteredActiveOrders, 20);
