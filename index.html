@@ -429,7 +429,14 @@
             const payments = order?.materialPayments || {};
             const key = batchDateKey ? getMaterialBatchKey(vendorName, batchDateKey) : normalizeVendorName(vendorName);
             if (batchDateKey && Array.isArray(payments[key])) return payments[key];
-            if (batchDateKey && Array.isArray(payments[normalizeVendorName(vendorName)])) return payments[normalizeVendorName(vendorName)];
+            // Fallback ke old-key (format lama tanpa tanggal) hanya jika tidak ada
+            // new-key (format baru vendor|||tanggal) untuk vendor ini — cegah double-count
+            if (batchDateKey) {
+                const vendorNorm = normalizeVendorName(vendorName);
+                const hasNewFormatKey = Object.keys(payments).some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vendorNorm);
+                if (!hasNewFormatKey && Array.isArray(payments[vendorNorm])) return payments[vendorNorm];
+                return [];
+            }
             return Array.isArray(payments[key]) ? payments[key] : [];
         };
         const getVendorPaidTotal = (order, vendorName, batchDateKey = '') => getVendorPayments(order, vendorName, batchDateKey).reduce((sum, pay) => sum + (parseFloat(pay?.amount) || 0), 0);
@@ -8629,7 +8636,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const getFinanceOrderMaterialTotal = (order) => getActiveMaterials(order).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
             const getOrderPaymentRows = (order) => {
                 const rows = [];
-                Object.entries(order.materialPayments || {}).forEach(([paymentKey, payments]) => {
+                const pmts = order.materialPayments || {};
+                const allPmtKeys = Object.keys(pmts);
+                Object.entries(pmts).forEach(([paymentKey, payments]) => {
+                    // Skip old-format key (tanpa |||) jika ada new-format key untuk vendor yang sama
+                    if (!paymentKey.includes('|||')) {
+                        const vendorNorm = normalizeVendorName(paymentKey);
+                        const hasNewKey = allPmtKeys.some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vendorNorm);
+                        if (hasNewKey) return;
+                    }
                     const vendor = paymentKey.includes('|||') ? paymentKey.split('|||')[0] : paymentKey;
                     (Array.isArray(payments) ? payments : []).forEach((pay, idx) => {
                         rows.push({
@@ -8743,16 +8758,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalGrossWage = wageRows.reduce((sum, row) => sum + row.grossSalary, 0);
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
             const totalCashAdvanceGiven = cashAdvanceRows.reduce((sum, row) => sum + row.amount, 0);
-            const totalCashAdvanceDeducted = allCashAdvanceRows
-                .filter(row => employeeFilter === 'Semua' || String(row.empId) === String(employeeFilter))
-                .filter(row => divisionFilter === 'Semua' || row.division === divisionFilter)
-                .filter(row => cashAdvanceStatusFilter === 'Semua' || row.status === cashAdvanceStatusFilter)
-                .reduce((sum, row) => sum + row.deducted, 0);
-            const totalCashAdvanceRemaining = allCashAdvanceRows
-                .filter(row => employeeFilter === 'Semua' || String(row.empId) === String(employeeFilter))
-                .filter(row => divisionFilter === 'Semua' || row.division === divisionFilter)
-                .filter(row => cashAdvanceStatusFilter === 'Semua' || row.status === cashAdvanceStatusFilter)
-                .reduce((sum, row) => sum + row.remaining, 0);
+            // Gunakan cashAdvanceRows (sudah difilter periode) agar konsisten dengan filter yang dipilih
+            const totalCashAdvanceDeducted = cashAdvanceRows.reduce((sum, row) => sum + row.deducted, 0);
+            const totalCashAdvanceRemaining = cashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
             const expenseRows = (expenses || []).filter(isVisibleRecord).filter(row => {
                 if (!isInPeriod(row.date)) return false;
                 if (!normalizedSearch) return true;
@@ -8765,7 +8773,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             });
             const getInvoiceTotal = (inv) => getInvoiceTotals(inv).total;
             const getInvoicePaid = (inv) => getInvoiceCashInflow(inv);
-            const getInvoiceCommission = (inv) => getInvoiceCommissionTotal(inv);
+            // Komisi dihitung proporsional dengan yang sudah dibayar, bukan total invoice
+            // agar konsisten dengan pendapatan yang juga hanya menghitung pembayaran masuk
+            const getInvoiceCommission = (inv) => {
+                const total = getInvoiceTotal(inv);
+                if (total <= 0) return 0;
+                const paidRatio = Math.min(1, getInvoicePaid(inv) / total);
+                return getInvoiceCommissionTotal(inv) * paidRatio;
+            };
             const clientDpRows = (clients || []).filter(isVisibleRecord).flatMap(client => (Array.isArray(client.clientDpPayments) ? client.clientDpPayments : []).filter(isVisibleRecord).map(dp => ({ ...dp, clientName: client.name || '-' }))).filter(dp => {
                 if (!isInPeriod(dp.date)) return false;
                 if (dp.invoiceId) return false;
@@ -8811,7 +8826,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 .filter(order => Array.isArray(order.materials) && getActiveMaterials(order).length > 0)
                 .map(order => {
                     const billed = getFinanceOrderMaterialTotal(order);
-                    const paid = Object.values(order.materialPayments || {}).flat().reduce((sum, pay) => sum + (parseFloat(pay?.amount) || 0), 0);
+                    const pmts = order.materialPayments || {};
+                    const allPmtKeys = Object.keys(pmts);
+                    const paid = allPmtKeys.reduce((sum, key) => {
+                        // Skip old-format key jika ada new-format key untuk vendor yang sama
+                        if (!key.includes('|||')) {
+                            const vendorNorm = normalizeVendorName(key);
+                            if (allPmtKeys.some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vendorNorm)) return sum;
+                        }
+                        return sum + (Array.isArray(pmts[key]) ? pmts[key] : []).reduce((s, pay) => s + (parseFloat(pay?.amount) || 0), 0);
+                    }, 0);
                     return { order, billed, paid, remaining: Math.max(0, billed - paid) };
                 })
                 .filter(row => row.billed > 0);
