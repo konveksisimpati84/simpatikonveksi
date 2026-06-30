@@ -4541,9 +4541,11 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPayments = { ...(o.materialPayments || {}) };
                     nextPayments[batchKey] = (nextPayments[batchKey] || []).filter(pay => String(pay.id) !== String(paymentId));
+                    const checkOrder = { ...o, materialPayments: nextPayments };
                     return {
                         ...o,
                         materialPayments: nextPayments,
+                        materialStatus: computeMaterialStatus(checkOrder),
                         materialLastActionAt: new Date().toISOString(),
                         materialLastAction: 'Hapus Termin Pembayaran'
                     };
@@ -4591,9 +4593,11 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         ? { ...pay, amount, method: method || 'Transfer', note, updatedAt: new Date().toISOString() }
                         : pay
                     );
+                    const checkOrder = { ...o, materialPayments: nextPayments };
                     return {
                         ...o,
                         materialPayments: nextPayments,
+                        materialStatus: computeMaterialStatus(checkOrder),
                         materialLastActionAt: new Date().toISOString(),
                         materialLastAction: 'Edit Termin Pembayaran'
                     };
@@ -5416,7 +5420,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const nextPayments = { ...(order.materialPayments || {}) };
                         nextPayments[batchKey] = [...(nextPayments[batchKey] || []), { id: `PAY-${Date.now()}-${order.id}`, date: payDate, amount: applied, method, note, vendor: normalizeVendorName(vendor), batchDateKey, createdAt: now }];
                         const checkOrder = { ...order, materialPayments: nextPayments };
-                        return { ...order, materialPayments: nextPayments, materialStatus: areAllOrderMaterialsSettled(checkOrder) ? 'Selesai' : 'Dibeli Sebagian', materialLastActionAt: now, materialLastAction: 'Pembayaran Vendor', status: getOrderStatusAfterMaterialPurchase(order) };
+                        return { ...order, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: now, materialLastAction: 'Pembayaran Vendor', status: getOrderStatusAfterMaterialPurchase(order) };
                     }));
                 }
                 if (manualShare > 0 && manualItems.length > 0) {
@@ -15374,6 +15378,10 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     }
                     if (updatedO.materialStatus === 'Selesai' && Object.keys(updatedO.materialPurchasedBatches || {}).length === 0) {
                         getOrderMaterialBatchKeys(updatedO).forEach(batchKey => { updatedO.materialPurchasedBatches[batchKey] = true; });
+                    }
+                    // Validasi: jika status Selesai tapi pembayaran aktual tidak mendukung, hitung ulang
+                    if (updatedO.materialStatus === 'Selesai' && !areAllOrderMaterialsSettled(updatedO)) {
+                        updatedO.materialStatus = computeMaterialStatus(updatedO);
                     }
                     
                     const stagesOrder = ['cutting', 'sablon', 'jahit', 'kancing', 'finishing'];
