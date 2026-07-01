@@ -4327,6 +4327,8 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const [riwayatYearFilter, setRiwayatYearFilter] = useState('Semua');
             const [expandedRiwayatIds, setExpandedRiwayatIds] = useState({});
             const toggleRiwayat = (id) => setExpandedRiwayatIds(prev => ({ ...prev, [id]: !prev[id] }));
+            const [editingPaymentKey, setEditingPaymentKey] = useState(null);
+            const [editPaymentForm, setEditPaymentForm] = useState({ amount: '', method: 'Transfer', note: '' });
 
             const materialOrders = (orders || []).filter(isVisibleOrder);
             const activeOrders = materialOrders.filter(o => {
@@ -4607,34 +4609,25 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             };
 
             const editVendorPayment = (orderId, vendorName, batchDateKey, payment) => {
+                setEditingPaymentKey(`${orderId}__${payment.id}`);
+                setEditPaymentForm({ amount: String(payment.amount || ''), method: payment.method || 'Transfer', note: payment.note || '' });
+            };
+            const saveEditPayment = (orderId, vendorName, batchDateKey, paymentId) => {
                 const batchKey = getMaterialBatchKey(vendorName, batchDateKey);
-                const amountInput = window.prompt('Nominal bayar', payment?.amount || '');
-                if (amountInput === null) return;
-                const amount = parseFloat(amountInput) || 0;
-                if (amount <= 0) {
-                    showToast("Nominal pembayaran harus lebih dari 0.", "error");
-                    return;
-                }
-                const method = window.prompt('Metode bayar', payment?.method || 'Transfer');
-                if (method === null) return;
-                const note = window.prompt('Catatan pembayaran', payment?.note || '');
-                if (note === null) return;
+                const amount = parseFloat(editPaymentForm.amount) || 0;
+                if (amount <= 0) { showToast("Nominal pembayaran harus lebih dari 0.", "error"); return; }
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPayments = { ...(o.materialPayments || {}) };
-                    nextPayments[batchKey] = (nextPayments[batchKey] || []).map(pay => String(pay.id) === String(payment?.id)
-                        ? { ...pay, amount, method: method || 'Transfer', note, updatedAt: new Date().toISOString() }
+                    nextPayments[batchKey] = (nextPayments[batchKey] || []).map(pay => String(pay.id) === String(paymentId)
+                        ? { ...pay, amount, method: editPaymentForm.method || 'Transfer', note: editPaymentForm.note, updatedAt: new Date().toISOString() }
                         : pay
                     );
                     const checkOrder = { ...o, materialPayments: nextPayments };
-                    return {
-                        ...o,
-                        materialPayments: nextPayments,
-                        materialStatus: computeMaterialStatus(checkOrder),
-                        materialLastActionAt: new Date().toISOString(),
-                        materialLastAction: 'Edit Termin Pembayaran'
-                    };
+                    return { ...o, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: new Date().toISOString(), materialLastAction: 'Edit Termin Pembayaran' };
                 }));
+                setEditingPaymentKey(null);
+                setEditPaymentForm({ amount: '', method: 'Transfer', note: '' });
                 showToast("Termin pembayaran diperbarui.", "success");
             };
 
@@ -4706,14 +4699,9 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     if (!hasActiveVendorMaterials) delete nextPurchasedVendors[vendorKey];
                     const nextPurchasedBatches = { ...(order.materialPurchasedBatches || {}) };
                     delete nextPurchasedBatches[batchKey];
-                    const hasMaterials = getActiveMaterials({ materials: nextMaterials }).length > 0;
-                    const remainingBatchKeys = getOrderMaterialBatchKeys({ ...order, materials: nextMaterials });
-                    const hasPurchasedMaterials = remainingBatchKeys.some(key => {
-                        const [remainingVendor] = key.split('|||');
-                        return !!nextPurchasedBatches[key] || !!nextPurchasedVendors[remainingVendor];
-                    });
-                    const nextMaterialStatus = !hasMaterials ? 'Belum' : (hasPurchasedMaterials ? 'Dibeli Sebagian' : 'Direkap');
-                    const nextOrderStatus = hasProductionStarted(order) ? order.status : (hasPurchasedMaterials ? 'Pembelian Bahan' : 'Pending');
+                    const checkOrder = { ...order, materials: nextMaterials, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches, materialPurchasedVendors: nextPurchasedVendors };
+                    const nextMaterialStatus = computeMaterialStatus(checkOrder);
+                    const nextOrderStatus = hasProductionStarted(order) ? order.status : 'Pending';
                     return {
                         ...order,
                         materials: nextMaterials,
@@ -5708,16 +5696,38 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                         </div>
                                                         {payments.length > 0 && (
                                                             <div className="px-3 py-2 bg-green-50 border-t border-green-100 space-y-1">
-                                                                {payments.map((pay, pi) => (
-                                                                    <div key={pay.id||pi} className="flex items-center justify-between text-xs gap-2">
-                                                                        <span className="text-green-700"><span className="font-bold">Termin {pi+1}:</span> {pay.date} · {pay.method}{pay.note ? ` · ${pay.note}` : ''}</span>
-                                                                        <div className="flex items-center gap-2 shrink-0">
-                                                                            <span className="font-bold text-green-700">{fRp(pay.amount||0)}</span>
-                                                                            <button onClick={() => editVendorPayment(group.orderId, dVendor, dBatchDateKey, pay)} className="text-blue-600 font-bold">Edit</button>
-                                                                            <button onClick={() => deleteVendorPayment(group.orderId, dVendor, dBatchDateKey, pay.id)} className="text-red-500 font-bold">Hapus</button>
+                                                                {payments.map((pay, pi) => {
+                                                                    const payKey = `${group.orderId}__${pay.id}`;
+                                                                    const isEditingThis = editingPaymentKey === payKey;
+                                                                    return (
+                                                                        <div key={pay.id||pi} className="text-xs">
+                                                                            {isEditingThis ? (
+                                                                                <div className="bg-white border border-blue-200 rounded-lg p-2 space-y-1.5">
+                                                                                    <div className="flex gap-1 flex-wrap">
+                                                                                        <input type="number" min="1" value={editPaymentForm.amount} onChange={e => setEditPaymentForm(p => ({...p, amount: e.target.value}))} className="border rounded px-2 py-1 text-xs w-28 font-bold" placeholder="Nominal" />
+                                                                                        <select value={editPaymentForm.method} onChange={e => setEditPaymentForm(p => ({...p, method: e.target.value}))} className="border rounded px-2 py-1 text-xs">
+                                                                                            <option>Transfer</option><option>Cash</option><option>QRIS</option><option>Cek</option>
+                                                                                        </select>
+                                                                                        <input type="text" value={editPaymentForm.note} onChange={e => setEditPaymentForm(p => ({...p, note: e.target.value}))} className="border rounded px-2 py-1 text-xs flex-1 min-w-20" placeholder="Catatan" />
+                                                                                    </div>
+                                                                                    <div className="flex gap-1">
+                                                                                        <button onClick={() => saveEditPayment(group.orderId, dVendor, dBatchDateKey, pay.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-bold text-xs">Simpan</button>
+                                                                                        <button onClick={() => { setEditingPaymentKey(null); setEditPaymentForm({amount:'',method:'Transfer',note:''}); }} className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded font-bold text-xs">Batal</button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                    <span className="text-green-700"><span className="font-bold">Termin {pi+1}:</span> {pay.date} · {pay.method}{pay.note ? ` · ${pay.note}` : ''}</span>
+                                                                                    <div className="flex items-center gap-2 shrink-0">
+                                                                                        <span className="font-bold text-green-700">{fRp(pay.amount||0)}</span>
+                                                                                        <button onClick={() => editVendorPayment(group.orderId, dVendor, dBatchDateKey, pay)} className="text-blue-600 font-bold">Edit</button>
+                                                                                        <button onClick={() => deleteVendorPayment(group.orderId, dVendor, dBatchDateKey, pay.id)} className="text-red-500 font-bold">Hapus</button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
-                                                                    </div>
-                                                                ))}
+                                                                    );
+                                                                })}
                                                             </div>
                                                         )}
                                                     </div>
