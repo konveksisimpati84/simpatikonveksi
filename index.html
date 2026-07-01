@@ -4516,24 +4516,37 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const addVendorGroupPayment = (vendorName, batchDateKey, orderGroups = []) => {
                 const batchKey = getMaterialBatchKey(vendorName, batchDateKey);
                 const key = `${batchKey}__GROUP`;
-                let amountLeft = safeMoney(paymentInputs[key]?.amount);
+                const totalAmount = safeMoney(paymentInputs[key]?.amount);
                 const note = String(paymentInputs[key]?.note || '').trim();
                 const payDate = paymentInputs[key]?.date || new Date().toISOString().slice(0, 10);
                 const method = String(paymentInputs[key]?.method || 'Transfer').trim() || 'Transfer';
-                if (amountLeft <= 0) {
+                if (totalAmount <= 0) {
                     showToast("Isi nominal pembayaran vendor terlebih dahulu.", "error");
+                    return;
+                }
+                // Hitung distribusi per order SEBELUM setOrders agar tidak ada mutasi di dalam updater
+                const paymentMap = {};
+                let remaining = totalAmount;
+                for (const group of (orderGroups || [])) {
+                    if (remaining <= 0) break;
+                    const currentOrder = orders.find(o => String(o.id) === String(group.orderId));
+                    if (!currentOrder) continue;
+                    const orderTotal = (group.items || []).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
+                    const paid = getVendorPaidTotal(currentOrder, vendorName, batchDateKey);
+                    const orderRemaining = Math.max(0, orderTotal - paid);
+                    const applied = Math.min(orderRemaining, remaining);
+                    if (applied <= 0) continue;
+                    paymentMap[String(group.orderId)] = applied;
+                    remaining -= applied;
+                }
+                if (Object.keys(paymentMap).length === 0) {
+                    showToast("Semua order vendor ini sudah lunas.", "error");
                     return;
                 }
                 const now = new Date().toISOString();
                 setOrders(prevOrders => prevOrders.map(order => {
-                    const group = (orderGroups || []).find(g => String(g.orderId) === String(order.id));
-                    if (!group || amountLeft <= 0) return order;
-                    const orderTotal = (group.items || []).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
-                    const paid = getVendorPaidTotal(order, vendorName, batchDateKey);
-                    const remaining = Math.max(0, orderTotal - paid);
-                    const applied = Math.min(remaining, amountLeft);
-                    if (applied <= 0) return order;
-                    amountLeft -= applied;
+                    const applied = paymentMap[String(order.id)];
+                    if (!applied) return order;
                     const nextPayments = { ...(order.materialPayments || {}) };
                     nextPayments[batchKey] = [
                         ...(nextPayments[batchKey] || []),
@@ -5403,7 +5416,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const payDate = paymentInputs[inputKey]?.date || new Date().toISOString().slice(0, 10);
                 const method = String(paymentInputs[inputKey]?.method || 'Transfer').trim() || 'Transfer';
                 if (totalAmount <= 0) { showToast("Isi nominal pembayaran terlebih dahulu.", "error"); return; }
-                const now = new Date().toISOString();
                 const orderRemaining = orderGroups.reduce((sum, group) => {
                     if (!group.order) return sum;
                     const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
@@ -5413,19 +5425,30 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const manualPaidAlready = getManualVendorPaidTotal(vendor, batchDateKey);
                 const manualRemaining = Math.max(0, manualTotal - manualPaidAlready);
                 const totalRemaining = orderRemaining + manualRemaining;
+                if (totalRemaining > 0 && totalAmount > totalRemaining) {
+                    showToast(`Pembayaran melebihi sisa hutang vendor (${formatRupiah(totalRemaining)})`, 'error');
+                    return;
+                }
                 const orderShare = totalRemaining > 0 ? Math.round((orderRemaining / totalRemaining) * totalAmount) : (orderGroups.length > 0 ? totalAmount : 0);
                 const manualShare = totalAmount - orderShare;
+                // Hitung distribusi per order SEBELUM setOrders agar tidak ada mutasi di dalam updater
                 if (orderShare > 0 && orderGroups.length > 0) {
+                    const paymentMap = {};
                     let left = orderShare;
-                    setOrders(prevOrders => prevOrders.map(order => {
-                        const group = orderGroups.find(g => String(g.orderId) === String(order.id));
-                        if (!group || left <= 0) return order;
+                    for (const group of orderGroups) {
+                        if (!group.order || left <= 0) continue;
                         const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                        const paid = getVendorPaidTotal(order, vendor, batchDateKey);
+                        const paid = getVendorPaidTotal(group.order, vendor, batchDateKey);
                         const rem = Math.max(0, t - paid);
                         const applied = rem > 0 ? Math.min(rem, left) : 0;
-                        if (applied <= 0) return order;
+                        if (applied <= 0) continue;
+                        paymentMap[String(group.orderId)] = applied;
                         left -= applied;
+                    }
+                    const now = new Date().toISOString();
+                    setOrders(prevOrders => prevOrders.map(order => {
+                        const applied = paymentMap[String(order.id)];
+                        if (!applied) return order;
                         const nextPayments = { ...(order.materialPayments || {}) };
                         nextPayments[batchKey] = [...(nextPayments[batchKey] || []), { id: `PAY-${Date.now()}-${order.id}`, date: payDate, amount: applied, method, note, vendor: normalizeVendorName(vendor), batchDateKey, createdAt: now }];
                         const checkOrder = { ...order, materialPayments: nextPayments };
@@ -5433,6 +5456,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     }));
                 }
                 if (manualShare > 0 && manualItems.length > 0) {
+                    const now = new Date().toISOString();
                     const payment = { id: `MPAY-${Date.now()}`, date: payDate, amount: manualShare, method, note };
                     setManualVendorPayments(prev => ({ ...(prev || {}), [batchKey]: [...safeArray((prev || {})[batchKey]), payment] }));
                 }
