@@ -11194,7 +11194,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (!order.progress) return;
                     Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
                         if (!getActiveProductionStageIds(order).includes(stage)) return;
-                        safeArray(data?.workLogs).filter(l => !l.isDeleted && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter).forEach(l => {
+                        safeArray(data?.workLogs).filter(l => !l.isDeleted && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter && (!rankMonth || (l.submittedAt || l.checkAfterChangedAt || '').startsWith(rankMonth))).forEach(l => {
                             const emp = visibleEmployees.find(e => String(e.id) === String(l.empId));
                             if (!emp) return;
                             const id = String(l.empId);
