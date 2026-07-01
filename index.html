@@ -5232,21 +5232,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                 </td>
                                                 <td className="p-3 text-xs text-gray-500">{String(order.materialArchivedAt || order.date || '').slice(0, 10) || '-'}</td>
                                                 <td className="p-3 text-center">
-                                                    <div className="flex flex-col gap-1 items-center">
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); openMaterialModal(order); }}
-                                                            className="text-xs bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
-                                                        >
-                                                            <IconEdit /> Edit Bahan
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); unarchiveMaterialOrder(order.id); }}
-                                                            className="text-xs bg-amber-50 border border-amber-300 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
-                                                            title="Kembalikan ke daftar aktif untuk beli bahan lagi"
-                                                        >
-                                                            ↩ Beli Lagi
-                                                        </button>
-                                                    </div>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); unarchiveMaterialOrder(order.id); }}
+                                                        className="text-xs bg-amber-50 border border-amber-300 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
+                                                        title="Kembalikan ke daftar aktif untuk beli bahan lagi"
+                                                    >
+                                                        ↩ Beli Lagi
+                                                    </button>
                                                 </td>
                                             </tr>
                                             {isExpanded && mats.length > 0 && (
@@ -5318,9 +5310,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                             <div className="text-xs text-gray-400">{mats.length} bahan · Arsip: {String(order.materialArchivedAt || '').slice(0, 10) || '-'}</div>
                                         </div>
                                         <div className="shrink-0 flex flex-col gap-1 items-end">
-                                            <button onClick={(e) => { e.stopPropagation(); openMaterialModal(order); }} className="text-xs bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg font-bold flex items-center gap-1">
-                                                <IconEdit /> Edit
-                                            </button>
                                             <button onClick={(e) => { e.stopPropagation(); unarchiveMaterialOrder(order.id); }} className="text-xs bg-amber-50 border border-amber-300 text-amber-700 px-2 py-1 rounded-lg font-bold flex items-center gap-1">
                                                 ↩ Beli Lagi
                                             </button>
