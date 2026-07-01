@@ -4409,14 +4409,15 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         purchaseDate: m.purchaseDate || now.slice(0, 10),
                         note: String(m.note || '').trim(),
                         purchaseStatus: m.purchaseStatus || 'Sudah Dibeli',
-                        materialBatchDate: m.purchaseDate || m.materialBatchDate || now.slice(0, 10),
+                        materialBatchDate: m.materialBatchDate || m.purchaseDate || now.slice(0, 10),
                         _syncUpdatedAt: now
                     }));
                 const activeMaterialCount = validMaterials.filter(m => !m.isDeleted).length;
                 
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) === String(selectedOrder.id)) {
-                        const nextStatus = activeMaterialCount === 0 ? 'Belum' : 'Direkap';
+                        const checkOrder = { ...o, materials: validMaterials };
+                        const nextStatus = activeMaterialCount === 0 ? 'Belum' : computeMaterialStatus(checkOrder);
                         const nextOrderStatus = activeMaterialCount === 0 ? (hasProductionStarted(o) ? o.status : 'Pending') : o.status;
                         return {
                             ...o,
@@ -8754,7 +8755,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             vendors: vendorList,
                             materials: getActiveMaterials(order),
                             isPayment: false,
-                            isHutang: status !== 'Selesai'
+                            isHutang: true
                         }];
                     }),
                 ...safeArray(manualPurchases).filter(isVisibleRecord).map(mp => ({
