@@ -4339,7 +4339,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
 
             // Riwayat Bahan: hanya order yang sudah diarsipkan (materialIsArchived=true)
             const riwayatBahanOrders = materialOrders
-                .filter(o => orderNeedsMaterials(o) && getActiveMaterials(o).length > 0 && !!o.materialIsArchived)
+                .filter(o => orderNeedsMaterials(o) && !!o.materialIsArchived)
                 .sort((a, b) => new Date(b.materialArchivedAt || b.date || b.createdAt || 0) - new Date(a.materialArchivedAt || a.date || a.createdAt || 0));
             const riwayatYears = ['Semua', ...new Set(riwayatBahanOrders.map(o => String(o.date || o.createdAt || '').slice(0, 4)).filter(Boolean)).values()].filter(Boolean);
             const filteredRiwayatBahan = riwayatBahanOrders.filter(o => {
