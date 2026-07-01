@@ -10787,7 +10787,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (String(r.id) !== String(rekapId)) return r;
                     const updatedPayments = [...(r.payments || []), newPayment];
                     const totalPaid = updatedPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
-                    const paymentStatus = totalPaid <= 0 ? 'belum' : totalPaid >= net - 0.5 ? 'lunas' : 'sebagian';
+                    const paymentStatus = totalPaid <= 0 ? 'belum' : totalPaid >= net - 1 ? 'lunas' : 'sebagian';
                     return { ...r, payments: updatedPayments, paymentStatus };
                 }));
                 setPayFormAmount('');
@@ -10801,7 +10801,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const net = safeMoney(r.netSalary ?? (safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction)));
                     const updatedPayments = (r.payments || []).filter(p => String(p.id) !== String(paymentId));
                     const totalPaid = updatedPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
-                    const paymentStatus = totalPaid <= 0 ? 'belum' : totalPaid >= net - 0.5 ? 'lunas' : 'sebagian';
+                    const paymentStatus = totalPaid <= 0 ? 'belum' : totalPaid >= net - 1 ? 'lunas' : 'sebagian';
                     return { ...r, payments: updatedPayments, paymentStatus };
                 }));
                 showToast('Pembayaran dihapus.', 'success');
@@ -11470,7 +11470,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                         const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
                                         const isPinned = pinnedRekapIds.has(rekap.id);
-                                        const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 0.5 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
+                                        const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
                                         const totalPaidDesktop = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
                                         const sisaGajiDesktop = Math.max(0, netSalary - totalPaidDesktop);
                                         return (
@@ -11509,7 +11509,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                     const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
                                     const isPinned = pinnedRekapIds.has(rekap.id);
-                                    const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 0.5 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
+                                    const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
                                     const totalPaidMobile = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
                                     const sisaGajiMobile = Math.max(0, netSalary - totalPaidMobile);
                                     return (
