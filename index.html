@@ -10152,7 +10152,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd) ids.add(String(emp.id));
                 });
                 return ids;
-            }, [visibleEmployees.length, safeOrdersForReport.length, safeInvoicesForReport.length, rekapKinerja?.length]);
+            }, [employees, safeOrdersForReport.length, invoices, safeRekapForReport.filter(isVisibleRecord).length]);
 
             const filteredReportEmployees = visibleEmployees.filter(emp => {
                 if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
@@ -11218,7 +11218,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         if (rankSortBy === 'gaji_asc') return a.gajiDirekap - b.gajiDirekap;
                         return b[rankSortBy] - a[rankSortBy];
                     });
-            }, [safeRekapForReport.length, safeOrdersForReport.length, rankMonth, rankDivFilter, rankSortBy, visibleEmployees.length, rekapKinerja?.length]);
+            }, [safeRekapForReport.filter(isVisibleRecord).length, safeOrdersForReport.length, rankMonth, rankDivFilter, rankSortBy, employees]);
 
             return (
                 <div className="space-y-6">
