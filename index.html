@@ -4330,10 +4330,8 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
 
             const materialOrders = (orders || []).filter(isVisibleOrder);
             const activeOrders = materialOrders.filter(o => {
-                const status = o?.materialStatus || 'Belum';
                 const orderStatus = o?.status || 'Pending';
-                return orderNeedsMaterials(o) && !o?.isArchived && !o?.materialIsArchived && orderStatus !== 'Terkirim'
-                    && ['Belum', 'Direkap', 'Dibeli Sebagian', 'Dicetak', 'Selesai'].includes(status);
+                return orderNeedsMaterials(o) && !o?.isArchived && !o?.materialIsArchived && orderStatus !== 'Terkirim';
             });
             const rekapOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.isArchived && o?.status !== 'Terkirim' && getActiveMaterials(o).length > 0);
 
@@ -4350,10 +4348,8 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const { page: riwayatPage, setPage: setRiwayatPage, totalPages: riwayatTotalPages, paged: pagedRiwayat, total: riwayatTotal } = usePagination(filteredRiwayatBahan, 20);
 
             const filterOrder = (order) => {
-                const materialStatus = order?.materialStatus || 'Belum';
-                const matchesStatus = statusFilter === 'Semua' || materialStatus === statusFilter;
                 const matchesDate = !dateFilter || String(order?.date || '').slice(0, 10) === dateFilter || String(order?.deadline || '').slice(0, 10) === dateFilter || getActiveMaterials(order).some(mat => String(mat.purchaseDate || '').slice(0, 10) === dateFilter);
-                return matchesSearch(orderSearchFields(order), searchTerm) && matchesStatus && matchesDate;
+                return matchesSearch(orderSearchFields(order), searchTerm) && matchesDate;
             };
             const filteredActiveOrders = activeOrders.filter(filterOrder)
                 .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
@@ -5075,13 +5071,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     <th className="p-3 text-sm font-semibold text-gray-600">ID Order</th>
                                     <th className="p-3 text-sm font-semibold text-gray-600">Klien / Instansi</th>
                                     <th className="p-3 text-sm font-semibold text-gray-600">Barang & Total</th>
-                                    <th className="p-3 text-sm font-semibold text-gray-600">Status Bahan</th>
                                     <th className="p-3 text-sm font-semibold text-gray-600 text-center">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {pagedActiveOrders.map(order => {
-                                    const matStatus = order.materialStatus || 'Belum';
                                     const mats = getActiveMaterials(order);
                                     const isExpanded = !!expandedMatOrderIds[order.id];
                                     return (
@@ -5097,9 +5091,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                             {isExpanded ? '▲ tutup' : `▼ ${mats.length} bahan`}
                                                         </button>
                                                     )}
-                                                </td>
-                                                <td className="p-3">
-                                                    <Badge status={getMaterialStatusLabel(matStatus)} />
                                                 </td>
                                                 <td className="p-3 text-center">
                                                     <div className="flex flex-col gap-1 items-center">
@@ -5139,14 +5130,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     )
                                 })}
                                 {filteredActiveOrders.length === 0 && (
-                                    <tr><td colSpan="6" className="p-8 text-center text-gray-500 italic border border-dashed border-gray-200 rounded-lg">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order produksi yang aktif.'}</td></tr>
+                                    <tr><td colSpan="5" className="p-8 text-center text-gray-500 italic border border-dashed border-gray-200 rounded-lg">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order produksi yang aktif.'}</td></tr>
                                 )}
                             </tbody>
                         </table>
                     </div>
                     <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
                         {pagedActiveOrders.map(order => {
-                            const matStatus = order.materialStatus || 'Belum';
                             const mats = getActiveMaterials(order);
                             const isExpanded = !!expandedMatOrderIds[order.id];
                             return (
@@ -5156,7 +5146,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap mb-0.5">
                                                 <span className="text-blue-600 font-bold text-sm">{order.id}</span>
-                                                <Badge status={getMaterialStatusLabel(matStatus)} />
                                             </div>
                                             <div className="font-bold text-gray-800 text-sm truncate">{order.client}</div>
                                             <div className="text-xs text-gray-500 mt-0.5">
@@ -5304,7 +5293,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 })}
                                 {filteredRiwayatBahan.length === 0 && (
                                     <tr><td colSpan="6" className="p-8 text-center text-gray-500 italic">
-                                        {riwayatSearch ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada riwayat bahan yang diarsipkan. Order dengan status Selesai bisa diarsipkan dari tab Input Pembelian.'}
+                                        {riwayatSearch ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada riwayat bahan yang diarsipkan. Arsipkan order dari tab Input Pembelian.'}
                                     </td></tr>
                                 )}
                             </tbody>
@@ -5814,14 +5803,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 <div className="md:col-span-2">
                                     <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan, status..." />
                                 </div>
-                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                                    <option value="Semua">Semua Status Bahan</option>
-                                    <option value="Belum">Belum</option>
-                                    <option value="Direkap">Direkap</option>
-                                    <option value="Dibeli Sebagian">Dibeli Sebagian</option>
-                                    <option value="Selesai">Selesai</option>
-                                    <option value="Tidak Perlu">Tidak Perlu</option>
-                                </select>
                                 <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={paymentStatusFilter} onChange={e => setPaymentStatusFilter(e.target.value)}>
                                     <option value="Semua">Semua Pembayaran</option>
                                     <option value="Belum Bayar">Belum Bayar</option>
