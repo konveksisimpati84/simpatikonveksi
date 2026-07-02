@@ -4423,10 +4423,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const [editPaymentForm, setEditPaymentForm] = useState({ amount: '', method: 'Transfer', note: '' });
 
             const materialOrders = (orders || []).filter(isVisibleOrder);
-            const activeOrders = materialOrders.filter(o => {
-                const orderStatus = o?.status || 'Pending';
-                return orderNeedsMaterials(o) && !o?.isArchived && !o?.materialIsArchived && orderStatus !== 'Terkirim';
-            });
+            const activeOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.materialIsArchived);
             const rekapOrders = materialOrders.filter(o => orderNeedsMaterials(o) && getActiveMaterials(o).length > 0);
             const rekapYears = ['Semua', ...[...new Set([
                 ...rekapOrders.map(o => String(o.date || o.createdAt || '').slice(0, 4)),
