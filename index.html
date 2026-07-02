@@ -884,7 +884,12 @@
             const [insight, setInsight] = useState("");
             const [isInsightLoading, setIsInsightLoading] = useState(false);
             const [searchTerm, setSearchTerm] = useState('');
+            const [currentPage, setCurrentPage] = useState(1);
+            const ITEMS_PER_PAGE = 10;
             const dashboardOrders = safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm));
+            React.useEffect(() => { setCurrentPage(1); }, [searchTerm]);
+            const totalPages = Math.ceil(dashboardOrders.length / ITEMS_PER_PAGE);
+            const paginatedOrders = dashboardOrders.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
             // Ambil dan urutkan daftar nama marketing untuk auto-typing di Edit Modal
             const uniqueMarketingDashboard = [...new Set(safeOrders.map(o => o.marketing).filter(Boolean))].sort();
@@ -1079,7 +1084,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {dashboardOrders.map(order => (
+                                    {paginatedOrders.map(order => (
                                         <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                                             <td className="p-3 text-sm font-medium text-blue-600">{order.id}</td>
                                             <td className="p-3 text-sm text-gray-800">{order.client}</td>
@@ -1128,7 +1133,7 @@
                             </table>
                         </div>
                         <div className="md:hidden divide-y divide-gray-100">
-                            {dashboardOrders.map(order => {
+                            {paginatedOrders.map(order => {
                                 const revisiQty = (order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0);
                                 return (
                                     <div key={order.id} className="px-1 py-3 flex items-start gap-3">
@@ -1167,6 +1172,18 @@
                             })}
                             {dashboardOrders.length === 0 && <p className="p-4 text-center text-sm text-gray-500 italic">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang berjalan.'}</p>}
                         </div>
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                                <span className="text-xs text-gray-500">
+                                    {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, dashboardOrders.length)} dari {dashboardOrders.length} order
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">← Prev</button>
+                                    <span className="text-xs font-bold text-gray-700">Hal {currentPage} / {totalPages}</span>
+                                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Next →</button>
+                                </div>
+                            </div>
+                        )}
                     </Card>
 
                     {editOrder && (
