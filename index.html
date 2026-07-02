@@ -3995,6 +3995,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [expandedIds, setExpandedIds] = useState({});
+            const [expandedClientKeys, setExpandedClientKeys] = useState({});
             const sjOrderIds = new Set((riwayatPengiriman || []).filter(isVisibleRecord).flatMap(r => (r.items || []).map(i => i.orderId)));
             const archivedWithoutSJ = (orders || []).filter(isVisibleRecord).filter(o => o.isArchived && !sjOrderIds.has(o.id));
             const archivedAsSJ = archivedWithoutSJ.map(o => {
@@ -4006,6 +4007,29 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const filteredRiwayatPengiriman = [...(riwayatPengiriman || []).filter(isVisibleRecord), ...archivedAsSJ]
                 .reverse()
                 .filter(riwayat => matchesSearch([riwayat.id, riwayat.date, riwayat.client, riwayat.total, riwayat.items], searchTerm));
+            const rekapPerKlien = React.useMemo(() => {
+                const map = {};
+                filteredRiwayatPengiriman.forEach(riwayat => {
+                    const client = riwayat.client || '(Tanpa Nama)';
+                    if (!map[client]) map[client] = { totalSJ: 0, totalPcs: 0, byType: {} };
+                    map[client].totalSJ += 1;
+                    map[client].totalPcs += (parseInt(riwayat.total) || 0);
+                    (riwayat.items || []).forEach(item => {
+                        const type = item.type || '-';
+                        if (!map[client].byType[type]) map[client].byType[type] = { totalPcs: 0, sizes: {} };
+                        map[client].byType[type].totalPcs += (parseInt(item.total) || 0);
+                        (item.details || '').split(', ').forEach(part => {
+                            const match = part.match(/(.+?)\s*\((\d+)\)/);
+                            if (match) {
+                                const size = match[1].trim();
+                                const qty = parseInt(match[2], 10) || 0;
+                                map[client].byType[type].sizes[size] = (map[client].byType[type].sizes[size] || 0) + qty;
+                            }
+                        });
+                    });
+                });
+                return Object.entries(map).sort((a, b) => b[1].totalPcs - a[1].totalPcs);
+            }, [filteredRiwayatPengiriman]);
 
             const printSuratJalan = (client, items, sjId, dateStr) => {
                 const formattedDate = new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -4201,6 +4225,56 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 <div className="space-y-6">
                     <h2 className="text-2xl font-bold text-gray-800">Riwayat Pengiriman</h2>
                     <p className="text-gray-600 mb-6">Daftar seluruh Surat Jalan yang pernah dicetak dan dikirim ke klien.</p>
+
+                    <Card>
+                        <h3 className="text-lg font-bold text-gray-800 mb-4">Rekap Per Klien / Instansi</h3>
+                        {rekapPerKlien.length === 0 ? (
+                            <p className="text-sm text-gray-500 italic text-center py-4">Belum ada data pengiriman.</p>
+                        ) : (
+                            <div className="divide-y divide-gray-100 -mx-4 sm:-mx-6">
+                                {rekapPerKlien.map(([client, data]) => (
+                                    <div key={client}>
+                                        <button
+                                            onClick={() => setExpandedClientKeys(prev => ({ ...prev, [client]: !prev[client] }))}
+                                            className="w-full flex items-center justify-between px-4 sm:px-6 py-3 hover:bg-gray-50 transition-colors text-left"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-xs flex items-center justify-center flex-shrink-0 shadow">
+                                                    {client.split(' ').slice(0,2).map(w => w[0]||'').join('').toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <div className="font-bold text-gray-800 text-sm">{client}</div>
+                                                    <div className="text-xs text-gray-500">{data.totalSJ}× surat jalan · <span className="font-bold text-green-600">{data.totalPcs} pcs</span> total terkirim</div>
+                                                </div>
+                                            </div>
+                                            <span className="text-gray-400 text-xs ml-2 flex-shrink-0">{expandedClientKeys[client] ? '▲ Tutup' : '▼ Rincian'}</span>
+                                        </button>
+                                        {expandedClientKeys[client] && (
+                                            <div className="px-4 sm:px-6 pb-4 bg-gray-50">
+                                                <div className="space-y-2 pt-2">
+                                                    {Object.entries(data.byType).map(([type, typeData]) => (
+                                                        <div key={type} className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm">
+                                                            <div className="flex items-center justify-between mb-2">
+                                                                <span className="text-sm font-bold text-gray-700">{type}</span>
+                                                                <span className="text-xs font-bold text-green-600 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">{typeData.totalPcs} pcs</span>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {sortSizeKeys(Object.keys(typeData.sizes)).map(size => (
+                                                                    <span key={size} className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full font-semibold">
+                                                                        {size}: {typeData.sizes[size]}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </Card>
 
                     <Card>
                         <div className="mb-4 max-w-lg">
