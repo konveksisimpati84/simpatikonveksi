@@ -4406,6 +4406,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const [paymentStatusFilter, setPaymentStatusFilter] = useState('Semua');
             const [dateFilter, setDateFilter] = useState('');
             const [rekapYearFilter, setRekapYearFilter] = useState('Semua');
+            const [rekapMonthFilter, setRekapMonthFilter] = useState('Semua');
             const [paymentInputs, setPaymentInputs] = useState({});
             const [previewImage, setPreviewImage] = useState(null);
             const [expandedPurchaseKeys, setExpandedPurchaseKeys] = useState({});
@@ -4449,7 +4450,9 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const filteredActiveOrders = activeOrders.filter(filterOrder)
                 .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const filteredRekapOrders = rekapOrders.filter(o => {
-                if (rekapYearFilter !== 'Semua' && String(o?.date || o?.createdAt || '').slice(0, 4) !== rekapYearFilter) return false;
+                const orderDate = String(o?.date || o?.createdAt || '');
+                if (rekapYearFilter !== 'Semua' && orderDate.slice(0, 4) !== rekapYearFilter) return false;
+                if (rekapMonthFilter !== 'Semua' && orderDate.slice(5, 7) !== rekapMonthFilter) return false;
                 return filterOrder(o);
             }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
@@ -5120,6 +5123,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     if (searchTerm && !matchesSearch([mp.vendor, mp.name, mp.spec, mp.note, mp.purchaseDate, mp.purchaseStatus, mp.unit], searchTerm)) return;
                     if (dateFilter && String(mp.purchaseDate || '').slice(0, 10) !== dateFilter) return;
                     if (rekapYearFilter !== 'Semua' && String(mp.purchaseDate || '').slice(0, 4) !== rekapYearFilter) return;
+                    if (rekapMonthFilter !== 'Semua' && String(mp.purchaseDate || '').slice(5, 7) !== rekapMonthFilter) return;
                     const vendorName = String(mp.vendor || 'Tanpa Vendor').trim();
                     const batchDateKey = mp.purchaseDate || new Date().toISOString().slice(0, 10);
                     const groupKey = `${vendorName}|||${batchDateKey}`;
@@ -5129,7 +5133,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     groups[groupKey].items.push({ ...mp, orderId: null, isManual: true, batchDateKey });
                 });
                 return groups;
-            }, [filteredRekapOrders, manualPurchases, searchTerm, dateFilter, rekapYearFilter]);
+            }, [filteredRekapOrders, manualPurchases, searchTerm, dateFilter, rekapYearFilter, rekapMonthFilter]);
 
             const renderOrderDesignPreview = (order, compact = false) => {
                 const images = [order?.designImage1, order?.designImage2].filter(Boolean);
@@ -5652,10 +5656,18 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 bg-white border-b border-gray-100 text-[11px] text-gray-500">
                                     <div className="flex items-center gap-1.5">
                                         <span className="font-bold text-gray-600">Tahun:</span>
-                                        <select value={rekapYearFilter} onChange={e => setRekapYearFilter(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                                        <select value={rekapYearFilter} onChange={e => { setRekapYearFilter(e.target.value); setRekapMonthFilter('Semua'); }} className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
                                             {rekapYears.map(y => <option key={y} value={y}>{y}</option>)}
                                         </select>
                                     </div>
+                                    {rekapYearFilter !== 'Semua' && (
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="font-bold text-gray-600">Bulan:</span>
+                                            <select value={rekapMonthFilter} onChange={e => setRekapMonthFilter(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                                                {[['Semua','Semua'],['01','Jan'],['02','Feb'],['03','Mar'],['04','Apr'],['05','Mei'],['06','Jun'],['07','Jul'],['08','Ags'],['09','Sep'],['10','Okt'],['11','Nov'],['12','Des']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
                                     <span className="text-gray-300">|</span>
                                     <span className="font-bold text-gray-600">Filter Bayar:</span>
                                     {[{v:'Lunas',c:'bg-green-400',l:'Lunas'},{v:'Termin / Bayar Sebagian',c:'bg-orange-400',l:'Sebagian'},{v:'Belum Bayar',c:'bg-red-400',l:'Belum Bayar'}].map(({v,c,l}) => (
