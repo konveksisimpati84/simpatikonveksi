@@ -8751,7 +8751,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, manualPurchases = [] }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, manualPurchases = [], manualVendorPayments = {} }) => {
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
@@ -9017,11 +9017,31 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return { order, billed, paid, remaining: Math.max(0, billed - paid) };
                 })
                 .filter(row => row.billed > 0);
-            const totalMaterialBill = materialBillingRows.reduce((sum, row) => sum + row.billed, 0);
-            const totalVendorPaid = materialBillingRows.reduce((sum, row) => sum + row.paid, 0);
-            const totalVendorDebt = materialBillingRows.reduce((sum, row) => sum + row.remaining, 0);
+            // Hutang vendor dari pembelian manual (manualPurchases + manualVendorPayments)
+            const manualBillingByBatch = {};
+            safeArray(manualPurchases).filter(isVisibleRecord).forEach(mp => {
+                if (!mp.vendor) return;
+                const bk = getMaterialBatchKey(mp.vendor, mp.purchaseDate || '');
+                if (!manualBillingByBatch[bk]) manualBillingByBatch[bk] = { billed: 0, paid: 0 };
+                manualBillingByBatch[bk].billed += getMaterialLineTotal(mp);
+            });
+            Object.entries(manualVendorPayments || {}).forEach(([bk, pmts]) => {
+                if (!manualBillingByBatch[bk]) manualBillingByBatch[bk] = { billed: 0, paid: 0 };
+                manualBillingByBatch[bk].paid += safeArray(pmts).reduce((s, p) => s + safeMoney(p?.amount), 0);
+            });
+            const manualBillingTotals = Object.values(manualBillingByBatch).reduce(
+                (acc, { billed, paid }) => ({
+                    billed: acc.billed + billed,
+                    paid: acc.paid + Math.min(paid, billed),
+                    debt: acc.debt + Math.max(0, billed - paid)
+                }),
+                { billed: 0, paid: 0, debt: 0 }
+            );
+            const totalMaterialBill = materialBillingRows.reduce((sum, row) => sum + row.billed, 0) + manualBillingTotals.billed;
+            const totalVendorPaid = materialBillingRows.reduce((sum, row) => sum + row.paid, 0) + manualBillingTotals.paid;
+            const totalVendorDebt = materialBillingRows.reduce((sum, row) => sum + row.remaining, 0) + manualBillingTotals.debt;
             const totalPaidOffPurchase = materialBillingRows.filter(row => row.remaining <= 0).reduce((sum, row) => sum + row.billed, 0);
-            const totalUnpaidPurchase = materialBillingRows.filter(row => row.remaining > 0).reduce((sum, row) => sum + row.remaining, 0);
+            const totalUnpaidPurchase = materialBillingRows.filter(row => row.remaining > 0).reduce((sum, row) => sum + row.remaining, 0) + manualBillingTotals.debt;
 
             const orderCostMap = new Map();
             materialRows.forEach(row => {
@@ -17295,7 +17315,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} />}
+                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} manualVendorPayments={manualVendorPayments} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} />}
