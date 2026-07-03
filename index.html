@@ -16873,10 +16873,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setManualVendorPayments(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) ? nextVal : {};
-                    setTimeout(() => {
-                        safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(valid));
-                        saveToSupabase('manualVendorPayments', valid);
-                    }, 0);
+                    safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(valid));
+                    setTimeout(() => { saveToSupabase('manualVendorPayments', valid); }, 0);
                     return valid;
                 });
             };
@@ -16885,10 +16883,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setVendorNotaPayments(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) ? nextVal : {};
-                    setTimeout(() => {
-                        safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(valid));
-                        saveToSupabase('vendorNotaPayments', valid);
-                    }, 0);
+                    safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(valid));
+                    setTimeout(() => { saveToSupabase('vendorNotaPayments', valid); }, 0);
                     return valid;
                 });
             };
