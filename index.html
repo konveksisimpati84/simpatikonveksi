@@ -12887,7 +12887,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const reportData = generateReportData();
             const empKeyword = String(empSearchTerm || '').trim().toLowerCase();
-            const filteredReportData = empKeyword ? reportData.filter(item => item.empName.toLowerCase().includes(empKeyword)) : reportData;
+            const filteredReportData = empKeyword ? reportData.filter(item => matchesSearch([item.stage, item.empName, item.sizes, item.total, item.status, item.takenAt, item.submittedAt], empSearchTerm)) : reportData;
 
             const handlePrint = () => {
                 const printContent = `
@@ -13003,7 +13003,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <input
                                     type="text"
                                     className="w-full md:w-72 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                    placeholder="Filter nama karyawan..."
+                                    placeholder="Cari nama, tahap, ukuran, status..."
                                     value={empSearchTerm}
                                     onChange={e => setEmpSearchTerm(e.target.value)}
                                 />
