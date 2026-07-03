@@ -427,17 +427,14 @@
             .reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
         const getVendorPayments = (order, vendorName, batchDateKey = '') => {
             const payments = order?.materialPayments || {};
-            const key = batchDateKey ? getMaterialBatchKey(vendorName, batchDateKey) : normalizeVendorName(vendorName);
-            if (batchDateKey && Array.isArray(payments[key])) return payments[key];
-            // Fallback ke old-key (format lama tanpa tanggal) hanya jika tidak ada
-            // new-key (format baru vendor|||tanggal) untuk vendor ini — cegah double-count
-            if (batchDateKey) {
-                const vendorNorm = normalizeVendorName(vendorName);
-                const hasNewFormatKey = Object.keys(payments).some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vendorNorm);
-                if (!hasNewFormatKey && Array.isArray(payments[vendorNorm])) return payments[vendorNorm];
-                return [];
-            }
-            return Array.isArray(payments[key]) ? payments[key] : [];
+            const vendorNorm = normalizeVendorName(vendorName);
+            const key = batchDateKey ? getMaterialBatchKey(vendorName, batchDateKey) : vendorNorm;
+            // Key format baru ('Vendor|||date') — cek langsung
+            if (Array.isArray(payments[key])) return payments[key];
+            // Fallback ke key format lama ('Vendor' tanpa tanggal) agar data lama tidak hilang.
+            // Aman: jika key baru untuk batch ini tidak ada, data lama memang milik batch ini.
+            if (batchDateKey && key !== vendorNorm && Array.isArray(payments[vendorNorm])) return payments[vendorNorm];
+            return [];
         };
         const getVendorPaidTotal = (order, vendorName, batchDateKey = '') => getVendorPayments(order, vendorName, batchDateKey).reduce((sum, pay) => sum + (parseFloat(pay?.amount) || 0), 0);
         const getVendorRemainingPayment = (order, vendorName, batchDateKey = '') => Math.max(0, getVendorMaterialTotal(order, vendorName, batchDateKey) - getVendorPaidTotal(order, vendorName, batchDateKey));
@@ -4450,9 +4447,25 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const filteredActiveOrders = activeOrders.filter(filterOrder)
                 .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const filteredRekapOrders = rekapOrders.filter(o => {
-                const orderDate = String(o?.date || o?.createdAt || '');
-                if (rekapYearFilter !== 'Semua' && orderDate.slice(0, 4) !== rekapYearFilter) return false;
-                if (rekapMonthFilter !== 'Semua' && orderDate.slice(5, 7) !== rekapMonthFilter) return false;
+                if (rekapYearFilter !== 'Semua' || rekapMonthFilter !== 'Semua') {
+                    const activeMats = getActiveMaterials(o);
+                    if (activeMats.length > 0) {
+                        // Filter berdasarkan tanggal beli bahan agar konsisten dengan filter manual purchases
+                        const hasMatch = activeMats.some(mat => {
+                            const d = getMaterialBatchDateKey(o, mat);
+                            if (!d) return false;
+                            if (rekapYearFilter !== 'Semua' && d.slice(0, 4) !== rekapYearFilter) return false;
+                            if (rekapMonthFilter !== 'Semua' && d.slice(5, 7) !== rekapMonthFilter) return false;
+                            return true;
+                        });
+                        if (!hasMatch) return false;
+                    } else {
+                        // Fallback ke tanggal order jika tidak ada bahan aktif
+                        const orderDate = String(o?.date || o?.createdAt || '');
+                        if (rekapYearFilter !== 'Semua' && orderDate.slice(0, 4) !== rekapYearFilter) return false;
+                        if (rekapMonthFilter !== 'Semua' && orderDate.slice(5, 7) !== rekapMonthFilter) return false;
+                    }
+                }
                 return filterOrder(o);
             }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
@@ -4565,10 +4578,18 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
 
             const deleteVendorPayment = (orderId, vendorName, batchDateKey, paymentId) => {
                 const batchKey = getMaterialBatchKey(vendorName, batchDateKey);
+                const legacyKey = normalizeVendorName(vendorName);
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPayments = { ...(o.materialPayments || {}) };
-                    nextPayments[batchKey] = (nextPayments[batchKey] || []).filter(pay => String(pay.id) !== String(paymentId));
+                    // Cek key format baru
+                    if (Array.isArray(nextPayments[batchKey])) {
+                        nextPayments[batchKey] = nextPayments[batchKey].filter(pay => String(pay.id) !== String(paymentId));
+                    }
+                    // Cek key format lama (tanpa tanggal) jika berbeda
+                    if (legacyKey !== batchKey && Array.isArray(nextPayments[legacyKey])) {
+                        nextPayments[legacyKey] = nextPayments[legacyKey].filter(pay => String(pay.id) !== String(paymentId));
+                    }
                     const checkOrder = { ...o, materialPayments: nextPayments };
                     return {
                         ...o,
@@ -4607,12 +4628,15 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             };
             const saveEditPayment = (orderId, vendorName, batchDateKey, paymentId) => {
                 const batchKey = getMaterialBatchKey(vendorName, batchDateKey);
+                const legacyKey = normalizeVendorName(vendorName);
                 const amount = parseFloat(editPaymentForm.amount) || 0;
                 if (amount <= 0) { showToast("Nominal pembayaran harus lebih dari 0.", "error"); return; }
                 const currentOrder = orders.find(o => String(o.id) === String(orderId));
                 if (currentOrder) {
                     const vendorTotal = getVendorMaterialTotal(currentOrder, vendorName, batchDateKey);
-                    const allPayments = safeArray((currentOrder.materialPayments || {})[batchKey]);
+                    // Cek key baru dulu, fallback ke key lama jika kosong
+                    const pmts = currentOrder.materialPayments || {};
+                    const allPayments = safeArray(pmts[batchKey]).length > 0 ? safeArray(pmts[batchKey]) : safeArray(pmts[legacyKey]);
                     const otherPayments = allPayments.filter(p => String(p.id) !== String(paymentId));
                     const otherPaid = otherPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
                     const maxAllowed = Math.max(0, vendorTotal - otherPaid);
@@ -4621,15 +4645,22 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         return;
                     }
                 }
+                const updatedAt = new Date().toISOString();
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPayments = { ...(o.materialPayments || {}) };
-                    nextPayments[batchKey] = (nextPayments[batchKey] || []).map(pay => String(pay.id) === String(paymentId)
-                        ? { ...pay, amount, method: editPaymentForm.method || 'Transfer', note: editPaymentForm.note, updatedAt: new Date().toISOString() }
+                    const applyEdit = (arr) => (arr || []).map(pay => String(pay.id) === String(paymentId)
+                        ? { ...pay, amount, method: editPaymentForm.method || 'Transfer', note: editPaymentForm.note, updatedAt }
                         : pay
                     );
+                    // Update key format baru jika ada, jika tidak update key lama
+                    if (Array.isArray(nextPayments[batchKey]) && nextPayments[batchKey].some(p => String(p.id) === String(paymentId))) {
+                        nextPayments[batchKey] = applyEdit(nextPayments[batchKey]);
+                    } else if (legacyKey !== batchKey && Array.isArray(nextPayments[legacyKey])) {
+                        nextPayments[legacyKey] = applyEdit(nextPayments[legacyKey]);
+                    }
                     const checkOrder = { ...o, materialPayments: nextPayments };
-                    return { ...o, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: new Date().toISOString(), materialLastAction: 'Edit Termin Pembayaran' };
+                    return { ...o, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: updatedAt, materialLastAction: 'Edit Termin Pembayaran' };
                 }));
                 setEditingPaymentKey(null);
                 setEditPaymentForm({ amount: '', method: 'Transfer', note: '' });
@@ -16097,6 +16128,25 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 return patchOrders([...mergedById.values()]);
             };
 
+            // Merge dua payment dict ({batchKey: [{id, amount, ...}]})
+            // Union by id per batchKey — remote menang jika id duplikat.
+            // Mencegah kehilangan pembayaran offline saat real-time sync overwrite.
+            const mergePaymentDict = (local, remote) => {
+                const l = (local && typeof local === 'object' && !Array.isArray(local)) ? local : {};
+                const r = (remote && typeof remote === 'object' && !Array.isArray(remote)) ? remote : {};
+                const allKeys = new Set([...Object.keys(l), ...Object.keys(r)]);
+                const merged = {};
+                allKeys.forEach(key => {
+                    const lArr = Array.isArray(l[key]) ? l[key] : [];
+                    const rArr = Array.isArray(r[key]) ? r[key] : [];
+                    const byId = new Map();
+                    lArr.forEach(p => { if (p?.id) byId.set(String(p.id), p); });
+                    rArr.forEach(p => { if (p?.id) byId.set(String(p.id), p); });
+                    merged[key] = [...byId.values()];
+                });
+                return merged;
+            };
+
             const applyRemoteDataSnapshot = async () => {
                 if (!supabaseClient) return;
                 if (syncInFlightRef.current) return;
@@ -16213,12 +16263,18 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     });
                 }
                 if (remoteManualVendorPayments && typeof remoteManualVendorPayments === 'object' && !Array.isArray(remoteManualVendorPayments)) {
-                    setManualVendorPayments(remoteManualVendorPayments);
-                    safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(remoteManualVendorPayments));
+                    setManualVendorPayments(prev => {
+                        const merged = mergePaymentDict(prev, remoteManualVendorPayments);
+                        safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(merged));
+                        return merged;
+                    });
                 }
                 if (remoteVendorNotaPayments && typeof remoteVendorNotaPayments === 'object' && !Array.isArray(remoteVendorNotaPayments)) {
-                    setVendorNotaPayments(remoteVendorNotaPayments);
-                    safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(remoteVendorNotaPayments));
+                    setVendorNotaPayments(prev => {
+                        const merged = mergePaymentDict(prev, remoteVendorNotaPayments);
+                        safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(merged));
+                        return merged;
+                    });
                 }
                 if (Array.isArray(remoteInvestors)) {
                     setInvestors(prev => {
@@ -16434,9 +16490,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                             const localManualPurchases = loadLocalData('simpati_manual_purchases_sync', []);
                             const nextManualPurchases = mergeRecordLists(localManualPurchases, Array.isArray(manPurs) ? manPurs : []);
                             const localManualVendorPayments = loadLocalData('simpati_manual_vendor_payments_sync', {});
-                            const nextManualVendorPayments = (manVPays && typeof manVPays === 'object' && !Array.isArray(manVPays)) ? manVPays : localManualVendorPayments;
+                            const nextManualVendorPayments = mergePaymentDict(localManualVendorPayments, (manVPays && typeof manVPays === 'object' && !Array.isArray(manVPays)) ? manVPays : {});
                             const localVendorNotaPayments = loadLocalData('simpati_vendor_nota_payments_sync', {});
-                            const nextVendorNotaPayments = (vendNotaPays && typeof vendNotaPays === 'object' && !Array.isArray(vendNotaPays)) ? vendNotaPays : localVendorNotaPayments;
+                            const nextVendorNotaPayments = mergePaymentDict(localVendorNotaPayments, (vendNotaPays && typeof vendNotaPays === 'object' && !Array.isArray(vendNotaPays)) ? vendNotaPays : {});
                             setAccounts(nextAccounts);
                             setEmployees(nextEmployees);
                             setOrders(nextOrders);
