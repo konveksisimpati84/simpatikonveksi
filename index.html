@@ -12962,11 +12962,31 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div><label className="block text-xs font-bold text-blue-900 mb-1">Tanggal Awal</label><input type="date" className="w-full p-2 border border-blue-300 rounded-lg" value={dateStart} onChange={e => setDateStart(e.target.value)} /></div>
                             <div><label className="block text-xs font-bold text-blue-900 mb-1">Tanggal Akhir</label><input type="date" className="w-full p-2 border border-blue-300 rounded-lg" value={dateEnd} onChange={e => setDateEnd(e.target.value)} /></div>
                         </div>
-                        <label className="block text-sm font-bold text-blue-900 mb-2">Pilih Order Produksi</label>
-                        <select className="w-full md:w-1/2 p-2 border border-blue-300 rounded-lg focus:ring-blue-500 outline-none" value={selectedOrderId} onChange={e => setSelectedOrderId(e.target.value)}>
-                            <option value="">-- Pilih ID Order --</option>
-                            {filteredOrders.map(o => <option key={o.id} value={o.id}>{o.id} - {o.client} ({o.type})</option>)}
-                        </select>
+                        <label className="block text-sm font-bold text-blue-900 mb-2">
+                            Pilih Order Produksi
+                            <span className="ml-2 text-xs font-normal text-blue-600">({filteredOrders.length} order ditemukan)</span>
+                        </label>
+                        <div className="border border-blue-300 rounded-lg overflow-hidden">
+                            {filteredOrders.length === 0 ? (
+                                <div className="p-4 text-center text-sm text-gray-500 italic bg-white">
+                                    {searchTerm || dateStart || dateEnd ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada data order.'}
+                                </div>
+                            ) : (
+                                <ul className="max-h-52 overflow-y-auto divide-y divide-blue-100">
+                                    {filteredOrders.map(o => (
+                                        <li
+                                            key={o.id}
+                                            onClick={() => setSelectedOrderId(String(o.id) === String(selectedOrderId) ? '' : o.id)}
+                                            className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer text-sm transition-colors ${String(o.id) === String(selectedOrderId) ? 'bg-blue-600 text-white font-semibold' : 'bg-white hover:bg-blue-50 text-gray-800'}`}
+                                        >
+                                            <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${String(o.id) === String(selectedOrderId) ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'}`}>{o.id}</span>
+                                            <span className="flex-1">{o.client}</span>
+                                            <span className={`text-xs ${String(o.id) === String(selectedOrderId) ? 'text-blue-100' : 'text-gray-400'}`}>{o.type}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
                     </Card>
 
                     {order && (
