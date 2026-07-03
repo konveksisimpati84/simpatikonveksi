@@ -4441,7 +4441,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const { page: riwayatPage, setPage: setRiwayatPage, totalPages: riwayatTotalPages, paged: pagedRiwayat, total: riwayatTotal } = usePagination(filteredRiwayatBahan, 20);
 
             const filterOrder = (order) => {
-                const matchesDate = !dateFilter || String(order?.date || '').slice(0, 10) === dateFilter || String(order?.deadline || '').slice(0, 10) === dateFilter || getActiveMaterials(order).some(mat => String(mat.purchaseDate || '').slice(0, 10) === dateFilter);
+                const matchesDate = !dateFilter || String(order?.date || '').slice(0, 10) === dateFilter || String(order?.deadline || '').slice(0, 10) === dateFilter || getActiveMaterials(order).some(mat => getMaterialBatchDateKey(order, mat) === dateFilter);
                 return matchesSearch(orderSearchFields(order), searchTerm) && matchesDate;
             };
             const filteredActiveOrders = activeOrders.filter(filterOrder)
