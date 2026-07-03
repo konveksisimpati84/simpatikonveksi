@@ -12832,6 +12832,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [searchTerm, setSearchTerm] = useState('');
             const [dateStart, setDateStart] = useState('');
             const [dateEnd, setDateEnd] = useState('');
+            const [empSearchTerm, setEmpSearchTerm] = useState('');
+            React.useEffect(() => { setEmpSearchTerm(''); }, [selectedOrderId]);
             const safeOrders = (orders || []).filter(isVisibleOrder);
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const filteredOrders = safeOrders.filter(order => {
@@ -12884,6 +12886,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const reportData = generateReportData();
+            const empKeyword = String(empSearchTerm || '').trim().toLowerCase();
+            const filteredReportData = empKeyword ? reportData.filter(item => item.empName.toLowerCase().includes(empKeyword)) : reportData;
 
             const handlePrint = () => {
                 const printContent = `
@@ -12991,9 +12995,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                     {order && (
                         <Card>
-                            <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <div className="flex justify-between items-center mb-4 border-b pb-4">
                                 <div><h3 className="text-xl font-bold text-gray-800">{order.id}</h3><p className="text-sm text-gray-600">{order.client} | {order.type} ({order.total} pcs)</p></div>
                                 {reportData.length > 0 && <button onClick={handlePrint} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-medium flex gap-2"><IconPrinter /> Cetak</button>}
+                            </div>
+                            <div className="mb-4">
+                                <input
+                                    type="text"
+                                    className="w-full md:w-72 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                    placeholder="Filter nama karyawan..."
+                                    value={empSearchTerm}
+                                    onChange={e => setEmpSearchTerm(e.target.value)}
+                                />
+                                {empKeyword && <span className="ml-3 text-xs text-gray-500">{filteredReportData.length} baris ditemukan</span>}
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left border-collapse">
@@ -13001,9 +13015,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <th className="p-3 text-sm">Tahap Produksi</th><th className="p-3 text-sm">Nama Karyawan</th><th className="p-3 text-sm">Rincian Ukuran</th><th className="p-3 text-sm text-center">Jumlah</th><th className="p-3 text-sm">Status</th><th className="p-3 text-sm">Tanggal Ambil</th><th className="p-3 text-sm">Tanggal Setor</th>
                                     </tr></thead>
                                     <tbody>
-                                        {reportData.map((item, idx) => (
+                                        {filteredReportData.length > 0 ? filteredReportData.map((item, idx) => (
                                             <tr key={idx} className="border-b"><td className="p-3 text-sm font-bold text-blue-800">{item.stage}</td><td className="p-3 text-sm font-medium">{item.empName}</td><td className="p-3 text-sm">{item.sizes}</td><td className="p-3 text-sm font-bold text-center">{item.total} pcs</td><td className="p-3 text-sm">{item.status}</td><td className="p-3 text-sm">{formatReportDate(item.takenAt)}</td><td className="p-3 text-sm">{formatReportDate(item.submittedAt)}</td></tr>
-                                        ))}
+                                        )) : (
+                                            <tr><td colSpan="7" className="p-6 text-center text-sm text-gray-500 italic">{empKeyword ? `Tidak ada data untuk karyawan "${empSearchTerm}".` : 'Belum ada data pengerjaan.'}</td></tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
