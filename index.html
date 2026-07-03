@@ -12839,11 +12839,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [searchTerm, setSearchTerm] = useState('');
             const [dateStart, setDateStart] = useState('');
             const [dateEnd, setDateEnd] = useState('');
+            const [employeeFilter, setEmployeeFilter] = useState('');
             const safeOrders = (orders || []).filter(isVisibleOrder);
             const filteredOrders = safeOrders.filter(order => {
                 const orderDate = String(order.date || '').slice(0, 10);
                 if (dateStart && orderDate < dateStart) return false;
                 if (dateEnd && orderDate > dateEnd) return false;
+                if (employeeFilter) {
+                    const stages = getActiveProductionStages(order);
+                    const hasWork = stages.some(stage =>
+                        safeArray(order.progress?.[stage.id]?.workLogs)
+                            .some(log => !log.isDeleted && String(log.empId) === String(employeeFilter))
+                    );
+                    if (!hasWork) return false;
+                }
                 return matchesSearch([order.id, order.client, order.type, order.marketing, order.status, order.deadline, order.date], searchTerm);
             });
             const safeEmployees = (employees || []).filter(isVisibleRecord);
@@ -12952,10 +12961,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 <div className="space-y-6">
                     <h2 className="text-2xl font-bold text-gray-800">Laporan Detail Per Order</h2>
                     <Card className="bg-blue-50 border-blue-100">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
                             <div className="md:col-span-2"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID order, instansi, jenis, marketing, status..." /></div>
                             <div><label className="block text-xs font-bold text-blue-900 mb-1">Tanggal Awal</label><input type="date" className="w-full p-2 border border-blue-300 rounded-lg" value={dateStart} onChange={e => setDateStart(e.target.value)} /></div>
                             <div><label className="block text-xs font-bold text-blue-900 mb-1">Tanggal Akhir</label><input type="date" className="w-full p-2 border border-blue-300 rounded-lg" value={dateEnd} onChange={e => setDateEnd(e.target.value)} /></div>
+                        </div>
+                        <div className="mb-4">
+                            <label className="block text-xs font-bold text-blue-900 mb-1">Filter Karyawan</label>
+                            <div className="flex items-center gap-2">
+                                <select className="p-2 border border-blue-300 rounded-lg focus:ring-blue-500 outline-none text-sm flex-1 md:flex-none md:w-72" value={employeeFilter} onChange={e => { setEmployeeFilter(e.target.value); setSelectedOrderId(''); }}>
+                                    <option value="">-- Semua Karyawan --</option>
+                                    {safeEmployees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                                </select>
+                                {employeeFilter && <button onClick={() => { setEmployeeFilter(''); setSelectedOrderId(''); }} className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Reset</button>}
+                                {employeeFilter && <span className="text-xs text-blue-700 font-medium">{filteredOrders.length} order ditemukan</span>}
+                            </div>
                         </div>
                         <label className="block text-sm font-bold text-blue-900 mb-2">Pilih Order Produksi</label>
                         <select className="w-full md:w-1/2 p-2 border border-blue-300 rounded-lg focus:ring-blue-500 outline-none" value={selectedOrderId} onChange={e => setSelectedOrderId(e.target.value)}>
