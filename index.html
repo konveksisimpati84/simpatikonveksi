@@ -4424,7 +4424,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const activeOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.materialIsArchived);
             const rekapOrders = materialOrders.filter(o => orderNeedsMaterials(o) && getActiveMaterials(o).length > 0);
             const rekapYears = ['Semua', ...[...new Set([
-                ...rekapOrders.map(o => String(o.date || o.createdAt || '').slice(0, 4)),
+                ...rekapOrders.flatMap(o => getActiveMaterials(o).map(mat => String(getMaterialBatchDateKey(o, mat) || '').slice(0, 4))),
                 ...safeArray(manualPurchases).filter(isVisibleRecord).map(mp => String(mp.purchaseDate || '').slice(0, 4))
             ].filter(y => y && y.length === 4))].sort().reverse()];
 
@@ -4761,6 +4761,14 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     const { [batchKey]: _, ...rest } = prev;
                     return rest;
                 });
+                // Hapus / kembalikan manual purchases yang ada di grup yang sama
+                setManualPurchases(prev => safeArray(prev).map(mp => {
+                    if (normalizeVendorName(mp.vendor) !== vendorKey) return mp;
+                    if ((mp.purchaseDate || '') !== batchDateKey) return mp;
+                    if (mp.isDeleted) return mp;
+                    if (mode === 'permanent') return { ...mp, isDeleted: true, deletedAt: now, _syncUpdatedAt: now };
+                    return { ...mp, isDeleted: true, deletedAt: now, returnedToInput: true, _syncUpdatedAt: now };
+                }));
                 setDeletePurchaseConfirm(null);
                 showToast(mode === 'permanent'
                     ? `Nota pembelian dihapus permanen dari rekap aplikasi. Order produksi tetap aman.`
@@ -5049,8 +5057,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const activeMaterials = getActiveMaterials(order);
                     if (activeMaterials.length > 0) {
                         activeMaterials.forEach(mat => {
-                            const vendorName = String(mat.vendor || 'Tanpa Vendor').trim();
                             const batchDateKey = getMaterialBatchDateKey(order, mat);
+                            if (rekapYearFilter !== 'Semua' && String(batchDateKey || '').slice(0, 4) !== rekapYearFilter) return;
+                            if (rekapMonthFilter !== 'Semua' && String(batchDateKey || '').slice(5, 7) !== rekapMonthFilter) return;
+                            const vendorName = String(mat.vendor || 'Tanpa Vendor').trim();
                             const groupKey = `${vendorName}|||${batchDateKey}`;
                             if (!groups[groupKey]) {
                                 groups[groupKey] = { vendor: vendorName, batchDateKey, items: [] };
@@ -5473,8 +5483,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         if (!applied) return order;
                         const nextPayments = { ...(order.materialPayments || {}) };
                         nextPayments[batchKey] = [...(nextPayments[batchKey] || []), { id: `PAY-${Date.now()}-${order.id}`, notaPaymentId, date: payDate, amount: applied, method, note, vendor: normalizeVendorName(vendor), batchDateKey, createdAt: now }];
-                        const checkOrder = { ...order, materialPayments: nextPayments };
-                        return { ...order, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: now, materialLastAction: 'Pembayaran Vendor', status: getOrderStatusAfterMaterialPurchase(order) };
+                        // Tandai batch sebagai "sudah dibeli" — syarat agar computeMaterialStatus bisa Selesai
+                        const nextPurchasedBatches = { ...(order.materialPurchasedBatches || {}), [batchKey]: true };
+                        const checkOrder = { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches };
+                        return { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: now, materialLastAction: 'Pembayaran Vendor', status: getOrderStatusAfterMaterialPurchase(order) };
                     }));
                 }
                 if (manualShare > 0 && manualItems.length > 0) {
