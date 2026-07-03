@@ -5037,13 +5037,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 }
             };
 
-            const getMaterialBatchDateKey = (order, material) => {
-                const rawDate = material?.purchaseDate || material?.materialBatchDate || order?.materialBatchDate || order?.materialPrintedAt || order?.materialLastActionAt || order?.date || order?.createdAt || new Date().toISOString();
-                const parsed = new Date(rawDate);
-                if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-                return String(rawDate).slice(0, 10) || new Date().toISOString().slice(0, 10);
-            };
-
             const formatMaterialBatchDate = (dateKey) => {
                 const parsed = new Date(dateKey);
                 if (isNaN(parsed.getTime())) return dateKey || '-';
