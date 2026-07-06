@@ -16898,7 +16898,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 const initData = async () => {
                     if (supabaseClient) {
                         try {
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, remKartuKredit, remTransaksiKartu] = await Promise.all([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs] = await Promise.all([
                                 fetchStoreData('accounts', initialAccounts),
                                 fetchStoreData('employees', initialEmployees),
                                 fetchStoreData('orders', initialOrders),
@@ -16920,9 +16920,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 fetchStoreData('driverKasbon', []),
                                 fetchStoreData('stockItems', []),
                                 fetchStoreData('absensiEdits', []),
-                                fetchStoreData('absensiRawLogs', []),
-                                fetchStoreData('kartuKredit', []),
-                                fetchStoreData('transaksiKartu', [])
+                                fetchStoreData('absensiRawLogs', [])
                             ]);
 
                             const localAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
@@ -17031,18 +17029,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 setAbsensiRawLogs(remAbsensiRawLogs);
                                 safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remAbsensiRawLogs));
                             }
-                            if (Array.isArray(remKartuKredit)) {
-                                const nextKK = mergeRecordLists(loadLocalData('simpati_kartu_kredit_sync', []), remKartuKredit);
-                                setKartuKredit(nextKK); safeLocalSet('simpati_kartu_kredit_sync', JSON.stringify(nextKK));
-                            } else {
-                                setKartuKredit(loadLocalData('simpati_kartu_kredit_sync', []));
-                            }
-                            if (Array.isArray(remTransaksiKartu)) {
-                                const nextTK = mergeRecordLists(loadLocalData('simpati_transaksi_kartu_sync', []), remTransaksiKartu);
-                                setTransaksiKartu(nextTK); safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(nextTK));
-                            } else {
-                                setTransaksiKartu(loadLocalData('simpati_transaksi_kartu_sync', []));
-                            }
+                            setKartuKredit(loadLocalData('simpati_kartu_kredit_sync', []));
+                            setTransaksiKartu(loadLocalData('simpati_transaksi_kartu_sync', []));
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
                         } catch (error) {
                             console.error("Gagal memuat dari Supabase, memakai data lokal.");
