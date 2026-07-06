@@ -17904,42 +17904,42 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
                                                         {row.jamMasuk
-                                                            ? <div className={`inline-flex flex-col items-center px-2.5 py-1 rounded-lg ${isLate ? 'bg-red-500' : 'bg-green-500'}`}>
-                                                                <span className="text-[7px] font-bold uppercase tracking-wider text-white opacity-80">Masuk</span>
-                                                                <span className="text-[13px] font-black tabular-nums text-white leading-tight">{row.jamMasuk}</span>
+                                                            ? <div className={`inline-flex flex-col items-center px-1.5 py-0.5 rounded-md ${isLate ? 'bg-red-500' : 'bg-green-500'}`}>
+                                                                <span className="text-[6.5px] font-bold uppercase tracking-wider text-white opacity-80">Masuk</span>
+                                                                <span className="text-[11px] font-black tabular-nums text-white leading-tight">{row.jamMasuk}</span>
                                                               </div>
                                                             : <span className="text-gray-300 text-xs">—</span>
                                                         }
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
                                                         {row.jamPulang
-                                                            ? <div className="inline-flex flex-col items-center px-2.5 py-1 rounded-lg bg-blue-500">
-                                                                <span className="text-[7px] font-bold uppercase tracking-wider text-white opacity-80">Pulang</span>
-                                                                <span className="text-[13px] font-black tabular-nums text-white leading-tight">{row.jamPulang}</span>
+                                                            ? <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded-md bg-blue-500">
+                                                                <span className="text-[6.5px] font-bold uppercase tracking-wider text-white opacity-80">Pulang</span>
+                                                                <span className="text-[11px] font-black tabular-nums text-white leading-tight">{row.jamPulang}</span>
                                                               </div>
                                                             : row.jamMasuk
-                                                                ? <span className="text-[9px] text-gray-400 italic border border-dashed border-gray-200 px-2 py-1 rounded-lg">belum pulang</span>
+                                                                ? <span className="text-[8px] text-gray-400 italic border border-dashed border-gray-200 px-1.5 py-0.5 rounded">belum pulang</span>
                                                                 : <span className="text-gray-300 text-xs">—</span>
                                                         }
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
                                                         {pagiDurLabel
-                                                            ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-100 text-purple-700 border border-purple-200 tabular-nums">⏱ {pagiDurLabel}</span>
+                                                            ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 tabular-nums">⏱ {pagiDurLabel}</span>
                                                             : <span className="text-gray-300 text-xs">—</span>
                                                         }
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
                                                         {row.lemburMenit > 0 ? (
                                                             <div className="flex flex-col items-center gap-1">
-                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-orange-100 text-orange-700 border border-orange-200 tabular-nums">🌙 {lemDurLabel}</span>
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 tabular-nums">🌙 {lemDurLabel}</span>
                                                                 <div className="flex items-center gap-1">
-                                                                    <div className="inline-flex flex-col items-center px-2 py-0.5 rounded-lg bg-orange-400 flex-shrink-0">
-                                                                        <span className="text-[7px] font-bold uppercase tracking-wider text-white opacity-80">Masuk</span>
+                                                                    <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded-md bg-orange-400 flex-shrink-0">
+                                                                        <span className="text-[6.5px] font-bold uppercase tracking-wider text-white opacity-80">Masuk</span>
                                                                         <span className="text-[11px] font-black tabular-nums text-white leading-tight">{row.jamLemburMasuk}</span>
                                                                     </div>
                                                                     <span className="text-gray-300 text-[9px]">›</span>
-                                                                    <div className="inline-flex flex-col items-center px-2 py-0.5 rounded-lg bg-amber-400 flex-shrink-0">
-                                                                        <span className="text-[7px] font-bold uppercase tracking-wider text-white opacity-80">Pulang</span>
+                                                                    <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded-md bg-amber-400 flex-shrink-0">
+                                                                        <span className="text-[6.5px] font-bold uppercase tracking-wider text-white opacity-80">Pulang</span>
                                                                         <span className="text-[11px] font-black tabular-nums text-white leading-tight">{row.jamLemburPulang}</span>
                                                                     </div>
                                                                 </div>
@@ -17947,8 +17947,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                         ) : row.jamLemburMasuk ? (
                                                             <div className="flex flex-col items-center gap-1">
                                                                 <span className="text-[9px] text-orange-400 italic font-semibold">sedang lembur</span>
-                                                                <div className="inline-flex flex-col items-center px-2 py-0.5 rounded-lg bg-orange-400 flex-shrink-0">
-                                                                    <span className="text-[7px] font-bold uppercase tracking-wider text-white opacity-80">Masuk</span>
+                                                                <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded-md bg-orange-400 flex-shrink-0">
+                                                                    <span className="text-[6.5px] font-bold uppercase tracking-wider text-white opacity-80">Masuk</span>
                                                                     <span className="text-[11px] font-black tabular-nums text-white leading-tight">{row.jamLemburMasuk}</span>
                                                                 </div>
                                                             </div>
