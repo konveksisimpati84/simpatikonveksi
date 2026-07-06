@@ -11071,6 +11071,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const modalGrossSalary = modalPrintableGross;
             const modalDeduction = Math.min(safeMoney(cashAdvanceDeduction), modalGrossSalary, modalCashAdvanceSummary.remaining);
             const modalHasPrintableIncome = modalPrintableGross > 0;
+            const modalHasAnySelected = modalSelectedItems.length > 0 || (modalData?.selectedDailyKeys?.size || 0) > 0 || (modalData?.selectedOvertimeKeys?.size || 0) > 0 || (modalData?.selectedMarketingKeys?.size || 0) > 0;
             const visibleRekaps = safeRekapForReport
                 .filter(isVisibleRecord)
                 .filter(rekap => {
@@ -12006,7 +12007,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 <div className="flex justify-end space-x-3 px-5 py-4 bg-gray-50 border-t border-gray-200">
                                     <button onClick={() => setModalData(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-bold text-gray-700">Batal</button>
-                                    <button onClick={executeRekapAndPrint} disabled={!modalHasPrintableIncome} className={`px-4 py-2 rounded-lg text-sm font-black text-white flex items-center gap-2 ${!modalHasPrintableIncome ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}><IconPrinter /> Proses & Cetak</button>
+                                    <button onClick={executeRekapAndPrint} disabled={!modalHasAnySelected} className={`px-4 py-2 rounded-lg text-sm font-black text-white flex items-center gap-2 ${!modalHasAnySelected ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}><IconPrinter /> Proses & Cetak</button>
                                 </div>
                             </div>
                         </div>
