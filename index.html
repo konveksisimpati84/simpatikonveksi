@@ -6243,7 +6243,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const totalBelanjaAll = kartuList.reduce((s,k) => s + getTotalBelanja(k.id), 0);
             const totalBayarAll   = kartuList.reduce((s,k) => s + getTotalBayar(k.id), 0);
-            const totalTagihanAll = Math.max(0, totalBelanjaAll - totalBayarAll);
+            const totalTagihanAll = kartuList.reduce((s,k) => s + getTagihan(k.id), 0);
             const totalLimitAll   = kartuList.reduce((s,k) => s + safeMoney(k.limit), 0);
 
             const days = activeKartu ? getDaysToTempo(activeKartu) : null;
@@ -6923,8 +6923,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             </div>
                         )}
                     </Card>
+                </>}
                 </div>
-                {deleteConfirmId && (
+            {deleteConfirmId && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                         <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
                             <h3 className="font-bold text-gray-800 mb-2">Hapus Data Biaya?</h3>
@@ -6936,7 +6937,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         </div>
                     </div>
                 )}
-                </>}
                 </>
             );
         };
