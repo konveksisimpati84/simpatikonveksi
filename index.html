@@ -11077,7 +11077,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 .filter(rekap => {
                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                     const itemText = (rekap.items || []).map(item => `${item.orderId} ${item.client} ${item.type} ${item.stageLabel || item.stage} ${item.sizes} ${item.qty} ${item.wageTotal}`).join(' ');
-                    const statusText = safeMoney(rekap.netSalary ?? rekap.totalWage) > 0 ? 'Sudah Dibayar' : 'Belum Dibayar';
+                    const statusText = rekap.paymentStatus === 'lunas' ? 'Sudah Dibayar' : rekap.paymentStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
                     return matchesSearch([
                         rekap.id, rekap.empName, emp?.name, rekap.division || emp?.division, rekap.dateProcessed,
                         rekap.total, rekap.totalWage, rekap.grossSalary, rekap.cashAdvanceDeduction,
@@ -11093,8 +11093,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const ap = pinnedRekapIds.has(a.id) ? 1 : 0;
                 const bp = pinnedRekapIds.has(b.id) ? 1 : 0;
                 if (ap !== bp) return bp - ap;
-                if (rekapSortBy === 'gaji_desc') return safeMoney(b.netSalary ?? b.totalWage) - safeMoney(a.netSalary ?? a.totalWage);
-                if (rekapSortBy === 'gaji_asc') return safeMoney(a.netSalary ?? a.totalWage) - safeMoney(b.netSalary ?? b.totalWage);
+                if (rekapSortBy === 'gaji_desc') return safeMoney(b.netSalary ?? b.grossSalary ?? b.totalWage) - safeMoney(a.netSalary ?? a.grossSalary ?? a.totalWage);
+                if (rekapSortBy === 'gaji_asc') return safeMoney(a.netSalary ?? a.grossSalary ?? a.totalWage) - safeMoney(b.netSalary ?? b.grossSalary ?? b.totalWage);
                 if (rekapSortBy === 'nama') return (a.empName || '').localeCompare(b.empName || '');
                 if (rekapSortBy === 'tanggal') return (b.dateProcessed || '').localeCompare(a.dateProcessed || '');
                 return String(b.id).localeCompare(String(a.id));
@@ -11102,7 +11102,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
             const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, count: 0 } : visibleRekaps
                 .filter(r => pinnedRekapIds.has(r.id))
-                .reduce((acc, r) => ({ net: acc.net + safeMoney(r.netSalary ?? r.totalWage), count: acc.count + 1 }), { net: 0, count: 0 });
+                .reduce((acc, r) => ({ net: acc.net + safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage), count: acc.count + 1 }), { net: 0, count: 0 });
             const rekapSummary = {
                 employees: new Set(visibleRekaps.map(r => String(r.empId || r.empName))).size,
                 pcs: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.total), 0),
