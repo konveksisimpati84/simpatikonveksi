@@ -16633,29 +16633,29 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             };
 
             const applyRemoteDataSnapshotInner = async () => {
-                const rem = await fetchAllStoreData();
-                if (!rem) return;
-                const remoteAccounts = remoteGet(rem, 'accounts', initialAccounts);
-                const remoteEmployees = remoteGet(rem, 'employees', initialEmployees);
-                const remoteOrders = remoteGet(rem, 'orders', initialOrders);
-                const remoteRekaps = remoteGet(rem, 'rekapKinerja', []);
-                const remoteRiwayats = remoteGet(rem, 'riwayatPengiriman', []);
-                const remoteExpenses = remoteGet(rem, 'expenses', []);
-                const remoteInvoices = remoteGet(rem, 'invoices', []);
-                const remoteClients = remoteGet(rem, 'clients', []);
-                const remoteTemplates = remoteGet(rem, 'templates', initialTemplates);
-                const remoteManualPurchases = remoteGet(rem, 'manualPurchases', []);
-                const remoteManualVendorPayments = remoteGet(rem, 'manualVendorPayments', {});
-                const remoteVendorNotaPayments = remoteGet(rem, 'vendorNotaPayments', {});
-                const remoteInvestors = remoteGet(rem, 'investors', []);
-                const remoteInvestorBagiHasil = remoteGet(rem, 'investorBagiHasil', []);
-                const remoteDrivers = remoteGet(rem, 'drivers', []);
-                const remoteDriverTarifs = remoteGet(rem, 'driverTarifs', []);
-                const remoteDriverTrx = remoteGet(rem, 'driverTransactions', []);
-                const remoteDriverRekapGaji = remoteGet(rem, 'driverRekapGaji', []);
-                const remoteDriverKasbon = remoteGet(rem, 'driverKasbon', []);
-                const remoteStockItems = remoteGet(rem, 'stockItems', []);
-                const remoteAbsensiEdits = remoteGet(rem, 'absensiEdits', []);
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteVendorNotaPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits] = await Promise.all([
+                    fetchStoreData('accounts', initialAccounts),
+                    fetchStoreData('employees', initialEmployees),
+                    fetchStoreData('orders', initialOrders),
+                    fetchStoreData('rekapKinerja', []),
+                    fetchStoreData('riwayatPengiriman', []),
+                    fetchStoreData('expenses', []),
+                    fetchStoreData('invoices', []),
+                    fetchStoreData('clients', []),
+                    fetchStoreData('templates', initialTemplates),
+                    fetchStoreData('manualPurchases', []),
+                    fetchStoreData('manualVendorPayments', {}),
+                    fetchStoreData('vendorNotaPayments', {}),
+                    fetchStoreData('investors', []),
+                    fetchStoreData('investorBagiHasil', []),
+                    fetchStoreData('drivers', []),
+                    fetchStoreData('driverTarifs', []),
+                    fetchStoreData('driverTransactions', []),
+                    fetchStoreData('driverRekapGaji', []),
+                    fetchStoreData('driverKasbon', []),
+                    fetchStoreData('stockItems', []),
+                    fetchStoreData('absensiEdits', [])
+                ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
                     setAccounts(prevAccounts => {
@@ -16920,31 +16920,32 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 const initData = async () => {
                     if (supabaseClient) {
                         try {
-                            const rem = await fetchAllStoreData();
-                            const accs = remoteGet(rem, 'accounts', initialAccounts);
-                            const emps = remoteGet(rem, 'employees', initialEmployees);
-                            const ords = remoteGet(rem, 'orders', initialOrders);
-                            const rekaps = remoteGet(rem, 'rekapKinerja', []);
-                            const riwayats = remoteGet(rem, 'riwayatPengiriman', []);
-                            const exps = remoteGet(rem, 'expenses', []);
-                            const invs = remoteGet(rem, 'invoices', []);
-                            const cls = remoteGet(rem, 'clients', []);
-                            const tmpls = remoteGet(rem, 'templates', initialTemplates);
-                            const manPurs = remoteGet(rem, 'manualPurchases', []);
-                            const manVPays = remoteGet(rem, 'manualVendorPayments', {});
-                            const vendNotaPays = remoteGet(rem, 'vendorNotaPayments', {});
-                            const remInvestors = remoteGet(rem, 'investors', []);
-                            const remInvestorBH = remoteGet(rem, 'investorBagiHasil', []);
-                            const remDrivers = remoteGet(rem, 'drivers', []);
-                            const remDriverTarifs = remoteGet(rem, 'driverTarifs', []);
-                            const remDriverTrx = remoteGet(rem, 'driverTransactions', []);
-                            const remDriverRekap = remoteGet(rem, 'driverRekapGaji', []);
-                            const remDriverKasbonInit = remoteGet(rem, 'driverKasbon', []);
-                            const remStockItems = remoteGet(rem, 'stockItems', []);
-                            const remAbsensiEdits = remoteGet(rem, 'absensiEdits', []);
-                            const remAbsensiRawLogs = remoteGet(rem, 'absensiRawLogs', []);
-                            const remKartuKredit = remoteGet(rem, 'kartuKredit', []);
-                            const remTransaksiKartu = remoteGet(rem, 'transaksiKartu', []);
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, remKartuKredit, remTransaksiKartu] = await Promise.all([
+                                fetchStoreData('accounts', initialAccounts),
+                                fetchStoreData('employees', initialEmployees),
+                                fetchStoreData('orders', initialOrders),
+                                fetchStoreData('rekapKinerja', []),
+                                fetchStoreData('riwayatPengiriman', []),
+                                fetchStoreData('expenses', []),
+                                fetchStoreData('invoices', []),
+                                fetchStoreData('clients', []),
+                                fetchStoreData('templates', initialTemplates),
+                                fetchStoreData('manualPurchases', []),
+                                fetchStoreData('manualVendorPayments', {}),
+                                fetchStoreData('vendorNotaPayments', {}),
+                                fetchStoreData('investors', []),
+                                fetchStoreData('investorBagiHasil', []),
+                                fetchStoreData('drivers', []),
+                                fetchStoreData('driverTarifs', []),
+                                fetchStoreData('driverTransactions', []),
+                                fetchStoreData('driverRekapGaji', []),
+                                fetchStoreData('driverKasbon', []),
+                                fetchStoreData('stockItems', []),
+                                fetchStoreData('absensiEdits', []),
+                                fetchStoreData('absensiRawLogs', []),
+                                fetchStoreData('kartuKredit', []),
+                                fetchStoreData('transaksiKartu', [])
+                            ]);
 
                             const localAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
                             const localEmployees = loadLocalData('simpati_employees_sync', initialEmployees);
