@@ -17737,14 +17737,13 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     const dateStr = `${rekapMonth}-${String(d).padStart(2,'0')}`;
                     const dow = new Date(year, month-1, d).getDay();
                     const isWknd = dow === 0 || dow === 6;
-                    if (isWknd) { days.push({ d, dateStr, dow, isWeekend: true, status: 'libur', kerjaMenit: 0, lemburMenit: 0 }); continue; }
                     const entries = groups[dateStr] || [];
                     const override = getEditOverride(pin, dateStr);
-                    if (entries.length === 0 && !override) { days.push({ d, dateStr, dow, isWeekend: false, status: 'absen', kerjaMenit: 0, lemburMenit: 0 }); continue; }
+                    if (entries.length === 0 && !override) { days.push({ d, dateStr, dow, isWeekend: isWknd, status: 'absen', kerjaMenit: 0, lemburMenit: 0 }); continue; }
                     const metrics = computeDayMetrics(entries, override, shiftConfig);
                     const mIn = timeToMinutes(metrics.jamMasuk), mOut = timeToMinutes(metrics.jamPulang);
                     const kerjaMenit = (mIn != null && mOut != null && mOut > mIn) ? mOut - mIn : 0;
-                    days.push({ d, dateStr, dow, isWeekend: false, jamMasuk: metrics.jamMasuk, jamPulang: metrics.jamPulang, jamLemburMasuk: metrics.jamLemburMasuk, jamLemburPulang: metrics.jamLemburPulang, status: metrics.jamMasuk ? metrics.status : 'absen', kerjaMenit, lemburMenit: metrics.lemburMenit || 0 });
+                    days.push({ d, dateStr, dow, isWeekend: isWknd, jamMasuk: metrics.jamMasuk, jamPulang: metrics.jamPulang, jamLemburMasuk: metrics.jamLemburMasuk, jamLemburPulang: metrics.jamLemburPulang, status: metrics.jamMasuk ? metrics.status : 'absen', kerjaMenit, lemburMenit: metrics.lemburMenit || 0 });
                 }
                 return days;
             };
@@ -18004,7 +18003,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                             const rkFirstDow = (new Date(rkYear, rkMonth-1, 1).getDay() + 6) % 7;
                             const rkHadir = rekapDetail.filter(d => d.jamMasuk).length;
                             const rkLate = rekapDetail.filter(d => d.status === 'Terlambat').length;
-                            const rkAbsen = rekapDetail.filter(d => !d.isWeekend && !d.jamMasuk).length;
+                            const rkAbsen = rekapDetail.filter(d => !d.jamMasuk).length;
                             const rkKerjaMenit = rekapDetail.reduce((s,d) => s+(d.kerjaMenit||0), 0);
                             const rkLemburMenit = rekapDetail.reduce((s,d) => s+(d.lemburMenit||0), 0);
                             const rkDurLabel = (m) => { if(!m) return '-'; const h=Math.floor(m/60),mn=m%60; return h>0&&mn>0?`${h}j ${mn}m`:h>0?`${h}j`:`${mn}m`; };
@@ -18050,7 +18049,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 {/* Stat tiles */}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                     {[
-                                        {label:'Hari Hadir',val:rkHadir,sub:`dari ${rekapDetail.filter(d=>!d.isWeekend).length} hari kerja`,cls:'text-green-700'},
+                                        {label:'Hari Hadir',val:rkHadir,sub:`dari ${rekapDetail.length} hari`,cls:'text-green-700'},
                                         {label:'Tidak Hadir',val:rkAbsen,sub:'hari tanpa absensi',cls:rkAbsen>0?'text-red-600':'text-gray-400'},
                                         {label:'Terlambat',val:rkLate,sub:'hari masuk terlambat',cls:rkLate>0?'text-red-600':'text-green-700'},
                                         {label:'Total Lembur',val:rkDurLabel(rkLemburMenit),sub:'jam kerja tambahan',cls:'text-orange-600'},
@@ -18073,8 +18072,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                         {Array.from({length: rkFirstDow}, (_,i) => <div key={`rkE${i}`}></div>)}
                                         {rekapDetail.map(day => {
                                             let cls = 'flex items-center justify-center text-[11px] font-bold rounded-md relative ';
-                                            if (day.isWeekend) cls += 'bg-gray-50 text-gray-300';
-                                            else if (!day.jamMasuk) cls += 'bg-red-50 text-gray-400 border border-dashed border-red-200';
+                                            if (!day.jamMasuk) cls += 'bg-red-50 text-gray-400 border border-dashed border-red-200';
                                             else if (day.status === 'Terlambat') cls += 'bg-red-100 text-red-700 border border-red-200';
                                             else cls += 'bg-green-100 text-green-700 border border-green-200';
                                             return (
@@ -18143,19 +18141,6 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                                 if (!day.isWeekend && isLate) rowStyle = {borderLeft:'3px solid #EF4444'};
                                                 else if (!day.isWeekend && hasLembur) rowStyle = {borderLeft:'3px solid #f97316'};
 
-                                                if (day.isWeekend) return (
-                                                    <tr key={day.d} className="bg-gray-50">
-                                                        <td className="py-2 px-3">
-                                                            <div className="text-sm font-black text-gray-300 tabular-nums">{String(day.d).padStart(2,'0')}</div>
-                                                            <div className="text-[9px] uppercase tracking-wide text-gray-300">{hariName}</div>
-                                                        </td>
-                                                        <td className="py-2 px-3"><span className="text-[10px] font-semibold text-gray-300">{day.dow===0?'Minggu':'Sabtu'}</span></td>
-                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300">—</span></td>
-                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300">—</span></td>
-                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300">—</span></td>
-                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300">—</span></td>
-                                                    </tr>
-                                                );
 
                                                 if (!day.jamMasuk) return (
                                                     <tr key={day.d} className="bg-red-50 border-t border-gray-100">
