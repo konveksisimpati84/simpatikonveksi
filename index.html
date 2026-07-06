@@ -17411,6 +17411,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
             const [rekapMonth, setRekapMonth] = useState(new Date().toISOString().slice(0, 7));
             const [rekapMinggu, setRekapMinggu] = useState(0);
+            const [rekapEmp, setRekapEmp] = useState('');
             // Data absensi dibaca dari Supabase (absensiRawLogs) — disinkron oleh backend lokal,
             // jadi tetap terlihat di device manapun walau device ini tidak terhubung ke backend.
             const monthLogs = safeArray(absensiRawLogs);
@@ -17712,6 +17713,43 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
 
             const rekapRows = React.useMemo(() => buildRekap(), [monthLogs, rekapMonth, rekapMinggu, absensiEdits, employees, filterEmp]);
 
+            const empsFP = visibleEmployees.filter(e => e.fingerPin);
+            const rekapEmpPin = rekapEmp || (empsFP[0] ? String(empsFP[0].fingerPin).trim() : '');
+            const rekapEmpObj = empsFP.find(e => String(e.fingerPin).trim() === rekapEmpPin) || null;
+
+            const buildRekapDetail = () => {
+                if (!rekapEmpPin || !rekapEmpObj) return [];
+                const [year, month] = rekapMonth.split('-').map(Number);
+                const daysInMonth = new Date(year, month, 0).getDate();
+                const pin = rekapEmpPin;
+                const groups = {};
+                safeArray(monthLogs).filter(l => !l.isDeleted).forEach(l => {
+                    if (String(l.pin).trim() !== pin) return;
+                    if (!l.tanggal || !l.tanggal.startsWith(rekapMonth)) return;
+                    if (!groups[l.tanggal]) groups[l.tanggal] = [];
+                    groups[l.tanggal].push(l);
+                });
+                const shiftConfig = (rekapEmpObj?.customJamMasuk || rekapEmpObj?.customJamTelat || rekapEmpObj?.customJamPulang)
+                    ? { jamMasuk: rekapEmpObj.customJamMasuk || null, jamTelat: rekapEmpObj.customJamTelat || null, jamPulang: rekapEmpObj.customJamPulang || null }
+                    : null;
+                const days = [];
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = `${rekapMonth}-${String(d).padStart(2,'0')}`;
+                    const dow = new Date(year, month-1, d).getDay();
+                    const isWknd = dow === 0 || dow === 6;
+                    if (isWknd) { days.push({ d, dateStr, dow, isWeekend: true, status: 'libur', kerjaMenit: 0, lemburMenit: 0 }); continue; }
+                    const entries = groups[dateStr] || [];
+                    const override = getEditOverride(pin, dateStr);
+                    if (entries.length === 0 && !override) { days.push({ d, dateStr, dow, isWeekend: false, status: 'absen', kerjaMenit: 0, lemburMenit: 0 }); continue; }
+                    const metrics = computeDayMetrics(entries, override, shiftConfig);
+                    const mIn = timeToMinutes(metrics.jamMasuk), mOut = timeToMinutes(metrics.jamPulang);
+                    const kerjaMenit = (mIn != null && mOut != null && mOut > mIn) ? mOut - mIn : 0;
+                    days.push({ d, dateStr, dow, isWeekend: false, jamMasuk: metrics.jamMasuk, jamPulang: metrics.jamPulang, jamLemburMasuk: metrics.jamLemburMasuk, jamLemburPulang: metrics.jamLemburPulang, status: metrics.jamMasuk ? metrics.status : 'absen', kerjaMenit, lemburMenit: metrics.lemburMenit || 0 });
+                }
+                return days;
+            };
+            const rekapDetail = React.useMemo(() => buildRekapDetail(), [monthLogs, rekapMonth, rekapEmpPin, absensiEdits, employees]);
+
             const openEdit = (row) => {
                 setEditForm({ pin: row.pin, tanggal: row.tanggal, nama: row.nama, jamMasuk: row.jamMasuk || '', jamPulang: row.jamPulang || '', jamLemburMasuk: row.jamLemburMasuk || '', jamLemburPulang: row.jamLemburPulang || '', note: row.note || '' });
                 setEditModal(row);
@@ -17960,74 +17998,244 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                             </div>
                         )}
 
-                        {activeTab === 'rekap' && (
-                            <div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                        {activeTab === 'rekap' && (() => {
+                            const [rkYear, rkMonth] = rekapMonth.split('-').map(Number);
+                            const rkDIM = new Date(rkYear, rkMonth, 0).getDate();
+                            const rkFirstDow = (new Date(rkYear, rkMonth-1, 1).getDay() + 6) % 7;
+                            const rkHadir = rekapDetail.filter(d => d.jamMasuk).length;
+                            const rkLate = rekapDetail.filter(d => d.status === 'Terlambat').length;
+                            const rkAbsen = rekapDetail.filter(d => !d.isWeekend && !d.jamMasuk).length;
+                            const rkKerjaMenit = rekapDetail.reduce((s,d) => s+(d.kerjaMenit||0), 0);
+                            const rkLemburMenit = rekapDetail.reduce((s,d) => s+(d.lemburMenit||0), 0);
+                            const rkDurLabel = (m) => { if(!m) return '-'; const h=Math.floor(m/60),mn=m%60; return h>0&&mn>0?`${h}j ${mn}m`:h>0?`${h}j`:`${mn}m`; };
+                            const rkInitials = (nama) => { const p=nama.trim().split(' '); return p.length===1?p[0][0].toUpperCase():(p[0][0]+p[p.length-1][0]).toUpperCase(); };
+                            const rkIsDisiplin = rkLate === 0 && rkHadir > 0;
+                            const rkSertRow = rekapRows.find(r => r.pin === rekapEmpPin);
+                            const rkMonthLabel = new Date(rkYear, rkMonth-1, 1).toLocaleDateString('id-ID',{month:'long',year:'numeric'});
+                            const HARI_SHORT = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+                            return (
+                            <div style={{display:'flex',flexDirection:'column',gap:'14px'}}>
+                                {/* Filter */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Bulan</label>
-                                        <input type="month" value={rekapMonth} onChange={e => { setRekapMonth(e.target.value); setRekapMinggu(0); }} className="w-full p-2.5 border rounded-lg text-sm" />
+                                        <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wide">Bulan</label>
+                                        <input type="month" value={rekapMonth} onChange={e => setRekapMonth(e.target.value)} className="w-full p-2.5 border rounded-lg text-sm" />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Filter Minggu</label>
-                                        <select value={rekapMinggu} onChange={e => setRekapMinggu(Number(e.target.value))} className="w-full p-2.5 border rounded-lg text-sm">
-                                            <option value={0}>Semua (1 Bulan Penuh)</option>
-                                            {[1,2,3,4,5].map(w => {
-                                                const [yr, mo] = rekapMonth.split('-').map(Number);
-                                                const dim = new Date(yr, mo, 0).getDate();
-                                                const s = (w-1)*7+1; const e2 = Math.min(w*7, dim);
-                                                if (s > dim) return null;
-                                                return <option key={w} value={w}>Minggu {w} ({s}–{e2} {new Date(yr,mo-1,1).toLocaleDateString('id-ID',{month:'short'})})</option>;
-                                            })}
+                                        <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wide">Pilih Karyawan</label>
+                                        <select value={rekapEmpPin} onChange={e => setRekapEmp(e.target.value)} className="w-full p-2.5 border rounded-lg text-sm">
+                                            {empsFP.length === 0 && <option value="">— Belum ada karyawan dengan PIN Finger —</option>}
+                                            {empsFP.map(e => <option key={e.fingerPin} value={String(e.fingerPin).trim()}>{e.name} (PIN: {e.fingerPin})</option>)}
                                         </select>
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Cari Karyawan</label>
-                                        <input value={filterEmp} onChange={e => setFilterEmp(e.target.value)} placeholder="Nama..." className="w-full p-2.5 border rounded-lg text-sm" />
-                                    </div>
                                 </div>
-                                <p className="text-xs text-gray-400 mb-3 italic">Rekap dihitung otomatis dari data mentah mesin fingerprint. Koreksi manual lewat tombol Edit di tab Log Absensi akan diprioritaskan jika ada.</p>
-                                {rekapRows.length === 0 ? (
-                                    <div className="text-center py-10 text-gray-400 italic">Belum ada data rekap. Pastikan karyawan sudah punya PIN Finger di menu Data Karyawan.</div>
-                                ) : (
-                                    <div>
-                                        {rekapRows.filter(r => r.terlambat === 0 && r.hadir > 0).length > 0 && (
-                                            <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-                                                <span className="text-xs text-amber-800 font-semibold">⭐ {rekapRows.filter(r => r.terlambat === 0 && r.hadir > 0).length} karyawan disiplin tanpa keterlambatan</span>
-                                                <button onClick={() => { rekapRows.filter(r => r.terlambat === 0 && r.hadir > 0).forEach((r,i) => setTimeout(() => printSertifikatAbsensi(r, rekapMonth, templates), i*400)); }} className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded">⭐ Cetak Semua Sertifikat</button>
+
+                                {empsFP.length === 0 ? (
+                                    <div className="text-center py-10 text-gray-400 italic text-sm">Belum ada karyawan dengan PIN Finger. Tambahkan PIN di menu Data Karyawan.</div>
+                                ) : !rekapEmpObj ? null : (<>
+
+                                {/* Employee header */}
+                                <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-3">
+                                    <div style={{width:'42px',height:'42px',borderRadius:'50%',background:'#EBF1FD',color:'#1D5FD4',fontWeight:'800',fontSize:'1rem',display:'flex',alignItems:'center',justifyContent:'center',border:'2px solid #93C5FD',flexShrink:0}}>
+                                        {rkInitials(rekapEmpObj.name)}
+                                    </div>
+                                    <div style={{flex:1}}>
+                                        <div className="font-bold text-gray-800">{rekapEmpObj.name}</div>
+                                        <div className="text-[10px] text-gray-400 font-mono">PIN Finger: {rekapEmpObj.fingerPin} · {rkMonthLabel}</div>
+                                    </div>
+                                    {rkIsDisiplin && <span className="text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 rounded-full">⭐ Disiplin</span>}
+                                    {rkSertRow && rkIsDisiplin && <button onClick={() => printSertifikatAbsensi(rkSertRow, rekapMonth, templates)} className="text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg">🏆 Sertifikat</button>}
+                                </div>
+
+                                {/* Stat tiles */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {[
+                                        {label:'Hari Hadir',val:rkHadir,sub:`dari ${rekapDetail.filter(d=>!d.isWeekend).length} hari kerja`,cls:'text-green-700'},
+                                        {label:'Tidak Hadir',val:rkAbsen,sub:'hari tanpa absensi',cls:rkAbsen>0?'text-red-600':'text-gray-400'},
+                                        {label:'Terlambat',val:rkLate,sub:'hari masuk terlambat',cls:rkLate>0?'text-red-600':'text-green-700'},
+                                        {label:'Total Lembur',val:rkDurLabel(rkLemburMenit),sub:'jam kerja tambahan',cls:'text-orange-600'},
+                                    ].map(s => (
+                                        <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col gap-1">
+                                            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">{s.label}</span>
+                                            <span className={`text-2xl font-black tabular-nums leading-none ${s.cls}`}>{s.val}</span>
+                                            <span className="text-[10px] text-gray-400">{s.sub}</span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Heatmap */}
+                                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                                    <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-3">Kalender Kehadiran</div>
+                                    <div className="grid grid-cols-7 gap-1">
+                                        {['Sen','Sel','Rab','Kam','Jum','Sab','Min'].map(h => (
+                                            <div key={h} className="text-center text-[8px] font-bold tracking-wide uppercase text-gray-400 pb-1">{h}</div>
+                                        ))}
+                                        {Array.from({length: rkFirstDow}, (_,i) => <div key={`rkE${i}`}></div>)}
+                                        {rekapDetail.map(day => {
+                                            let cls = 'flex items-center justify-center text-[11px] font-bold rounded-md relative ';
+                                            if (day.isWeekend) cls += 'bg-gray-50 text-gray-300';
+                                            else if (!day.jamMasuk) cls += 'bg-red-50 text-gray-400 border border-dashed border-red-200';
+                                            else if (day.status === 'Terlambat') cls += 'bg-red-100 text-red-700 border border-red-200';
+                                            else cls += 'bg-green-100 text-green-700 border border-green-200';
+                                            return (
+                                                <div key={day.d} className={cls} style={{aspectRatio:'1'}}>
+                                                    {day.d}
+                                                    {day.lemburMenit > 0 && <div style={{position:'absolute',bottom:'2px',right:'2px',width:'5px',height:'5px',borderRadius:'50%',background:'#f97316'}}></div>}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="flex gap-4 flex-wrap mt-3">
+                                        {[
+                                            {bg:'bg-green-100',border:'border-green-200',lbl:'Tepat Waktu'},
+                                            {bg:'bg-red-100',border:'border-red-200',lbl:'Terlambat'},
+                                            {bg:'bg-red-50',border:'border-red-200 border-dashed',lbl:'Tidak Hadir'},
+                                            {bg:'bg-gray-50',border:'border-gray-200',lbl:'Libur'},
+                                        ].map(l => (
+                                            <div key={l.lbl} className="flex items-center gap-1.5">
+                                                <div className={`w-3 h-3 rounded ${l.bg} border ${l.border}`}></div>
+                                                <span className="text-[10px] text-gray-500">{l.lbl}</span>
                                             </div>
-                                        )}
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-sm">
-                                                <thead><tr className="bg-gray-50 border-b text-left text-xs font-bold text-gray-600">
-                                                    <th className="py-2 px-3">Nama</th>
-                                                    <th className="py-2 px-3 text-right">Hadir</th>
-                                                    <th className="py-2 px-3 text-right">Terlambat</th>
-                                                    <th className="py-2 px-3 text-right">Total Lembur</th>
-                                                    <th className="py-2 px-3 text-center">Sertifikat</th>
-                                                </tr></thead>
-                                                <tbody>{rekapRows.map((r, idx) => (
-                                                    <tr key={r.pin} className={`border-t ${idx % 2 === 0 ? '' : 'bg-gray-50'}`}>
-                                                        <td className="py-2 px-3 font-semibold text-gray-800">
-                                                            {r.terlambat === 0 && r.hadir > 0 && <span className="text-amber-400 mr-1" title="Karyawan Disiplin">⭐</span>}
-                                                            {r.nama} <span className="text-gray-400 font-normal text-xs">PIN: {r.pin}</span>
-                                                        </td>
-                                                        <td className="py-2 px-3 text-right font-bold text-green-700">{r.hadir} hari</td>
-                                                        <td className="py-2 px-3 text-right font-bold text-red-700">{r.terlambat} hari</td>
-                                                        <td className="py-2 px-3 text-right font-bold text-orange-700">{r.lemburMenit > 0 ? `${(r.lemburMenit/60).toFixed(1)} jam` : '-'}</td>
-                                                        <td className="py-2 px-3 text-center">
-                                                            {r.terlambat === 0 && r.hadir > 0
-                                                                ? <button onClick={() => printSertifikatAbsensi(r, rekapMonth, templates)} className="text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded">🏆 Cetak</button>
-                                                                : <span className="text-xs text-gray-300">—</span>
-                                                            }
-                                                        </td>
-                                                    </tr>
-                                                ))}</tbody>
-                                            </table>
+                                        ))}
+                                        <div className="flex items-center gap-1.5">
+                                            <div style={{width:'10px',height:'10px',borderRadius:'50%',background:'#f97316'}}></div>
+                                            <span className="text-[10px] text-gray-500">Ada Lembur</span>
                                         </div>
                                     </div>
-                                )}
+                                </div>
+
+                                {/* Detail table */}
+                                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Detail Kehadiran Harian</span>
+                                        <span className="text-[10px] text-gray-400 italic">Jam kerja = jam pulang − jam masuk · Lembur = sesi tambahan</span>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm" style={{tableLayout:'fixed',minWidth:'600px'}}>
+                                            <colgroup>
+                                                <col style={{width:'9%'}} />
+                                                <col style={{width:'15%'}} />
+                                                <col style={{width:'17%'}} />
+                                                <col style={{width:'17%'}} />
+                                                <col style={{width:'13%'}} />
+                                                <col style={{width:'29%'}} />
+                                            </colgroup>
+                                            <thead className="bg-gray-50 border-b border-gray-200">
+                                                <tr className="text-[9px] font-bold uppercase tracking-wider text-gray-400">
+                                                    <th className="py-2 px-3 text-left">Tgl</th>
+                                                    <th className="py-2 px-3 text-left">Status</th>
+                                                    <th className="py-2 px-3 text-center">Jam Masuk</th>
+                                                    <th className="py-2 px-3 text-center">Jam Pulang</th>
+                                                    <th className="py-2 px-3 text-center">Jam Kerja</th>
+                                                    <th className="py-2 px-3 text-center">Lembur</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                            {rekapDetail.map((day, idx) => {
+                                                const hariName = HARI_SHORT[day.dow];
+                                                const isLate = day.status === 'Terlambat';
+                                                const hasLembur = day.lemburMenit > 0;
+                                                const kerjaDur = rkDurLabel(day.kerjaMenit);
+                                                const lemDur = rkDurLabel(day.lemburMenit);
+                                                let rowBg = idx % 2 !== 0 ? 'bg-gray-50' : '';
+                                                let rowStyle = {};
+                                                if (day.isWeekend) rowBg = 'bg-gray-50';
+                                                if (!day.isWeekend && isLate) rowStyle = {borderLeft:'3px solid #EF4444'};
+                                                else if (!day.isWeekend && hasLembur) rowStyle = {borderLeft:'3px solid #f97316'};
+
+                                                if (day.isWeekend) return (
+                                                    <tr key={day.d} className="bg-gray-50">
+                                                        <td className="py-2 px-3">
+                                                            <div className="text-sm font-black text-gray-300 tabular-nums">{String(day.d).padStart(2,'0')}</div>
+                                                            <div className="text-[9px] uppercase tracking-wide text-gray-300">{hariName}</div>
+                                                        </td>
+                                                        <td className="py-2 px-3"><span className="text-[10px] font-semibold text-gray-300">{day.dow===0?'Minggu':'Sabtu'}</span></td>
+                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300">—</span></td>
+                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300">—</span></td>
+                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300">—</span></td>
+                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300">—</span></td>
+                                                    </tr>
+                                                );
+
+                                                if (!day.jamMasuk) return (
+                                                    <tr key={day.d} className="bg-red-50 border-t border-gray-100">
+                                                        <td className="py-2 px-3">
+                                                            <div className="text-sm font-black tabular-nums text-gray-700">{String(day.d).padStart(2,'0')}</div>
+                                                            <div className="text-[9px] uppercase tracking-wide text-gray-400">{hariName}</div>
+                                                        </td>
+                                                        <td className="py-2 px-3"><span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-400 border border-dashed border-red-200 italic">Tidak Hadir</span></td>
+                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300 text-xs">—</span></td>
+                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300 text-xs">—</span></td>
+                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300 text-xs">—</span></td>
+                                                        <td className="py-2 px-3 text-center"><span className="text-gray-300 text-xs">—</span></td>
+                                                    </tr>
+                                                );
+
+                                                return (
+                                                    <tr key={day.d} className={`border-t border-gray-100 ${rowBg}`} style={rowStyle}>
+                                                        <td className="py-2 px-3">
+                                                            <div className="text-sm font-black tabular-nums text-gray-800">{String(day.d).padStart(2,'0')}</div>
+                                                            <div className="text-[9px] uppercase tracking-wide text-gray-400">{hariName}</div>
+                                                        </td>
+                                                        <td className="py-2 px-3">
+                                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${isLate ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                                                                {isLate ? 'Terlambat' : 'Hadir'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-2 px-3 text-center">
+                                                            <div className={`inline-flex flex-col items-center px-1.5 py-0.5 rounded border ${isLate ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'}`}>
+                                                                <span className="text-[7px] font-bold uppercase tracking-wide opacity-70">Masuk</span>
+                                                                <span className="text-[11px] font-black tabular-nums leading-none">{day.jamMasuk}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-2 px-3 text-center">
+                                                            {day.jamPulang
+                                                                ? <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded border bg-blue-50 border-blue-200 text-blue-700">
+                                                                    <span className="text-[7px] font-bold uppercase tracking-wide opacity-70">Pulang</span>
+                                                                    <span className="text-[11px] font-black tabular-nums leading-none">{day.jamPulang}</span>
+                                                                  </div>
+                                                                : <span className="text-[9px] text-gray-400 italic border border-dashed border-gray-200 px-1.5 py-0.5 rounded">belum</span>
+                                                            }
+                                                        </td>
+                                                        <td className="py-2 px-3 text-center">
+                                                            {day.kerjaMenit > 0
+                                                                ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 tabular-nums">⏱ {kerjaDur}</span>
+                                                                : <span className="text-gray-300 text-xs">—</span>
+                                                            }
+                                                        </td>
+                                                        <td className="py-2 px-3 text-center">
+                                                            {hasLembur ? (
+                                                                <div className="flex flex-col items-center gap-1">
+                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-200 tabular-nums">🌙 {lemDur}</span>
+                                                                    {day.jamLemburMasuk && (
+                                                                        <div className="flex items-center gap-1">
+                                                                            <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded border bg-orange-50 border-orange-200 text-orange-700">
+                                                                                <span className="text-[7px] font-bold uppercase tracking-wide opacity-70">Masuk</span>
+                                                                                <span className="text-[11px] font-black tabular-nums leading-none">{day.jamLemburMasuk}</span>
+                                                                            </div>
+                                                                            <span className="text-gray-300 text-[9px]">›</span>
+                                                                            <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded border bg-amber-50 border-amber-200 text-amber-700">
+                                                                                <span className="text-[7px] font-bold uppercase tracking-wide opacity-70">Pulang</span>
+                                                                                <span className="text-[11px] font-black tabular-nums leading-none">{day.jamLemburPulang}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-gray-300 text-xs">—</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                </>)}
                             </div>
-                        )}
+                            );
+                        })()}
 
                         {activeTab === 'raw' && (
                             <div>
