@@ -16920,31 +16920,37 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 const initData = async () => {
                     if (supabaseClient) {
                         try {
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, remKartuKredit, remTransaksiKartu] = await Promise.all([
-                                fetchStoreData('accounts', initialAccounts),
-                                fetchStoreData('employees', initialEmployees),
-                                fetchStoreData('orders', initialOrders),
-                                fetchStoreData('rekapKinerja', []),
-                                fetchStoreData('riwayatPengiriman', []),
-                                fetchStoreData('expenses', []),
-                                fetchStoreData('invoices', []),
-                                fetchStoreData('clients', []),
-                                fetchStoreData('templates', initialTemplates),
-                                fetchStoreData('manualPurchases', []),
-                                fetchStoreData('manualVendorPayments', {}),
-                                fetchStoreData('vendorNotaPayments', {}),
-                                fetchStoreData('investors', []),
-                                fetchStoreData('investorBagiHasil', []),
-                                fetchStoreData('drivers', []),
-                                fetchStoreData('driverTarifs', []),
-                                fetchStoreData('driverTransactions', []),
-                                fetchStoreData('driverRekapGaji', []),
-                                fetchStoreData('driverKasbon', []),
-                                fetchStoreData('stockItems', []),
-                                fetchStoreData('absensiEdits', []),
-                                fetchStoreData('absensiRawLogs', []),
-                                fetchStoreData('kartuKredit', []),
-                                fetchStoreData('transaksiKartu', [])
+                            const _fetchTimeout = new Promise((_, reject) =>
+                                setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
+                            );
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, remKartuKredit, remTransaksiKartu] = await Promise.race([
+                                Promise.all([
+                                    fetchStoreData('accounts', initialAccounts),
+                                    fetchStoreData('employees', initialEmployees),
+                                    fetchStoreData('orders', initialOrders),
+                                    fetchStoreData('rekapKinerja', []),
+                                    fetchStoreData('riwayatPengiriman', []),
+                                    fetchStoreData('expenses', []),
+                                    fetchStoreData('invoices', []),
+                                    fetchStoreData('clients', []),
+                                    fetchStoreData('templates', initialTemplates),
+                                    fetchStoreData('manualPurchases', []),
+                                    fetchStoreData('manualVendorPayments', {}),
+                                    fetchStoreData('vendorNotaPayments', {}),
+                                    fetchStoreData('investors', []),
+                                    fetchStoreData('investorBagiHasil', []),
+                                    fetchStoreData('drivers', []),
+                                    fetchStoreData('driverTarifs', []),
+                                    fetchStoreData('driverTransactions', []),
+                                    fetchStoreData('driverRekapGaji', []),
+                                    fetchStoreData('driverKasbon', []),
+                                    fetchStoreData('stockItems', []),
+                                    fetchStoreData('absensiEdits', []),
+                                    fetchStoreData('absensiRawLogs', []),
+                                    fetchStoreData('kartuKredit', []),
+                                    fetchStoreData('transaksiKartu', [])
+                                ]),
+                                _fetchTimeout
                             ]);
 
                             const localAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
