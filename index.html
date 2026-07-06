@@ -10272,12 +10272,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         });
                     });
                     const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
-                    const hasMarketing = safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
+                    const hasMarketing = safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                     const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => !log.rekapId && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd) ids.add(String(emp.id));
                 });
                 return ids;
-            }, [employees, safeOrdersForReport.length, invoices, safeRekapForReport.filter(isVisibleRecord).length]);
+            }, [employees, safeOrdersForReport.length, invoices, rekapKinerja]);
 
             const filteredReportEmployees = visibleEmployees.filter(emp => {
                 if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
@@ -11111,7 +11111,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 overtime: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.overtimeSalary), 0),
                 commission: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.marketingCommission), 0),
                 kasbon: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.cashAdvanceDeduction), 0),
-                net: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.netSalary ?? r.totalWage), 0)
+                net: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage), 0)
             };
 
             const readyToRekapSummary = filteredReportEmployees.reduce((acc, emp) => {
@@ -11313,7 +11313,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const emp = visibleEmployees.find(e => String(e.id) === id);
                     if (!empMap[id]) empMap[id] = { id, name: r.empName || emp?.name || '', division: r.division || (emp ? getEmployeeDivisions(emp).join(', ') : ''), direkap: 0, pending: 0, gajiDirekap: 0 };
                     empMap[id].direkap += safeMoney(r.total);
-                    empMap[id].gajiDirekap += safeMoney(r.netSalary ?? r.totalWage);
+                    empMap[id].gajiDirekap += safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage);
                 });
                 // Dari workLogs pending (belum direkap, sudah checkAfter)
                 safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
@@ -11344,7 +11344,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         if (rankSortBy === 'gaji_asc') return a.gajiDirekap - b.gajiDirekap;
                         return b[rankSortBy] - a[rankSortBy];
                     });
-            }, [safeRekapForReport.filter(isVisibleRecord).length, safeOrdersForReport.length, rankMonth, rankDivFilter, rankSortBy, employees]);
+            }, [rekapKinerja, safeOrdersForReport.length, rankMonth, rankDivFilter, rankSortBy, employees]);
 
             return (
                 <div className="space-y-6">
@@ -11500,7 +11500,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const cashAdvanceRows = safeArray(getEmployeeCashAdvances(emp));
                                 const marketingRows = safeArray(safeInvoicesForReport)
                                     .filter(isVisibleRecord)
-                                    .filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId)
+                                    .filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0)
                                     .map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), paidTotal: safeNumber(getInvoicePaidTotal(inv)), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
                                 const totalDailySalary = dailySalaryRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).daily), 0);
                                 const totalOvertimeSalary = overtimeRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).overtime), 0);
