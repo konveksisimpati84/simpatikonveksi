@@ -10276,7 +10276,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     });
                     const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
                     const hasMarketing = safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
-                    const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => !log.rekapId && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
+                    const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd) ids.add(String(emp.id));
                 });
                 return ids;
@@ -10595,12 +10595,33 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         return newOrders;
                     });
                 }
-                // Re-tandai dailySalaryLogs dan manualProductionLogs dengan rekapId
+                // Re-tandai dailySalaryLogs, manualProductionLogs, dan re-apply potongan kasbon
                 const rekapLogIds = new Set((rekap.dailySalaryLogs || []).map(l => String(l.id || l.date)));
                 const rekapManualIds = new Set((rekap.items || []).filter(i => i.isManual).map(i => String(i.manualLogId)));
-                if (rekapLogIds.size > 0 || rekapManualIds.size > 0) {
+                if (safeMoney(rekap.cashAdvanceDeduction) > 0 || rekapLogIds.size > 0 || rekapManualIds.size > 0) {
                     setEmployees(prev => (prev || []).map(emp => {
                         if (String(emp.id) !== String(rekap.empId)) return emp;
+                        // Re-apply potongan kasbon — distribusi ulang seperti saat rekap pertama dibuat
+                        let remainingDeduction = safeMoney(rekap.cashAdvanceDeduction);
+                        const nextCashAdvances = remainingDeduction > 0
+                            ? (emp.cashAdvances || []).map(item => {
+                                if (remainingDeduction <= 0 || item.isDeleted) return item;
+                                const itemRemaining = getCashAdvanceRemaining(item);
+                                if (itemRemaining <= 0) return item;
+                                const applied = Math.min(itemRemaining, remainingDeduction);
+                                remainingDeduction -= applied;
+                                const nextItem = {
+                                    ...item,
+                                    deductedAmount: getCashAdvanceDeducted(item) + applied,
+                                    deductionHistory: [
+                                        ...(Array.isArray(item.deductionHistory) ? item.deductionHistory : []),
+                                        { rekapId: rekap.id, date: rekap.dateProcessed, amount: applied, note: rekap.cashAdvanceDeductionNote || '' }
+                                    ],
+                                    updatedAt: now
+                                };
+                                return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
+                            })
+                            : (emp.cashAdvances || []);
                         const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log =>
                             rekapLogIds.has(String(log.id || log.date)) && !log.rekapId
                                 ? { ...log, rekapId: rekap.id, rekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
@@ -10611,7 +10632,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 ? { ...log, rekapId: rekap.id, rekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
                                 : log
                         );
-                        return { ...emp, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
+                        return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
                     }));
                 }
                 // Re-tandai invoice komisi marketing
@@ -10774,7 +10795,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const log = safeArray(emp?.manualProductionLogs).find(l => String(l.id) === String(item.manualLogId));
                     return log?.rekapId && String(log.rekapId).trim() !== '';
                 });
-                if (alreadyReported || manualAlreadyReported) {
+                // Guard tambahan: cek daily salary log yang sudah punya rekapId aktif
+                const empForGuard = visibleEmployees.find(e => String(e.id) === String(modalData.empId));
+                const allSelectedDailyKeys = new Set([...(modalData.selectedDailyKeys || []), ...(modalData.selectedOvertimeKeys || [])]);
+                const dailyAlreadyReported = allSelectedDailyKeys.size > 0 && safeArray(getEmployeeDailySalaryLogs(empForGuard)).some(log => {
+                    if (!allSelectedDailyKeys.has(String(log.id || log.date))) return false;
+                    return log.rekapId && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId));
+                });
+                // Guard tambahan: cek marketing invoice yang sudah punya commissionRekapId
+                const marketingAlreadyReported = (modalData.selectedMarketingKeys?.size || 0) > 0 && safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => {
+                    return modalData.selectedMarketingKeys?.has(String(inv.id)) && inv.commissionRekapId && String(inv.commissionRekapId).trim() !== '';
+                });
+                if (alreadyReported || manualAlreadyReported || dailyAlreadyReported || marketingAlreadyReported) {
                     showToast("Beberapa item sudah pernah direkap. Tutup modal dan coba lagi.", "error");
                     return;
                 }
@@ -11130,7 +11162,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         }
                     });
                 });
-                const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId);
+                const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                 const manualProdWage = manualProdRows.reduce((s, l) => s + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
                 const totalProdWage = prodWage + manualProdWage;
                 const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
@@ -11159,7 +11191,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             });
                         }
                     });
-                    const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId);
+                    const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                     const manualProdWage = manualProdRows.reduce((s, l) => s + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
                     const totalProdWage = prodWage + manualProdWage;
                     const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
@@ -11480,7 +11512,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 });
 
                                 // Manual production logs (permak, ganti label, dll)
-                                const unrekapedManualLogs = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId);
+                                const unrekapedManualLogs = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                                 unrekapedManualLogs.forEach(log => {
                                     const unitPrice = safeMoney(log.unitPrice);
                                     const qty = safeMoney(log.qty);
@@ -12199,7 +12231,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 });
                             }
                         });
-                        const dManualLogs = safeArray(getEmployeeManualProductionLogs(dEmp)).filter(log => !log.rekapId);
+                        const dManualLogs = safeArray(getEmployeeManualProductionLogs(dEmp)).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                         dManualLogs.forEach(log => {
                             const unitPrice = safeMoney(log.unitPrice); const qty = safeMoney(log.qty); const wageTotal = qty * unitPrice;
                             if (wageTotal <= 0) return;
