@@ -11287,8 +11287,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setEmployees(prev => (prev||[]).map(emp => {
                     const res = empMap[emp.id];
                     if (!res) return emp;
-                    const newLog = { id: genId('DAY-'), date: genDateTo, workDays: res.hadir, dailySalary: safeMoney(emp.dailySalary)||0, overtimeCount: res.lembur, overtimeRate: safeMoney(emp.overtimeRate)||0, note: `Auto absensi ${genDateFrom} s/d ${genDateTo}`, fromAbsensi: true, absensiDateFrom: genDateFrom, absensiDateTo: genDateTo, createdAt: now, updatedAt: now };
-                    const nextLogs = [newLog, ...(Array.isArray(emp.dailySalaryLogs) ? emp.dailySalaryLogs : [])];
+                    const baseLog = { date: genDateTo, note: `Auto absensi ${genDateFrom} s/d ${genDateTo}`, fromAbsensi: true, absensiDateFrom: genDateFrom, absensiDateTo: genDateTo, rekapId: '', rekapDate: '', isDeleted: false, createdAt: now, _syncUpdatedAt: now };
+                    const newLogs = [];
+                    if (res.hadir > 0) {
+                        newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: res.hadir, dailySalary: safeMoney(emp.dailySalary)||0, overtimeCount: 0, overtimeRate: 0 });
+                    }
+                    if (res.lembur > 0) {
+                        newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: 0, dailySalary: 0, overtimeCount: res.lembur, overtimeRate: safeMoney(emp.overtimeRate)||0 });
+                    }
+                    if (newLogs.length === 0) return emp;
+                    const nextLogs = [...newLogs, ...(Array.isArray(emp.dailySalaryLogs) ? emp.dailySalaryLogs : [])];
                     const nextTypes = [...new Set([...getEmployeeSalaryTypes(emp), 'Harian'])];
                     return { ...emp, dailySalaryLogs: nextLogs, salaryTypes: nextTypes, salaryType: nextTypes.length > 1 ? 'Campuran' : nextTypes[0], _syncUpdatedAt: now };
                 }));
