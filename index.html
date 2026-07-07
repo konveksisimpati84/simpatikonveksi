@@ -12639,6 +12639,31 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return newOrders;
                 });
                 const now = new Date().toISOString();
+                if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || Array.isArray(rekapToDelete.dailySalaryLogs) || (rekapToDelete.items || []).some(item => item.isManual)) {
+                    setEmployees(prev => (prev || []).map(emp => {
+                        if (String(emp.id) !== String(rekapToDelete.empId)) return emp;
+                        const nextCashAdvances = (emp.cashAdvances || []).map(item => {
+                            const history = Array.isArray(item.deductionHistory) ? item.deductionHistory : [];
+                            const removedAmount = history
+                                .filter(entry => String(entry.rekapId) === String(rekapToDelete.id))
+                                .reduce((sum, entry) => sum + safeMoney(entry.amount), 0);
+                            if (removedAmount <= 0) return item;
+                            const nextItem = {
+                                ...item,
+                                deductedAmount: Math.max(0, getCashAdvanceDeducted(item) - removedAmount),
+                                deductionHistory: history.filter(entry => String(entry.rekapId) !== String(rekapToDelete.id)),
+                                updatedAt: now
+                            };
+                            return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
+                        });
+                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                        const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                        return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
+                    }));
+                }
+                if (Array.isArray(rekapToDelete.marketingInvoiceIds) && setInvoices) {
+                    setInvoices(prev => (prev || []).map(inv => rekapToDelete.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: '', commissionRekapDate: '', _syncUpdatedAt: now } : inv));
+                }
                 setRekapKinerja(prev => (prev || []).map(r => String(r.id) === String(deleteRekapConfirmId) ? { ...r, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : r));
                 setDeleteRekapConfirmId(null);
                 showToast("Rekap dibatalkan, pekerjaan kembali ke laporan kinerja.", "success");
