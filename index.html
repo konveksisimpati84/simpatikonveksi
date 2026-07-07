@@ -15653,6 +15653,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
         const App = () => {
             const [isReady, setIsReady] = useState(false);
             const syncInFlightRef = React.useRef(false);
+            const supabaseLoadedRef = React.useRef(false);
             const [authUser, setAuthUser] = useState(null);
             const [activeTab, setActiveTab] = useState('dashboard');
             const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -15864,7 +15865,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 return initial;
             };
 
-            const syncSavedAuthSession = (accountList) => {
+            const syncSavedAuthSession = (accountList, { fromConfirmedData = false } = {}) => {
                 const savedUser = readValidAuthSession();
                 if (!savedUser) {
                     setAuthUser(null);
@@ -15881,7 +15882,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 if (latestUser) {
                     setAuthUser(latestUser);
                     saveAuthSession(latestUser, getAuthSessionLastActiveAt() || new Date().toISOString());
-                } else {
+                } else if (fromConfirmedData || supabaseLoadedRef.current) {
+                    // Hanya logout "akun tidak ditemukan" jika data sudah dikonfirmasi lengkap dari Supabase.
+                    // Ini mencegah false-positive logout ketika accountList hanya berisi data default/fallback.
                     setAuthUser(null);
                     clearAuthSession();
                 }
@@ -16326,11 +16329,12 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
+                    supabaseLoadedRef.current = true;
                     setAccounts(prevAccounts => {
                         const merged = mergeRecordLists(prevAccounts, remoteAccounts);
                         safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteAccounts)) setTimeout(() => saveToSupabase('accounts', merged), 0);
-                        setTimeout(() => syncSavedAuthSession(merged.filter(isVisibleRecord)), 0);
+                        setTimeout(() => syncSavedAuthSession(merged.filter(isVisibleRecord), { fromConfirmedData: true }), 0);
                         return merged;
                     });
                 }
@@ -16511,7 +16515,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                             const incomingAccounts = JSON.parse(e.newValue);
                             setAccounts(prevAccounts => {
                                 const merged = mergeRecordLists(prevAccounts, incomingAccounts);
-                                setTimeout(() => syncSavedAuthSession(merged.filter(isVisibleRecord)), 0);
+                                setTimeout(() => syncSavedAuthSession(merged.filter(isVisibleRecord), { fromConfirmedData: true }), 0);
                                 return merged;
                             });
                         } catch(err) {}
@@ -16725,7 +16729,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 setAbsensiRawLogs(remAbsensiRawLogs);
                                 safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remAbsensiRawLogs));
                             }
-                            syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
+                            supabaseLoadedRef.current = true;
+                            syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });
                         } catch (error) {
                             console.error("Gagal memuat dari Supabase, memakai data lokal.");
                             loadAllLocal();
@@ -16738,7 +16743,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 };
 
                 const loadAllLocal = () => {
-                    const nextAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
+                    // Gunakan null sebagai fallback untuk mendeteksi apakah cache benar-benar ada
+                    const cachedAccounts = loadLocalData('simpati_accounts_sync', null);
+                    const nextAccounts = cachedAccounts || initialAccounts;
                     const localOrders = loadLocalData('simpati_orders_sync', initialOrders);
                     const nextOrders = patchOrders(localOrders);
                     setAccounts(nextAccounts);
@@ -16762,7 +16769,11 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     setDriverRekapGaji(loadLocalData('simpati_driver_rekap_gaji_sync', []));
                     setStockItems(loadLocalData('simpati_stock_items_sync', []));
                     setAbsensiEdits(loadLocalData('simpati_absensi_edits_sync', []));
-                    syncSavedAuthSession(nextAccounts.filter(isVisibleRecord));
+                    // Hanya validasi sesi jika ada cache akun yang nyata (bukan hanya fallback initialAccounts).
+                    // Jika cache tidak ada, biarkan sesi tetap aktif; Supabase akan memvalidasinya nanti.
+                    if (cachedAccounts) {
+                        syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });
+                    }
                     setIsReady(true);
                 };
 
@@ -16885,7 +16896,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         const merged = await mergeRemoteRecordsForSave('accounts', valid);
                         safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
                         saveToSupabase('accounts', merged);
-                        syncSavedAuthSession(merged.filter(isVisibleRecord));
+                        syncSavedAuthSession(merged.filter(isVisibleRecord), { fromConfirmedData: true });
                         setAccounts(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
                             return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
