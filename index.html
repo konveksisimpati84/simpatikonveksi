@@ -17477,6 +17477,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const [rekapMonth, setRekapMonth] = useState(new Date().toISOString().slice(0, 7));
             const [rekapMinggu, setRekapMinggu] = useState(0);
             const [rekapEmp, setRekapEmp] = useState('');
+            const [rekapEmpSearch, setRekapEmpSearch] = useState('');
+            const [rekapEmpOpen, setRekapEmpOpen] = useState(false);
+            const rekapEmpRef = React.useRef(null);
             // Data absensi dibaca dari Supabase (absensiRawLogs) — disinkron oleh backend lokal,
             // jadi tetap terlihat di device manapun walau device ini tidak terhubung ke backend.
             const monthLogs = safeArray(absensiRawLogs);
@@ -18098,12 +18101,53 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                         <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wide">Bulan</label>
                                         <input type="month" value={rekapMonth} onChange={e => setRekapMonth(e.target.value)} className="w-full p-2.5 border rounded-lg text-sm" />
                                     </div>
-                                    <div>
+                                    <div ref={rekapEmpRef} style={{position:'relative'}}>
                                         <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wide">Pilih Karyawan</label>
-                                        <select value={rekapEmpPin} onChange={e => setRekapEmp(e.target.value)} className="w-full p-2.5 border rounded-lg text-sm">
-                                            {empsFP.length === 0 && <option value="">— Belum ada karyawan dengan PIN Finger —</option>}
-                                            {empsFP.map(e => <option key={e.fingerPin} value={String(e.fingerPin).trim()}>{e.name} (PIN: {e.fingerPin})</option>)}
-                                        </select>
+                                        <div
+                                            style={{display:'flex',alignItems:'center',border:'1px solid #D1D5DB',borderRadius:'8px',background:'#fff',overflow:'hidden'}}
+                                            onClick={() => { if (empsFP.length > 0) { setRekapEmpOpen(true); setRekapEmpSearch(''); } }}
+                                        >
+                                            <input
+                                                type="text"
+                                                value={rekapEmpOpen ? rekapEmpSearch : (rekapEmpObj ? `${rekapEmpObj.name} (PIN: ${rekapEmpObj.fingerPin})` : '')}
+                                                onChange={e => { setRekapEmpSearch(e.target.value); setRekapEmpOpen(true); }}
+                                                onFocus={() => { setRekapEmpOpen(true); setRekapEmpSearch(''); }}
+                                                onBlur={() => setTimeout(() => setRekapEmpOpen(false), 150)}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Escape') setRekapEmpOpen(false);
+                                                    if (e.key === 'Enter') {
+                                                        const filtered = empsFP.filter(e => `${e.name} ${e.fingerPin}`.toLowerCase().includes(rekapEmpSearch.toLowerCase()));
+                                                        if (filtered.length > 0) { setRekapEmp(String(filtered[0].fingerPin).trim()); setRekapEmpOpen(false); }
+                                                    }
+                                                }}
+                                                placeholder={empsFP.length === 0 ? 'Belum ada karyawan dengan PIN Finger' : 'Ketik nama karyawan...'}
+                                                disabled={empsFP.length === 0}
+                                                className="w-full p-2.5 text-sm outline-none bg-transparent"
+                                                style={{minWidth:0}}
+                                            />
+                                            <span style={{paddingRight:'10px',color:'#9CA3AF',fontSize:'11px',flexShrink:0}}>{rekapEmpOpen ? '▲' : '▼'}</span>
+                                        </div>
+                                        {rekapEmpOpen && empsFP.length > 0 && (() => {
+                                            const filtered = empsFP.filter(e => `${e.name} ${e.fingerPin}`.toLowerCase().includes(rekapEmpSearch.toLowerCase()));
+                                            return (
+                                                <div style={{position:'absolute',top:'100%',left:0,right:0,background:'#fff',border:'1px solid #D1D5DB',borderRadius:'8px',boxShadow:'0 4px 16px rgba(0,0,0,.12)',zIndex:50,maxHeight:'220px',overflowY:'auto',marginTop:'2px'}}>
+                                                    {filtered.length === 0
+                                                        ? <div style={{padding:'10px 12px',fontSize:'13px',color:'#9CA3AF',fontStyle:'italic'}}>Karyawan tidak ditemukan</div>
+                                                        : filtered.map(e => (
+                                                            <div
+                                                                key={e.fingerPin}
+                                                                onMouseDown={() => { setRekapEmp(String(e.fingerPin).trim()); setRekapEmpOpen(false); setRekapEmpSearch(''); }}
+                                                                style={{padding:'9px 12px',fontSize:'13px',cursor:'pointer',background: String(e.fingerPin).trim() === rekapEmpPin ? '#EFF6FF' : 'transparent',color: String(e.fingerPin).trim() === rekapEmpPin ? '#1D4ED8' : '#1F2937',fontWeight: String(e.fingerPin).trim() === rekapEmpPin ? '700' : '400'}}
+                                                                onMouseEnter={ev => { if (String(e.fingerPin).trim() !== rekapEmpPin) ev.currentTarget.style.background='#F9FAFB'; }}
+                                                                onMouseLeave={ev => { if (String(e.fingerPin).trim() !== rekapEmpPin) ev.currentTarget.style.background='transparent'; }}
+                                                            >
+                                                                {e.name} <span style={{fontSize:'11px',color:'#9CA3AF',fontFamily:'monospace'}}>PIN: {e.fingerPin}</span>
+                                                            </div>
+                                                        ))
+                                                    }
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
 
