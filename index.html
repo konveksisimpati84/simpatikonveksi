@@ -15765,7 +15765,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
 
                 const autoLogout = () => {
                     handleLogout();
-                    showToast("Sesi habis karena tidak ada aktivitas selama 30 menit. Silakan login kembali.", "error");
+                    showToast("Sesi habis karena tidak ada aktivitas selama 8 jam. Silakan login kembali.", "error");
                 };
 
                 const resetTimer = () => {
@@ -15775,8 +15775,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         saveAuthSession(authUser);
                         lastSessionTouch = now;
                     }
-                    // Setel ulang timer ke 30 menit (30 menit * 60 detik * 1000 milidetik)
-                    timeoutId = setTimeout(autoLogout, AUTH_SESSION_TIMEOUT_MS); 
+                    // Setel ulang timer ke 8 jam (8 jam * 60 menit * 60 detik * 1000 milidetik)
+                    timeoutId = setTimeout(autoLogout, AUTH_SESSION_TIMEOUT_MS);
                 };
 
                 if (authUser) {
@@ -16330,9 +16330,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         const merged = mergeRecordLists(prevAccounts, remoteAccounts);
                         safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteAccounts)) setTimeout(() => saveToSupabase('accounts', merged), 0);
+                        setTimeout(() => syncSavedAuthSession(merged.filter(isVisibleRecord)), 0);
                         return merged;
                     });
-                    setTimeout(() => syncSavedAuthSession(remoteAccounts.filter(isVisibleRecord)), 0);
                 }
                 if (Array.isArray(remoteEmployees)) {
                     setEmployees(prevEmployees => {
