@@ -6155,7 +6155,360 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
         };
 
 
-        const BiayaView = ({ expenses, setExpenses, showToast, templates }) => {
+        const KartuKreditView = ({ kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, showToast }) => {
+            const WARNA_KARTU = {
+                biru:   { bg: 'linear-gradient(135deg,#1E3A5F 0%,#2D6A9F 60%,#1A5276 100%)', label: 'Biru' },
+                merah:  { bg: 'linear-gradient(135deg,#4A0E0E 0%,#C0392B 60%,#8E1010 100%)', label: 'Merah' },
+                hijau:  { bg: 'linear-gradient(135deg,#1A3A1A 0%,#27AE60 60%,#1E8449 100%)', label: 'Hijau' },
+                ungu:   { bg: 'linear-gradient(135deg,#2D0B4E 0%,#7B2FBE 60%,#4A1080 100%)', label: 'Ungu' },
+                hitam:  { bg: 'linear-gradient(135deg,#1A1A2E 0%,#16213E 60%,#0F3460 100%)', label: 'Hitam' },
+            };
+            const KATEGORI = ['Bahan Baku','Peralatan','Transportasi','Operasional','Lainnya'];
+            const emptyKartu = { id: '', namaKartu: '', limit: '', jatuhTempo: '', warna: 'biru', catatan: '' };
+            const emptyTrx   = { kartuId: '', tipe: 'belanja', jumlah: '', tanggal: new Date().toISOString().slice(0,10), kategori: 'Bahan Baku', keterangan: '' };
+
+            const [activeKartuId, setActiveKartuId] = React.useState(null);
+            const [showKartuForm, setShowKartuForm] = React.useState(false);
+            const [editKartuId, setEditKartuId] = React.useState(null);
+            const [kartuForm, setKartuForm] = React.useState(emptyKartu);
+            const [trxForm, setTrxForm] = React.useState(emptyTrx);
+            const [trxFilter, setTrxFilter] = React.useState('semua');
+            const [deleteKartuId, setDeleteKartuId] = React.useState(null);
+            const [deleteTrxId, setDeleteTrxId] = React.useState(null);
+
+            const kartuList = safeArray(kartuKredit);
+            const trxList   = safeArray(transaksiKartu);
+
+            const activeKartu = kartuList.find(k => k.id === activeKartuId) || kartuList[0] || null;
+            React.useEffect(() => { if (!activeKartuId && kartuList.length > 0) setActiveKartuId(kartuList[0].id); }, [kartuList]);
+
+            const getTotalBelanja = (kartuId) => trxList.filter(t => t.kartuId === kartuId && t.tipe === 'belanja').reduce((s,t) => s + safeMoney(t.jumlah), 0);
+            const getTotalBayar   = (kartuId) => trxList.filter(t => t.kartuId === kartuId && t.tipe === 'bayar').reduce((s,t) => s + safeMoney(t.jumlah), 0);
+            const getTagihan = (kartuId) => Math.max(0, getTotalBelanja(kartuId) - getTotalBayar(kartuId));
+            const getSisaLimit = (k) => Math.max(0, safeMoney(k.limit) - getTotalBelanja(k.id));
+            const getPct = (k) => safeMoney(k.limit) > 0 ? Math.min(100, (getTotalBelanja(k.id) / safeMoney(k.limit)) * 100) : 0;
+
+            const getDaysToTempo = (kartu) => {
+                if (!kartu?.jatuhTempo) return null;
+                const today = new Date(); today.setHours(0,0,0,0);
+                const tgl = parseInt(kartu.jatuhTempo, 10);
+                if (!tgl || isNaN(tgl)) return null;
+                const target = new Date(today.getFullYear(), today.getMonth(), tgl);
+                if (target < today) target.setMonth(target.getMonth() + 1);
+                return Math.round((target - today) / 86400000);
+            };
+
+            const openAddKartu = () => { setKartuForm(emptyKartu); setEditKartuId(null); setShowKartuForm(true); };
+            const openEditKartu = (k) => { setKartuForm({ ...k }); setEditKartuId(k.id); setShowKartuForm(true); };
+            const handleSaveKartu = () => {
+                if (!kartuForm.namaKartu.trim()) return showToast('Nama kartu wajib diisi.', 'error');
+                if (safeMoney(kartuForm.limit) <= 0) return showToast('Limit harus lebih dari 0.', 'error');
+                const now = new Date().toISOString();
+                if (editKartuId) {
+                    setKartuKredit(prev => safeArray(prev).map(k => k.id === editKartuId ? { ...kartuForm, id: editKartuId, _syncUpdatedAt: now } : k));
+                    showToast('Kartu diperbarui.', 'success');
+                } else {
+                    const newId = genId('KK-');
+                    setKartuKredit(prev => [...safeArray(prev), { ...kartuForm, id: newId, _syncUpdatedAt: now }]);
+                    setActiveKartuId(newId);
+                    showToast('Kartu berhasil ditambahkan.', 'success');
+                }
+                setShowKartuForm(false);
+            };
+            const handleDeleteKartu = (id) => {
+                setKartuKredit(prev => safeArray(prev).filter(k => k.id !== id));
+                setTransaksiKartu(prev => safeArray(prev).filter(t => t.kartuId !== id));
+                if (activeKartuId === id) setActiveKartuId(null);
+                setDeleteKartuId(null);
+                showToast('Kartu dihapus.', 'success');
+            };
+
+            const handleSaveTrx = (e) => {
+                e.preventDefault();
+                const kartuTarget = kartuList.find(k => k.id === trxForm.kartuId) || activeKartu;
+                if (!kartuTarget) return showToast('Pilih kartu terlebih dahulu.', 'error');
+                if (safeMoney(trxForm.jumlah) <= 0) return showToast('Jumlah harus lebih dari 0.', 'error');
+                const now = new Date().toISOString();
+                const newTrx = { ...trxForm, id: genId('TKK-'), kartuId: kartuTarget.id, jumlah: safeMoney(trxForm.jumlah), _syncUpdatedAt: now };
+                setTransaksiKartu(prev => [newTrx, ...safeArray(prev)]);
+                setTrxForm(prev => ({ ...prev, jumlah: '', keterangan: '', tanggal: new Date().toISOString().slice(0,10) }));
+                showToast('Transaksi disimpan.', 'success');
+            };
+            const handleDeleteTrx = (id) => {
+                setTransaksiKartu(prev => safeArray(prev).filter(t => t.id !== id));
+                setDeleteTrxId(null);
+                showToast('Transaksi dihapus.', 'success');
+            };
+
+            const activeTrx = trxList.filter(t => activeKartu && t.kartuId === activeKartu.id && (trxFilter === 'semua' || t.tipe === trxFilter)).sort((a,b) => new Date(b.tanggal||0) - new Date(a.tanggal||0));
+
+            const totalBelanjaAll = kartuList.reduce((s,k) => s + getTotalBelanja(k.id), 0);
+            const totalBayarAll   = kartuList.reduce((s,k) => s + getTotalBayar(k.id), 0);
+            const totalTagihanAll = kartuList.reduce((s,k) => s + getTagihan(k.id), 0);
+            const totalLimitAll   = kartuList.reduce((s,k) => s + safeMoney(k.limit), 0);
+
+            const days = activeKartu ? getDaysToTempo(activeKartu) : null;
+
+            return (
+                <div className="space-y-5">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-xl font-bold text-gray-800">💳 Kartu Kredit</h3>
+                            <p className="text-sm text-gray-500 mt-0.5">Catatan mandiri — tidak terhubung ke laporan keuangan.</p>
+                        </div>
+                        <button onClick={openAddKartu} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1">+ Tambah Kartu</button>
+                    </div>
+
+                    {kartuList.length === 0 ? (
+                        <div className="bg-white border-2 border-dashed border-gray-200 rounded-xl p-12 text-center">
+                            <div className="text-4xl mb-3">💳</div>
+                            <p className="font-bold text-gray-600 mb-1">Belum ada kartu kredit</p>
+                            <p className="text-sm text-gray-400 mb-4">Tambahkan kartu kredit untuk mulai mencatat transaksi.</p>
+                            <button onClick={openAddKartu} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-bold text-sm">+ Tambah Kartu Pertama</button>
+                        </div>
+                    ) : (<>
+                        <div className="overflow-x-auto pb-1">
+                            <div className="flex gap-3" style={{minWidth:'max-content'}}>
+                                {kartuList.map(k => {
+                                    const pct = getPct(k);
+                                    const sisa = getSisaLimit(k);
+                                    const tagihan = getTagihan(k.id);
+                                    const isActive = activeKartu?.id === k.id;
+                                    const wStyle = WARNA_KARTU[k.warna]?.bg || WARNA_KARTU.biru.bg;
+                                    return (
+                                        <div key={k.id} onClick={() => setActiveKartuId(k.id)}
+                                            style={{background: wStyle, minWidth:'280px', border: isActive ? '3px solid rgba(255,255,255,0.8)' : '3px solid transparent'}}
+                                            className="rounded-2xl p-5 text-white cursor-pointer relative overflow-hidden transition-all hover:scale-[1.02]">
+                                            <div style={{position:'absolute',top:'-30px',right:'-30px',width:'120px',height:'120px',borderRadius:'50%',background:'rgba(255,255,255,0.07)'}}></div>
+                                            <div className="font-black text-lg mb-3">{k.namaKartu}</div>
+                                            <div className="flex gap-4 mb-3">
+                                                <div><div style={{fontSize:'10px',opacity:.7,textTransform:'uppercase',letterSpacing:'.06em'}}>Limit</div><div className="font-bold text-sm">{formatRupiah(safeMoney(k.limit))}</div></div>
+                                                <div><div style={{fontSize:'10px',opacity:.7,textTransform:'uppercase',letterSpacing:'.06em'}}>Tagihan</div><div className="font-bold text-sm">{formatRupiah(tagihan)}</div></div>
+                                                <div><div style={{fontSize:'10px',opacity:.7,textTransform:'uppercase',letterSpacing:'.06em'}}>Sisa</div><div className="font-bold text-sm">{formatRupiah(sisa)}</div></div>
+                                            </div>
+                                            <div style={{height:'4px',background:'rgba(255,255,255,0.2)',borderRadius:'2px'}}>
+                                                <div style={{height:'100%',width:`${pct}%`,background:'rgba(255,255,255,0.85)',borderRadius:'2px',transition:'width .4s'}}></div>
+                                            </div>
+                                            <div style={{fontSize:'11px',opacity:.65,marginTop:'5px'}}>{pct.toFixed(1)}% terpakai {k.jatuhTempo ? `· Jth tgl ${k.jatuhTempo}` : ''}</div>
+                                        </div>
+                                    );
+                                })}
+                                <div onClick={openAddKartu} className="rounded-2xl p-5 cursor-pointer flex flex-col items-center justify-center gap-2 text-gray-400 hover:text-blue-600 transition-colors"
+                                    style={{minWidth:'160px',border:'2px dashed #e5e7eb',background:'white'}}>
+                                    <span style={{fontSize:'28px'}}>＋</span>
+                                    <span className="text-xs font-bold">Tambah Kartu</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {activeKartu && (
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div className="bg-white rounded-xl border p-4"><div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Total Belanja</div><div className="text-xl font-black text-gray-800">{formatRupiah(getTotalBelanja(activeKartu.id))}</div></div>
+                            <div className="bg-white rounded-xl border p-4"><div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Sudah Dibayar</div><div className="text-xl font-black text-green-600">{formatRupiah(getTotalBayar(activeKartu.id))}</div></div>
+                            <div className="bg-white rounded-xl border p-4"><div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Tagihan Tersisa</div><div className={`text-xl font-black ${getTagihan(activeKartu.id) > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatRupiah(getTagihan(activeKartu.id))}</div></div>
+                            <div className="bg-white rounded-xl border p-4"><div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Jatuh Tempo</div><div className={`text-xl font-black ${days !== null && days <= 7 ? 'text-red-600' : days !== null && days <= 14 ? 'text-yellow-600' : 'text-blue-600'}`}>{days !== null ? `${days} hari lagi` : activeKartu.jatuhTempo ? `Tgl ${activeKartu.jatuhTempo}` : '—'}</div></div>
+                        </div>
+                        )}
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <div className="bg-white rounded-xl border p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="font-bold text-gray-700 text-sm">Catat Transaksi</div>
+                                    <div className="flex gap-1">
+                                        {['belanja','bayar'].map(t => (
+                                            <button key={t} onClick={() => setTrxForm(prev => ({...prev, tipe: t}))}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${trxForm.tipe === t ? (t==='belanja'?'bg-red-600 text-white border-red-600':'bg-green-600 text-white border-green-600') : 'text-gray-500 border-gray-200'}`}>
+                                                {t === 'belanja' ? 'Belanja' : 'Bayar'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <form onSubmit={handleSaveTrx} className="space-y-2">
+                                    <select className="w-full p-2 border rounded-lg text-sm" value={trxForm.kartuId || (activeKartu?.id||'')} onChange={e => setTrxForm(p=>({...p, kartuId: e.target.value}))}>
+                                        {kartuList.map(k => <option key={k.id} value={k.id}>{k.namaKartu}</option>)}
+                                    </select>
+                                    <input type="number" className="w-full p-2 border rounded-lg text-sm" placeholder="Jumlah (Rp)" min="1" value={trxForm.jumlah} onChange={e => setTrxForm(p=>({...p, jumlah: e.target.value}))} required />
+                                    <input type="date" className="w-full p-2 border rounded-lg text-sm" value={trxForm.tanggal} onChange={e => setTrxForm(p=>({...p, tanggal: e.target.value}))} required />
+                                    {trxForm.tipe === 'belanja' && (
+                                        <select className="w-full p-2 border rounded-lg text-sm" value={trxForm.kategori} onChange={e => setTrxForm(p=>({...p, kategori: e.target.value}))}>
+                                            {KATEGORI.map(k => <option key={k}>{k}</option>)}
+                                        </select>
+                                    )}
+                                    <input type="text" className="w-full p-2 border rounded-lg text-sm" placeholder="Keterangan..." value={trxForm.keterangan} onChange={e => setTrxForm(p=>({...p, keterangan: e.target.value}))} />
+                                    <button type="submit" className={`w-full py-2 rounded-lg font-bold text-sm text-white ${trxForm.tipe==='belanja'?'bg-red-600 hover:bg-red-700':'bg-green-600 hover:bg-green-700'}`}>
+                                        💾 Simpan {trxForm.tipe === 'belanja' ? 'Belanja' : 'Pembayaran'}
+                                    </button>
+                                </form>
+                            </div>
+
+                            <div className="lg:col-span-2 bg-white rounded-xl border overflow-hidden">
+                                <div className="px-4 py-3 border-b flex items-center justify-between">
+                                    <div className="font-bold text-gray-700 text-sm">Riwayat — {activeKartu?.namaKartu || '—'}</div>
+                                    <div className="flex gap-1">
+                                        {[['semua','Semua'],['belanja','Belanja'],['bayar','Bayar']].map(([val,lbl]) => (
+                                            <button key={val} onClick={() => setTrxFilter(val)}
+                                                className={`px-2.5 py-1 rounded text-xs font-bold border transition-colors ${trxFilter===val ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-500 border-gray-200'}`}>{lbl}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                                {activeTrx.length === 0 ? (
+                                    <div className="p-8 text-center text-gray-400 text-sm italic">Belum ada transaksi.</div>
+                                ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase">
+                                            <th className="px-4 py-2 text-left">Tanggal</th>
+                                            <th className="px-4 py-2 text-left">Keterangan</th>
+                                            <th className="px-4 py-2 text-left">Tipe</th>
+                                            <th className="px-4 py-2 text-right">Jumlah</th>
+                                            <th className="px-4 py-2"></th>
+                                        </tr></thead>
+                                        <tbody>
+                                            {activeTrx.map(t => (
+                                                <tr key={t.id} className="border-t hover:bg-gray-50">
+                                                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{t.tanggal}</td>
+                                                    <td className="px-4 py-2.5">
+                                                        <div>{t.keterangan || '—'}</div>
+                                                        {t.kategori && t.tipe === 'belanja' && <div className="text-xs text-gray-400">{t.kategori}</div>}
+                                                    </td>
+                                                    <td className="px-4 py-2.5">
+                                                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${t.tipe==='belanja'?'bg-red-100 text-red-700':'bg-green-100 text-green-700'}`}>
+                                                            {t.tipe === 'belanja' ? 'Belanja' : 'Bayar'}
+                                                        </span>
+                                                    </td>
+                                                    <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${t.tipe==='belanja'?'text-red-600':'text-green-600'}`}>
+                                                        {t.tipe==='belanja'?'−':'+'}{formatRupiah(t.jumlah)}
+                                                    </td>
+                                                    <td className="px-4 py-2.5">
+                                                        <button onClick={() => setDeleteTrxId(t.id)} className="text-red-400 hover:text-red-600 text-xs font-bold">Hapus</button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl border overflow-hidden">
+                            <div className="px-4 py-3 border-b font-bold text-gray-700 text-sm flex items-center justify-between">
+                                <span>Daftar Kartu Terdaftar</span>
+                                <span className="text-gray-400 font-normal text-xs">{kartuList.length} kartu · Total limit {formatRupiah(totalLimitAll)}</span>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase">
+                                        <th className="px-4 py-2 text-left">Kartu</th>
+                                        <th className="px-4 py-2 text-right">Limit</th>
+                                        <th className="px-4 py-2 text-right">Total Belanja</th>
+                                        <th className="px-4 py-2 text-right">Sudah Bayar</th>
+                                        <th className="px-4 py-2 text-right">Tagihan</th>
+                                        <th className="px-4 py-2 text-center">Jth Tgl</th>
+                                        <th className="px-4 py-2 text-center">Status</th>
+                                        <th className="px-4 py-2"></th>
+                                    </tr></thead>
+                                    <tbody>
+                                        {kartuList.map(k => {
+                                            const bel = getTotalBelanja(k.id);
+                                            const bay = getTotalBayar(k.id);
+                                            const tag = getTagihan(k.id);
+                                            const lunas = tag === 0;
+                                            return (
+                                            <tr key={k.id} className="border-t hover:bg-gray-50">
+                                                <td className="px-4 py-2.5 font-bold">{k.namaKartu}</td>
+                                                <td className="px-4 py-2.5 text-right tabular-nums">{formatRupiah(safeMoney(k.limit))}</td>
+                                                <td className="px-4 py-2.5 text-right tabular-nums text-gray-600">{formatRupiah(bel)}</td>
+                                                <td className="px-4 py-2.5 text-right tabular-nums text-green-600">{formatRupiah(bay)}</td>
+                                                <td className={`px-4 py-2.5 text-right tabular-nums font-bold ${tag > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatRupiah(tag)}</td>
+                                                <td className="px-4 py-2.5 text-center text-gray-500">{k.jatuhTempo || '—'}</td>
+                                                <td className="px-4 py-2.5 text-center">
+                                                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${lunas ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                        {lunas ? 'Lunas' : 'Belum Lunas'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-2.5">
+                                                    <div className="flex gap-2 justify-end">
+                                                        <button onClick={() => openEditKartu(k)} className="text-blue-500 hover:text-blue-700 text-xs font-bold">Edit</button>
+                                                        <button onClick={() => setDeleteKartuId(k.id)} className="text-red-400 hover:text-red-600 text-xs font-bold">Hapus</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            );
+                                        })}
+                                        {kartuList.length > 1 && (
+                                        <tr className="bg-gray-50 font-bold border-t-2">
+                                            <td className="px-4 py-2.5">TOTAL</td>
+                                            <td className="px-4 py-2.5 text-right tabular-nums">{formatRupiah(totalLimitAll)}</td>
+                                            <td className="px-4 py-2.5 text-right tabular-nums text-gray-600">{formatRupiah(totalBelanjaAll)}</td>
+                                            <td className="px-4 py-2.5 text-right tabular-nums text-green-600">{formatRupiah(totalBayarAll)}</td>
+                                            <td className={`px-4 py-2.5 text-right tabular-nums ${totalTagihanAll > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatRupiah(totalTagihanAll)}</td>
+                                            <td colSpan="3"></td>
+                                        </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </>)}
+
+                    {showKartuForm && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowKartuForm(false)}>
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-bold text-gray-800 text-lg mb-4">{editKartuId ? 'Edit Kartu' : 'Tambah Kartu Kredit'}</h3>
+                                <div className="space-y-3">
+                                    <div><label className="text-xs font-bold text-gray-500 uppercase">Nama Kartu</label>
+                                        <input className="w-full mt-1 p-2 border rounded-lg text-sm" placeholder="contoh: BCA Platinum" value={kartuForm.namaKartu} onChange={e => setKartuForm(p=>({...p, namaKartu: e.target.value}))} /></div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div><label className="text-xs font-bold text-gray-500 uppercase">Limit (Rp)</label>
+                                            <input type="number" className="w-full mt-1 p-2 border rounded-lg text-sm" placeholder="100000000" value={kartuForm.limit} onChange={e => setKartuForm(p=>({...p, limit: e.target.value}))} /></div>
+                                        <div><label className="text-xs font-bold text-gray-500 uppercase">Jatuh Tempo (tgl)</label>
+                                            <input type="number" className="w-full mt-1 p-2 border rounded-lg text-sm" placeholder="1–31" min="1" max="31" value={kartuForm.jatuhTempo} onChange={e => setKartuForm(p=>({...p, jatuhTempo: e.target.value}))} /></div>
+                                    </div>
+                                    <div><label className="text-xs font-bold text-gray-500 uppercase">Warna Kartu</label>
+                                        <select className="w-full mt-1 p-2 border rounded-lg text-sm" value={kartuForm.warna} onChange={e => setKartuForm(p=>({...p, warna: e.target.value}))}>
+                                            {Object.entries(WARNA_KARTU).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                                        </select></div>
+                                    <div><label className="text-xs font-bold text-gray-500 uppercase">Catatan</label>
+                                        <input className="w-full mt-1 p-2 border rounded-lg text-sm" placeholder="opsional..." value={kartuForm.catatan} onChange={e => setKartuForm(p=>({...p, catatan: e.target.value}))} /></div>
+                                </div>
+                                <div className="flex gap-2 justify-end mt-5">
+                                    <button onClick={() => setShowKartuForm(false)} className="px-4 py-2 rounded-lg border text-sm font-bold text-gray-600">Batal</button>
+                                    <button onClick={handleSaveKartu} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-bold">Simpan</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {deleteKartuId && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                                <h3 className="font-bold text-gray-800 mb-2">Hapus Kartu?</h3>
+                                <p className="text-sm text-gray-500 mb-4">Semua transaksi kartu ini juga akan dihapus. Tindakan tidak dapat dibatalkan.</p>
+                                <div className="flex gap-2 justify-end">
+                                    <button onClick={() => setDeleteKartuId(null)} className="px-4 py-2 rounded-lg border text-sm font-bold text-gray-600">Batal</button>
+                                    <button onClick={() => handleDeleteKartu(deleteKartuId)} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-bold">Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {deleteTrxId && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                                <h3 className="font-bold text-gray-800 mb-2">Hapus Transaksi?</h3>
+                                <p className="text-sm text-gray-500 mb-4">Transaksi ini akan dihapus permanen.</p>
+                                <div className="flex gap-2 justify-end">
+                                    <button onClick={() => setDeleteTrxId(null)} className="px-4 py-2 rounded-lg border text-sm font-bold text-gray-600">Batal</button>
+                                    <button onClick={() => handleDeleteTrx(deleteTrxId)} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-bold">Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu }) => {
+            const [biayaSubTab, setBiayaSubTab] = useState('biaya');
             const emptyItem = () => ({ id: genId('BI-'), desc: '', qty: '1', unit: 'pcs', price: '' });
             const emptyForm = { date: new Date().toISOString().slice(0, 10), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '' };
             const emptyPayForm = { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Tunai', note: '' };
@@ -6357,9 +6710,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             return (
                 <>
                 <div className="space-y-6">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                         <div><h2 className="text-2xl font-bold text-gray-800">Biaya</h2><p className="text-sm text-gray-500 mt-1">Catat bukti transaksi kas keluar dan kas masuk operasional.</p></div>
+                        <div className="flex gap-1 bg-white border rounded-xl p-1 shadow-sm">
+                            <button onClick={() => setBiayaSubTab('biaya')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${biayaSubTab === 'biaya' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 hover:bg-gray-100'}`}>📋 Biaya</button>
+                            <button onClick={() => setBiayaSubTab('kartu_kredit')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${biayaSubTab === 'kartu_kredit' ? 'bg-blue-600 text-white shadow' : 'text-gray-500 hover:bg-gray-100'}`}>💳 Kartu Kredit</button>
+                        </div>
                     </div>
+                    {biayaSubTab === 'kartu_kredit' && <KartuKreditView kartuKredit={kartuKredit} setKartuKredit={setKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={setTransaksiKartu} showToast={showToast} />}
+                    {biayaSubTab === 'biaya' && <>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <Card className="border-l-4 border-l-green-500"><h3 className="text-sm font-bold text-gray-500">Kas Masuk</h3><p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalIn)}</p></Card>
                         <Card className="border-l-4 border-l-red-500"><h3 className="text-sm font-bold text-gray-500">Kas Keluar</h3><p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(totalOut)}</p></Card>
@@ -6551,6 +6910,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             </div>
                         )}
                     </Card>
+                    </>}
                 </div>
             {deleteConfirmId && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
@@ -15681,6 +16041,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const [absensiEdits, setAbsensiEdits] = useState([]);
             const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
             const [templates, setTemplates] = useState({});
+            const [kartuKredit, setKartuKredit] = useState([]);
+            const [transaksiKartu, setTransaksiKartu] = useState([]);
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
             const [investorShareToken, setInvestorShareToken] = useState(getInvestorShareTokenFromHash());
@@ -16304,7 +16666,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             };
 
             const applyRemoteDataSnapshotInner = async () => {
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteVendorNotaPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteVendorNotaPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -16325,7 +16687,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     fetchStoreData('driverRekapGaji', []),
                     fetchStoreData('driverKasbon', []),
                     fetchStoreData('stockItems', []),
-                    fetchStoreData('absensiEdits', [])
+                    fetchStoreData('absensiEdits', []),
+                    fetchStoreData('kartu_kredit', []),
+                    fetchStoreData('transaksi_kartu', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -16494,6 +16858,22 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         return merged;
                     });
                 }
+                if (Array.isArray(remoteKartuKredit)) {
+                    setKartuKredit(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteKartuKredit);
+                        safeLocalSet('simpati_kartu_kredit_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteKartuKredit)) setTimeout(() => saveToSupabase('kartu_kredit', merged), 0);
+                        return merged;
+                    });
+                }
+                if (Array.isArray(remoteTransaksiKartu)) {
+                    setTransaksiKartu(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteTransaksiKartu);
+                        safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', merged), 0);
+                        return merged;
+                    });
+                }
             };
 
             useEffect(() => {
@@ -16595,7 +16975,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
                             );
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs] = await Promise.race([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu] = await Promise.race([
                                 Promise.all([
                                     fetchStoreData('accounts', initialAccounts),
                                     fetchStoreData('employees', initialEmployees),
@@ -16618,7 +16998,9 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                     fetchStoreData('driverKasbon', []),
                                     fetchStoreData('stockItems', []),
                                     fetchStoreData('absensiEdits', []),
-                                    fetchStoreData('absensiRawLogs', [])
+                                    fetchStoreData('absensiRawLogs', []),
+                                    fetchStoreData('kartu_kredit', []),
+                                    fetchStoreData('transaksi_kartu', [])
                                 ]),
                                 _fetchTimeout
                             ]);
@@ -16729,6 +17111,16 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 setAbsensiRawLogs(remAbsensiRawLogs);
                                 safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remAbsensiRawLogs));
                             }
+                            if (Array.isArray(initKartuKredit)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_kartu_kredit_sync', []), initKartuKredit);
+                                setKartuKredit(next); safeLocalSet('simpati_kartu_kredit_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(initKartuKredit)) setTimeout(() => saveToSupabase('kartu_kredit', next), 0);
+                            }
+                            if (Array.isArray(initTransaksiKartu)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_transaksi_kartu_sync', []), initTransaksiKartu);
+                                setTransaksiKartu(next); safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(initTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', next), 0);
+                            }
                             supabaseLoadedRef.current = true;
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });
                         } catch (error) {
@@ -16769,6 +17161,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     setDriverRekapGaji(loadLocalData('simpati_driver_rekap_gaji_sync', []));
                     setStockItems(loadLocalData('simpati_stock_items_sync', []));
                     setAbsensiEdits(loadLocalData('simpati_absensi_edits_sync', []));
+                    setKartuKredit(loadLocalData('simpati_kartu_kredit_sync', []));
+                    setTransaksiKartu(loadLocalData('simpati_transaksi_kartu_sync', []));
                     // Hanya validasi sesi jika ada cache akun yang nyata (bukan hanya fallback initialAccounts).
                     // Jika cache tidak ada, biarkan sesi tetap aktif; Supabase akan memvalidasinya nanti.
                     if (cachedAccounts) {
@@ -16949,6 +17343,40 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         safeLocalSet('simpati_expenses_sync', JSON.stringify(merged));
                         saveToSupabase('expenses', merged);
                         setExpenses(current => {
+                            const currentMerged = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
+            const updateKartuKredit = (updater) => {
+                setKartuKredit(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('kartu_kredit', valid);
+                        safeLocalSet('simpati_kartu_kredit_sync', JSON.stringify(merged));
+                        saveToSupabase('kartu_kredit', merged);
+                        setKartuKredit(current => {
+                            const currentMerged = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
+            const updateTransaksiKartu = (updater) => {
+                setTransaksiKartu(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('transaksi_kartu', valid);
+                        safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(merged));
+                        saveToSupabase('transaksi_kartu', merged);
+                        setTransaksiKartu(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
                             return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
                         });
@@ -17447,7 +17875,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} manualPurchases={manualPurchases} setManualPurchases={updateManualPurchases} manualVendorPayments={manualVendorPayments} setManualVendorPayments={updateManualVendorPayments} vendorNotaPayments={vendorNotaPayments} setVendorNotaPayments={updateVendorNotaPayments} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} />}
-                                {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} />}
+                                {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} manualVendorPayments={manualVendorPayments} />}
