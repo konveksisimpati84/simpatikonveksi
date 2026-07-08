@@ -6176,16 +6176,16 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const [deleteKartuId, setDeleteKartuId] = React.useState(null);
             const [deleteTrxId, setDeleteTrxId] = React.useState(null);
 
-            const kartuList = safeArray(kartuKredit);
-            const trxList   = safeArray(transaksiKartu);
+            const kartuList = safeArray(kartuKredit).filter(isVisibleRecord);
+            const trxList   = safeArray(transaksiKartu).filter(isVisibleRecord);
 
             const activeKartu = kartuList.find(k => k.id === activeKartuId) || kartuList[0] || null;
-            React.useEffect(() => { if (!activeKartuId && kartuList.length > 0) setActiveKartuId(kartuList[0].id); }, [kartuList]);
+            React.useEffect(() => { if (!activeKartuId && kartuList.length > 0) setActiveKartuId(kartuList[0].id); }, [kartuKredit]);
 
             const getTotalBelanja = (kartuId) => trxList.filter(t => t.kartuId === kartuId && t.tipe === 'belanja').reduce((s,t) => s + safeMoney(t.jumlah), 0);
             const getTotalBayar   = (kartuId) => trxList.filter(t => t.kartuId === kartuId && t.tipe === 'bayar').reduce((s,t) => s + safeMoney(t.jumlah), 0);
             const getTagihan = (kartuId) => Math.max(0, getTotalBelanja(kartuId) - getTotalBayar(kartuId));
-            const getSisaLimit = (k) => Math.max(0, safeMoney(k.limit) - getTotalBelanja(k.id));
+            const getSisaLimit = (k) => Math.max(0, safeMoney(k.limit) - getTagihan(k.id));
             const getPct = (k) => safeMoney(k.limit) > 0 ? Math.min(100, (getTotalBelanja(k.id) / safeMoney(k.limit)) * 100) : 0;
 
             const getDaysToTempo = (kartu) => {
@@ -6216,8 +6216,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 setShowKartuForm(false);
             };
             const handleDeleteKartu = (id) => {
-                setKartuKredit(prev => safeArray(prev).filter(k => k.id !== id));
-                setTransaksiKartu(prev => safeArray(prev).filter(t => t.kartuId !== id));
+                const now = new Date().toISOString();
+                setKartuKredit(prev => safeArray(prev).map(k => k.id === id ? { ...k, isDeleted: true, _syncUpdatedAt: now } : k));
+                setTransaksiKartu(prev => safeArray(prev).map(t => t.kartuId === id ? { ...t, isDeleted: true, _syncUpdatedAt: now } : t));
                 if (activeKartuId === id) setActiveKartuId(null);
                 setDeleteKartuId(null);
                 showToast('Kartu dihapus.', 'success');
@@ -6235,7 +6236,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 showToast('Transaksi disimpan.', 'success');
             };
             const handleDeleteTrx = (id) => {
-                setTransaksiKartu(prev => safeArray(prev).filter(t => t.id !== id));
+                const now = new Date().toISOString();
+                setTransaksiKartu(prev => safeArray(prev).map(t => t.id === id ? { ...t, isDeleted: true, _syncUpdatedAt: now } : t));
                 setDeleteTrxId(null);
                 showToast('Transaksi dihapus.', 'success');
             };
