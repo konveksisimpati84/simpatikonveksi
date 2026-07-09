@@ -4990,15 +4990,15 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         _syncUpdatedAt: now
                     };
                 }));
-                setVendorNotaPayments(prev => {
-                    if (!prev || !prev[batchKey]) return prev;
-                    const { [batchKey]: _, ...rest } = prev;
-                    return rest;
+                updateVendorNotaPayments(prev => {
+                    if (!prev || !prev[batchKey]) return prev || {};
+                    const entries = safeArray(prev[batchKey]).map(p => ({ ...p, isDeleted: true, _syncUpdatedAt: now }));
+                    return { ...prev, [batchKey]: entries };
                 });
-                setManualVendorPayments(prev => {
-                    if (!prev || !prev[batchKey]) return prev;
-                    const { [batchKey]: _, ...rest } = prev;
-                    return rest;
+                updateManualVendorPayments(prev => {
+                    if (!prev || !prev[batchKey]) return prev || {};
+                    const entries = safeArray(prev[batchKey]).map(p => ({ ...p, isDeleted: true, _syncUpdatedAt: now }));
+                    return { ...prev, [batchKey]: entries };
                 });
                 // Hapus / kembalikan manual purchases yang ada di grup yang sama
                 setManualPurchases(prev => safeArray(prev).map(mp => {
@@ -5628,7 +5628,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const getManualVendorPaidTotal = (vendorName, batchDateKey) => {
                 const key = getMaterialBatchKey(vendorName, batchDateKey);
-                return safeArray((manualVendorPayments || {})[key]).reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+                return safeArray((manualVendorPayments || {})[key]).filter(p => !p.isDeleted).reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
             };
 
             const saveManualPurchase = (vendor, batchDateKey) => {
@@ -5698,7 +5698,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const now = new Date().toISOString();
                 const activeOrderCount = orderGroups.filter(g => g.order).length;
                 // Simpan satu record di level nota
-                const notaRecord = { id: notaPaymentId, date: payDate, amount: totalAmount, method, note, createdAt: now, ordersCount: activeOrderCount };
+                const notaRecord = { id: notaPaymentId, date: payDate, amount: totalAmount, method, note, createdAt: now, ordersCount: activeOrderCount, _syncUpdatedAt: now };
                 setVendorNotaPayments(prev => ({ ...(prev || {}), [batchKey]: [...safeArray((prev || {})[batchKey]), notaRecord] }));
                 const orderShare = totalRemaining > 0 ? Math.round((orderRemaining / totalRemaining) * totalAmount) : (orderGroups.length > 0 ? totalAmount : 0);
                 const manualShare = totalAmount - orderShare;
@@ -5728,7 +5728,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     }));
                 }
                 if (manualShare > 0 && manualItems.length > 0) {
-                    const payment = { id: `MPAY-${Date.now()}`, notaPaymentId, date: payDate, amount: manualShare, method, note };
+                    const payment = { id: `MPAY-${Date.now()}`, notaPaymentId, date: payDate, amount: manualShare, method, note, _syncUpdatedAt: now };
                     setManualVendorPayments(prev => ({ ...(prev || {}), [batchKey]: [...safeArray((prev || {})[batchKey]), payment] }));
                 }
                 setPaymentInputs(prev => ({ ...prev, [inputKey]: { amount: '', note: '', date: '', method: 'Transfer' } }));
@@ -5736,9 +5736,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
 
             const deleteNotaPayment = (batchKey, notaPaymentId) => {
-                // Hapus record nota-level
-                setVendorNotaPayments(prev => ({ ...(prev || {}), [batchKey]: safeArray((prev || {})[batchKey]).filter(p => String(p.id) !== String(notaPaymentId)) }));
-                // Hapus distribusi per-order yang bertag notaPaymentId ini
+                const now = new Date().toISOString();
+                // Soft-delete record nota-level
+                updateVendorNotaPayments(prev => ({
+                    ...(prev || {}),
+                    [batchKey]: safeArray((prev || {})[batchKey]).map(p =>
+                        String(p.id) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
+                    )
+                }));
+                // Hapus distribusi per-order yang bertag notaPaymentId ini (hard delete di dalam order — order sendiri yang sync via mergeOrderRecords)
                 setOrders(prevOrders => prevOrders.map(order => {
                     const pmts = order.materialPayments || {};
                     if (!pmts[batchKey]) return order;
@@ -5746,14 +5752,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     if (filtered.length === pmts[batchKey].length) return order;
                     const nextPayments = { ...pmts, [batchKey]: filtered };
                     const checkOrder = { ...order, materialPayments: nextPayments };
-                    return { ...order, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: new Date().toISOString(), materialLastAction: 'Hapus Pembayaran Nota' };
+                    return { ...order, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: now, materialLastAction: 'Hapus Pembayaran Nota' };
                 }));
-                // Hapus porsi manual yang bertag notaPaymentId ini
-                setManualVendorPayments(prev => {
-                    if (!prev || !prev[batchKey]) return prev;
-                    const filtered = safeArray(prev[batchKey]).filter(p => String(p.notaPaymentId) !== String(notaPaymentId));
-                    return { ...prev, [batchKey]: filtered };
-                });
+                // Soft-delete porsi manual yang bertag notaPaymentId ini
+                updateManualVendorPayments(prev => ({
+                    ...(prev || {}),
+                    [batchKey]: safeArray((prev || {})[batchKey]).map(p =>
+                        String(p.notaPaymentId) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
+                    )
+                }));
                 showToast("Pembayaran berhasil dihapus.", "success");
             };
 
@@ -5992,9 +5999,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                             </div>
                                             {/* Riwayat Pembayaran Nota — satu record per transaksi */}
                                             {(() => {
-                                                const notaPayments = safeArray((vendorNotaPayments || {})[dBatchKey]);
+                                                const notaPayments = safeArray((vendorNotaPayments || {})[dBatchKey]).filter(p => !p.isDeleted);
                                                 const hasLegacyOrderPay = dOrderGroups.some(g => g.order && getVendorPayments(g.order, dVendor, dBatchDateKey).some(p => !p.notaPaymentId));
-                                                const hasLegacyManualPay = safeArray((manualVendorPayments||{})[dBatchKey]).some(p => !p.notaPaymentId);
+                                                const hasLegacyManualPay = safeArray((manualVendorPayments||{})[dBatchKey]).filter(p => !p.isDeleted).some(p => !p.notaPaymentId);
                                                 if (notaPayments.length === 0 && !hasLegacyOrderPay && !hasLegacyManualPay) return null;
                                                 return (
                                                     <div className="bg-green-50 border border-green-200 rounded-xl overflow-hidden">
@@ -6124,11 +6131,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                         ))}
                                                     </div>
                                                 ) : <div className="text-xs text-gray-400 italic py-2">Belum ada bahan manual.</div>}
-                                                {safeArray((manualVendorPayments||{})[dBatchKey]).filter(p => !p.notaPaymentId).length > 0 && (
+                                                {safeArray((manualVendorPayments||{})[dBatchKey]).filter(p => !p.isDeleted && !p.notaPaymentId).length > 0 && (
                                                     <div className="mt-3 bg-blue-50 border border-blue-100 rounded-lg p-3">
                                                         <div className="text-xs font-bold text-blue-700 mb-2">Riwayat Pembayaran Bahan Manual <span className="text-[10px] font-normal opacity-70">(data lama)</span></div>
                                                         <div className="space-y-1">
-                                                            {safeArray((manualVendorPayments||{})[dBatchKey]).filter(p => !p.notaPaymentId).map((pay, pi) => (
+                                                            {safeArray((manualVendorPayments||{})[dBatchKey]).filter(p => !p.isDeleted && !p.notaPaymentId).map((pay, pi) => (
                                                                 <div key={pay.id||pi} className="flex items-center justify-between bg-white border border-blue-100 rounded p-2 text-xs">
                                                                     <span><span className="font-bold">Bayar {pi+1}:</span> {fRp(pay.amount||0)} ({pay.method||'-'}) {pay.date?`- ${pay.date}`:''} {pay.note?`- ${pay.note}`:''}</span>
                                                                     <button onClick={() => deleteManualVendorPayment(dVendor, dBatchDateKey, pay.id)} className="text-red-600 font-bold ml-2">Hapus</button>
@@ -9642,7 +9649,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             });
             Object.entries(manualVendorPayments || {}).forEach(([bk, pmts]) => {
                 if (!manualBillingByBatch[bk]) manualBillingByBatch[bk] = { billed: 0, paid: 0 };
-                manualBillingByBatch[bk].paid += safeArray(pmts).reduce((s, p) => s + safeMoney(p?.amount), 0);
+                manualBillingByBatch[bk].paid += safeArray(pmts).filter(p => !p.isDeleted).reduce((s, p) => s + safeMoney(p?.amount), 0);
             });
             const manualBillingTotals = Object.values(manualBillingByBatch).reduce(
                 (acc, { billed, paid }) => ({
@@ -16840,8 +16847,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 const byId = new Map();
                 const pushMat = (mat) => {
                     if (!mat) return;
-                    const key = mat.id ? String(mat.id) : null;
-                    if (!key) { byId.set(`_anon_${byId.size}`, mat); return; }
+                    const key = mat.id ? String(mat.id) : `_anon_${mat.name || ''}_${mat.vendor || ''}_${mat.price || ''}_${mat.qty || ''}`;
                     const existing = byId.get(key);
                     if (!existing) { byId.set(key, mat); return; }
                     const existingTime = new Date(existing._syncUpdatedAt || existing._updatedAt || 0).getTime();
@@ -16924,7 +16930,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     };
                     lArr.forEach(pushPayment);
                     rArr.forEach(pushPayment);
-                    merged[key] = [...byId.values()].filter(p => !p.isDeleted);
+                    merged[key] = [...byId.values()];
                 });
                 return merged;
             };
@@ -17332,6 +17338,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                             if (JSON.stringify(nextInvoices) !== JSON.stringify(Array.isArray(invs) ? invs : [])) setTimeout(() => saveToSupabase('invoices', nextInvoices), 0);
                             if (JSON.stringify(nextClients) !== JSON.stringify(Array.isArray(cls) ? cls : [])) setTimeout(() => saveToSupabase('clients', nextClients), 0);
                             if (JSON.stringify(nextManualPurchases) !== JSON.stringify(Array.isArray(manPurs) ? manPurs : [])) setTimeout(() => saveToSupabase('manualPurchases', nextManualPurchases), 0);
+                            if (JSON.stringify(nextManualVendorPayments) !== JSON.stringify((manVPays && typeof manVPays === 'object' && !Array.isArray(manVPays)) ? manVPays : {})) setTimeout(() => saveToSupabase('manualVendorPayments', nextManualVendorPayments), 0);
+                            if (JSON.stringify(nextVendorNotaPayments) !== JSON.stringify((vendNotaPays && typeof vendNotaPays === 'object' && !Array.isArray(vendNotaPays)) ? vendNotaPays : {})) setTimeout(() => saveToSupabase('vendorNotaPayments', nextVendorNotaPayments), 0);
                             setManualPurchases(nextManualPurchases);
                             setManualVendorPayments(nextManualVendorPayments);
                             setVendorNotaPayments(nextVendorNotaPayments);
@@ -17436,6 +17444,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     setDriverTarifs(loadLocalData('simpati_driver_tarifs_sync', []));
                     setDriverTransactions(loadLocalData('simpati_driver_trx_sync', []));
                     setDriverRekapGaji(loadLocalData('simpati_driver_rekap_gaji_sync', []));
+                    setDriverKasbon(loadLocalData('simpati_driver_kasbon_sync', []));
                     setStockItems(loadLocalData('simpati_stock_items_sync', []));
                     setAbsensiEdits(loadLocalData('simpati_absensi_edits_sync', []));
                     setKartuKredit(loadLocalData('simpati_kartu_kredit_sync', []));
