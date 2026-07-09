@@ -3993,6 +3993,9 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const [searchTerm, setSearchTerm] = useState('');
             const [expandedIds, setExpandedIds] = useState({});
             const [expandedClientKeys, setExpandedClientKeys] = useState({});
+            const [isPrintMode, setIsPrintMode] = useState(false);
+            const [checkedItems, setCheckedItems] = useState({});
+            const prevExpandedRef = React.useRef({});
             const sjOrderIds = new Set((riwayatPengiriman || []).filter(isVisibleRecord).flatMap(r => (r.items || []).map(i => i.orderId)));
             const archivedWithoutSJ = (orders || []).filter(isVisibleRecord).filter(o => o.isArchived && !sjOrderIds.has(o.id));
             const archivedAsSJ = archivedWithoutSJ.map(o => {
@@ -4027,6 +4030,152 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 });
                 return Object.entries(map).sort((a, b) => b[1].totalPcs - a[1].totalPcs);
             }, [filteredRiwayatPengiriman]);
+
+            const enterPrintMode = () => {
+                prevExpandedRef.current = { ...expandedClientKeys };
+                const allExpanded = {};
+                rekapPerKlien.forEach(([client]) => { allExpanded[client] = true; });
+                setExpandedClientKeys(allExpanded);
+                const allChecked = {};
+                rekapPerKlien.forEach(([client, data]) => {
+                    Object.keys(data.byType).forEach(type => { allChecked[`${client}|||${type}`] = true; });
+                });
+                setCheckedItems(allChecked);
+                setIsPrintMode(true);
+            };
+
+            const exitPrintMode = () => {
+                setExpandedClientKeys(prevExpandedRef.current);
+                setIsPrintMode(false);
+                setCheckedItems({});
+            };
+
+            const toggleClientCheck = (client, data) => {
+                const types = Object.keys(data.byType);
+                const allChecked = types.every(t => checkedItems[`${client}|||${t}`]);
+                setCheckedItems(prev => {
+                    const next = { ...prev };
+                    types.forEach(t => { next[`${client}|||${t}`] = !allChecked; });
+                    return next;
+                });
+            };
+
+            const checkedCount = Object.values(checkedItems).filter(Boolean).length;
+
+            const printRekapTerpilih = () => {
+                const selected = [];
+                rekapPerKlien.forEach(([client, data]) => {
+                    Object.entries(data.byType).forEach(([type, typeData]) => {
+                        if (checkedItems[`${client}|||${type}`]) {
+                            selected.push({ client, type, sizes: typeData.sizes, totalPcs: typeData.totalPcs });
+                        }
+                    });
+                });
+                if (selected.length === 0) return showToast('Pilih minimal satu item terlebih dahulu.', 'error');
+
+                const byClient = {};
+                selected.forEach(item => {
+                    if (!byClient[item.client]) byClient[item.client] = [];
+                    byClient[item.client].push(item);
+                });
+
+                const safe = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                const now = new Date();
+                const tglCetak = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                const jamCetak = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                const namaPerusahaan = templates?.companyName || 'Simpati Konveksi';
+                const logoHtml = templates?.companyLogo ? `<img src="${templates.companyLogo}" style="max-height:48px;max-width:140px;object-fit:contain;display:block;margin-bottom:4px" alt="logo"/>` : '';
+                const totalGrand = selected.reduce((s, i) => s + i.totalPcs, 0);
+                const jumlahKlien = Object.keys(byClient).length;
+                const signHtml = templates?.signatureImage
+                    ? `<img src="${templates.signatureImage}" style="max-height:60px;max-width:130px;object-fit:contain;display:block;margin:0 auto -10px;position:relative;z-index:1" alt="ttd"/>`
+                    : '<div style="height:44px"></div>';
+
+                const clientBlocks = Object.entries(byClient).map(([client, items]) => {
+                    const allSizes = [...new Set(items.flatMap(i => sortSizeKeys(Object.keys(i.sizes))))];
+                    const sortedSizes = sortSizeKeys(allSizes);
+                    const subTotal = items.reduce((s, i) => s + i.totalPcs, 0);
+                    const headerCols = sortedSizes.map(sz => `<th>${safe(sz)}</th>`).join('');
+                    const rows = items.map((item, idx) => {
+                        const sizeCols = sortedSizes.map(sz => `<td>${item.sizes[sz] || '—'}</td>`).join('');
+                        return `<tr><td class="no">${idx + 1}</td><td class="name">${safe(item.type)}</td>${sizeCols}<td class="qty">${item.totalPcs} pcs</td></tr>`;
+                    }).join('');
+                    const subSizeCols = sortedSizes.map(sz => {
+                        const tot = items.reduce((s, i) => s + (i.sizes[sz] || 0), 0);
+                        return `<td class="sub-num">${tot || '—'}</td>`;
+                    }).join('');
+                    const selectedCount = items.length;
+                    const totalCount = rekapPerKlien.find(([c]) => c === client)?.[1]?.byType ? Object.keys(rekapPerKlien.find(([c]) => c === client)[1].byType).length : selectedCount;
+                    return `
+<div class="client-block">
+  <div class="client-header">
+    <div><div class="client-name">${safe(client)}</div><div class="client-meta">${selectedCount} dari ${totalCount} jenis produk dipilih</div></div>
+    <div class="client-badge">${subTotal} pcs</div>
+  </div>
+  <table class="tbl">
+    <thead><tr><th style="width:22px"></th><th class="left">Jenis Produk</th>${headerCols}<th>Total</th></tr></thead>
+    <tbody>
+      ${rows}
+      <tr class="sub-row"><td></td><td class="name sub-label">Subtotal</td>${subSizeCols}<td class="qty sub-num">${subTotal} pcs</td></tr>
+    </tbody>
+  </table>
+</div>`;
+                }).join('');
+
+                const html = `<!DOCTYPE html><html><head><title>Rekap Pengiriman - ${namaPerusahaan}</title><style>
+@page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:210mm;min-height:297mm;padding:12mm 14mm 14mm;display:flex;flex-direction:column;gap:0}
+.doc-header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8mm;border-bottom:3px solid #1e3a5f;margin-bottom:7mm}
+.brand-name{font-size:16px;font-weight:900;color:#1e3a5f;line-height:1.15;margin-top:3px}
+.brand-sub{font-size:8.5px;color:#64748b;margin-top:1px}
+.doc-title{font-size:20px;font-weight:900;color:#1e3a5f;letter-spacing:-1px;text-align:right}
+.doc-sub{font-size:8.5px;color:#64748b;text-align:right;margin-top:4px}
+.client-block{margin-bottom:6mm}
+.client-header{background:#1e3a5f;color:#fff;padding:5px 9px;display:flex;align-items:center;justify-content:space-between;border-radius:3px 3px 0 0}
+.client-name{font-size:10.5pt;font-weight:900}
+.client-meta{font-size:8px;opacity:.75;margin-top:1px}
+.client-badge{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:2px 10px;font-size:9px;font-weight:700;white-space:nowrap}
+.tbl{width:100%;border-collapse:collapse;font-size:9pt;border:1px solid #e2e8f0;border-top:none}
+.tbl thead tr{background:#f8fafc}
+.tbl th{padding:5px 7px;text-align:center;font-size:7.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;border-bottom:1.5px solid #e2e8f0;border-right:1px solid #e2e8f0}
+.tbl th.left{text-align:left}.tbl th:last-child{border-right:none}
+.tbl td{padding:5px 7px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f1f5f9;text-align:center;font-variant-numeric:tabular-nums}
+.tbl td.no{color:#94a3b8;font-size:8px;width:22px}.tbl td.name{text-align:left;font-weight:600}
+.tbl td.qty{font-weight:700;color:#16a34a}.tbl tr:last-child td{border-bottom:none}.tbl td:last-child{border-right:none}
+.sub-row td{background:#f8fafc!important;border-top:1.5px solid #e2e8f0!important;border-bottom:none!important;font-weight:700;font-size:8px;color:#475569!important}
+.sub-row td.name{color:#1e3a5f!important;text-transform:uppercase;letter-spacing:.05em;font-size:7.5px}
+.sub-row td.qty,.sub-row td.sub-num{color:#1e3a5f!important}
+.grand-total{display:flex;justify-content:space-between;align-items:center;border-top:2.5px solid #1e3a5f;padding-top:5mm;margin-top:auto}
+.gt-label{font-size:10.5pt;font-weight:900;color:#1e3a5f}.gt-sub{font-size:8px;color:#64748b;margin-top:3px}
+.gt-val{font-size:18pt;font-weight:900;color:#16a34a;font-variant-numeric:tabular-nums}
+.sig-section{display:flex;justify-content:flex-end;margin-top:9mm}
+.sig-box{text-align:center}.sig-title{font-size:9px;color:#64748b;font-weight:700;margin-bottom:12mm}
+.sig-line{border-bottom:1.5px solid #374151;width:140px;margin:0 auto 4px}
+.sig-name{font-size:10px;font-weight:900;color:#1e3a5f}.sig-sub{font-size:8.5px;color:#64748b;margin-top:2px}
+</style></head><body><div class="page">
+<div class="doc-header">
+  <div>${logoHtml}<div class="brand-name">${safe(namaPerusahaan)}</div>${templates?.companySubtitle?`<div class="brand-sub">${safe(templates.companySubtitle)}</div>`:''} ${templates?.companyContact?`<div class="brand-sub">${safe(templates.companyContact)}</div>`:''}</div>
+  <div><div class="doc-title">REKAP PENGIRIMAN</div><div class="doc-sub">Rekap item terpilih per klien / instansi</div><div class="doc-sub">Dicetak: ${tglCetak} ${jamCetak}</div></div>
+</div>
+${clientBlocks}
+<div class="grand-total">
+  <div><div class="gt-label">GRAND TOTAL — ${jumlahKlien} Klien, ${selected.length} Jenis Produk</div><div class="gt-sub">${safe(namaPerusahaan)} · Dicetak ${tglCetak} ${jamCetak}</div></div>
+  <div class="gt-val">${totalGrand.toLocaleString('id-ID')} pcs</div>
+</div>
+<div class="sig-section"><div class="sig-box">
+  <div class="sig-title">Hormat Kami,</div>
+  ${signHtml}
+  <div class="sig-line"></div>
+  <div class="sig-name">${safe(namaPerusahaan)}</div>
+  <div class="sig-sub">Administration</div>
+</div></div>
+</div><script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script></body></html>`;
+
+                const pw = window.open('', '_blank');
+                if (pw) { pw.document.open(); pw.document.write(html); pw.document.close(); pw.focus(); }
+                else showToast('Gagal mencetak. Harap izinkan Pop-up di browser Anda!', 'error');
+            };
 
             const printSuratJalan = (client, items, sjId, dateStr) => {
                 const formattedDate = new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -4224,51 +4373,128 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     <p className="text-gray-600 mb-6">Daftar seluruh Surat Jalan yang pernah dicetak dan dikirim ke klien.</p>
 
                     <Card>
-                        <h3 className="text-lg font-bold text-gray-800 mb-4">Rekap Per Klien / Instansi</h3>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-gray-800">Rekap Per Klien / Instansi</h3>
+                            {!isPrintMode && rekapPerKlien.length > 0 && (
+                                <button
+                                    onClick={enterPrintMode}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow transition-colors"
+                                >
+                                    🖨 Cetak Rekap
+                                </button>
+                            )}
+                        </div>
+                        {isPrintMode && (
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <span className="text-sm font-bold text-blue-800">Mode Cetak</span>
+                                    <span className="text-xs bg-blue-600 text-white font-bold px-2 py-0.5 rounded-full">{checkedCount} item dipilih</span>
+                                    <button
+                                        onClick={() => {
+                                            const allChecked = {};
+                                            rekapPerKlien.forEach(([client, data]) => {
+                                                Object.keys(data.byType).forEach(type => { allChecked[`${client}|||${type}`] = true; });
+                                            });
+                                            setCheckedItems(allChecked);
+                                        }}
+                                        className="text-xs text-blue-700 font-bold underline hover:text-blue-900"
+                                    >Pilih Semua</button>
+                                    <button
+                                        onClick={() => setCheckedItems({})}
+                                        className="text-xs text-gray-500 font-bold underline hover:text-gray-700"
+                                    >Hapus Pilihan</button>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={exitPrintMode}
+                                        className="px-3 py-1.5 text-xs font-bold text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                                    >✕ Batal</button>
+                                    <button
+                                        onClick={printRekapTerpilih}
+                                        disabled={checkedCount === 0}
+                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${checkedCount === 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white shadow'}`}
+                                    >🖨 Cetak Terpilih</button>
+                                </div>
+                            </div>
+                        )}
                         {rekapPerKlien.length === 0 ? (
                             <p className="text-sm text-gray-500 italic text-center py-4">Belum ada data pengiriman.</p>
                         ) : (
                             <div className="divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                {rekapPerKlien.map(([client, data]) => (
+                                {rekapPerKlien.map(([client, data]) => {
+                                    const clientTypes = Object.keys(data.byType);
+                                    const allClientChecked = clientTypes.length > 0 && clientTypes.every(t => checkedItems[`${client}|||${t}`]);
+                                    const someClientChecked = clientTypes.some(t => checkedItems[`${client}|||${t}`]);
+                                    return (
                                     <div key={client}>
-                                        <button
-                                            onClick={() => setExpandedClientKeys(prev => ({ ...prev, [client]: !prev[client] }))}
-                                            className="w-full flex items-center justify-between px-4 sm:px-6 py-3 hover:bg-gray-50 transition-colors text-left"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-xs flex items-center justify-center flex-shrink-0 shadow">
-                                                    {client.split(' ').slice(0,2).map(w => w[0]||'').join('').toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <div className="font-bold text-gray-800 text-sm">{client}</div>
-                                                    <div className="text-xs text-gray-500">{data.totalSJ}× surat jalan · <span className="font-bold text-green-600">{data.totalPcs} pcs</span> total terkirim</div>
-                                                </div>
+                                        <div className="w-full flex items-center justify-between px-4 sm:px-6 py-3 hover:bg-gray-50 transition-colors">
+                                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                {isPrintMode && (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={allClientChecked}
+                                                        ref={el => { if (el) el.indeterminate = !allClientChecked && someClientChecked; }}
+                                                        onChange={() => toggleClientCheck(client, data)}
+                                                        onClick={e => e.stopPropagation()}
+                                                        className="w-4 h-4 rounded accent-blue-600 flex-shrink-0 cursor-pointer"
+                                                    />
+                                                )}
+                                                <button
+                                                    onClick={() => setExpandedClientKeys(prev => ({ ...prev, [client]: !prev[client] }))}
+                                                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                                                >
+                                                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-xs flex items-center justify-center flex-shrink-0 shadow">
+                                                        {client.split(' ').slice(0,2).map(w => w[0]||'').join('').toUpperCase()}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-bold text-gray-800 text-sm">{client}</div>
+                                                        <div className="text-xs text-gray-500">{data.totalSJ}× surat jalan · <span className="font-bold text-green-600">{data.totalPcs} pcs</span> total terkirim</div>
+                                                    </div>
+                                                </button>
                                             </div>
-                                            <span className="text-gray-400 text-xs ml-2 flex-shrink-0">{expandedClientKeys[client] ? '▲ Tutup' : '▼ Rincian'}</span>
-                                        </button>
+                                            <button
+                                                onClick={() => setExpandedClientKeys(prev => ({ ...prev, [client]: !prev[client] }))}
+                                                className="text-gray-400 text-xs ml-2 flex-shrink-0"
+                                            >{expandedClientKeys[client] ? '▲ Tutup' : '▼ Rincian'}</button>
+                                        </div>
                                         {expandedClientKeys[client] && (
                                             <div className="px-4 sm:px-6 pb-4 bg-gray-50">
                                                 <div className="space-y-2 pt-2">
-                                                    {Object.entries(data.byType).map(([type, typeData]) => (
-                                                        <div key={type} className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm">
-                                                            <div className="flex items-center justify-between mb-2">
-                                                                <span className="text-sm font-bold text-gray-700">{type}</span>
-                                                                <span className="text-xs font-bold text-green-600 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">{typeData.totalPcs} pcs</span>
-                                                            </div>
-                                                            <div className="flex flex-wrap gap-1.5">
-                                                                {sortSizeKeys(Object.keys(typeData.sizes)).map(size => (
-                                                                    <span key={size} className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full font-semibold">
-                                                                        {size}: {typeData.sizes[size]}
-                                                                    </span>
-                                                                ))}
+                                                    {Object.entries(data.byType).map(([type, typeData]) => {
+                                                        const itemKey = `${client}|||${type}`;
+                                                        const isChecked = !!checkedItems[itemKey];
+                                                        return (
+                                                        <div key={type} className={`bg-white rounded-xl border px-4 py-3 shadow-sm flex items-start gap-3 transition-colors ${isPrintMode && !isChecked ? 'opacity-40' : ''} ${isPrintMode && isChecked ? 'border-blue-300' : 'border-gray-100'}`}>
+                                                            {isPrintMode && (
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isChecked}
+                                                                    onChange={() => setCheckedItems(prev => ({ ...prev, [itemKey]: !prev[itemKey] }))}
+                                                                    className="w-4 h-4 mt-0.5 rounded accent-blue-600 flex-shrink-0 cursor-pointer"
+                                                                />
+                                                            )}
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <span className="text-sm font-bold text-gray-700">{type}</span>
+                                                                    <span className="text-xs font-bold text-green-600 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">{typeData.totalPcs} pcs</span>
+                                                                </div>
+                                                                <div className="flex flex-wrap gap-1.5">
+                                                                    {sortSizeKeys(Object.keys(typeData.sizes)).map(size => (
+                                                                        <span key={size} className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full font-semibold">
+                                                                            {size}: {typeData.sizes[size]}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
                                         )}
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </Card>
