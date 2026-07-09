@@ -4716,9 +4716,9 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
 
             const openMaterialModal = (order) => {
                 setSelectedOrder(order);
-                const existingActiveMaterials = getActiveMaterials(order);
-                const existingMaterials = existingActiveMaterials.length > 0 
-                    ? [...existingActiveMaterials] 
+                const allMaterials = safeArray(order.materials);
+                const existingMaterials = allMaterials.length > 0
+                    ? [...allMaterials]
                     : [{ id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }];
                 setMaterials(existingMaterials);
             };
@@ -4961,11 +4961,11 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         const matVendor = normalizeVendorName(mat.vendor);
                         const matBatchDate = getMaterialBatchDateKey(order, mat);
                         if (matVendor === vendorKey && matBatchDate === batchDateKey && !mat.isDeleted) {
-                            if (mode === 'permanent') return null;
-                            return { ...mat, id: mat.id || `${Date.now()}-${Math.random()}`, isDeleted: true, deletedAt: now, returnedToInput: true, _syncUpdatedAt: now };
+                            if (mode === 'permanent') return { ...mat, id: mat.id || genId('MAT-'), isDeleted: true, deletedAt: now, _syncUpdatedAt: now };
+                            return { ...mat, id: mat.id || genId('MAT-'), isDeleted: true, deletedAt: now, returnedToInput: true, _syncUpdatedAt: now };
                         }
                         return mat;
-                    }).filter(Boolean);
+                    });
                     const nextPayments = { ...(order.materialPayments || {}) };
                     delete nextPayments[batchKey];
                     const hasActiveVendorMaterials = getActiveMaterials({ materials: nextMaterials }).some(mat => normalizeVendorName(mat.vendor) === vendorKey);
@@ -4990,12 +4990,12 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         _syncUpdatedAt: now
                     };
                 }));
-                updateVendorNotaPayments(prev => {
+                setVendorNotaPayments(prev => {
                     if (!prev || !prev[batchKey]) return prev || {};
                     const entries = safeArray(prev[batchKey]).map(p => ({ ...p, isDeleted: true, _syncUpdatedAt: now }));
                     return { ...prev, [batchKey]: entries };
                 });
-                updateManualVendorPayments(prev => {
+                setManualVendorPayments(prev => {
                     if (!prev || !prev[batchKey]) return prev || {};
                     const entries = safeArray(prev[batchKey]).map(p => ({ ...p, isDeleted: true, _syncUpdatedAt: now }));
                     return { ...prev, [batchKey]: entries };
@@ -5662,7 +5662,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const deleteManualVendorPayment = (vendor, batchDateKey, payId) => {
                 const key = getMaterialBatchKey(vendor, batchDateKey);
                 const now = new Date().toISOString();
-                updateManualVendorPayments(prev => ({
+                setManualVendorPayments(prev => ({
                     ...(prev || {}),
                     [key]: safeArray((prev || {})[key]).map(p =>
                         String(p.id) === String(payId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
@@ -5738,7 +5738,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const deleteNotaPayment = (batchKey, notaPaymentId) => {
                 const now = new Date().toISOString();
                 // Soft-delete record nota-level
-                updateVendorNotaPayments(prev => ({
+                setVendorNotaPayments(prev => ({
                     ...(prev || {}),
                     [batchKey]: safeArray((prev || {})[batchKey]).map(p =>
                         String(p.id) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
@@ -5755,7 +5755,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     return { ...order, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: now, materialLastAction: 'Hapus Pembayaran Nota' };
                 }));
                 // Soft-delete porsi manual yang bertag notaPaymentId ini
-                updateManualVendorPayments(prev => ({
+                setManualVendorPayments(prev => ({
                     ...(prev || {}),
                     [batchKey]: safeArray((prev || {})[batchKey]).map(p =>
                         String(p.notaPaymentId) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
@@ -9416,7 +9416,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         if (hasNewKey) return;
                     }
                     const vendor = paymentKey.includes('|||') ? paymentKey.split('|||')[0] : paymentKey;
-                    (Array.isArray(payments) ? payments : []).forEach((pay, idx) => {
+                    (Array.isArray(payments) ? payments : []).filter(p => !p.isDeleted).forEach((pay, idx) => {
                         rows.push({
                             id: `${order.id}-${paymentKey}-${pay.id || idx}`,
                             orderId: order.id,
@@ -17217,6 +17217,18 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         try {
                             const incoming = JSON.parse(e.newValue);
                             setManualPurchases(prev => mergeRecordLists(prev || [], incoming));
+                        } catch(err) {}
+                    }
+                    if (e.key === 'simpati_manual_vendor_payments_sync' && e.newValue) {
+                        try {
+                            const incoming = JSON.parse(e.newValue);
+                            setManualVendorPayments(prev => mergePaymentDict(prev || {}, incoming));
+                        } catch(err) {}
+                    }
+                    if (e.key === 'simpati_vendor_nota_payments_sync' && e.newValue) {
+                        try {
+                            const incoming = JSON.parse(e.newValue);
+                            setVendorNotaPayments(prev => mergePaymentDict(prev || {}, incoming));
                         } catch(err) {}
                     }
                     if (e.key === 'simpati_investors_sync' && e.newValue) {
