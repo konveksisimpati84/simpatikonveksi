@@ -4036,11 +4036,16 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 const allExpanded = {};
                 rekapPerKlien.forEach(([client]) => { allExpanded[client] = true; });
                 setExpandedClientKeys(allExpanded);
-                const allChecked = {};
-                rekapPerKlien.forEach(([client, data]) => {
-                    Object.keys(data.byType).forEach(type => { allChecked[`${client}|||${type}`] = true; });
-                });
-                setCheckedItems(allChecked);
+                setCheckedItems({});
+                setIsPrintMode(true);
+            };
+
+            const enterPrintModeForClient = (client, data) => {
+                prevExpandedRef.current = { ...expandedClientKeys };
+                setExpandedClientKeys(prev => ({ ...prev, [client]: true }));
+                const clientChecked = {};
+                Object.keys(data.byType).forEach(type => { clientChecked[`${client}|||${type}`] = true; });
+                setCheckedItems(clientChecked);
                 setIsPrintMode(true);
             };
 
@@ -4452,10 +4457,19 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                                                     </div>
                                                 </button>
                                             </div>
-                                            <button
-                                                onClick={() => setExpandedClientKeys(prev => ({ ...prev, [client]: !prev[client] }))}
-                                                className="text-gray-400 text-xs ml-2 flex-shrink-0"
-                                            >{expandedClientKeys[client] ? '▲ Tutup' : '▼ Rincian'}</button>
+                                            <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+                                                {!isPrintMode && (
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); enterPrintModeForClient(client, data); }}
+                                                        className="text-blue-500 hover:text-white hover:bg-blue-500 border border-blue-200 bg-white rounded-lg px-2 py-1 text-xs font-bold transition-colors"
+                                                        title="Cetak klien ini"
+                                                    >🖨</button>
+                                                )}
+                                                <button
+                                                    onClick={() => setExpandedClientKeys(prev => ({ ...prev, [client]: !prev[client] }))}
+                                                    className="text-gray-400 text-xs"
+                                                >{expandedClientKeys[client] ? '▲ Tutup' : '▼ Rincian'}</button>
+                                            </div>
                                         </div>
                                         {expandedClientKeys[client] && (
                                             <div className="px-4 sm:px-6 pb-4 bg-gray-50">
