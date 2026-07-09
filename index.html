@@ -414,7 +414,7 @@
         const getMaterialUnitPrice = (item) => parseFloat(String(item?.price ?? 0).replace(',', '.')) || 0;
         const getMaterialLineTotal = (item) => getMaterialQty(item) * getMaterialUnitPrice(item);
         const getMaterialBatchDateKey = (order, material) => {
-            const rawDate = material?.purchaseDate || material?.materialBatchDate || order?.materialBatchDate || order?.materialPrintedAt || order?.materialLastActionAt || order?.date || order?.createdAt || new Date().toISOString();
+            const rawDate = material?.purchaseDate || material?.materialBatchDate || order?.materialBatchDate || order?.materialPrintedAt || order?.date || order?.createdAt || new Date().toISOString();
             const parsed = new Date(rawDate);
             if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
             return String(rawDate).slice(0, 10) || new Date().toISOString().slice(0, 10);
@@ -4686,11 +4686,10 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             };
             const filteredActiveOrders = activeOrders.filter(filterOrder)
                 .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-            const filteredRekapOrders = rekapOrders.filter(o => {
+            const filteredRekapOrders = React.useMemo(() => rekapOrders.filter(o => {
                 if (rekapYearFilter !== 'Semua' || rekapMonthFilter !== 'Semua') {
                     const activeMats = getActiveMaterials(o);
                     if (activeMats.length > 0) {
-                        // Filter berdasarkan tanggal beli bahan agar konsisten dengan filter manual purchases
                         const hasMatch = activeMats.some(mat => {
                             const d = getMaterialBatchDateKey(o, mat);
                             if (!d) return false;
@@ -4700,14 +4699,14 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         });
                         if (!hasMatch) return false;
                     } else {
-                        // Fallback ke tanggal order jika tidak ada bahan aktif
                         const orderDate = String(o?.date || o?.createdAt || '');
                         if (rekapYearFilter !== 'Semua' && orderDate.slice(0, 4) !== rekapYearFilter) return false;
                         if (rekapMonthFilter !== 'Semua' && orderDate.slice(5, 7) !== rekapMonthFilter) return false;
                     }
                 }
                 return filterOrder(o);
-            }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+            }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0)),
+            [rekapOrders, rekapYearFilter, rekapMonthFilter, searchTerm, dateFilter]);
             const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
             const toggleMatOrder = (id) => setExpandedMatOrderIds(prev => ({ ...prev, [id]: !prev[id] }));
             const { page: bahanPage, setPage: setBahanPage, totalPages: bahanTotalPages, paged: pagedActiveOrders, total: bahanTotal } = usePagination(filteredActiveOrders, 20);
@@ -5662,7 +5661,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const deleteManualVendorPayment = (vendor, batchDateKey, payId) => {
                 const key = getMaterialBatchKey(vendor, batchDateKey);
-                setManualVendorPayments(prev => ({ ...(prev || {}), [key]: safeArray((prev || {})[key]).filter(p => String(p.id) !== String(payId)) }));
+                const now = new Date().toISOString();
+                updateManualVendorPayments(prev => ({
+                    ...(prev || {}),
+                    [key]: safeArray((prev || {})[key]).map(p =>
+                        String(p.id) === String(payId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
+                    )
+                }));
                 showToast("Pembayaran dihapus.", "success");
             };
 
@@ -16828,6 +16833,26 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 return merged;
             };
 
+            const mergeMaterialLists = (localMats, remoteMats) => {
+                const local = Array.isArray(localMats) ? localMats : [];
+                const remote = Array.isArray(remoteMats) ? remoteMats : [];
+                if (local.length === 0 && remote.length === 0) return [];
+                const byId = new Map();
+                const pushMat = (mat) => {
+                    if (!mat) return;
+                    const key = mat.id ? String(mat.id) : null;
+                    if (!key) { byId.set(`_anon_${byId.size}`, mat); return; }
+                    const existing = byId.get(key);
+                    if (!existing) { byId.set(key, mat); return; }
+                    const existingTime = new Date(existing._syncUpdatedAt || existing._updatedAt || 0).getTime();
+                    const matTime = new Date(mat._syncUpdatedAt || mat._updatedAt || 0).getTime();
+                    if (matTime > existingTime) byId.set(key, mat);
+                };
+                remote.forEach(pushMat);
+                local.forEach(pushMat);
+                return [...byId.values()];
+            };
+
             const mergeOrderRecords = (localOrder, remoteOrder) => {
                 if (!localOrder) return remoteOrder;
                 if (!remoteOrder) return localOrder;
@@ -16859,8 +16884,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     merged.shipped = preferLocal ? { ...(localOrder.shipped || {}) } : { ...(remoteOrder.shipped || {}) };
                 }
 
-                if ((!merged.materials || merged.materials.length === 0) && Array.isArray(remoteOrder.materials)) merged.materials = remoteOrder.materials;
-                if (remoteTime > localTime && Array.isArray(remoteOrder.materials) && remoteOrder.materials.length > 0) merged.materials = remoteOrder.materials;
+                merged.materials = mergeMaterialLists(localOrder.materials, remoteOrder.materials);
                 return merged;
             };
 
@@ -16889,9 +16913,18 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     const lArr = Array.isArray(l[key]) ? l[key] : [];
                     const rArr = Array.isArray(r[key]) ? r[key] : [];
                     const byId = new Map();
-                    lArr.forEach(p => { if (p?.id) byId.set(String(p.id), p); });
-                    rArr.forEach(p => { if (p?.id) byId.set(String(p.id), p); });
-                    merged[key] = [...byId.values()];
+                    const pushPayment = (p) => {
+                        if (!p?.id) return;
+                        const k = String(p.id);
+                        const existing = byId.get(k);
+                        if (!existing) { byId.set(k, p); return; }
+                        const existingTime = new Date(existing._syncUpdatedAt || 0).getTime();
+                        const pTime = new Date(p._syncUpdatedAt || 0).getTime();
+                        if (pTime > existingTime) byId.set(k, p);
+                    };
+                    lArr.forEach(pushPayment);
+                    rArr.forEach(pushPayment);
+                    merged[key] = [...byId.values()].filter(p => !p.isDeleted);
                 });
                 return merged;
             };
@@ -17018,6 +17051,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     setManualVendorPayments(prev => {
                         const merged = mergePaymentDict(prev, remoteManualVendorPayments);
                         safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteManualVendorPayments)) setTimeout(() => saveToSupabase('manualVendorPayments', merged), 0);
                         return merged;
                     });
                 }
@@ -17025,6 +17059,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     setVendorNotaPayments(prev => {
                         const merged = mergePaymentDict(prev, remoteVendorNotaPayments);
                         safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteVendorNotaPayments)) setTimeout(() => saveToSupabase('vendorNotaPayments', merged), 0);
                         return merged;
                     });
                 }
@@ -17475,6 +17510,19 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 }
             };
 
+            const mergeRemotePaymentDictForSave = async (key, localDict) => {
+                const safeLocal = (localDict && typeof localDict === 'object' && !Array.isArray(localDict)) ? localDict : {};
+                if (!supabaseClient) return safeLocal;
+                try {
+                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
+                    if (error || !data?.data || typeof data.data !== 'object' || Array.isArray(data.data)) return safeLocal;
+                    return mergePaymentDict(safeLocal, data.data);
+                } catch (err) {
+                    console.error(`Gagal menggabungkan payment dict ${key}:`, err);
+                    return safeLocal;
+                }
+            };
+
             const mergeRemoteRecordsForSave = async (key, localRecords) => {
                     const patchedLocal = key === 'employees' ? sanitizeEmployees(localRecords) : (Array.isArray(localRecords) ? localRecords : []);
                 if (!supabaseClient) return patchedLocal;
@@ -17683,7 +17731,15 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) ? nextVal : {};
                     safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(valid));
-                    setTimeout(() => { saveToSupabase('manualVendorPayments', valid); }, 0);
+                    setTimeout(async () => {
+                        const merged = await mergeRemotePaymentDictForSave('manualVendorPayments', valid);
+                        safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(merged));
+                        saveToSupabase('manualVendorPayments', merged);
+                        setManualVendorPayments(current => {
+                            const m = mergePaymentDict(current || {}, merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || {}) ? m : current;
+                        });
+                    }, 0);
                     return valid;
                 });
             };
@@ -17693,7 +17749,15 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) ? nextVal : {};
                     safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(valid));
-                    setTimeout(() => { saveToSupabase('vendorNotaPayments', valid); }, 0);
+                    setTimeout(async () => {
+                        const merged = await mergeRemotePaymentDictForSave('vendorNotaPayments', valid);
+                        safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(merged));
+                        saveToSupabase('vendorNotaPayments', merged);
+                        setVendorNotaPayments(current => {
+                            const m = mergePaymentDict(current || {}, merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || {}) ? m : current;
+                        });
+                    }, 0);
                     return valid;
                 });
             };
