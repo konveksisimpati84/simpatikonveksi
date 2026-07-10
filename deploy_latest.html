@@ -4659,10 +4659,11 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const [editingPaymentKey, setEditingPaymentKey] = useState(null);
             const [editPaymentForm, setEditPaymentForm] = useState({ amount: '', method: 'Transfer', note: '' });
             const [isSavingPayment, setIsSavingPayment] = useState(false);
+            const savingPaymentRef = React.useRef(false);
 
             const materialOrders = (orders || []).filter(isVisibleOrder);
             const activeOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.materialIsArchived);
-            const rekapOrders = materialOrders.filter(o => orderNeedsMaterials(o) && getActiveMaterials(o).length > 0);
+            const rekapOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.materialIsArchived && getActiveMaterials(o).length > 0);
             const rekapYears = ['Semua', ...[...new Set([
                 ...rekapOrders.flatMap(o => getActiveMaterials(o).map(mat => String(getMaterialBatchDateKey(o, mat) || '').slice(0, 4))),
                 ...safeArray(manualPurchases).filter(isVisibleRecord).map(mp => String(mp.purchaseDate || '').slice(0, 4))
@@ -5687,7 +5688,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
 
             const addNotaPayment = (vendor, batchDateKey, orderGroups, manualItems) => {
-                if (isSavingPayment) return;
+                if (isSavingPayment || savingPaymentRef.current) return;
+                savingPaymentRef.current = true;
                 const batchKey = getMaterialBatchKey(vendor, batchDateKey);
                 const inputKey = `${batchKey}__UNIFIED`;
                 const totalAmount = safeMoney(paymentInputs[inputKey]?.amount);
@@ -5709,6 +5711,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     showToast(totalRemaining <= 0
                         ? `Nota vendor ini sudah lunas, tidak ada sisa hutang.`
                         : `Pembayaran melebihi sisa hutang vendor (${formatRupiah(totalRemaining)})`, 'error');
+                    setIsSavingPayment(false);
+                    savingPaymentRef.current = false;
                     return;
                 }
                 const notaPaymentId = `NOTA-PAY-${Date.now()}`;
@@ -5750,6 +5754,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 }
                 setPaymentInputs(prev => ({ ...prev, [inputKey]: { amount: '', note: '', date: '', method: 'Transfer' } }));
                 setIsSavingPayment(false);
+                savingPaymentRef.current = false;
                 showToast(`Pembayaran ${formatRupiah(totalAmount)} berhasil dicatat.`, "success");
             };
 
@@ -5762,13 +5767,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         String(p.id) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
                     )
                 }));
-                // Hapus distribusi per-order yang bertag notaPaymentId ini (hard delete di dalam order — order sendiri yang sync via mergeOrderRecords)
+                // Soft-delete distribusi per-order yang bertag notaPaymentId ini (konsisten dengan deleteVendorPayment)
                 setOrders(prevOrders => prevOrders.map(order => {
                     const pmts = order.materialPayments || {};
                     if (!pmts[batchKey]) return order;
-                    const filtered = (pmts[batchKey] || []).filter(p => String(p.notaPaymentId) !== String(notaPaymentId));
-                    if (filtered.length === pmts[batchKey].length) return order;
-                    const nextPayments = { ...pmts, [batchKey]: filtered };
+                    const hasEntry = (pmts[batchKey] || []).some(p => String(p.notaPaymentId) === String(notaPaymentId) && !p.isDeleted);
+                    if (!hasEntry) return order;
+                    const nextPayments = { ...pmts, [batchKey]: (pmts[batchKey] || []).map(p =>
+                        String(p.notaPaymentId) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
+                    )};
                     const checkOrder = { ...order, materialPayments: nextPayments };
                     return { ...order, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: now, materialLastAction: 'Hapus Pembayaran Nota' };
                 }));
