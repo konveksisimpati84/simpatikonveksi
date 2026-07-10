@@ -5742,7 +5742,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const applied = paymentMap[String(order.id)];
                         if (!applied) return order;
                         const nextPayments = { ...(order.materialPayments || {}) };
-                        nextPayments[batchKey] = [...(nextPayments[batchKey] || []), { id: `PAY-${Date.now()}-${order.id}`, notaPaymentId, date: payDate, amount: applied, method, note, vendor: normalizeVendorName(vendor), batchDateKey, createdAt: now }];
+                        nextPayments[batchKey] = [...(nextPayments[batchKey] || []), { id: `PAY-${Date.now()}-${order.id}`, notaPaymentId, date: payDate, amount: applied, method, note, vendor: normalizeVendorName(vendor), batchDateKey, createdAt: now, _syncUpdatedAt: now }];
                         // Tandai batch sebagai "sudah dibeli" — syarat agar computeMaterialStatus bisa Selesai
                         const nextPurchasedBatches = { ...(order.materialPurchasedBatches || {}), [batchKey]: true };
                         const checkOrder = { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches };
@@ -16930,6 +16930,11 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 }
 
                 merged.materials = mergeMaterialLists(localOrder.materials, remoteOrder.materials);
+                // Merge materialPayments per-payment (bukan winner-takes-all) agar pembayaran dari
+                // kedua device tidak saling menimpa saat edit bahan dan catat bayar bersamaan.
+                merged.materialPayments = mergePaymentDict(localOrder.materialPayments || {}, remoteOrder.materialPayments || {});
+                // Union: jika salah satu device sudah tandai batch sebagai "dibeli", pertahankan.
+                merged.materialPurchasedBatches = { ...(remoteOrder.materialPurchasedBatches || {}), ...(localOrder.materialPurchasedBatches || {}) };
                 return merged;
             };
 
