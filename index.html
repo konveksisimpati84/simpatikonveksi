@@ -430,10 +430,9 @@
             const vendorNorm = normalizeVendorName(vendorName);
             const key = batchDateKey ? getMaterialBatchKey(vendorName, batchDateKey) : vendorNorm;
             // Key format baru ('Vendor|||date') — cek langsung
-            if (Array.isArray(payments[key])) return payments[key];
+            if (Array.isArray(payments[key])) return payments[key].filter(p => !p?.isDeleted);
             // Fallback ke key format lama ('Vendor' tanpa tanggal) agar data lama tidak hilang.
-            // Aman: jika key baru untuk batch ini tidak ada, data lama memang milik batch ini.
-            if (batchDateKey && key !== vendorNorm && Array.isArray(payments[vendorNorm])) return payments[vendorNorm];
+            if (batchDateKey && key !== vendorNorm && Array.isArray(payments[vendorNorm])) return payments[vendorNorm].filter(p => !p?.isDeleted);
             return [];
         };
         const getVendorPaidTotal = (order, vendorName, batchDateKey = '') => getVendorPayments(order, vendorName, batchDateKey).reduce((sum, pay) => sum + (parseFloat(pay?.amount) || 0), 0);
@@ -4659,6 +4658,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const toggleRiwayat = (id) => setExpandedRiwayatIds(prev => ({ ...prev, [id]: !prev[id] }));
             const [editingPaymentKey, setEditingPaymentKey] = useState(null);
             const [editPaymentForm, setEditPaymentForm] = useState({ amount: '', method: 'Transfer', note: '' });
+            const [isSavingPayment, setIsSavingPayment] = useState(false);
 
             const materialOrders = (orders || []).filter(isVisibleOrder);
             const activeOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.materialIsArchived);
@@ -4829,16 +4829,20 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             const deleteVendorPayment = (orderId, vendorName, batchDateKey, paymentId) => {
                 const batchKey = getMaterialBatchKey(vendorName, batchDateKey);
                 const legacyKey = normalizeVendorName(vendorName);
+                const now = new Date().toISOString();
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPayments = { ...(o.materialPayments || {}) };
-                    // Cek key format baru
+                    // Soft-delete: tombstone agar tidak resurrection saat concurrent edit
                     if (Array.isArray(nextPayments[batchKey])) {
-                        nextPayments[batchKey] = nextPayments[batchKey].filter(pay => String(pay.id) !== String(paymentId));
+                        nextPayments[batchKey] = nextPayments[batchKey].map(pay =>
+                            String(pay.id) === String(paymentId) ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
+                        );
                     }
-                    // Cek key format lama (tanpa tanggal) jika berbeda
                     if (legacyKey !== batchKey && Array.isArray(nextPayments[legacyKey])) {
-                        nextPayments[legacyKey] = nextPayments[legacyKey].filter(pay => String(pay.id) !== String(paymentId));
+                        nextPayments[legacyKey] = nextPayments[legacyKey].map(pay =>
+                            String(pay.id) === String(paymentId) ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
+                        );
                     }
                     const checkOrder = { ...o, materialPayments: nextPayments };
                     return {
@@ -5683,6 +5687,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             };
 
             const addNotaPayment = (vendor, batchDateKey, orderGroups, manualItems) => {
+                if (isSavingPayment) return;
                 const batchKey = getMaterialBatchKey(vendor, batchDateKey);
                 const inputKey = `${batchKey}__UNIFIED`;
                 const totalAmount = safeMoney(paymentInputs[inputKey]?.amount);
@@ -5690,6 +5695,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const payDate = paymentInputs[inputKey]?.date || new Date().toISOString().slice(0, 10);
                 const method = String(paymentInputs[inputKey]?.method || 'Transfer').trim() || 'Transfer';
                 if (totalAmount <= 0) { showToast("Isi nominal pembayaran terlebih dahulu.", "error"); return; }
+                setIsSavingPayment(true);
                 const orderRemaining = orderGroups.reduce((sum, group) => {
                     if (!group.order) return sum;
                     const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
@@ -5743,6 +5749,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     setManualVendorPayments(prev => ({ ...(prev || {}), [batchKey]: [...safeArray((prev || {})[batchKey]), payment] }));
                 }
                 setPaymentInputs(prev => ({ ...prev, [inputKey]: { amount: '', note: '', date: '', method: 'Transfer' } }));
+                setIsSavingPayment(false);
                 showToast(`Pembayaran ${formatRupiah(totalAmount)} berhasil dicatat.`, "success");
             };
 
@@ -6018,7 +6025,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                     <input type="number" min="0" className="p-2 border rounded text-xs text-right flex-1" placeholder="Nominal bayar" value={paymentInputs[dUnifiedKey]?.amount||''} onChange={e => setPaymentInputs(prev => ({...prev, [dUnifiedKey]: {...(prev[dUnifiedKey]||{}), amount: e.target.value}}))} />
                                                     <select className="p-2 border rounded text-xs" value={paymentInputs[dUnifiedKey]?.method||'Transfer'} onChange={e => setPaymentInputs(prev => ({...prev, [dUnifiedKey]: {...(prev[dUnifiedKey]||{}), method: e.target.value}}))}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
                                                     <input type="text" className="p-2 border rounded text-xs flex-1" placeholder="Catatan" value={paymentInputs[dUnifiedKey]?.note||''} onChange={e => setPaymentInputs(prev => ({...prev, [dUnifiedKey]: {...(prev[dUnifiedKey]||{}), note: e.target.value}}))} />
-                                                    <button onClick={() => addNotaPayment(dVendor, dBatchDateKey, dOrderGroups, dManualItems)} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0">Simpan Bayar</button>
+                                                    <button onClick={() => addNotaPayment(dVendor, dBatchDateKey, dOrderGroups, dManualItems)} disabled={isSavingPayment} className={`text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0 transition-colors ${isSavingPayment ? 'bg-slate-400 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-800'}`}>{isSavingPayment ? 'Menyimpan...' : 'Simpan Bayar'}</button>
                                                 </div>
                                             </div>
                                             {/* Riwayat Pembayaran Nota — satu record per transaksi */}
@@ -9658,7 +9665,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             const vendorNorm = normalizeVendorName(key);
                             if (allPmtKeys.some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vendorNorm)) return sum;
                         }
-                        return sum + (Array.isArray(pmts[key]) ? pmts[key] : []).reduce((s, pay) => s + (parseFloat(pay?.amount) || 0), 0);
+                        return sum + (Array.isArray(pmts[key]) ? pmts[key] : []).filter(p => !p?.isDeleted).reduce((s, pay) => s + (parseFloat(pay?.amount) || 0), 0);
                     }, 0);
                     return { order, billed, paid, remaining: Math.max(0, billed - paid) };
                 })
