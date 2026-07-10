@@ -4984,9 +4984,17 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         return mat;
                     });
                     const nextPayments = { ...(order.materialPayments || {}) };
-                    delete nextPayments[batchKey];
+                    // Soft-delete per-entry agar tombstone propagate via mergePaymentDict saat sync.
+                    // Hard-delete menyebabkan payment dari device lain muncul kembali setelah merge.
+                    nextPayments[batchKey] = safeArray(nextPayments[batchKey]).map(pay =>
+                        !pay.isDeleted ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
+                    );
                     const hasActiveVendorMaterials = getActiveMaterials({ materials: nextMaterials }).some(mat => normalizeVendorName(mat.vendor) === vendorKey);
-                    if (!hasActiveVendorMaterials) delete nextPayments[vendorKey];
+                    if (!hasActiveVendorMaterials && Array.isArray(nextPayments[vendorKey])) {
+                        nextPayments[vendorKey] = nextPayments[vendorKey].map(pay =>
+                            !pay.isDeleted ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
+                        );
+                    }
                     const nextPurchasedVendors = { ...(order.materialPurchasedVendors || {}) };
                     if (!hasActiveVendorMaterials) delete nextPurchasedVendors[vendorKey];
                     const nextPurchasedBatches = { ...(order.materialPurchasedBatches || {}) };
@@ -16933,8 +16941,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 // Merge materialPayments per-payment (bukan winner-takes-all) agar pembayaran dari
                 // kedua device tidak saling menimpa saat edit bahan dan catat bayar bersamaan.
                 merged.materialPayments = mergePaymentDict(localOrder.materialPayments || {}, remoteOrder.materialPayments || {});
-                // Union: jika salah satu device sudah tandai batch sebagai "dibeli", pertahankan.
-                merged.materialPurchasedBatches = { ...(remoteOrder.materialPurchasedBatches || {}), ...(localOrder.materialPurchasedBatches || {}) };
+                // materialPurchasedBatches: biarkan winner-takes-all (tidak union) agar applyPurchaseDelete
+                // bisa menghapus flag "dibeli" dan propagate ke device lain lewat timestamp order.
                 return merged;
             };
 
