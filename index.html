@@ -4764,7 +4764,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         note: String(m.note || '').trim(),
                         purchaseStatus: m.purchaseStatus || 'Sudah Dibeli',
                         materialBatchDate: m.materialBatchDate || m.purchaseDate || now.slice(0, 10),
-                        _syncUpdatedAt: now
+                        _syncUpdatedAt: m.isDeleted ? (m._syncUpdatedAt || now) : now
                     }));
                 const activeMaterialCount = validMaterials.filter(m => !m.isDeleted).length;
 
@@ -4806,10 +4806,11 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     if (o.materialStatus === 'Selesai') return o;
                     const nextMaterials = materialsByOrder[o.id] || o.materials || [];
                     const printedMatsCount = getActiveMaterials({ materials: nextMaterials }).length;
+                    const checkOrder = { ...o, materials: nextMaterials };
                     return {
                         ...o,
                         materials: nextMaterials,
-                        materialStatus: printedMatsCount > 0 ? 'Direkap' : 'Belum',
+                        materialStatus: printedMatsCount > 0 ? computeMaterialStatus(checkOrder) : 'Belum',
                         materialPrintedAt: now,
                         materialLastActionAt: now,
                         materialLastAction: 'Direkap - Menunggu Konfirmasi Pembelian',
@@ -4892,7 +4893,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     // Cek key baru dulu, fallback ke key lama jika kosong
                     const pmts = currentOrder.materialPayments || {};
                     const allPayments = safeArray(pmts[batchKey]).length > 0 ? safeArray(pmts[batchKey]) : safeArray(pmts[legacyKey]);
-                    const otherPayments = allPayments.filter(p => String(p.id) !== String(paymentId));
+                    const otherPayments = allPayments.filter(p => String(p.id) !== String(paymentId) && !p.isDeleted);
                     const otherPaid = otherPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
                     const maxAllowed = Math.max(0, vendorTotal - otherPaid);
                     if (amount > maxAllowed) {
@@ -5696,7 +5697,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const note = String(paymentInputs[inputKey]?.note || '').trim();
                 const payDate = paymentInputs[inputKey]?.date || new Date().toISOString().slice(0, 10);
                 const method = String(paymentInputs[inputKey]?.method || 'Transfer').trim() || 'Transfer';
-                if (totalAmount <= 0) { showToast("Isi nominal pembayaran terlebih dahulu.", "error"); return; }
+                if (totalAmount <= 0) { showToast("Isi nominal pembayaran terlebih dahulu.", "error"); savingPaymentRef.current = false; return; }
                 setIsSavingPayment(true);
                 const orderRemaining = orderGroups.reduce((sum, group) => {
                     if (!group.order) return sum;
