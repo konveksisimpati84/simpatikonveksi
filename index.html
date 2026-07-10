@@ -5909,13 +5909,23 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     ))}
                                     {paymentStatusFilter !== 'Semua' && <button onClick={() => setPaymentStatusFilter('Semua')} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                                 </div>
+                                <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-gray-200 text-[11px] text-gray-500">
+                                    <span>
+                                        {paymentStatusFilter !== 'Semua' || rekapYearFilter !== 'Semua' || rekapMonthFilter !== 'Semua'
+                                            ? <><span className="font-bold text-slate-700">{vendorGroups.length} nota</span> ditampilkan{rekapYearFilter !== 'Semua' ? ` · ${rekapYearFilter}${rekapMonthFilter !== 'Semua' ? `/${rekapMonthFilter}` : ''}` : ''}{paymentStatusFilter !== 'Semua' ? ` · ${paymentStatusFilter}` : ''}</>
+                                            : <><span className="font-bold text-slate-700">{vendorGroups.length} nota</span> total dalam daftar</>
+                                        }
+                                    </span>
+                                    <span className="text-gray-400 italic text-[10px]">Periksa jika ada nota yang tidak sesuai</span>
+                                </div>
                                 <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
+                                    <span className="w-7 text-center flex-shrink-0">#</span>
                                     <span className="flex-1">Vendor / Nota</span>
                                     <span className="w-36 text-right hidden sm:block">Total · Sisa</span>
                                     <span className="w-28 text-center hidden md:block">Status</span>
                                     <span className="text-center w-24">Aksi</span>
                                 </div>
-                                {vendorGroups.map(group => {
+                                {vendorGroups.map((group, groupIdx) => {
                                     const vendor = group.vendor;
                                     const batchDateKey = group.batchDateKey;
                                     const items = group.items;
@@ -5935,6 +5945,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     const rowBg = paymentStatus === 'Lunas' ? 'bg-green-100/75' : paymentStatus === 'Termin / Bayar Sebagian' ? 'bg-orange-100/75' : 'bg-red-100/75';
                                     return (
                                         <div key={purchaseKey} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg} hover:brightness-[0.97] transition-all`}>
+                                            <div className="w-7 flex-shrink-0 text-center">
+                                                <span className="text-[11px] font-black text-gray-400">{groupIdx + 1}</span>
+                                            </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="font-bold text-gray-900 text-sm truncate">{vendor}</div>
                                                 <div className="text-xs text-gray-500 truncate">{formatMaterialBatchDate(batchDateKey)} · <span className="font-mono text-[10px]">{noteNumber}</span></div>
