@@ -4851,7 +4851,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         ...o,
                         materialPayments: nextPayments,
                         materialStatus: computeMaterialStatus(checkOrder),
-                        materialLastActionAt: new Date().toISOString(),
+                        materialLastActionAt: now,
                         materialLastAction: 'Hapus Termin Pembayaran'
                     };
                 }));
@@ -4906,7 +4906,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPayments = { ...(o.materialPayments || {}) };
                     const applyEdit = (arr) => (arr || []).map(pay => String(pay.id) === String(paymentId)
-                        ? { ...pay, amount, method: editPaymentForm.method || 'Transfer', note: editPaymentForm.note, updatedAt }
+                        ? { ...pay, amount, method: editPaymentForm.method || 'Transfer', note: editPaymentForm.note, updatedAt, _syncUpdatedAt: updatedAt }
                         : pay
                     );
                     // Update key format baru jika ada, jika tidak update key lama
@@ -5736,6 +5736,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (orderShare > 0 && orderGroups.length > 0) {
                     const paymentMap = {};
                     let left = orderShare;
+                    let lastGroupOrderId = null;
                     for (const group of orderGroups) {
                         if (!group.order || left <= 0) continue;
                         const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
@@ -5745,6 +5746,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         if (applied <= 0) continue;
                         paymentMap[String(group.orderId)] = applied;
                         left -= applied;
+                        lastGroupOrderId = String(group.orderId);
+                    }
+                    // Sisa 1 rupiah dari Math.round → tambahkan ke order terakhir agar total tepat
+                    if (left > 0 && lastGroupOrderId) {
+                        paymentMap[lastGroupOrderId] = (paymentMap[lastGroupOrderId] || 0) + left;
                     }
                     setOrders(prevOrders => prevOrders.map(order => {
                         const applied = paymentMap[String(order.id)];
