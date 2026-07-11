@@ -4760,7 +4760,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         unit: m.unit || 'Pcs',
                         price: m.price ?? '',
                         vendor: String(m.vendor || '').trim() || 'Tanpa Vendor',
-                        purchaseDate: m.purchaseDate || now.slice(0, 10),
+                        purchaseDate: m.purchaseDate || m.materialBatchDate || now.slice(0, 10),
                         note: String(m.note || '').trim(),
                         purchaseStatus: m.purchaseStatus || 'Sudah Dibeli',
                         materialBatchDate: m.materialBatchDate || m.purchaseDate || now.slice(0, 10),
@@ -4772,7 +4772,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                     if (String(o.id) === String(selectedOrder.id)) {
                         // Hapus materialPurchasedBatches untuk batch yang tidak punya active material lagi
                         const activeBatchKeys = new Set(
-                            validMaterials.filter(m => !m.isDeleted).map(m => getMaterialBatchKey(String(m.vendor || 'Tanpa Vendor').trim(), m.materialBatchDate || m.purchaseDate || now.slice(0, 10)))
+                            validMaterials.filter(m => !m.isDeleted).map(m => getMaterialBatchKey(String(m.vendor || 'Tanpa Vendor').trim(), getMaterialBatchDateKey(o, m)))
                         );
                         const nextPurchasedBatches = Object.fromEntries(
                             Object.entries(o.materialPurchasedBatches || {}).filter(([k]) => activeBatchKeys.has(k))
