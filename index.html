@@ -7636,11 +7636,11 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const cleanedTotal = getInvoiceTotals({ ...form, invoiceItems: cleanedItems }).total;
                 // Auto-calculate commission from employee settings (only for new invoices; editing preserves existing rates)
                 const marketingEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.marketing));
-                const empCommType = editId ? (form.commissionType || marketingEmp?.commissionType || 'Persen') : (marketingEmp?.commissionType || 'Persen');
-                const empCommValue = editId ? safeMoney(form.commissionValue ?? marketingEmp?.commissionValue ?? 0) : safeMoney(marketingEmp?.commissionValue || 0);
+                const empCommType = form.commissionType || marketingEmp?.commissionType || 'Persen';
+                const empCommValue = form.commissionValue != null && form.commissionValue !== '' ? safeMoney(form.commissionValue) : safeMoney(marketingEmp?.commissionValue || 0);
                 const subMarketingEmp = form.subMarketing ? safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.subMarketing)) : null;
-                const subEmpCommType = editId ? (form.subMarketingCommissionType || subMarketingEmp?.commissionType || 'Persen') : (subMarketingEmp?.commissionType || 'Persen');
-                const subEmpCommValue = editId ? safeMoney(form.subMarketingCommissionValue ?? subMarketingEmp?.commissionValue ?? 0) : safeMoney(subMarketingEmp?.commissionValue || 0);
+                const subEmpCommType = form.subMarketingCommissionType || subMarketingEmp?.commissionType || 'Persen';
+                const subEmpCommValue = form.subMarketingCommissionValue != null && form.subMarketingCommissionValue !== '' ? safeMoney(form.subMarketingCommissionValue) : safeMoney(subMarketingEmp?.commissionValue || 0);
                 const row = { ...form, id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeMoney(form.invoiceDp?.amount) }, commissionType: empCommType, commissionValue: empCommValue, subMarketing: form.subMarketing||'', subMarketingCommissionType: form.subMarketing ? subEmpCommType : 'Persen', subMarketingCommissionValue: form.subMarketing ? subEmpCommValue : 0, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), paymentStatus: getInvoicePaymentStatus({ ...form, invoiceItems: cleanedItems }), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 setInvoices(prev => {
@@ -7655,6 +7655,12 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const saveInvoicePayment = () => {
                 const amt = safeMoney(payForm.amount);
                 if (amt <= 0) return showToast('Isi nominal pembayaran.', 'error');
+                const targetInv = (invoices || []).find(inv => String(inv.id) === String(payInvId));
+                if (targetInv) {
+                    const invTotal = getInvoiceTotals(targetInv).total;
+                    const currentPaid = getInvoicePaidTotal(targetInv);
+                    if (currentPaid + amt > invTotal) return showToast(`Pembayaran melebihi sisa tagihan (sisa: Rp ${formatMoney(Math.max(0, invTotal - currentPaid))}).`, 'error');
+                }
                 const now = new Date().toISOString();
                 setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => {
                     if (String(inv.id) !== String(payInvId)) return inv;
@@ -8284,7 +8290,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                         <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
                             <h3 className="font-bold text-gray-800 mb-2">Hapus Invoice?</h3>
-                            <p className="text-sm text-gray-600 mb-4">Invoice <strong>{deleteInvConfirmId}</strong> akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.</p>
+                            <p className="text-sm text-gray-600 mb-4">Invoice <strong>{deleteInvConfirmId}</strong> akan disembunyikan dari daftar. Data tetap tersimpan di sistem.</p>
                             <div className="flex justify-end gap-2">
                                 <button onClick={() => setDeleteInvConfirmId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
                                 <button onClick={() => { deleteInvoice(deleteInvConfirmId); setDeleteInvConfirmId(null); showToast('Invoice dihapus.', 'success'); }} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>
@@ -8787,7 +8793,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const getPayStatus = (inv) => {
                 if (!inv) return 'Belum Dibayar';
-                return inv.paymentStatus || 'Belum Dibayar';
+                return getInvoicePaymentStatus(inv);
             };
             const getTotal = (inv) => {
                 if (inv.invoiceItems && Array.isArray(inv.invoiceItems)) {
@@ -9651,8 +9657,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const getInvoiceCommission = (inv) => {
                 const total = getInvoiceTotal(inv);
                 if (total <= 0) return 0;
-                const paidRatio = Math.min(1, getInvoicePaid(inv) / total);
+                const paidRatio = Math.min(1, getInvoicePaidTotal(inv) / total);
                 return getInvoiceCommissionTotal(inv) * paidRatio;
+            };
+            const getInvoiceSubCommission = (inv) => {
+                const total = getInvoiceTotal(inv);
+                if (total <= 0) return 0;
+                const paidRatio = Math.min(1, getInvoicePaidTotal(inv) / total);
+                return getInvoiceSubMarketingCommissionTotal(inv) * paidRatio;
             };
             const clientDpRows = (clients || []).filter(isVisibleRecord).flatMap(client => (Array.isArray(client.clientDpPayments) ? client.clientDpPayments : []).filter(isVisibleRecord).map(dp => ({ ...dp, clientName: client.name || '-' }))).filter(dp => {
                 if (!isInPeriod(dp.date)) return false;
@@ -9671,7 +9683,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalManualIncome = expenseRows.filter(row => row.type === 'Uang Masuk').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             // Hanya invoice yang BELUM di-rekap — yang sudah di-rekap komisinnya sudah masuk totalWage
-            const totalMarketingCommission = invoiceRows.filter(inv => !inv.commissionRekapId).reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
+            const totalMarketingCommission =
+                invoiceRows.filter(inv => !inv.commissionRekapId).reduce((sum, inv) => sum + getInvoiceCommission(inv), 0)
+                + invoiceRows.filter(inv => !inv.subCommissionRekapId).reduce((sum, inv) => sum + getInvoiceSubCommission(inv), 0);
             const totalIncomeAll = totalInvoiceIncome + totalClientDpIncome + totalManualIncome;
             const totalExpense = totalMaterial + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
             const netBalance = totalIncomeAll - totalExpense;
@@ -11055,7 +11069,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const triggerPrint = (data) => {
                 const formatReceiptMoney = (num) => formatRupiah(num || 0).replace(/\s/g, '');
-                const relatedInvoices = safeInvoicesForReport.filter(isVisibleRecord).filter(inv => (data.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
+                const allInvoicesForPrint = safeInvoicesForReport;
+                const relatedInvoices = allInvoicesForPrint.filter(inv => (data.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
+                const relatedSubInvoices = allInvoicesForPrint.filter(inv => (data.subMarketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
                 const dailyLogs = Array.isArray(data.dailySalaryLogs) ? data.dailySalaryLogs : [];
                 const dailyOnlyLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
                 const overtimeLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
@@ -11066,9 +11082,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </div>
                 `;
                 const marketingRows = relatedInvoices.map(inv => `
-                    <div class="item-row">
-                        <span><b>${inv.id || '-'}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small></span>
+                    <div class="item-row${inv.isDeleted ? ' muted' : ''}">
+                        <span><b>${inv.id || '-'}${inv.isDeleted ? ' (dihapus)' : ''}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small></span>
                         <span>${formatReceiptMoney(getInvoiceCommissionTotal(inv))}</span>
+                    </div>
+                `);
+                const subMarketingRows = relatedSubInvoices.map(inv => `
+                    <div class="item-row${inv.isDeleted ? ' muted' : ''}">
+                        <span><b>${inv.id || '-'}${inv.isDeleted ? ' (dihapus)' : ''}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small></span>
+                        <span>${formatReceiptMoney(getInvoiceSubMarketingCommissionTotal(inv))}</span>
                     </div>
                 `);
                 const productionRows = (data.items || []).map(item => `
@@ -11147,6 +11169,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
 
                         ${marketingRows.length > 0 ? sectionRows('Komisi Marketing', marketingRows) : ''}
+                        ${subMarketingRows.length > 0 ? sectionRows('Komisi Sub-Marketing', subMarketingRows) : ''}
                         ${productionRows.length > 0 ? sectionRows('Gaji Produksi', productionRows) : ''}
                         ${dailyRows.length > 0 ? sectionRows('Gaji Harian', dailyRows) : ''}
                         ${overtimeRows.length > 0 ? sectionRows('Lembur', overtimeRows) : ''}
@@ -11905,7 +11928,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const totalProdWage = prodWage + manualProdWage;
                     const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                     const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
-                    const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
+                    const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                     const subMktPinnedRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.subMarketing) === normalizeText(emp?.name) && !inv?.subCommissionRekapId && getInvoiceSubMarketingCommissionTotal(inv) > 0);
                     const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                     const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
