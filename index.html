@@ -7725,6 +7725,27 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const linkedDp = getInvoiceLinkedDpAmount(inv);
                 const statusLabel = paid <= 0 ? 'Belum Dibayar' : paid >= totals.total ? 'LUNAS' : 'Termin / Sebagian';
                 const statusColor = paid <= 0 ? '#dc2626' : paid >= totals.total ? '#16a34a' : '#d97706';
+                const dpObj = getInvoiceDp(inv);
+                const invoicePayments = getInvoicePayments(inv);
+                const validPayments = invoicePayments.filter(p => safeMoney(p.amount) > 0);
+                const totalPaymentCount = (dp > 0 ? 1 : 0) + validPayments.length + (linkedDp > 0 ? 1 : 0);
+                const paymentDetailRows = (() => {
+                    const rows = [];
+                    let seq = 1;
+                    if (dp > 0) {
+                        const d = dpObj.date ? ` <span style="font-size:9px;color:#94a3b8">(${dpObj.date})</span>` : '';
+                        rows.push(`<div class="amount-row"><span class="label">DP / Pembayaran ke-${seq++}${d}</span><span class="val" style="color:#16a34a">- ${formatRupiah(dp)}</span></div>`);
+                    }
+                    validPayments.forEach(pay => {
+                        const d = pay.date ? ` <span style="font-size:9px;color:#94a3b8">(${pay.date})</span>` : '';
+                        const note = pay.note ? ` · ${safe(pay.note)}` : '';
+                        rows.push(`<div class="amount-row"><span class="label">Termin ${seq++}${note}${d}</span><span class="val" style="color:#16a34a">- ${formatRupiah(safeMoney(pay.amount))}</span></div>`);
+                    });
+                    if (linkedDp > 0) {
+                        rows.push(`<div class="amount-row"><span class="label">Saldo Klien Dipakai</span><span class="val" style="color:#16a34a">- ${formatRupiah(linkedDp)}</span></div>`);
+                    }
+                    return rows.join('');
+                })();
                 const printContent = `<!DOCTYPE html><html><head><title>INV - ${safe(inv.customer || inv.id)}</title><style>
 @page{size:A4;margin:0}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -7766,7 +7787,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .amount-row.total-final{font-size:15px;font-weight:900;color:#1e3a5f;padding-top:8px;border-top:2px solid #1e3a5f;margin-top:4px;border-bottom:none}
 .amount-row .label{color:#64748b}
 .amount-row .val{font-weight:700}
-.footer-section{display:flex;justify-content:flex-end;margin-top:5mm;padding-top:4mm;border-top:1px solid #9ca3af;page-break-inside:avoid;break-inside:avoid}
+.footer-section{display:flex;justify-content:flex-end;margin-top:5mm;padding-top:4mm;border-top:1px solid #9ca3af;page-break-before:avoid;break-before:avoid;page-break-inside:avoid;break-inside:avoid}
 .sign-box{text-align:center;width:210px;position:relative}
 .sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:0;position:relative;z-index:0}
 .sign-img{max-height:120px;max-width:180px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}
@@ -7823,9 +7844,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
     <div class="amount-row"><span class="label">Subtotal</span><span class="val">${formatRupiah(totals.subtotal)}</span></div>
     ${totals.discount > 0 ? `<div class="amount-row"><span class="label">Total Diskon</span><span class="val" style="color:#dc2626">- ${formatRupiah(totals.discount)}</span></div>` : ''}
     <div class="amount-row" style="font-size:13px;font-weight:800;border-top:1px solid #cbd5e1;margin-top:4px;padding-top:8px"><span>Total Invoice</span><span style="color:#1e3a5f">${formatRupiah(totals.total)}</span></div>
-    ${dp > 0 ? `<div class="amount-row"><span class="label">Pembayaran Invoice</span><span class="val" style="color:#16a34a">- ${formatRupiah(dp)}</span></div>` : ''}
-    ${linkedDp > 0 ? `<div class="amount-row"><span class="label">Saldo Klien Dipakai</span><span class="val" style="color:#16a34a">- ${formatRupiah(linkedDp)}</span></div>` : ''}
-    ${paid - dp - linkedDp > 0 ? `<div class="amount-row"><span class="label">Pembayaran Lain</span><span class="val" style="color:#16a34a">- ${formatRupiah(paid - dp - linkedDp)}</span></div>` : ''}
+    ${paymentDetailRows}
+    ${totalPaymentCount > 1 && paid > 0 ? `<div class="amount-row" style="border-top:1px solid #e2e8f0;margin-top:2px;padding-top:5px"><span style="font-weight:700;color:#374151;font-size:11px">Total Terbayar</span><span class="val" style="color:#16a34a;font-weight:800">- ${formatRupiah(paid)}</span></div>` : ''}
     <div class="amount-row total-final"><span>Sisa Tagihan</span><span style="color:${remaining>0?'#dc2626':'#16a34a'}">${formatRupiah(remaining)}</span></div>
   </div>
 </div>
