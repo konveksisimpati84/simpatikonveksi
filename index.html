@@ -11229,6 +11229,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (Array.isArray(rekapToDelete.marketingInvoiceIds) && setInvoices) {
                     setInvoices(prev => (prev || []).map(inv => rekapToDelete.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: '', commissionRekapDate: '', _syncUpdatedAt: now } : inv));
                 }
+                if (Array.isArray(rekapToDelete.subMarketingInvoiceIds) && setInvoices) {
+                    setInvoices(prev => (prev || []).map(inv => rekapToDelete.subMarketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, subCommissionRekapId: '', subCommissionRekapDate: '', _syncUpdatedAt: now } : inv));
+                }
                 setRekapKinerja(prev => (prev || []).map(r => String(r.id) === String(deleteRekapConfirmId) ? { ...r, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : r));
                 setDeleteRekapConfirmId(null);
                 showToast("Rekap dibatalkan, pekerjaan kembali bisa diedit.", "success");
@@ -11307,6 +11310,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setInvoices(prev => (prev || []).map(inv =>
                         rekap.marketingInvoiceIds.some(id => String(id) === String(inv.id)) && !inv.commissionRekapId
                             ? { ...inv, commissionRekapId: rekap.id, commissionRekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
+                            : inv
+                    ));
+                }
+                if (Array.isArray(rekap.subMarketingInvoiceIds) && rekap.subMarketingInvoiceIds.length > 0 && setInvoices) {
+                    setInvoices(prev => (prev || []).map(inv =>
+                        rekap.subMarketingInvoiceIds.some(id => String(id) === String(inv.id)) && !inv.subCommissionRekapId
+                            ? { ...inv, subCommissionRekapId: rekap.id, subCommissionRekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
                             : inv
                     ));
                 }
@@ -11390,7 +11400,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const selectedDailyKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0).map(log => String(log.id || log.date)));
                 const selectedOvertimeKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => String(log.id || log.date)));
                 const mktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
-                const selectedMarketingKeys = new Set(mktInvoices.map(inv => String(inv.id)));
+                const subMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.subMarketing) === normalizeText(emp?.name) && !inv.subCommissionRekapId && getInvoiceSubMarketingCommissionTotal(inv) > 0);
+                const selectedMarketingKeys = new Set([...mktInvoices, ...subMktInvoices].map(inv => String(inv.id)));
                 setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys });
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
@@ -11478,7 +11489,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return;
                 }
                 const selectedTotal = selectedItems.reduce((sum, item) => sum + (parseInt(item.qty) || 0), 0);
-                const selectedWage = selectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0);
+                const selectedWage = selectedItems.reduce((sum, item) => sum + (Math.round(item.wageTotal) || 0), 0);
 
                 const empForRekap = visibleEmployees.find(e => String(e.id) === String(modalData.empId));
                 const allUnrekapedLogs = getEmployeeDailySalaryLogs(empForRekap).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
@@ -11488,8 +11499,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const dailySalary = dailySalaryLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
                 const overtimeSalary = overtimeLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
                 const allMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(empForRekap?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                const allSubMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.subMarketing) === normalizeText(empForRekap?.name) && !inv.subCommissionRekapId && getInvoiceSubMarketingCommissionTotal(inv) > 0);
                 const marketingInvoicesForRekap = allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
-                const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
+                const subMarketingInvoicesForRekap = allSubMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
+                const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0) + subMarketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceSubMarketingCommissionTotal(inv), 0);
                 const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission;
                 const empCashAdvanceSummary = getEmployeeCashAdvanceSummary(empForRekap);
                 const deduction = Math.min(safeMoney(cashAdvanceDeduction), grossSalary, empCashAdvanceSummary.remaining);
@@ -11518,6 +11531,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     dailySalaryLogs: allLogsForRekap,
                     marketingCommission,
                     marketingInvoiceIds: marketingInvoicesForRekap.map(inv => inv.id),
+                    subMarketingInvoiceIds: subMarketingInvoicesForRekap.map(inv => inv.id),
 
                     cashAdvanceDeduction: deduction,
                     cashAdvanceDeductionNote: cashAdvanceDeductionNote || '',
@@ -11561,6 +11575,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (marketingInvoicesForRekap.length > 0 && setInvoices) {
                     const now = new Date().toISOString();
                     setInvoices(prev => (prev || []).map(inv => marketingInvoicesForRekap.some(row => String(row.id) === String(inv.id)) ? { ...inv, commissionRekapId: newRekap.id, commissionRekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : inv));
+                }
+                if (subMarketingInvoicesForRekap.length > 0 && setInvoices) {
+                    const now = new Date().toISOString();
+                    setInvoices(prev => (prev || []).map(inv => subMarketingInvoicesForRekap.some(row => String(row.id) === String(inv.id)) ? { ...inv, subCommissionRekapId: newRekap.id, subCommissionRekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : inv));
                 }
                 
                 const logsToUpdate = selectedItems.flatMap(item => 
@@ -11808,7 +11826,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const rekapSummary = {
                 employees: new Set(visibleRekaps.map(r => String(r.empId || r.empName))).size,
                 pcs: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.total), 0),
-                production: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.productionSalary ?? r.totalWage), 0),
+                production: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.productionSalary), 0),
                 daily: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.dailySalary), 0),
                 overtime: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.overtimeSalary), 0),
                 commission: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.marketingCommission), 0),
@@ -11835,9 +11853,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                 const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                 const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
+                const subMktReadyRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.subMarketing) === normalizeText(emp?.name) && !inv?.subCommissionRekapId && getInvoiceSubMarketingCommissionTotal(inv) > 0);
                 const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                 const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
-                const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
+                const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0) + subMktReadyRows.reduce((s, inv) => s + safeNumber(getInvoiceSubMarketingCommissionTotal(inv)), 0);
                 const total = totalProdWage + harian + lembur + komisi;
                 return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian, lembur: acc.lembur + lembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
             }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 });
@@ -11864,9 +11883,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                     const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                     const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId);
+                    const subMktPinnedRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.subMarketing) === normalizeText(emp?.name) && !inv?.subCommissionRekapId && getInvoiceSubMarketingCommissionTotal(inv) > 0);
                     const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                     const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
-                    const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
+                    const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0) + subMktPinnedRows.reduce((s, inv) => s + safeNumber(getInvoiceSubMarketingCommissionTotal(inv)), 0);
                     const total = totalProdWage + harian + lembur + komisi;
                     const kasbon = getEmployeeCashAdvanceSummary(emp).remaining;
                     const net = Math.max(0, total - Math.min(kasbon, total));
@@ -12131,7 +12151,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-3 rounded-xl flex items-center justify-between gap-4">
                                 <div className="flex items-center gap-3 flex-wrap">
                                     <span className="font-black text-sm">📌 {pinnedEmpIds.size} Karyawan Disematkan</span>
-                                    <span className="text-sm text-amber-100">Total Gaji Bersih: <strong className="text-white">{formatRupiah(pinnedSummary.net)}</strong></span>
+                                    <span className="text-sm text-amber-100">Proyeksi Gaji Bersih: <strong className="text-white">{formatRupiah(pinnedSummary.net)}</strong></span>
                                 </div>
                                 <button onClick={() => setPinnedEmpIds(new Set())} className="flex-shrink-0 text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold transition-colors">✕ Hapus Sematan</button>
                             </div>
@@ -12208,10 +12228,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const dailySalaryRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                                 const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                                 const cashAdvanceRows = safeArray(getEmployeeCashAdvances(emp));
-                                const marketingRows = safeArray(safeInvoicesForReport)
+                                const mainMktRows = safeArray(safeInvoicesForReport)
                                     .filter(isVisibleRecord)
                                     .filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0)
                                     .map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), paidTotal: safeNumber(getInvoicePaidTotal(inv)), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
+                                const subMktRows = safeArray(safeInvoicesForReport)
+                                    .filter(isVisibleRecord)
+                                    .filter(inv => normalizeText(inv?.subMarketing) === normalizeText(emp?.name) && !inv?.subCommissionRekapId && getInvoiceSubMarketingCommissionTotal(inv) > 0)
+                                    .map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), paidTotal: safeNumber(getInvoicePaidTotal(inv)), commissionTotal: safeNumber(getInvoiceSubMarketingCommissionTotal(inv)), status: getInvoicePaymentStatus(inv), isSubMarketing: true }));
+                                const marketingRows = [...mainMktRows, ...subMktRows];
                                 const totalDailySalary = dailySalaryRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).daily), 0);
                                 const totalOvertimeSalary = overtimeRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).overtime), 0);
                                 const totalMarketingCommission = marketingRows.reduce((sum, inv) => sum + safeNumber(inv.commissionTotal), 0);
@@ -12222,7 +12247,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 
                                 const empSelectedItems = unsettledItems.filter(item => selectedItemKeys.has(`${item.orderId}-${item.stage}`));
                                 const empSelectedTotal = empSelectedItems.reduce((sum, item) => sum + item.qty, 0);
-                                const empSelectedWage = empSelectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0);
+                                const empSelectedWage = empSelectedItems.reduce((sum, item) => sum + (Math.round(item.wageTotal) || 0), 0);
 
                                 const hasUnsettled = unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0;
                                 const isPinned = pinnedEmpIds.has(emp.id);
@@ -12336,6 +12361,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <div className="flex justify-center gap-1.5">
                                                         <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg"><IconEye /></button>
                                                         <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-2 rounded-lg"><IconEdit /></button>
+                                                        <button onClick={() => editExistingRekap(rekap)} title="Edit Kasbon" className="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 p-2 rounded-lg text-xs font-bold">KS</button>
                                                         <button onClick={() => printExistingRekap(rekap)} title="Cetak Rekap" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-2 rounded-lg"><IconPrinter /></button>
                                                         <button onClick={() => copyRekapShareLink(rekap)} title="Salin Link Share" className="text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 p-2 rounded-lg"><IconCheckCircle /></button>
                                                         <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-2 rounded-lg"><IconTrash /></button>
@@ -12377,6 +12403,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div className="flex gap-1.5 flex-wrap">
                                                 <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg"><IconEye /></button>
                                                 <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-1.5 rounded-lg"><IconEdit /></button>
+                                                <button onClick={() => editExistingRekap(rekap)} title="Edit Kasbon" className="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 p-1.5 rounded-lg text-xs font-bold">KS</button>
                                                 <button onClick={() => printExistingRekap(rekap)} title="Cetak Rekap" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-1.5 rounded-lg"><IconPrinter /></button>
                                                 <button onClick={() => copyRekapShareLink(rekap)} title="Salin Link Share" className="text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 p-1.5 rounded-lg"><IconCheckCircle /></button>
                                                 <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"><IconTrash /></button>
@@ -13370,6 +13397,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 }
                 if (Array.isArray(rekapToDelete.marketingInvoiceIds) && setInvoices) {
                     setInvoices(prev => (prev || []).map(inv => rekapToDelete.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: '', commissionRekapDate: '', _syncUpdatedAt: now } : inv));
+                }
+                if (Array.isArray(rekapToDelete.subMarketingInvoiceIds) && setInvoices) {
+                    setInvoices(prev => (prev || []).map(inv => rekapToDelete.subMarketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, subCommissionRekapId: '', subCommissionRekapDate: '', _syncUpdatedAt: now } : inv));
                 }
                 setRekapKinerja(prev => (prev || []).map(r => String(r.id) === String(deleteRekapConfirmId) ? { ...r, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : r));
                 setDeleteRekapConfirmId(null);
