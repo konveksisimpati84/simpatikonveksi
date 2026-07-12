@@ -299,6 +299,41 @@
         const IconEye = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>;
         const IconCash = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>;
 
+        const PrintDropdownBtn = ({ options, variant = 'icon', smallBtn = false }) => {
+            const [open, setOpen] = React.useState(false);
+            const ref = React.useRef(null);
+            React.useEffect(() => {
+                if (!open) return;
+                const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+                document.addEventListener('mousedown', handler);
+                return () => document.removeEventListener('mousedown', handler);
+            }, [open]);
+            const pad = smallBtn ? 'p-1.5' : 'p-2';
+            return (
+                <div ref={ref} className="relative" style={{display:'inline-block'}}>
+                    {variant === 'icon' ? (
+                        <button onClick={() => setOpen(o => !o)} title="Cetak Rekap" className={`text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 ${pad} rounded-lg flex items-center gap-0.5`}>
+                            <IconPrinter /><span style={{fontSize:'9px',lineHeight:1}}>▾</span>
+                        </button>
+                    ) : (
+                        <button onClick={() => setOpen(o => !o)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center gap-2">
+                            <IconPrinter /> Cetak <span className="text-xs">▾</span>
+                        </button>
+                    )}
+                    {open && (
+                        <div className="absolute right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden" style={{minWidth:'210px'}}>
+                            {options.map((opt, i) => (
+                                <button key={i} onClick={() => { setOpen(false); opt.action(); }} className="w-full text-left px-4 py-3 hover:bg-gray-50 flex flex-col gap-0.5 border-b border-gray-100 last:border-0">
+                                    <span className="font-semibold text-sm text-gray-800">{opt.label}</span>
+                                    {opt.hint && <span className="text-xs text-gray-400">{opt.hint}</span>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
         const getGeminiApiKey = () => {
             const configuredKey = "";
             if (configuredKey) return configuredKey;
@@ -11167,6 +11202,133 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 }
             };
 
+            const triggerPrintA4 = (data) => {
+                const formatReceiptMoney = (num) => formatRupiah(num || 0).replace(/\s/g, '');
+                const allInvoicesForPrint = safeInvoicesForReport;
+                const relatedInvoices = allInvoicesForPrint.filter(inv => (data.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
+                const dailyLogs = Array.isArray(data.dailySalaryLogs) ? data.dailySalaryLogs : [];
+                const dailyOnlyLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
+                const overtimeLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
+                const sectionRows = (title, rows, emptyText = 'Tidak ada data.') => `
+                    <div class="section-title">${title}</div>
+                    <div class="section-list">
+                        ${rows.length ? rows.join('') : `<div class="item-row muted"><span>${emptyText}</span><span>-</span></div>`}
+                    </div>
+                `;
+                const marketingRows = relatedInvoices.map(inv => `
+                    <div class="item-row${inv.isDeleted ? ' muted' : ''}">
+                        <span><b>${inv.id || '-'}${inv.isDeleted ? ' (dihapus)' : ''}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small></span>
+                        <span>${formatReceiptMoney(getInvoiceCommissionTotal(inv))}</span>
+                    </div>
+                `);
+                const productionRows = (data.items || []).map(item => `
+                    <div class="item-row">
+                        <span><b>${item.orderId || '-'} - ${item.stageLabel || item.stage || '-'}</b><small>${item.client ? `${item.client} &middot; ` : ''}${item.type || '-'} | ${item.qty || 0} x ${formatReceiptMoney(item.unitPrice || 0)}</small></span>
+                        <span>${formatReceiptMoney(item.wageTotal || 0)}</span>
+                    </div>
+                `);
+                const dailyRows = dailyOnlyLogs.map(log => `
+                    <div class="item-row">
+                        <span><b>${log.date || '-'}</b><small>${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</small></span>
+                        <span>${formatReceiptMoney(getDailySalaryLogTotal(log).daily)}</span>
+                    </div>
+                `);
+                const overtimeRows = overtimeLogs.map(log => `
+                    <div class="item-row">
+                        <span><b>${log.date || '-'}</b><small>${log.note || 'Lembur'} | ${log.overtimeCount || 0} hari</small></span>
+                        <span>${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</span>
+                    </div>
+                `);
+                const printContent = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>SG - ${data.empName}</title>
+                    <style>
+                        @page { size: A4 portrait; margin: 20mm 18mm; }
+                        html, body { width: auto; }
+                        body { font-family: Arial, sans-serif; color: #000; line-height: 1.35; margin: 0 auto; padding: 0; font-size: 12px; max-width: 520px; }
+                        .receipt { width: 100%; box-sizing: border-box; }
+                        .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+                        .header-logo { max-height: 46px; max-width: 80px; object-fit: contain; margin-bottom: 4px; }
+                        .header h1 { margin: 0; font-size: 16px; text-transform: uppercase; color: #000; line-height: 1.2; }
+                        .header p { margin: 3px 0 0 0; font-size: 11px; }
+                        .meta { border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+                        .meta-row { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
+                        .meta-label { color: #444; white-space: nowrap; }
+                        .meta-value { font-weight: bold; text-align: right; }
+                        .text-center { text-align: center; }
+                        .text-right { text-align: right; }
+                        .font-bold { font-weight: bold; }
+                        .muted { color: #555; font-size: 9px; line-height: 1.2; }
+                        .section-title { margin-top: 10px; padding: 5px 0 4px; border-top: 1px dashed #000; border-bottom: 1px dashed #bbb; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+                        .section-list { margin-bottom: 2px; }
+                        .item-row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dashed #ddd; }
+                        .item-row span:first-child { overflow-wrap: anywhere; }
+                        .item-row span:last-child { text-align: right; font-weight: bold; white-space: nowrap; }
+                        .item-row small { display: block; color: #555; font-size: 9px; font-weight: normal; margin-top: 1px; }
+                        .total-box { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 8px 0; margin-top: 8px; }
+                        .total-row { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0; }
+                        .grand-total { font-size: 14px; font-weight: 900; }
+                        .signature { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; text-align: center; font-size: 10px; }
+                        .sig-box { display: flex; flex-direction: column; align-items: center; min-height: 70px; }
+                        .sig-img { max-height: 52px; max-width: 100px; object-fit: contain; display: block; margin: 6px auto 0; }
+                        .signature-line { margin-top: auto; border-top: 1px solid #000; padding-top: 4px; width: 100%; }
+                        .footer-note { text-align: center; font-size: 9px; margin-top: 12px; color: #444; }
+                    </style>
+                </head>
+                <body>
+                    <div class="receipt">
+                        <div class="header">
+                            ${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo" />` : ''}
+                            <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
+                            <p>SLIP GAJI KARYAWAN</p>
+                        </div>
+                        <div class="meta">
+                            <div class="meta-row"><span class="meta-label">Nama</span><span class="meta-value">${data.empName}</span></div>
+                            <div class="meta-row"><span class="meta-label">Jabatan</span><span class="meta-value">${data.division}</span></div>
+                            <div class="meta-row"><span class="meta-label">Tanggal Cetak</span><span class="meta-value">${data.dateProcessed}</span></div>
+                            <div class="meta-row"><span class="meta-label">ID Rekap</span><span class="meta-value">${data.id}</span></div>
+                        </div>
+                        ${marketingRows.length > 0 ? sectionRows('Komisi Marketing', marketingRows) : ''}
+                        ${productionRows.length > 0 ? sectionRows('Gaji Produksi', productionRows) : ''}
+                        ${dailyRows.length > 0 ? sectionRows('Gaji Harian', dailyRows) : ''}
+                        ${overtimeRows.length > 0 ? sectionRows('Lembur', overtimeRows) : ''}
+                        ${safeMoney(data.cashAdvanceDeduction) > 0 ? sectionRows('Potongan - Kasbon', [`<div class="item-row"><span><b>Bayar kasbon sekarang</b><small>Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</small></span><span>${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>`]) : ''}
+                        <div class="total-box">
+                            <div class="total-row"><span>Total Pendapatan</span><span class="font-bold">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
+                            <div class="total-row"><span>Total Potongan</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
+                            <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? data.totalWage ?? 0)}</span></div>
+                        </div>
+                        <div class="signature">
+                            <div class="sig-box">
+                                <div>Penerima</div>
+                                <div class="signature-line">${data.empName || ''}</div>
+                            </div>
+                            <div class="sig-box">
+                                <div>Hormat Kami,</div>
+                                ${(templates?.signatureImage) ? `<img class="sig-img" src="${templates.signatureImage}" style="transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                                <div class="signature-line">${(templates?.companyName || 'Simpati Konveksi')}</div>
+                            </div>
+                        </div>
+                        <div class="footer-note">Simpan slip ini sebagai bukti rekap gaji karyawan.</div>
+                    </div>
+                </body>
+                </html>
+                `;
+                let printWindow = window.open('', '_blank');
+                if (printWindow) {
+                    printWindow.document.open();
+                    printWindow.document.write(printContent);
+                    printWindow.document.close();
+                    printWindow.focus();
+                    if (printWindow.document.readyState === 'complete') { setTimeout(() => printWindow.print(), 150); }
+                    else { printWindow.onload = () => setTimeout(() => printWindow.print(), 100); }
+                } else {
+                    showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
+                }
+            };
+
             const handleDeleteRekap = () => {
                 const rekapToDelete = (rekapKinerja || []).find(r => String(r.id) === String(deleteRekapConfirmId));
                 if (!rekapToDelete) return;
@@ -11602,6 +11764,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const printExistingRekap = (rekap) => {
                 const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                 triggerPrint({ ...rekap, empName: emp?.name || rekap.empName || '-', division: (emp ? getEmployeeDivisions(emp).join(', ') : null) || rekap.division || '-' });
+            };
+
+            const printExistingRekapA4 = (rekap) => {
+                const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
+                triggerPrintA4({ ...rekap, empName: emp?.name || rekap.empName || '-', division: (emp ? getEmployeeDivisions(emp).join(', ') : null) || rekap.division || '-' });
             };
 
             const handleAddPayment = (rekapId) => {
@@ -12331,7 +12498,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg"><IconEye /></button>
                                                         <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-2 rounded-lg"><IconEdit /></button>
                                                         <button onClick={() => editExistingRekap(rekap)} title="Edit Kasbon" className="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 p-2 rounded-lg text-xs font-bold">KS</button>
-                                                        <button onClick={() => printExistingRekap(rekap)} title="Cetak Rekap" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-2 rounded-lg"><IconPrinter /></button>
+                                                        <PrintDropdownBtn options={[{label:'📄 Cetak / PDF',hint:'Layout A4 · semua perangkat',action:()=>printExistingRekapA4(rekap)},{label:'🖨️ Struk Thermal',hint:'Layout 80mm · khusus printer thermal',action:()=>printExistingRekap(rekap)}]} />
                                                         <button onClick={() => copyRekapShareLink(rekap)} title="Salin Link Share" className="text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 p-2 rounded-lg"><IconCheckCircle /></button>
                                                         <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-2 rounded-lg"><IconTrash /></button>
                                                     </div>
@@ -12373,7 +12540,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg"><IconEye /></button>
                                                 <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-1.5 rounded-lg"><IconEdit /></button>
                                                 <button onClick={() => editExistingRekap(rekap)} title="Edit Kasbon" className="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 p-1.5 rounded-lg text-xs font-bold">KS</button>
-                                                <button onClick={() => printExistingRekap(rekap)} title="Cetak Rekap" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-1.5 rounded-lg"><IconPrinter /></button>
+                                                <PrintDropdownBtn smallBtn={true} options={[{label:'📄 Cetak / PDF',hint:'Layout A4 · semua perangkat',action:()=>printExistingRekapA4(rekap)},{label:'🖨️ Struk Thermal',hint:'Layout 80mm · khusus printer thermal',action:()=>printExistingRekap(rekap)}]} />
                                                 <button onClick={() => copyRekapShareLink(rekap)} title="Salin Link Share" className="text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 p-1.5 rounded-lg"><IconCheckCircle /></button>
                                                 <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"><IconTrash /></button>
                                             </div>
@@ -13272,7 +13439,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </>)}
                                     </div>
                                     <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 flex-shrink-0">
-                                        <button onClick={() => { closeModal(); printExistingRekap(rekap); }} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak</button>
+                                        <PrintDropdownBtn variant="button" options={[{label:'📄 Cetak / PDF',hint:'Layout A4 · semua perangkat',action:()=>{ closeModal(); printExistingRekapA4(rekap); }},{label:'🖨️ Struk Thermal',hint:'Layout 80mm · khusus printer thermal',action:()=>{ closeModal(); printExistingRekap(rekap); }}]} />
                                         <button onClick={() => { copyRekapShareLink(rekap); }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconCheckCircle /> Salin Link</button>
                                         <button onClick={closeModal} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
                                     </div>
@@ -15020,6 +15187,57 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setTimeout(() => { w.print(); w.close(); }, 400);
             };
 
+            const printKasbonDriverThermal = (driverId) => {
+                const drv = visibleDrivers.find(d => d.id === driverId);
+                const list = visibleKasbon.filter(k => k.driverId === driverId).sort((a,b) => a.tanggal > b.tanggal ? 1 : -1);
+                const w = window.open('','_blank','width=360,height=640');
+                if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
+                const totalJumlah = list.reduce((s,k) => s + safeMoney(k.jumlah), 0);
+                const totalDipotong = list.reduce((s,k) => s + safeMoney(k.sudahDipotong), 0);
+                const totalSisa = totalJumlah - totalDipotong;
+                const rows = list.map((k,i) => {
+                    const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
+                    return `<div class="item-row"><span><b>${k.tanggal||'-'}</b><small>${k.keterangan||'Kasbon'}</small></span><span class="${sisa>0?'red':'green'}">${sisa>0?formatRupiah(sisa):'Lunas'}</span></div>`;
+                }).join('');
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Kasbon - ${drv?drv.name:''}</title><style>
+@page{size:80mm auto;margin:4mm}html,body{width:72mm}
+body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0}
+.header{text-align:center;border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px}
+.header h1{margin:0;font-size:14px;text-transform:uppercase}
+.header p{margin:2px 0 0;font-size:10px}
+.meta{border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px}
+.meta-row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.meta-label{color:#444}.meta-value{font-weight:bold;text-align:right}
+.item-row{display:flex;justify-content:space-between;gap:6px;padding:4px 0;border-bottom:1px dashed #ddd}
+.item-row span:first-child{max-width:44mm;overflow-wrap:anywhere}
+.item-row span:last-child{text-align:right;font-weight:bold;white-space:nowrap}
+.item-row small{display:block;color:#555;font-size:8.6px;font-weight:normal;margin-top:1px}
+.total-box{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:7px 0;margin-top:6px}
+.total-row{display:flex;justify-content:space-between;gap:6px;margin:3px 0}
+.grand-total{font-size:13px;font-weight:900}.red{color:#dc2626}.green{color:#16a34a}
+@media screen{body{background:#f3f4f6;padding:12px 0}}
+</style></head><body>
+<div class="header">
+${templates?.companyLogo?`<img src="${templates.companyLogo}" style="max-height:38px;max-width:64px;object-fit:contain;margin-bottom:3px"><br>`:''}
+<h1>${templates?.companyName||'SIMPATI KONVEKSI'}</h1>
+<p>REKAP KASBON DRIVER</p>
+</div>
+<div class="meta">
+<div class="meta-row"><span class="meta-label">Driver</span><span class="meta-value">${drv?drv.name:'-'}</span></div>
+<div class="meta-row"><span class="meta-label">Kendaraan</span><span class="meta-value">${drv?.vehicle||'-'}${drv?.plateNumber?' ('+drv.plateNumber+')':''}</span></div>
+<div class="meta-row"><span class="meta-label">Tanggal Cetak</span><span class="meta-value">${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</span></div>
+</div>
+${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>'}
+<div class="total-box">
+<div class="total-row"><span>Total Kasbon</span><span>${formatRupiah(totalJumlah)}</span></div>
+<div class="total-row"><span>Total Dipotong</span><span class="green">${formatRupiah(totalDipotong)}</span></div>
+<div class="total-row grand-total"><span>Sisa Kasbon</span><span class="red">${formatRupiah(totalSisa)}</span></div>
+</div>
+</body></html>`);
+                w.document.close();
+                setTimeout(() => { w.print(); w.close(); }, 400);
+            };
+
             const visibleRekap = (driverRekapGaji||[]).filter(isVisibleRecord);
 
             const getAvailableTrips = (driverId) => {
@@ -15805,7 +16023,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                         <p className="text-xs text-gray-500 mt-0.5">{drv?.vehicle||''}{drv?.plateNumber?' · '+drv.plateNumber:''}</p>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <button onClick={()=>printKasbonDriver(showKasbonDriver)} className="text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded">🖨 Cetak</button>
+                                        <PrintDropdownBtn options={[{label:'📄 Cetak / PDF',hint:'Layout A4 · semua perangkat',action:()=>printKasbonDriver(showKasbonDriver)},{label:'🖨️ Struk Thermal',hint:'Layout 80mm · khusus printer thermal',action:()=>printKasbonDriverThermal(showKasbonDriver)}]} />
                                         <button onClick={()=>setShowKasbonDriver(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                                     </div>
                                 </div>
