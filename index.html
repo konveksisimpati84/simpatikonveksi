@@ -655,9 +655,11 @@
         };
 
         const getDailySalaryLogTotal = (log) => {
-            const daily = safeMoney(log?.workDays) * safeMoney(log?.dailySalary);
+            const base = safeMoney(log?.workDays) * safeMoney(log?.dailySalary);
+            const adj = (log?.hourAdjustment != null) ? safeMoney(log.hourAdjustment) : 0;
+            const daily = base + adj;
             const overtime = safeMoney(log?.overtimeCount) * safeMoney(log?.overtimeRate);
-            return { daily, overtime, total: daily + overtime };
+            return { daily, base, adj, overtime, total: daily + overtime };
         };
 
         const getInvoiceItems = (invoice) => {
@@ -1775,6 +1777,8 @@
                                 </div>
                                 <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={newEmp.dailySalary} onChange={e => setNewEmp({...newEmp, dailySalary: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Tarif Lembur/jam</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="Nominal lembur per jam" value={newEmp.overtimeRate || ''} onChange={e => setNewEmp({...newEmp, overtimeRate: e.target.value})} /></div>
+                                <div><label className="block text-sm mb-1 font-semibold">Potongan Kurang Jam (Rp/jam)</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="0 = tidak ada potongan" value={newEmp.rateKurang || ''} onChange={e => setNewEmp({...newEmp, rateKurang: e.target.value})} /></div>
+                                <div><label className="block text-sm mb-1 font-semibold">Tambahan Lebih Jam (Rp/jam)</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="0 = tidak ada tambahan" value={newEmp.rateLebih || ''} onChange={e => setNewEmp({...newEmp, rateLebih: e.target.value})} /></div>
                                 {((newEmp.salaryTypes||['Produksi']).includes('Marketing') || getEmployeeDivisions(newEmp).includes('Marketing')) && (
                                   <div className="md:col-span-2 bg-purple-50 border border-purple-200 rounded-lg p-4">
                                     <div className="text-sm font-bold text-purple-800 mb-3">Pengaturan Komisi Marketing</div>
@@ -2048,6 +2052,8 @@
                                     <div><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(editEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setEditEmp({...editEmp, salaryTypes: (editEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, salaryTypes: [...(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
                                     <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={editEmp.dailySalary || ''} onChange={e => setEditEmp({...editEmp, dailySalary: e.target.value})} /></div>
                                     <div><label className="block text-sm mb-1 font-semibold">Tarif Lembur/jam</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="Nominal lembur per jam" value={editEmp.overtimeRate || ''} onChange={e => setEditEmp({...editEmp, overtimeRate: e.target.value})} /></div>
+                                    <div><label className="block text-sm mb-1 font-semibold">Potongan Kurang Jam (Rp/jam)</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="0 = tidak ada potongan" value={editEmp.rateKurang || ''} onChange={e => setEditEmp({...editEmp, rateKurang: e.target.value})} /></div>
+                                    <div><label className="block text-sm mb-1 font-semibold">Tambahan Lebih Jam (Rp/jam)</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="0 = tidak ada tambahan" value={editEmp.rateLebih || ''} onChange={e => setEditEmp({...editEmp, rateLebih: e.target.value})} /></div>
                                     {((editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes('Marketing') || getEmployeeDivisions(editEmp).includes('Marketing')) && (
                                       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                                         <div className="text-sm font-bold text-purple-800 mb-3">Pengaturan Komisi Marketing</div>
@@ -11058,13 +11064,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <span>${formatReceiptMoney(item.wageTotal || 0)}</span>
                     </div>
                 `);
-                const dailyRows = dailyOnlyLogs.map(log => `
+                const dailyRows = dailyOnlyLogs.map(log => {
+                    const t = getDailySalaryLogTotal(log);
+                    const adjLine = (log.hourAdjDetails?.length > 0 && t.adj !== 0)
+                        ? `<div class="item-row" style="font-size:10px;color:#555"><span>Penyesuaian Jam Kerja</span><span style="color:${t.adj > 0 ? '#15803d' : '#dc2626'}">${t.adj > 0 ? '+' : ''}${formatReceiptMoney(t.adj)}</span></div>`
+                        : '';
+                    return `
                     <div class="item-row">
                         <span><b>${log.date || '-'}</b><small>${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</small></span>
-                        <span>${formatReceiptMoney(getDailySalaryLogTotal(log).daily)}</span>
-                    </div>
-                `);
-                const overtimeRows = overtimeLogs.map(log => `
+                        <span>${formatReceiptMoney(t.base)}</span>
+                    </div>${adjLine}`;
+                });
+                const overtimeRows = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => `
                     <div class="item-row">
                         <span><b>${log.date || '-'}</b><small>${log.note || 'Lembur'} | ${log.overtimeCount || 0} jam</small></span>
                         <span>${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</span>
@@ -11221,14 +11232,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <td class="r">${formatReceiptMoney(item.wageTotal || 0)}</td>
                     </tr>
                 `).join('');
-                const dailyTableRows = dailyOnlyLogs.map((log, i) => `
+                const dailyTableRows = dailyOnlyLogs.map((log, i) => {
+                    const t = getDailySalaryLogTotal(log);
+                    const adjRows = (log.hourAdjDetails?.length > 0 && t.adj !== 0)
+                        ? log.hourAdjDetails.map(d => `<tr style="background:#fafafa"><td class="c" style="color:#9ca3af">↳</td><td style="font-size:10px;color:#6b7280">${d.date}</td><td class="muted-cell" style="font-size:10px">Penyesuaian Jam Kerja | ${d.selisihJam > 0 ? '+' : ''}${d.selisihJam} jam</td><td class="r" style="font-size:10px;color:${d.amount > 0 ? '#15803d' : '#dc2626'};font-weight:700">${d.amount > 0 ? '+' : ''}${formatReceiptMoney(d.amount)}</td></tr>`).join('')
+                        : '';
+                    return `
                     <tr>
                         <td class="c">${i + 1}</td>
                         <td>${log.date || '-'}</td>
                         <td class="muted-cell">${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</td>
-                        <td class="r">${formatReceiptMoney(getDailySalaryLogTotal(log).daily)}</td>
-                    </tr>
-                `).join('');
+                        <td class="r">${formatReceiptMoney(t.base)}</td>
+                    </tr>${adjRows}`;
+                }).join('');
                 const overtimeTableRows = overtimeLogs.map((log, i) => `
                     <tr>
                         <td class="c">${i + 1}</td>
@@ -12123,7 +12139,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     ));
                     const uncoveredDates = dates.filter(d => !coveredDates.has(d));
                     const skippedCount = coveredDates.size;
+                    const rateKurang = safeMoney(emp.rateKurang) || 0;
+                    const rateLebih = safeMoney(emp.rateLebih) || 0;
+                    const standardMenit = (mMasukCfg != null && mPulangCfg != null) ? mPulangCfg - mMasukCfg : 0;
                     let hadir = 0, lembur = 0;
+                    const hourAdjDetails = [];
                     uncoveredDates.forEach(date => {
                         const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin) === pin);
                         const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
@@ -12131,9 +12151,24 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mLM);
                         const lemb = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mLM);
                         const masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
+                        const pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
                         const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
+                        const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
                         const jamMasuk = override?.jamMasuk || rawMasuk;
+                        const jamPulang = override?.jamPulang || rawPulang;
                         if (jamMasuk) hadir++;
+                        // Hitung penyesuaian jam jika kedua scan ada dan ada tarif
+                        if (jamMasuk && jamPulang && standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
+                            const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
+                            const selisihMenit = actualMenit - standardMenit;
+                            if (Math.abs(selisihMenit) >= 30) {
+                                const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
+                                const amount = selisihMenit > 0
+                                    ? Math.round((selisihMenit / 60) * rateLebih)
+                                    : -Math.round((Math.abs(selisihMenit) / 60) * rateKurang);
+                                if (amount !== 0) hourAdjDetails.push({ date, selisihMenit, selisihJam, amount });
+                            }
+                        }
                         const lMasukZone = mMidLembur != null ? lemb.filter(e => ttm(e.jam) <= mMidLembur) : lemb;
                         const lPulangZone = mMidLembur != null ? lemb.filter(e => ttm(e.jam) > mMidLembur) : [];
                         const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
@@ -12144,12 +12179,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
                         if (lemburMenit >= 60) lembur += Math.round(lemburMenit / 60 * 10) / 10;
                     });
+                    const totalHourAdj = hourAdjDetails.reduce((s, d) => s + d.amount, 0);
                     // alreadyRekaped only when ALL dates in range are already covered
                     const alreadyRekaped = uncoveredDates.length === 0 && existingAbsensiLogs.length > 0;
                     const existingLog = existingAbsensiLogs[0] || null;
                     const existingPeriod = existingLog ? `${existingLog.absensiDateFrom} s/d ${existingLog.absensiDateTo}` : null;
                     if (hadir > 0 || lembur > 0 || alreadyRekaped) {
-                        results.push({ emp, hadir, lembur, dailySalaryRate: safeMoney(emp.dailySalary)||0, overtimeRateVal: safeMoney(emp.overtimeRate)||0, totalGaji: (hadir*(safeMoney(emp.dailySalary)||0)) + (lembur*(safeMoney(emp.overtimeRate)||0)), alreadyRekaped, existingPeriod, skippedCount });
+                        const baseGaji = (hadir*(safeMoney(emp.dailySalary)||0)) + (lembur*(safeMoney(emp.overtimeRate)||0));
+                        results.push({ emp, hadir, lembur, dailySalaryRate: safeMoney(emp.dailySalary)||0, overtimeRateVal: safeMoney(emp.overtimeRate)||0, totalGaji: baseGaji + totalHourAdj, totalHourAdj, hourAdjDetails, alreadyRekaped, existingPeriod, skippedCount });
                     }
                 });
                 setGenPreview(results);
@@ -12169,7 +12206,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const baseLog = { date: genDateTo, note: `Auto absensi ${genDateFrom} s/d ${genDateTo}`, fromAbsensi: true, absensiDateFrom: genDateFrom, absensiDateTo: genDateTo, rekapId: '', rekapDate: '', isDeleted: false, createdAt: now, _syncUpdatedAt: now };
                     const newLogs = [];
                     if (res.hadir > 0) {
-                        newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: res.hadir, dailySalary: safeMoney(emp.dailySalary)||0, overtimeCount: 0, overtimeRate: 0 });
+                        const adjFields = (res.totalHourAdj !== 0 && res.hourAdjDetails?.length > 0)
+                            ? { hourAdjustment: res.totalHourAdj, hourAdjDetails: res.hourAdjDetails }
+                            : {};
+                        newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: res.hadir, dailySalary: safeMoney(emp.dailySalary)||0, overtimeCount: 0, overtimeRate: 0, ...adjFields });
                     }
                     if (res.lembur > 0) {
                         newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: 0, dailySalary: 0, overtimeCount: res.lembur, overtimeRate: safeMoney(emp.overtimeRate)||0 });
@@ -12858,7 +12898,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                             <table className="w-full text-xs">
                                                 <thead className="bg-indigo-50 text-indigo-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalAllDailyLogs.length>0&&modalAllDailyLogs.every(l=>modalData?.selectedDailyKeys?.has(String(l.id||l.date)))} onChange={()=>toggleAllModalDailyItems(modalAllDailyLogs)}/></th><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Hari Masuk</th><th className="py-2 px-3 text-right">Gaji Harian</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
                                                 <tbody>
-                                                    {modalAllDailyLogs.map((log,idx)=>{const t=getDailySalaryLogTotal(log);const isSel=modalData?.selectedDailyKeys?.has(String(log.id||log.date));return(<tr key={`daily-${idx}`} className={`border-t ${isSel?'bg-indigo-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalDailyItem(log)}/></td><td className="py-2 px-3">{log.date||'-'}</td><td className="py-2 px-3">{log.note||'Masuk Kerja'}</td><td className="py-2 px-3 text-right">{log.workDays||0} hari</td><td className="py-2 px-3 text-right">{formatRupiah(log.dailySalary)}</td><td className="py-2 px-3 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>);})}
+                                                    {modalAllDailyLogs.map((log,idx)=>{const t=getDailySalaryLogTotal(log);const isSel=modalData?.selectedDailyKeys?.has(String(log.id||log.date));const hasAdj=log.hourAdjDetails?.length>0&&t.adj!==0;return(<React.Fragment key={`daily-${idx}`}><tr className={`border-t ${isSel?'bg-indigo-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalDailyItem(log)}/></td><td className="py-2 px-3">{log.date||'-'}</td><td className="py-2 px-3">{log.note||'Masuk Kerja'}</td><td className="py-2 px-3 text-right">{log.workDays||0} hari</td><td className="py-2 px-3 text-right">{formatRupiah(log.dailySalary)}</td><td className="py-2 px-3 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>{hasAdj&&<tr className={`${isSel?'bg-indigo-50/60':''}`}><td colSpan="6" className="px-3 pb-2 pt-0"><div className="ml-6 border-l-2 border-indigo-200 pl-2 space-y-0.5">{log.hourAdjDetails.map((d,i)=><div key={i} className="flex justify-between text-[11px]"><span className="text-gray-500">{d.date} {d.selisihJam>0?'+':''}{d.selisihJam} jam</span><span className={d.amount>0?'text-green-700 font-bold':'text-red-600 font-bold'}>{d.amount>0?'+':''}{formatRupiah(d.amount)}</span></div>)}<div className="flex justify-between text-[11px] border-t border-indigo-200 pt-0.5 mt-0.5"><span className="text-gray-600 font-semibold">Penyesuaian Jam Kerja</span><span className={t.adj>0?'text-green-700 font-black':'text-red-600 font-black'}>{t.adj>0?'+':''}{formatRupiah(t.adj)}</span></div></div></td></tr>}</React.Fragment>);})}
                                                     <tr className="bg-indigo-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Gaji Harian</td><td className="py-2 px-3 text-right text-indigo-800">{formatRupiah(modalDailySalary)}</td></tr>
                                                 </tbody>
                                             </table>
