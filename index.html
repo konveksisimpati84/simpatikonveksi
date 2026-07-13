@@ -11203,83 +11203,163 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <span>${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</span>
                     </div>
                 `);
-                const printContent = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>SG - ${data.empName}</title>
-                    <style>
-                        @page { size: A4 portrait; margin: 20mm 18mm; }
-                        html, body { width: auto; }
-                        body { font-family: Arial, sans-serif; color: #000; line-height: 1.35; margin: 0 auto; padding: 0; font-size: 12px; max-width: 520px; }
-                        .receipt { width: 100%; box-sizing: border-box; }
-                        .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-                        .header-logo { max-height: 46px; max-width: 80px; object-fit: contain; margin-bottom: 4px; }
-                        .header h1 { margin: 0; font-size: 16px; text-transform: uppercase; color: #000; line-height: 1.2; }
-                        .header p { margin: 3px 0 0 0; font-size: 11px; }
-                        .meta { border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-                        .meta-row { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
-                        .meta-label { color: #444; white-space: nowrap; }
-                        .meta-value { font-weight: bold; text-align: right; }
-                        .text-center { text-align: center; }
-                        .text-right { text-align: right; }
-                        .font-bold { font-weight: bold; }
-                        .muted { color: #555; font-size: 9px; line-height: 1.2; }
-                        .section-title { margin-top: 10px; padding: 5px 0 4px; border-top: 1px dashed #000; border-bottom: 1px dashed #bbb; font-size: 10px; font-weight: 900; text-transform: uppercase; }
-                        .section-list { margin-bottom: 2px; }
-                        .item-row { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dashed #ddd; }
-                        .item-row span:first-child { overflow-wrap: anywhere; }
-                        .item-row span:last-child { text-align: right; font-weight: bold; white-space: nowrap; }
-                        .item-row small { display: block; color: #555; font-size: 9px; font-weight: normal; margin-top: 1px; }
-                        .total-box { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 8px 0; margin-top: 8px; }
-                        .total-row { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0; }
-                        .grand-total { font-size: 14px; font-weight: 900; }
-                        .signature { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; text-align: center; font-size: 10px; }
-                        .sig-box { display: flex; flex-direction: column; align-items: center; min-height: 70px; }
-                        .sig-img { max-height: 52px; max-width: 100px; object-fit: contain; display: block; margin: 6px auto 0; }
-                        .signature-line { margin-top: auto; border-top: 1px solid #000; padding-top: 4px; width: 100%; }
-                        .footer-note { text-align: center; font-size: 9px; margin-top: 12px; color: #444; }
-                    </style>
-                </head>
-                <body>
-                    <div class="receipt">
-                        <div class="header">
-                            ${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo" />` : ''}
-                            <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
-                            <p>SLIP GAJI KARYAWAN</p>
-                        </div>
-                        <div class="meta">
-                            <div class="meta-row"><span class="meta-label">Nama</span><span class="meta-value">${data.empName}</span></div>
-                            <div class="meta-row"><span class="meta-label">Jabatan</span><span class="meta-value">${data.division}</span></div>
-                            <div class="meta-row"><span class="meta-label">Tanggal Cetak</span><span class="meta-value">${data.dateProcessed}</span></div>
-                            <div class="meta-row"><span class="meta-label">ID Rekap</span><span class="meta-value">${data.id}</span></div>
-                        </div>
-                        ${marketingRows.length > 0 ? sectionRows('Komisi Marketing', marketingRows) : ''}
-                        ${productionRows.length > 0 ? sectionRows('Gaji Produksi', productionRows) : ''}
-                        ${dailyRows.length > 0 ? sectionRows('Gaji Harian', dailyRows) : ''}
-                        ${overtimeRows.length > 0 ? sectionRows('Lembur', overtimeRows) : ''}
-                        ${safeMoney(data.cashAdvanceDeduction) > 0 ? sectionRows('Potongan - Kasbon', [`<div class="item-row"><span><b>Bayar kasbon sekarang</b><small>Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</small></span><span>${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>`]) : ''}
-                        <div class="total-box">
-                            <div class="total-row"><span>Total Pendapatan</span><span class="font-bold">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
-                            <div class="total-row"><span>Total Potongan</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
-                            <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? data.totalWage ?? 0)}</span></div>
-                        </div>
-                        <div class="signature">
-                            <div class="sig-box">
-                                <div>Penerima</div>
-                                <div class="signature-line">${data.empName || ''}</div>
-                            </div>
-                            <div class="sig-box">
-                                <div>Hormat Kami,</div>
-                                ${(templates?.signatureImage) ? `<img class="sig-img" src="${templates.signatureImage}" style="transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
-                                <div class="signature-line">${(templates?.companyName || 'Simpati Konveksi')}</div>
-                            </div>
-                        </div>
-                        <div class="footer-note">Simpan slip ini sebagai bukti rekap gaji karyawan.</div>
-                    </div>
-                </body>
-                </html>
+                const productionTableRows = (data.items || []).map((item, i) => `
+                    <tr>
+                        <td class="c">${i + 1}</td>
+                        <td>${item.orderId || '-'} &mdash; ${item.stageLabel || item.stage || '-'}</td>
+                        <td class="muted-cell">${item.client ? item.client + ' &middot; ' : ''}${item.type || '-'} | ${item.qty || 0} pcs &times; ${formatReceiptMoney(item.unitPrice || 0)}</td>
+                        <td class="r">${formatReceiptMoney(item.wageTotal || 0)}</td>
+                    </tr>
+                `).join('');
+                const dailyTableRows = dailyOnlyLogs.map((log, i) => `
+                    <tr>
+                        <td class="c">${i + 1}</td>
+                        <td>${log.date || '-'}</td>
+                        <td class="muted-cell">${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</td>
+                        <td class="r">${formatReceiptMoney(getDailySalaryLogTotal(log).daily)}</td>
+                    </tr>
+                `).join('');
+                const overtimeTableRows = overtimeLogs.map((log, i) => `
+                    <tr>
+                        <td class="c">${i + 1}</td>
+                        <td>${log.date || '-'}</td>
+                        <td class="muted-cell">${log.note || 'Lembur'} | ${log.overtimeCount || 0} hari</td>
+                        <td class="r">${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</td>
+                    </tr>
+                `).join('');
+                const marketingTableRows = relatedInvoices.map((inv, i) => `
+                    <tr${inv.isDeleted ? ' style="opacity:.6"' : ''}>
+                        <td class="c">${i + 1}</td>
+                        <td>${inv.id || '-'}${inv.isDeleted ? ' <span style="color:#dc2626;font-size:9px">(dihapus)</span>' : ''}</td>
+                        <td class="muted-cell">${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</td>
+                        <td class="r">${formatReceiptMoney(getInvoiceCommissionTotal(inv))}</td>
+                    </tr>
+                `).join('');
+                const subHeader = (label) => `<tr><td colspan="4" class="sub-header">${label}</td></tr>`;
+                const emptyRow = (label) => `<tr><td colspan="4" class="empty-row">${label}</td></tr>`;
+                const allTableRows = `
+                    ${productionRows.length > 0 ? subHeader('Gaji Produksi') + productionTableRows : ''}
+                    ${dailyRows.length > 0 ? subHeader('Gaji Harian') + dailyTableRows : ''}
+                    ${overtimeRows.length > 0 ? subHeader('Lembur') + overtimeTableRows : ''}
+                    ${marketingRows.length > 0 ? subHeader('Komisi Marketing') + marketingTableRows : ''}
+                    ${safeMoney(data.cashAdvanceDeduction) > 0 ? subHeader('Potongan — Kasbon') + `<tr><td class="c">−</td><td>Bayar kasbon</td><td class="muted-cell">Sisa sesudah: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</td><td class="r" style="color:#dc2626">− ${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</td></tr>` : ''}
+                    ${productionRows.length === 0 && dailyRows.length === 0 && overtimeRows.length === 0 && marketingRows.length === 0 ? emptyRow('Tidak ada rincian gaji.') : ''}
                 `;
+                const printContent = `<!DOCTYPE html><html><head><title>SG - ${data.empName}</title><style>
+@page{size:A4;margin:12mm 14mm}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:100%;min-height:297mm;display:flex;flex-direction:column}
+.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8mm;border-bottom:3px solid #1e3a5f}
+.brand{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.brand img{max-height:50px;max-width:140px;object-fit:contain}
+.brand .co-name{font-size:17px;font-weight:900;color:#1e3a5f;line-height:1.1;margin-top:2px}
+.brand .co-sub{font-size:10px;color:#64748b;margin-top:1px}
+.brand .co-contact{font-size:10px;color:#64748b;margin-top:1px}
+.slip-right{text-align:right}
+.slip-right .slip-label{font-size:26px;font-weight:900;color:#1e3a5f;letter-spacing:-1px;line-height:1}
+.slip-right .slip-id{font-size:11px;font-weight:700;color:#3b82f6;margin-top:3px}
+.slip-right .slip-date{font-size:10px;color:#64748b;margin-top:2px}
+.parties{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6mm}
+.party-box{background:#f4f6f8;border:1px solid #9ca3af;border-radius:7px;padding:9px 12px}
+.party-label{font-size:8.5px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-bottom:4px}
+.party-name{font-size:13px;font-weight:900;color:#1e3a5f;line-height:1.2}
+.party-detail{font-size:10px;color:#64748b;margin-top:2px;line-height:1.4}
+.items-section{margin-top:6mm}
+.items-section table{width:100%;border-collapse:collapse}
+.items-section thead th{background:#1e3a5f;color:#fff;padding:7px 8px;font-size:10px;text-align:left;font-weight:700}
+.items-section thead th.r{text-align:right}
+.items-section thead th.c{text-align:center;width:28px}
+.items-section tbody td{padding:6px 8px;font-size:11px;vertical-align:top;border-bottom:1px solid #e2e8f0}
+.items-section tbody td.r{text-align:right;font-weight:700;white-space:nowrap}
+.items-section tbody td.c{text-align:center;color:#64748b}
+.items-section tbody td.muted-cell{font-size:10px;color:#64748b}
+.items-section tbody tr:nth-child(even) td{background:#f8fafc}
+.sub-header td{background:#e8edf4;color:#1e3a5f;font-size:9.5px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;padding:5px 8px}
+.empty-row td{text-align:center;color:#94a3b8;font-style:italic;padding:16px 8px}
+.totals-section{display:grid;grid-template-columns:1fr 0.6fr;gap:14px;margin-top:5mm;page-break-inside:avoid;break-inside:avoid}
+.info-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:10px 12px}
+.info-label{font-size:8.5px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:5px}
+.amounts{background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:10px 12px}
+.amount-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:11px;border-bottom:1px dashed #e2e8f0}
+.amount-row:last-child{border:none}
+.amount-row.total-final{font-size:14px;font-weight:900;color:#1e3a5f;padding-top:7px;border-top:2px solid #1e3a5f;margin-top:3px;border-bottom:none}
+.amount-row .lbl{color:#64748b}
+.amount-row .val{font-weight:700}
+.footer-section{display:flex;justify-content:space-between;margin-top:8mm;padding-top:5mm;border-top:1px solid #9ca3af;page-break-before:avoid;break-before:avoid;page-break-inside:avoid;break-inside:avoid}
+.sign-box{text-align:center;width:180px}
+.sign-title{font-size:10px;font-weight:700;color:#374151;margin-bottom:0}
+.sign-img{max-height:100px;max-width:160px;object-fit:contain;display:block;margin:-12px auto -18px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}
+.sign-space{height:55px}
+.sign-line{border-bottom:1.5px solid #374151;margin-bottom:4px}
+.sign-name{font-size:11px;font-weight:700;color:#1e3a5f;text-decoration:underline;text-underline-offset:3px}
+.sign-sub{font-size:9px;color:#64748b;margin-top:2px}
+.footer-note{text-align:center;font-size:9px;margin-top:8mm;color:#64748b}
+</style></head><body><div class="page">
+<div class="header">
+  <div class="brand">
+    ${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : ''}
+    <div class="co-name">${templates?.companyName || 'SIMPATI KONVEKSI'}</div>
+    ${templates?.companySubtitle ? `<div class="co-sub">${templates.companySubtitle}</div>` : ''}
+    ${templates?.companyContact ? `<div class="co-contact">${templates.companyContact}</div>` : ''}
+  </div>
+  <div class="slip-right">
+    <div class="slip-label">SLIP GAJI</div>
+    <div class="slip-id">${data.id || '-'}</div>
+    <div class="slip-date">Tanggal: ${data.dateProcessed || '-'}</div>
+  </div>
+</div>
+<div class="parties">
+  <div class="party-box">
+    <div class="party-label">Karyawan</div>
+    <div class="party-name">${data.empName || '-'}</div>
+    <div class="party-detail">${data.division || '-'}</div>
+  </div>
+  <div class="party-box">
+    <div class="party-label">Diterbitkan Oleh</div>
+    <div class="party-name">${templates?.companyName || 'Simpati Konveksi'}</div>
+    ${templates?.companyContact ? `<div class="party-detail">${templates.companyContact}</div>` : ''}
+  </div>
+</div>
+<div class="items-section">
+  <table>
+    <thead><tr><th class="c">No.</th><th>Keterangan</th><th>Detail</th><th class="r">Jumlah</th></tr></thead>
+    <tbody>${allTableRows}</tbody>
+  </table>
+</div>
+<div class="totals-section">
+  <div class="info-box">
+    <div class="info-label">Informasi Rekap</div>
+    <div style="font-size:10px;color:#374151;line-height:1.7">
+      <div><span style="color:#64748b">ID Rekap:</span> <b>${data.id || '-'}</b></div>
+      <div><span style="color:#64748b">Tanggal:</span> <b>${data.dateProcessed || '-'}</b></div>
+      ${safeMoney(data.cashAdvanceDeduction) > 0 ? `<div style="margin-top:4px;padding-top:4px;border-top:1px dashed #e2e8f0;color:#dc2626"><span style="color:#64748b">Kasbon dipotong:</span> <b>${formatReceiptMoney(data.cashAdvanceDeduction)}</b></div>` : ''}
+    </div>
+  </div>
+  <div class="amounts">
+    <div class="amount-row"><span class="lbl">Total Pendapatan</span><span class="val">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
+    <div class="amount-row"><span class="lbl">Total Potongan</span><span class="val" style="color:#dc2626">− ${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
+    <div class="amount-row total-final"><span>Total Diterima</span><span style="color:${safeMoney(data.netSalary ?? data.totalWage) > 0 ? '#1e3a5f' : '#dc2626'}">${formatReceiptMoney(data.netSalary ?? data.totalWage ?? 0)}</span></div>
+  </div>
+</div>
+<div class="footer-section">
+  <div class="sign-box">
+    <div class="sign-title">Penerima,</div>
+    <div class="sign-space"></div>
+    <div class="sign-line"></div>
+    <div class="sign-name">${data.empName || ''}</div>
+    <div class="sign-sub">Karyawan</div>
+  </div>
+  <div class="sign-box">
+    <div class="sign-title">Hormat Kami,</div>
+    ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
+    <div class="sign-line"></div>
+    <div class="sign-name">${templates?.companyName || 'Simpati Konveksi'}</div>
+    <div class="sign-sub">Administration</div>
+  </div>
+</div>
+<div class="footer-note">Simpan slip ini sebagai bukti rekap gaji karyawan.</div>
+</div></body></html>`;
                 let printWindow = window.open('', '_blank');
                 if (printWindow) {
                     printWindow.document.open();
