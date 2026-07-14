@@ -12189,8 +12189,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 if (amount !== 0) hourAdjDetails.push({ date, selisihMenit, selisihJam, amount });
                             }
                         }
-                        const lMasukZone = mMidLembur != null ? lemb.filter(e => ttm(e.jam) <= mMidLembur) : lemb;
-                        const lPulangZone = mMidLembur != null ? lemb.filter(e => ttm(e.jam) > mMidLembur) : [];
+                        const lembFloor = aktifBoundary != null ? Math.max(mLM, aktifBoundary) : mLM;
+                        const lembForLembur = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= lembFloor);
+                        const lMasukZone = mMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= mMidLembur) : lembForLembur;
+                        const lPulangZone = mMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > mMidLembur) : [];
                         const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
                         const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length-1].jam : null;
                         const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
@@ -12326,7 +12328,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         if (rankSortBy === 'gaji_asc') return a.gajiDirekap - b.gajiDirekap;
                         return b[rankSortBy] - a[rankSortBy];
                     });
-            }, [rekapKinerja, safeOrdersForReport.length, rankMonth, rankDivFilter, rankSortBy, employees]);
+            }, [rekapKinerja, safeOrdersForReport, rankMonth, rankDivFilter, rankSortBy, employees]);
 
             return (
                 <div className="space-y-6">
