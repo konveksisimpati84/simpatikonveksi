@@ -4653,6 +4653,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [dateFilter, setDateFilter] = useState('');
             const [rekapYearFilter, setRekapYearFilter] = useState('Semua');
             const [rekapMonthFilter, setRekapMonthFilter] = useState('Semua');
+            const [rekapSortBy, setRekapSortBy] = useState('vendor');
             const [paymentInputs, setPaymentInputs] = useState({});
             const [previewImage, setPreviewImage] = useState(null);
             const [expandedPurchaseKeys, setExpandedPurchaseKeys] = useState({});
@@ -5828,6 +5829,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     return paid >= total ? 'Lunas' : 'Termin / Bayar Sebagian';
                 };
                 const vendorGroups = Object.values(groupedMaterials).filter(group => paymentStatusFilter === 'Semua' || getGroupPaymentStatus(group) === paymentStatusFilter).sort((a, b) => {
+                    if (rekapSortBy === 'totalDesc' || rekapSortBy === 'totalAsc') {
+                        const totalA = (a.items||[]).reduce((s,it) => s + getMaterialLineTotal(it), 0);
+                        const totalB = (b.items||[]).reduce((s,it) => s + getMaterialLineTotal(it), 0);
+                        return rekapSortBy === 'totalDesc' ? totalB - totalA : totalA - totalB;
+                    }
                     const vendorCompare = String(a.vendor).localeCompare(String(b.vendor));
                     if (vendorCompare !== 0) return vendorCompare;
                     return String(b.batchDateKey).localeCompare(String(a.batchDateKey));
@@ -5947,6 +5953,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                         </button>
                                     ))}
                                     {paymentStatusFilter !== 'Semua' && <button onClick={() => setPaymentStatusFilter('Semua')} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
+                                    <span className="text-gray-300">|</span>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="font-bold text-gray-600">Urutan:</span>
+                                        <select value={rekapSortBy} onChange={e => setRekapSortBy(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                                            <option value="vendor">Nama Vendor A–Z</option>
+                                            <option value="totalDesc">Total Terbesar</option>
+                                            <option value="totalAsc">Total Terkecil</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-gray-200 text-[11px] text-gray-500">
                                     <span>
