@@ -10955,7 +10955,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd) ids.add(String(emp.id));
                 });
                 return ids;
-            }, [employees, safeOrdersForReport.length, invoices, rekapKinerja]);
+            }, [employees, safeOrdersForReport, invoices, rekapKinerja]);
 
             const filteredReportEmployees = visibleEmployees.filter(emp => {
                 if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
@@ -12209,10 +12209,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const adjFields = (res.totalHourAdj !== 0 && res.hourAdjDetails?.length > 0)
                             ? { hourAdjustment: res.totalHourAdj, hourAdjDetails: res.hourAdjDetails }
                             : {};
-                        newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: res.hadir, dailySalary: safeMoney(emp.dailySalary)||0, overtimeCount: 0, overtimeRate: 0, ...adjFields });
+                        newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: res.hadir, dailySalary: res.dailySalaryRate, overtimeCount: 0, overtimeRate: 0, ...adjFields });
                     }
                     if (res.lembur > 0) {
-                        newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: 0, dailySalary: 0, overtimeCount: res.lembur, overtimeRate: safeMoney(emp.overtimeRate)||0 });
+                        newLogs.push({ ...baseLog, id: genId('DAY-'), workDays: 0, dailySalary: 0, overtimeCount: res.lembur, overtimeRate: res.overtimeRateVal });
                     }
                     if (newLogs.length === 0) return emp;
                     const nextLogs = [...newLogs, ...(Array.isArray(emp.dailySalaryLogs) ? emp.dailySalaryLogs : [])];
