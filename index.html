@@ -12148,8 +12148,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin) === pin);
                         const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
                         const sorted = [...dayLogs].sort((a,b) => a.jam > b.jam ? 1 : -1);
-                        const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mLM);
-                        const lemb = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mLM);
+                        const aktifBoundary = emp.customJamPulang ? ttm(emp.customJamPulang) : null;
+                        const aktif = aktifBoundary != null
+                            ? sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) <= aktifBoundary)
+                            : sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mLM);
+                        const lemb = aktifBoundary != null
+                            ? sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) > aktifBoundary)
+                            : sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mLM);
                         const masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
                         const pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
                         const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
