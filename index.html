@@ -2442,7 +2442,8 @@
                 if (!order) return 0;
                 const stagesOrder = getActiveProductionStageIds(order);
                 const currentIndex = stagesOrder.indexOf(stageId);
-                if (currentIndex <= 0) return order.sizes[size] || 0;
+                if (currentIndex < 0) return 0;
+                if (currentIndex === 0) return order.sizes[size] || 0;
                 for (let i = currentIndex - 1; i >= 0; i--) {
                     const prevStageId = stagesOrder[i];
                     const prevStageData = order.progress?.[prevStageId] || {};
@@ -2460,9 +2461,10 @@
                 const stagesOrder = getActiveProductionStageIds(order);
                 
                 stagesOrder.forEach(stageId => {
-                    const stageData = newProgress[stageId];
-                    if (!stageData) return;
-                    
+                    if (!newProgress[stageId]) return;
+                    const stageData = { ...newProgress[stageId] };
+                    newProgress[stageId] = stageData;
+
                     let isAllSizesCompleted = true;
                     let totalCompletedAllSizes = 0;
                     Object.keys(order.sizes).forEach(size => {
@@ -8528,14 +8530,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const getEmpProductionItems = (emp) => {
                 const items = [];
                 safeOrders.forEach(order => {
+                    const activeStageIds = getActiveProductionStageIds(order);
                     Object.entries(safeObject(order?.progress)).forEach(([stage, data]) => {
-                        const logs = safeArray(data?.workLogs).filter(log => !log?.isDeleted && String(log?.empId) === String(emp?.id) && log?.checkAfter && inRange(log?.submittedAt || log?.takenAt || order?.date));
+                        if (!activeStageIds.includes(stage)) return;
+                        const logs = safeArray(data?.workLogs).filter(log => {
+                            if (!log || log.isDeleted || String(log.empId) !== String(emp?.id) || !log.checkAfter) return false;
+                            const logDate = log.submittedAt || log.takenAt;
+                            return logDate ? inRange(logDate) : false;
+                        });
                         if (logs.length === 0) return;
-                        const qty = logs.reduce((sum, log) => sum + safeNumber(log?.submittedQty ?? log?.qty), 0);
+                        const qty = logs.reduce((sum, log) => sum + getWorkLogSubmittedQty(log), 0);
                         const stageLabel = safeArray(productionStageOptions).find(opt => opt.id === stage)?.label || stage;
                         let unitPrice = 0;
                         try { unitPrice = safeNumber(getProductionUnitPrice(order, stage)); } catch (error) { unitPrice = 0; }
-                        items.push({ orderId: safeText(order?.id), client: safeText(order?.client), type: safeText(order?.type), marketing: safeText(order?.marketing), stage: stageLabel, qty, wage: qty * unitPrice, date: logs[0]?.submittedAt || logs[0]?.takenAt || order?.date });
+                        const refDate = logs[0]?.submittedAt || logs[0]?.takenAt;
+                        items.push({ orderId: safeText(order?.id), client: safeText(order?.client), type: safeText(order?.type), marketing: safeText(order?.marketing), stage: stageLabel, qty, wage: qty * unitPrice, date: refDate });
                     });
                 });
                 return items;
