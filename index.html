@@ -12190,9 +12190,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             }
                         }
                         const lembFloor = aktifBoundary != null ? Math.max(mLM, aktifBoundary) : mLM;
+                        const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (lembFloor != null && mLS != null ? (lembFloor + mLS) / 2 : null);
                         const lembForLembur = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= lembFloor);
-                        const lMasukZone = mMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= mMidLembur) : lembForLembur;
-                        const lPulangZone = mMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > mMidLembur) : [];
+                        const lMasukZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= effectiveMidLembur) : lembForLembur;
+                        const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
                         const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
                         const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length-1].jam : null;
                         const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
@@ -18709,9 +18710,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const jamTelatEff = shiftConfig?.jamTelat || jamTelatConfig;
                 const jamPulangEff = shiftConfig?.jamPulang || jamPulangConfig;
                 const mLemburMulai = timeToMinutes(lemburMulaiConfig);
+                const mPulangEff = timeToMinutes(jamPulangEff);
+                const mAktifBoundary = (mPulangEff != null) ? Math.max(mLemburMulai, mPulangEff) : mLemburMulai;
                 const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
-                const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mLemburMulai);
-                const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mLemburMulai);
+                const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mAktifBoundary);
+                const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mAktifBoundary);
 
                 const mMasukCfg = timeToMinutes(jamMasukEff);
                 const mPulangCfg = timeToMinutes(jamPulangEff);
@@ -18727,7 +18730,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const mLemburSelesaiCfg = timeToMinutes(lemburSelesaiConfig);
                 const mMidLembur = titikTengahLemburConfig
                     ? timeToMinutes(titikTengahLemburConfig)
-                    : (mLemburMulai != null && mLemburSelesaiCfg != null) ? (mLemburMulai + mLemburSelesaiCfg) / 2 : null;
+                    : (mAktifBoundary != null && mLemburSelesaiCfg != null) ? (mAktifBoundary + mLemburSelesaiCfg) / 2 : null;
                 const lemburMasukZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) <= mMidLembur) : lemburEntries;
                 const lemburPulangZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) > mMidLembur) : [];
                 const rawLemburMasuk = lemburMasukZone.length > 0 ? lemburMasukZone[0].jam : null;
