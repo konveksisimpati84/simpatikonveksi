@@ -19613,7 +19613,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [showStickerModal, setShowStickerModal] = useState(false);
             const [stickerItem, setStickerItem] = useState(null);
             const [historyItem, setHistoryItem] = useState(null);
-            const emptyAmbilForm = { qty: '', clientName: '', note: '', date: new Date().toISOString().split('T')[0] };
+            const emptyAmbilForm = { qty: '', note: '', date: new Date().toISOString().split('T')[0] };
             const [ambilForm, setAmbilForm] = useState(emptyAmbilForm);
             const [adjustItem, setAdjustItem] = useState(null);
             const [adjustTargetQty, setAdjustTargetQty] = useState('');
@@ -19720,12 +19720,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 showToast('Transaksi dihapus.', 'success');
             };
 
-            const handleAmbilStok = (itemName, unit, saldo) => {
+            const handleAmbilStok = (itemName, unit, saldo, clientName) => {
                 const qty = Number(ambilForm.qty);
                 if (!qty || qty <= 0) return showToast('Jumlah harus angka positif', 'error');
                 if (qty > saldo) return showToast(`Jumlah melebihi saldo tersedia (${saldo} ${unit})`, 'error');
-                if (!ambilForm.clientName.trim()) return showToast('Pilih klien / instansi', 'error');
-                const record = { id: Date.now().toString() + Math.random().toString(36).slice(2), clientName: ambilForm.clientName, itemName, qty, unit, type: 'Keluar', date: ambilForm.date || new Date().toISOString().split('T')[0], note: ambilForm.note || '' };
+                const record = { id: Date.now().toString() + Math.random().toString(36).slice(2), clientName, itemName, qty, unit, type: 'Keluar', date: ambilForm.date || new Date().toISOString().split('T')[0], note: ambilForm.note || '' };
                 setStockItems(prev => [...prev, record]);
                 setAmbilForm(emptyAmbilForm);
                 showToast('Pengambilan stok berhasil disimpan.', 'success');
@@ -20013,30 +20012,22 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             <div className="border border-teal-200 rounded-xl p-4 bg-teal-50">
                                                 <div className="text-xs font-bold text-teal-700 mb-3">Ambil Stok</div>
                                                 <div className="space-y-2.5">
+                                                    <div className="text-xs text-teal-700 bg-teal-100 rounded-lg px-3 py-2">Klien: <span className="font-bold">{iClient || '—'}</span></div>
                                                     <div className="grid grid-cols-2 gap-2">
-                                                        <div>
-                                                            <label className="text-xs text-gray-500 mb-1 block">Klien / Instansi *</label>
-                                                            <select value={ambilForm.clientName} onChange={e => setAmbilForm(f => ({...f, clientName: e.target.value}))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
-                                                                <option value="">-- Pilih Klien --</option>
-                                                                {allClientNames.map(n => <option key={n} value={n}>{n}</option>)}
-                                                            </select>
-                                                        </div>
                                                         <div>
                                                             <label className="text-xs text-gray-500 mb-1 block">Jumlah ({iUnit}) *</label>
                                                             <input type="number" min="1" max={saldo} value={ambilForm.qty} onChange={e => setAmbilForm(f => ({...f, qty: e.target.value}))} placeholder={`Maks ${saldo}`} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
                                                         </div>
-                                                    </div>
-                                                    <div className="grid grid-cols-2 gap-2">
                                                         <div>
                                                             <label className="text-xs text-gray-500 mb-1 block">Tanggal</label>
                                                             <input type="date" value={ambilForm.date} onChange={e => setAmbilForm(f => ({...f, date: e.target.value}))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
                                                         </div>
-                                                        <div>
-                                                            <label className="text-xs text-gray-500 mb-1 block">Catatan (untuk siapa)</label>
-                                                            <input type="text" value={ambilForm.note} onChange={e => setAmbilForm(f => ({...f, note: e.target.value}))} placeholder="Misal: SDN 01 Bandung" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
-                                                        </div>
                                                     </div>
-                                                    <button onClick={() => handleAmbilStok(iName, iUnit, saldo)} className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-bold text-sm">Simpan Pengambilan</button>
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 mb-1 block">Catatan (untuk siapa)</label>
+                                                        <input type="text" value={ambilForm.note} onChange={e => setAmbilForm(f => ({...f, note: e.target.value}))} placeholder="Misal: SDN 01 Bandung" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
+                                                    </div>
+                                                    <button onClick={() => handleAmbilStok(iName, iUnit, saldo, iClient)} className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-bold text-sm">Simpan Pengambilan</button>
                                                 </div>
                                             </div>
                                         )}
