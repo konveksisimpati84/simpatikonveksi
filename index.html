@@ -4977,43 +4977,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         nextPayments[legacyKey] = applyEdit(nextPayments[legacyKey]);
                     }
                     const checkOrder = { ...o, materialPayments: nextPayments };
-                    return { ...o, materialPayments: nextPayments, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: updatedAt, materialLastAction: 'Edit Termin Pembayaran' };
+                    const nextStatus = computeMaterialStatus(checkOrder);
+                    return { ...o, materialPayments: nextPayments, materialStatus: nextStatus, materialPurchasedAt: nextStatus === 'Selesai' ? o.materialPurchasedAt : null, materialLastActionAt: updatedAt, materialLastAction: 'Edit Termin Pembayaran' };
                 }));
                 setEditingPaymentKey(null);
                 setEditPaymentForm({ amount: '', method: 'Transfer', note: '' });
                 showToast("Termin pembayaran diperbarui.", "success");
-            };
-
-            const markOrderMaterialsPurchased = (orderId, vendorName, batchDateKey) => {
-                const now = new Date().toISOString();
-                if (!orderId) return;
-                const order = (orders || []).find(o => String(o.id) === String(orderId));
-                if (!order) return;
-                const vendorKey = normalizeVendorName(vendorName);
-                const batchKey = getMaterialBatchKey(vendorKey, batchDateKey);
-                const vendorTotal = getVendorMaterialTotal(order, vendorKey, batchDateKey);
-                const paidTotal = getVendorPaidTotal(order, vendorKey, batchDateKey);
-                const remaining = Math.max(0, vendorTotal - paidTotal);
-
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) !== String(orderId)) return o;
-                    const nextPurchasedBatches = { ...(o.materialPurchasedBatches || {}), [batchKey]: true };
-                    const checkOrder = { ...o, materialPurchasedBatches: nextPurchasedBatches };
-                    const nextMatStatus = computeMaterialStatus(checkOrder);
-                    const allSettled = nextMatStatus === 'Selesai';
-                    return {
-                        ...o,
-                        materialPurchasedBatches: nextPurchasedBatches,
-                        materialStatus: nextMatStatus,
-                        materialPurchasedAt: allSettled ? now : o.materialPurchasedAt,
-                        materialLastActionAt: now,
-                        materialLastAction: allSettled ? 'Sudah Dibeli & Lunas' : `Vendor ${vendorKey} Sudah Dibelanjakan`,
-                        status: getOrderStatusAfterMaterialPurchase(o)
-                    };
-                }));
-                showToast(remaining > 0
-                    ? `Bahan sudah dibelanjakan. Sisa pembayaran ${formatRupiah(remaining)}, masih tetap di rekap vendor.`
-                    : `Bahan order ${orderId} dari ${vendorKey} sudah dibeli dan lunas.`, 'success');
             };
 
             const openDeletePurchaseConfirm = (group) => {
