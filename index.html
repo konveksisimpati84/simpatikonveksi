@@ -4699,9 +4699,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const riwayatBahanOrders = materialOrders
                 .filter(o => orderNeedsMaterials(o) && !!o.materialIsArchived)
                 .sort((a, b) => new Date(b.materialArchivedAt || b.date || b.createdAt || 0) - new Date(a.materialArchivedAt || a.date || a.createdAt || 0));
-            const riwayatYears = ['Semua', ...new Set(riwayatBahanOrders.map(o => String(o.date || o.createdAt || '').slice(0, 4)).filter(Boolean)).values()].filter(Boolean);
+            const riwayatYears = ['Semua', ...new Set(riwayatBahanOrders.map(o => String(o.materialArchivedAt || o.date || o.createdAt || '').slice(0, 4)).filter(Boolean)).values()].filter(Boolean);
             const filteredRiwayatBahan = riwayatBahanOrders.filter(o => {
-                const yearMatch = riwayatYearFilter === 'Semua' || String(o.date || o.createdAt || '').startsWith(riwayatYearFilter);
+                const yearMatch = riwayatYearFilter === 'Semua' || String(o.materialArchivedAt || o.date || o.createdAt || '').startsWith(riwayatYearFilter);
                 const searchMatch = !riwayatSearch.trim() || matchesSearch(orderSearchFields(o), riwayatSearch);
                 return yearMatch && searchMatch;
             });
@@ -4715,13 +4715,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (anyPaid) return 'Termin / Bayar Sebagian';
                 return 'Belum Bayar';
             };
-            const filterOrder = (order) => {
+            const filterOrder = (order, opts = {}) => {
                 const matchesDate = !dateFilter || String(order?.date || '').slice(0, 10) === dateFilter || String(order?.deadline || '').slice(0, 10) === dateFilter || getActiveMaterials(order).some(mat => getMaterialBatchDateKey(order, mat) === dateFilter);
                 const matchesStatus = statusFilter === 'Semua' || (order?.materialStatus || 'Belum') === statusFilter;
-                const matchesPayment = paymentStatusFilter === 'Semua' || getOrderPaymentStatus(order) === paymentStatusFilter;
+                const matchesPayment = opts.skipPayment || paymentStatusFilter === 'Semua' || getOrderPaymentStatus(order) === paymentStatusFilter;
                 return matchesSearch(orderSearchFields(order), searchTerm) && matchesDate && matchesStatus && matchesPayment;
             };
-            const filteredActiveOrders = activeOrders.filter(filterOrder)
+            const filteredActiveOrders = activeOrders.filter(o => filterOrder(o))
                 .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const filteredRekapOrders = React.useMemo(() => rekapOrders.filter(o => {
                 if (rekapYearFilter !== 'Semua' || rekapMonthFilter !== 'Semua') {
@@ -4741,9 +4741,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         if (rekapMonthFilter !== 'Semua' && orderDate.slice(5, 7) !== rekapMonthFilter) return false;
                     }
                 }
-                return filterOrder(o);
+                return filterOrder(o, { skipPayment: true });
             }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0)),
-            [rekapOrders, rekapYearFilter, rekapMonthFilter, searchTerm, dateFilter]);
+            [rekapOrders, rekapYearFilter, rekapMonthFilter, searchTerm, dateFilter, statusFilter]);
             const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
             const toggleMatOrder = (id) => setExpandedMatOrderIds(prev => ({ ...prev, [id]: !prev[id] }));
             const { page: bahanPage, setPage: setBahanPage, totalPages: bahanTotalPages, paged: pagedActiveOrders, total: bahanTotal } = usePagination(filteredActiveOrders, 20);
@@ -4882,11 +4882,23 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             String(pay.id) === String(paymentId) ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
                         );
                     }
-                    const checkOrder = { ...o, materialPayments: nextPayments };
+                    // Reset materialPurchasedBatches[batchKey] jika tidak ada lagi pembayaran aktif untuk batch ini
+                    const allBatchPayments = [
+                        ...safeArray(nextPayments[batchKey]),
+                        ...(legacyKey !== batchKey ? safeArray(nextPayments[legacyKey]) : [])
+                    ];
+                    const hasActiveBatchPayment = allBatchPayments.some(p => !p.isDeleted);
+                    let nextBatches = o.materialPurchasedBatches || {};
+                    if (!hasActiveBatchPayment && nextBatches[batchKey]) {
+                        nextBatches = { ...nextBatches };
+                        delete nextBatches[batchKey];
+                    }
+                    const checkOrder = { ...o, materialPayments: nextPayments, materialPurchasedBatches: nextBatches };
                     const nextStatus = computeMaterialStatus(checkOrder);
                     return {
                         ...o,
                         materialPayments: nextPayments,
+                        materialPurchasedBatches: nextBatches,
                         materialStatus: nextStatus,
                         materialPurchasedAt: nextStatus === 'Selesai' ? o.materialPurchasedAt : null,
                         materialLastActionAt: now,
@@ -5842,9 +5854,16 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const nextPayments = { ...pmts, [batchKey]: (pmts[batchKey] || []).map(p =>
                         String(p.notaPaymentId) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
                     )};
-                    const checkOrder = { ...order, materialPayments: nextPayments };
+                    // Reset materialPurchasedBatches[batchKey] jika tidak ada lagi pembayaran aktif untuk batch ini
+                    const hasActiveBatchPayment = safeArray(nextPayments[batchKey]).some(p => !p.isDeleted);
+                    let nextBatches = order.materialPurchasedBatches || {};
+                    if (!hasActiveBatchPayment && nextBatches[batchKey]) {
+                        nextBatches = { ...nextBatches };
+                        delete nextBatches[batchKey];
+                    }
+                    const checkOrder = { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextBatches };
                     const nextStatus = computeMaterialStatus(checkOrder);
-                    return { ...order, materialPayments: nextPayments, materialStatus: nextStatus, materialPurchasedAt: nextStatus === 'Selesai' ? order.materialPurchasedAt : null, materialLastActionAt: now, materialLastAction: 'Hapus Pembayaran Nota' };
+                    return { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextBatches, materialStatus: nextStatus, materialPurchasedAt: nextStatus === 'Selesai' ? order.materialPurchasedAt : null, materialLastActionAt: now, materialLastAction: 'Hapus Pembayaran Nota' };
                 }));
                 // Soft-delete porsi manual yang bertag notaPaymentId ini
                 setManualVendorPayments(prev => ({
@@ -6312,10 +6331,17 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
                     {activeTab !== 'riwayat_bahan' && (
                         <Card>
-                            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                                 <div className="md:col-span-2">
                                     <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan, status..." />
                                 </div>
+                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                                    <option value="Semua">Semua Status Bahan</option>
+                                    <option value="Belum">Belum Direkap</option>
+                                    <option value="Direkap">Sudah Direkap</option>
+                                    <option value="Dibeli Sebagian">Dibeli Sebagian</option>
+                                    <option value="Selesai">Selesai</option>
+                                </select>
                                 <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={paymentStatusFilter} onChange={e => setPaymentStatusFilter(e.target.value)}>
                                     <option value="Semua">Semua Pembayaran</option>
                                     <option value="Belum Bayar">Belum Bayar</option>
@@ -6508,7 +6534,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 </div>
                                 <div className="flex flex-col gap-2">
                                     <button onClick={() => setDeletePurchaseConfirm(null)} className="w-full px-4 py-2 font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg transition-colors text-sm">Batal</button>
-                                    <button onClick={() => applyPurchaseDelete('return')} className="w-full px-4 py-2 font-bold text-orange-800 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors text-sm">Hapus dari Nota & Kembalikan ke Input Pembelian</button>
+                                    <button onClick={() => applyPurchaseDelete('return')} className="w-full px-4 py-2 font-bold text-orange-800 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors text-sm">Hapus Nota & Batalkan Pembelian (bahan kembali ke daftar order)</button>
                                     <button onClick={() => applyPurchaseDelete('permanent')} className="w-full px-4 py-2 font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm">Hapus Permanen</button>
                                 </div>
                             </div>
@@ -9549,11 +9575,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const pmts = order.materialPayments || {};
                 const allPmtKeys = Object.keys(pmts);
                 Object.entries(pmts).forEach(([paymentKey, payments]) => {
-                    // Skip old-format key (tanpa |||) jika ada new-format key untuk vendor yang sama
+                    // Skip old-format key (tanpa |||) hanya jika ada new-format key dengan pembayaran aktif untuk vendor yang sama
                     if (!paymentKey.includes('|||')) {
                         const vendorNorm = normalizeVendorName(paymentKey);
-                        const hasNewKey = allPmtKeys.some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vendorNorm);
-                        if (hasNewKey) return;
+                        const hasActiveNewKey = allPmtKeys.some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vendorNorm && safeArray(pmts[k]).some(p => !p.isDeleted));
+                        if (hasActiveNewKey) return;
                     }
                     const vendor = paymentKey.includes('|||') ? paymentKey.split('|||')[0] : paymentKey;
                     (Array.isArray(payments) ? payments : []).filter(p => !p.isDeleted).forEach((pay, idx) => {
@@ -9620,20 +9646,33 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             isHutang: true
                         }];
                     }),
-                ...safeArray(manualPurchases).filter(isVisibleRecord).map(mp => ({
-                    id: mp.id,
-                    orderId: null,
-                    date: mp.purchaseDate || new Date().toISOString().slice(0, 10),
-                    client: '-',
-                    type: 'Pembelian Manual',
-                    totalPcs: 0,
-                    total: getMaterialLineTotal(mp),
-                    vendors: [String(mp.vendor || 'Tanpa Vendor').trim()],
-                    materials: [mp],
-                    isPayment: false,
-                    isManual: true,
-                    isHutang: mp.purchaseStatus === 'Belum Dibeli' || mp.purchaseStatus === 'Termin'
-                }))
+                ...safeArray(manualPurchases).filter(isVisibleRecord).flatMap(mp => {
+                    const manualBatchKey = getMaterialBatchKey(mp.vendor || 'Tanpa Vendor', mp.purchaseDate || '');
+                    const manualPaysList = safeArray((manualVendorPayments || {})[manualBatchKey]).filter(p => !p.isDeleted);
+                    const hasManualPayments = manualPaysList.length > 0;
+                    const manualPaid = manualPaysList.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+                    const manualTotal = getMaterialLineTotal(mp);
+                    const baseRow = {
+                        orderId: null,
+                        date: mp.purchaseDate || new Date().toISOString().slice(0, 10),
+                        client: '-',
+                        type: 'Pembelian Manual',
+                        totalPcs: 0,
+                        vendors: [String(mp.vendor || 'Tanpa Vendor').trim()],
+                        materials: [mp],
+                        isManual: true
+                    };
+                    if (hasManualPayments) {
+                        const paidAmt = Math.min(manualPaid, manualTotal);
+                        const remaining = manualTotal - paidAmt;
+                        const rows = [];
+                        if (paidAmt > 0) rows.push({ ...baseRow, id: `${mp.id}-paid`, total: paidAmt, isPayment: true, isHutang: false });
+                        if (remaining > 0) rows.push({ ...baseRow, id: `${mp.id}-hutang`, total: remaining, isPayment: false, isHutang: true });
+                        if (rows.length === 0) rows.push({ ...baseRow, id: mp.id, total: manualTotal, isPayment: false, isHutang: true });
+                        return rows;
+                    }
+                    return [{ ...baseRow, id: mp.id, total: manualTotal, isPayment: false, isHutang: mp.purchaseStatus === 'Belum Dibeli' || mp.purchaseStatus === 'Termin' }];
+                })
             ];
 
             const allWageRows = safeFinanceRekaps
