@@ -149,7 +149,13 @@
             absensiLemburMulai: '18:00',
             absensiLemburSelesai: '21:00',
             absensiTitikTengah: '',
-            absensiTitikTengahLembur: ''
+            absensiTitikTengahLembur: '',
+            absensiShifts: [
+                { id: 'shift1', name: 'Shift 1', jamMasuk: '07:00', jamTelat: '07:30', jamPulang: '16:30' },
+                { id: 'shift2', name: 'Shift 2', jamMasuk: '13:00', jamTelat: '13:30', jamPulang: '22:30' },
+                { id: 'shift3', name: 'Shift 3', jamMasuk: '19:00', jamTelat: '19:30', jamPulang: '21:00' },
+            ],
+            absensiShiftAssignments: []
         };
 
         const disabledMenuIds = new Set([]);
@@ -1780,14 +1786,6 @@
                                 <div><label className="block text-sm mb-1 font-semibold">Status</label><select className="w-full p-2 border rounded" value={newEmp.status} onChange={e => setNewEmp({...newEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
                                 <div className="md:col-span-2"><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(newEmp.salaryTypes||['Produksi']).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(newEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setNewEmp({...newEmp, salaryTypes: (newEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(newEmp.salaryTypes||['Produksi']).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setNewEmp({...newEmp, salaryTypes: [...(newEmp.salaryTypes||['Produksi']), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(newEmp.salaryTypes||['Produksi']).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
                                 <div><label className="block text-sm mb-1 font-semibold">PIN Finger</label><input type="text" className="w-full p-2 border rounded" placeholder="PIN di mesin absensi" value={newEmp.fingerPin || ''} onChange={e => setNewEmp({...newEmp, fingerPin: e.target.value})} /></div>
-                                <div className="md:col-span-2 bg-purple-50 border border-purple-100 rounded-lg p-3">
-                                    <div className="text-xs font-bold text-purple-700 mb-2">⚙ Shift Jam Khusus <span className="font-normal text-gray-500">(opsional)</span></div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                        <div><label className="block text-xs mb-1 text-gray-600">Jam Masuk</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={newEmp.customJamMasuk || ''} onChange={e => setNewEmp({...newEmp, customJamMasuk: e.target.value || ''})} /></div>
-                                        <div><label className="block text-xs mb-1 text-gray-600">Batas Telat</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={newEmp.customJamTelat || ''} onChange={e => setNewEmp({...newEmp, customJamTelat: e.target.value || ''})} /></div>
-                                        <div><label className="block text-xs mb-1 text-gray-600">Jam Pulang</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={newEmp.customJamPulang || ''} onChange={e => setNewEmp({...newEmp, customJamPulang: e.target.value || ''})} /></div>
-                                    </div>
-                                </div>
                                 <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={newEmp.dailySalary} onChange={e => setNewEmp({...newEmp, dailySalary: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Tarif Lembur/jam</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="Nominal lembur per jam" value={newEmp.overtimeRate || ''} onChange={e => setNewEmp({...newEmp, overtimeRate: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Potongan Kurang Jam (Rp/jam)</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="0 = tidak ada potongan" value={newEmp.rateKurang || ''} onChange={e => setNewEmp({...newEmp, rateKurang: e.target.value})} /></div>
@@ -2054,14 +2052,6 @@
                                     <div><label className="block text-sm mb-1 font-semibold">Nomor HP</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.phone} onChange={e => setEditEmp({...editEmp, phone: e.target.value})} /></div>
                                     <div><label className="block text-sm mb-1 font-semibold">Status Pekerja</label><select className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.status} onChange={e => setEditEmp({...editEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
                                     <div><label className="block text-sm mb-1 font-semibold">PIN Finger</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" placeholder="PIN di mesin absensi" value={editEmp.fingerPin || ''} onChange={e => setEditEmp({...editEmp, fingerPin: e.target.value})} /></div>
-                                                <div className="bg-purple-50 border border-purple-100 rounded-lg p-3">
-                                                    <div className="text-xs font-bold text-purple-700 mb-2">⚙ Shift Jam Khusus <span className="font-normal text-gray-500">(opsional — kosongkan untuk ikut setting global)</span></div>
-                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                                        <div><label className="block text-xs mb-1 text-gray-600">Jam Masuk</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={editEmp.customJamMasuk || ''} onChange={e => setEditEmp({...editEmp, customJamMasuk: e.target.value || ''})} /></div>
-                                                        <div><label className="block text-xs mb-1 text-gray-600">Batas Telat</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={editEmp.customJamTelat || ''} onChange={e => setEditEmp({...editEmp, customJamTelat: e.target.value || ''})} /></div>
-                                                        <div><label className="block text-xs mb-1 text-gray-600">Jam Pulang</label><input type="time" className="w-full p-1.5 border rounded text-sm" value={editEmp.customJamPulang || ''} onChange={e => setEditEmp({...editEmp, customJamPulang: e.target.value || ''})} /></div>
-                                                    </div>
-                                                </div>
                                     <div><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(editEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setEditEmp({...editEmp, salaryTypes: (editEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, salaryTypes: [...(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
                                     <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={editEmp.dailySalary || ''} onChange={e => setEditEmp({...editEmp, dailySalary: e.target.value})} /></div>
                                     <div><label className="block text-sm mb-1 font-semibold">Tarif Lembur/jam</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="Nominal lembur per jam" value={editEmp.overtimeRate || ''} onChange={e => setEditEmp({...editEmp, overtimeRate: e.target.value})} /></div>
@@ -12216,9 +12206,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const results = [];
                 targetEmps.forEach(emp => {
                     const pin = String(emp.fingerPin).trim();
-                    const jmCfg = emp.customJamMasuk || templates?.absensiJamMasuk || '07:00';
-                    const jpCfg = emp.customJamPulang || templates?.absensiJamPulang || '16:30';
+                    const empAssignment = safeArray(templates?.absensiShiftAssignments).find(a => String(a.pin) === pin);
+                    const empPrimaryId = empAssignment ? safeArray(empAssignment.shifts).find(id => id !== 'shift3') : null;
+                    const empHasShift3 = empAssignment ? safeArray(empAssignment.shifts).includes('shift3') : false;
+                    const empPrimaryShift = empPrimaryId ? safeArray(templates?.absensiShifts).find(s => s.id === empPrimaryId) : null;
+                    const empShift3 = empHasShift3 ? safeArray(templates?.absensiShifts).find(s => s.id === 'shift3') : null;
+                    const jmCfg = empPrimaryShift?.jamMasuk || templates?.absensiJamMasuk || '07:00';
+                    const jpCfg = empPrimaryShift?.jamPulang || templates?.absensiJamPulang || '16:30';
                     const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
+                    const hasEmpShiftAssignment = !!empAssignment;
                     const mMid = ttCfg ? ttm(ttCfg) : (mMasukCfg != null && mPulangCfg != null ? (mMasukCfg + mPulangCfg) / 2 : null);
                     // Find existing absensi logs that overlap with requested range
                     // Abaikan log yatim: rekapId ada tapi rekapnya tidak ada / sudah terhapus
@@ -12242,13 +12238,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin) === pin);
                         const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
                         const sorted = [...dayLogs].sort((a,b) => a.jam > b.jam ? 1 : -1);
-                        const aktifBoundary = emp.customJamPulang ? ttm(emp.customJamPulang) : null;
-                        const aktif = aktifBoundary != null
-                            ? sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) <= aktifBoundary)
-                            : sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mLM);
-                        const lemb = aktifBoundary != null
-                            ? sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) > aktifBoundary)
-                            : sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mLM);
+                        const mShift3Masuk = empShift3 ? ttm(empShift3.jamMasuk) : null;
+                        const mPrimPulang = ttm(jpCfg);
+                        const lembFloorBase = mShift3Masuk !== null ? mShift3Masuk : mLM;
+                        const mAktifBoundary = mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase;
+                        const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mAktifBoundary);
                         const masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
                         const pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
                         const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
@@ -12268,9 +12262,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 if (amount !== 0) hourAdjDetails.push({ date, selisihMenit, selisihJam, amount });
                             }
                         }
-                        const lembFloor = aktifBoundary != null ? Math.max(mLM, aktifBoundary) : mLM;
-                        const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (lembFloor != null && mLS != null ? (lembFloor + mLS) / 2 : null);
-                        const lembForLembur = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= lembFloor);
+                        const shouldCalcLembur = empShift3 !== null ? true : !hasEmpShiftAssignment;
+                        const mShift3Pulang = empShift3 ? ttm(empShift3.jamPulang) : null;
+                        const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : mLS;
+                        const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (mAktifBoundary != null && mLemburSelesaiRef != null ? (mAktifBoundary + mLemburSelesaiRef) / 2 : null);
+                        const lembForLembur = shouldCalcLembur ? sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mAktifBoundary) : [];
                         const lMasukZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= effectiveMidLembur) : lembForLembur;
                         const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
                         const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
@@ -12279,7 +12275,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         const jlPulang = override?.jamLemburPulang || rawLPulang;
                         const mLMasuk = ttm(jlMasuk), mLPulang = ttm(jlPulang);
                         const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
-                        if (lemburMenit >= 60) lembur += Math.round(lemburMenit / 60 * 10) / 10;
+                        if (shouldCalcLembur && lemburMenit >= 60) lembur += Math.round(lemburMenit / 60 * 10) / 10;
                     });
                     const totalHourAdj = hourAdjDetails.reduce((s, d) => s + d.amount, 0);
                     // alreadyRekaped only when ALL dates in range are already covered
@@ -18708,6 +18704,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const lemburSelesaiConfig = templates?.absensiLemburSelesai || '21:00';
             const titikTengahConfig = templates?.absensiTitikTengah || '';
             const titikTengahLemburConfig = templates?.absensiTitikTengahLembur || '';
+            const absensiShifts = templates?.absensiShifts || [
+                { id: 'shift1', name: 'Shift 1', jamMasuk: '07:00', jamTelat: '07:30', jamPulang: '16:30' },
+                { id: 'shift2', name: 'Shift 2', jamMasuk: '13:00', jamTelat: '13:30', jamPulang: '22:30' },
+                { id: 'shift3', name: 'Shift 3', jamMasuk: '19:00', jamTelat: '19:30', jamPulang: '21:00' },
+            ];
+            const absensiShiftAssignments = templates?.absensiShiftAssignments || [];
 
             const [activeTab, setActiveTab] = useState('log');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -18728,6 +18730,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [filterEmp, setFilterEmp] = useState('');
             const [autoRefresh, setAutoRefresh] = useState(true);
             const [detailRow, setDetailRow] = React.useState(null);
+            const [editShiftModal, setEditShiftModal] = React.useState(null);
+            const [editShiftForm, setEditShiftForm] = React.useState({});
 
             const visibleEmployees = safeArray(employees).filter(isVisibleRecord);
             const pinMap = {};
@@ -18783,21 +18787,81 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === getEditKey(pin, tanggal));
             };
 
+            const getShiftConfigForPin = (pin) => {
+                const assignment = safeArray(absensiShiftAssignments).find(a => String(a.pin) === String(pin));
+                if (!assignment || !safeArray(assignment.shifts).length) return null;
+                const primaryId = safeArray(assignment.shifts).find(id => id !== 'shift3');
+                const hasShift3 = safeArray(assignment.shifts).includes('shift3');
+                const primaryShift = primaryId ? absensiShifts.find(s => s.id === primaryId) : null;
+                const shift3 = hasShift3 ? absensiShifts.find(s => s.id === 'shift3') : null;
+                if (!primaryShift) return null;
+                return { jamMasuk: primaryShift.jamMasuk, jamTelat: primaryShift.jamTelat, jamPulang: primaryShift.jamPulang, shift3: shift3 || null };
+            };
+
+            const checkShiftOverlap = (shiftIds) => {
+                if (shiftIds.length < 2) return false;
+                const shifts = shiftIds.map(id => absensiShifts.find(s => s.id === id)).filter(Boolean);
+                for (let i = 0; i < shifts.length; i++) {
+                    for (let j = i + 1; j < shifts.length; j++) {
+                        const a = shifts[i], b = shifts[j];
+                        const aStart = timeToMinutes(a.jamMasuk), aEnd = timeToMinutes(a.jamPulang);
+                        const bStart = timeToMinutes(b.jamMasuk), bEnd = timeToMinutes(b.jamPulang);
+                        if (aStart < bEnd && bStart < aEnd) return true;
+                    }
+                }
+                return false;
+            };
+
+            const saveShiftConfig = (updatedShift) => {
+                const newShifts = absensiShifts.map(s => s.id === updatedShift.id ? { ...s, ...updatedShift } : s);
+                const now = new Date().toISOString();
+                setTemplates(prev => {
+                    const next = { ...prev, absensiShifts: newShifts, _syncUpdatedAt: now };
+                    try { localStorage.setItem('simpati_templates_sync', JSON.stringify(next)); } catch(e) {}
+                    return next;
+                });
+                setEditShiftModal(null);
+                showToast(`${updatedShift.name} berhasil disimpan.`, 'success');
+            };
+
+            const saveShiftAssignment = (pin, selectedShifts) => {
+                if (selectedShifts.length > 0 && checkShiftOverlap(selectedShifts)) {
+                    const names = selectedShifts.map(id => absensiShifts.find(s => s.id === id)?.name || id).join(' dan ');
+                    showToast(`${names} waktunya tumpang tindih, tidak bisa digabung.`, 'error');
+                    return;
+                }
+                const newAssignments = safeArray(absensiShiftAssignments).filter(a => String(a.pin) !== String(pin));
+                if (selectedShifts.length > 0) newAssignments.push({ pin: String(pin), shifts: selectedShifts });
+                const now = new Date().toISOString();
+                setTemplates(prev => {
+                    const next = { ...prev, absensiShiftAssignments: newAssignments, _syncUpdatedAt: now };
+                    try { localStorage.setItem('simpati_templates_sync', JSON.stringify(next)); } catch(e) {}
+                    return next;
+                });
+                showToast('Penugasan shift disimpan.', 'success');
+            };
+
             // Hitung jam masuk/pulang/lembur otomatis dari scan mentah satu hari, dioverride manual bila ada
             const computeDayMetrics = (entries, override, shiftConfig) => {
                 const jamMasukEff = shiftConfig?.jamMasuk || jamMasukConfig;
                 const jamTelatEff = shiftConfig?.jamTelat || jamTelatConfig;
                 const jamPulangEff = shiftConfig?.jamPulang || jamPulangConfig;
-                const mLemburMulai = timeToMinutes(lemburMulaiConfig);
+                const hasShiftAssignment = shiftConfig !== null && shiftConfig !== undefined;
+                const shift3 = shiftConfig?.shift3 || null;
+
+                // Lembur boundary: shift3.jamMasuk if shift3 assigned, else global lemburMulaiConfig
+                const mShift3Masuk = shift3 ? timeToMinutes(shift3.jamMasuk) : null;
+                const mShift3Pulang = shift3 ? timeToMinutes(shift3.jamPulang) : null;
+                const mLemburFloor = mShift3Masuk !== null ? mShift3Masuk : timeToMinutes(lemburMulaiConfig);
                 const mPulangEff = timeToMinutes(jamPulangEff);
-                const mAktifBoundary = (mPulangEff != null) ? Math.max(mLemburMulai, mPulangEff) : mLemburMulai;
+                const mAktifBoundary = (mPulangEff != null) ? Math.max(mLemburFloor, mPulangEff) : mLemburFloor;
+
                 const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
                 const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mAktifBoundary);
                 const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mAktifBoundary);
 
                 const mMasukCfg = timeToMinutes(jamMasukEff);
                 const mPulangCfg = timeToMinutes(jamPulangEff);
-                // Titik tengah: pakai nilai manual jika diisi, fallback auto-hitung
                 const mMid = titikTengahConfig
                     ? timeToMinutes(titikTengahConfig)
                     : (mMasukCfg != null && mPulangCfg != null) ? (mMasukCfg + mPulangCfg) / 2 : null;
@@ -18806,14 +18870,19 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
                 const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
 
-                const mLemburSelesaiCfg = timeToMinutes(lemburSelesaiConfig);
-                const mMidLembur = titikTengahLemburConfig
-                    ? timeToMinutes(titikTengahLemburConfig)
-                    : (mAktifBoundary != null && mLemburSelesaiCfg != null) ? (mAktifBoundary + mLemburSelesaiCfg) / 2 : null;
-                const lemburMasukZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) <= mMidLembur) : lemburEntries;
-                const lemburPulangZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) > mMidLembur) : [];
-                const rawLemburMasuk = lemburMasukZone.length > 0 ? lemburMasukZone[0].jam : null;
-                const rawLemburPulang = lemburPulangZone.length > 0 ? lemburPulangZone[lemburPulangZone.length - 1].jam : null;
+                // Lembur: hitung jika ada shift3 (atau fallback jika belum ada assignment sama sekali)
+                let rawLemburMasuk = null, rawLemburPulang = null;
+                const shouldComputeLembur = shift3 !== null ? true : !hasShiftAssignment;
+                if (shouldComputeLembur && lemburEntries.length > 0) {
+                    const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : timeToMinutes(lemburSelesaiConfig);
+                    const mMidLembur = titikTengahLemburConfig
+                        ? timeToMinutes(titikTengahLemburConfig)
+                        : (mLemburFloor != null && mLemburSelesaiRef != null) ? (mLemburFloor + mLemburSelesaiRef) / 2 : null;
+                    const lemburMasukZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) <= mMidLembur) : lemburEntries;
+                    const lemburPulangZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) > mMidLembur) : [];
+                    rawLemburMasuk = lemburMasukZone.length > 0 ? lemburMasukZone[0].jam : null;
+                    rawLemburPulang = lemburPulangZone.length > 0 ? lemburPulangZone[lemburPulangZone.length - 1].jam : null;
+                }
 
                 const jamMasuk = override?.jamMasuk || rawMasuk;
                 const jamPulang = override?.jamPulang || rawPulang;
@@ -18822,12 +18891,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                 const mMasuk = timeToMinutes(jamMasuk);
                 const mTelat = timeToMinutes(jamTelatEff);
-
                 let status = 'Tepat Waktu';
                 if (mMasuk == null) status = 'Tidak Ada Data';
                 else if (mMasuk > mTelat) status = 'Terlambat';
 
-                // Lembur = durasi sesi lembur (masuk lembur sampai pulang lembur)
                 let lemburMenit = 0;
                 const mLMasuk = timeToMinutes(jamLemburMasuk);
                 const mLPulang = timeToMinutes(jamLemburPulang);
@@ -18844,11 +18911,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const rows = [];
                 Object.entries(groups).forEach(([pin, entries]) => {
                     const override = getEditOverride(pin, date);
-                    const empObj = visibleEmployees.find(e => String(e.fingerPin).trim() === pin);
-                    const shiftConfig = (empObj?.customJamMasuk || empObj?.customJamTelat || empObj?.customJamPulang) ? { jamMasuk: empObj.customJamMasuk || null, jamTelat: empObj.customJamTelat || null, jamPulang: empObj.customJamPulang || null } : null;
+                    const shiftConfig = getShiftConfigForPin(pin);
+                    const shiftAssign = absensiShiftAssignments.find(a => String(a.pin) === String(pin));
+                    const shiftLabel = shiftAssign ? safeArray(shiftAssign.shifts).map(id => absensiShifts.find(s => s.id === id)?.name || id).join(' + ') : null;
                     const metrics = computeDayMetrics(entries, override, shiftConfig);
                     const nama = pinMap[pin] || override?.namaManual || `PIN: ${pin}`;
-                    rows.push({ pin, nama, tanggal: date, ...metrics, scanCount: entries.length, override, note: override?.note || '', hasCustomShift: !!shiftConfig });
+                    rows.push({ pin, nama, tanggal: date, ...metrics, scanCount: entries.length, override, note: override?.note || '', hasCustomShift: !!shiftConfig, shiftLabel });
                 });
 
                 // Tampilkan SEMUA karyawan ber-PIN, termasuk yang belum absen sama sekali
@@ -18856,14 +18924,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const pin = String(emp.fingerPin).trim();
                     if (!groups[pin]) {
                         const override = getEditOverride(pin, date);
-                        const hasCustomShift = !!(emp.customJamMasuk || emp.customJamTelat || emp.customJamPulang);
+                        const shiftConfig = getShiftConfigForPin(pin);
+                        const shiftAssign = absensiShiftAssignments.find(a => String(a.pin) === String(pin));
+                        const shiftLabel = shiftAssign ? safeArray(shiftAssign.shifts).map(id => absensiShifts.find(s => s.id === id)?.name || id).join(' + ') : null;
+                        const hasCustomShift = !!shiftConfig;
                         if (override && (override.jamMasuk || override.jamPulang || override.jamLemburMasuk)) {
-                            const shiftCfg = hasCustomShift ? { jamMasuk: emp.customJamMasuk||null, jamTelat: emp.customJamTelat||null, jamPulang: emp.customJamPulang||null } : null;
-                            const metrics = computeDayMetrics([], override, shiftCfg);
-                            rows.push({ pin, nama: emp.name, tanggal: date, ...metrics, scanCount: 0, override, note: override?.note || '', hasCustomShift });
+                            const metrics = computeDayMetrics([], override, shiftConfig);
+                            rows.push({ pin, nama: emp.name, tanggal: date, ...metrics, scanCount: 0, override, note: override?.note || '', hasCustomShift, shiftLabel });
                         } else {
                             // Belum absen — tetap tampilkan dengan status Tidak Ada Data
-                            rows.push({ pin, nama: emp.name, tanggal: date, jamMasuk: null, jamPulang: null, rawMasuk: null, rawPulang: null, jamLemburMasuk: null, jamLemburPulang: null, rawLemburMasuk: null, rawLemburPulang: null, status: 'Tidak Ada Data', lemburMenit: 0, scanCount: 0, override: null, note: '', hasCustomShift });
+                            rows.push({ pin, nama: emp.name, tanggal: date, jamMasuk: null, jamPulang: null, rawMasuk: null, rawPulang: null, jamLemburMasuk: null, jamLemburPulang: null, rawLemburMasuk: null, rawLemburPulang: null, status: 'Tidak Ada Data', lemburMenit: 0, scanCount: 0, override: null, note: '', hasCustomShift, shiftLabel });
                         }
                     }
                 });
@@ -19004,8 +19074,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const entries = groups[`${pin}|${dateStr}`] || [];
                         const override = getEditOverride(pin, dateStr);
                         if (entries.length === 0 && !override) return;
-                        const empObjR = visibleEmployees.find(e => String(e.fingerPin).trim() === pin);
-                        const shiftConfigR = (empObjR?.customJamMasuk || empObjR?.customJamTelat || empObjR?.customJamPulang) ? { jamMasuk: empObjR.customJamMasuk || null, jamTelat: empObjR.customJamTelat || null, jamPulang: empObjR.customJamPulang || null } : null;
+                        const shiftConfigR = getShiftConfigForPin(pin);
                         const metrics = computeDayMetrics(entries, override, shiftConfigR);
                         if (metrics.jamMasuk) {
                             empMap[pin].hadir++;
@@ -19036,9 +19105,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     if (!groups[l.tanggal]) groups[l.tanggal] = [];
                     groups[l.tanggal].push(l);
                 });
-                const shiftConfig = (rekapEmpObj?.customJamMasuk || rekapEmpObj?.customJamTelat || rekapEmpObj?.customJamPulang)
-                    ? { jamMasuk: rekapEmpObj.customJamMasuk || null, jamTelat: rekapEmpObj.customJamTelat || null, jamPulang: rekapEmpObj.customJamPulang || null }
-                    : null;
+                const shiftConfig = getShiftConfigForPin(rekapEmpPin);
                 const days = [];
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = `${rekapMonth}-${String(d).padStart(2,'0')}`;
@@ -19151,6 +19218,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             <button onClick={() => setActiveTab('log')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'log' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Log Absensi</button>
                             <button onClick={() => setActiveTab('rekap')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'rekap' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Rekap Bulanan</button>
                             <button onClick={() => setActiveTab('raw')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'raw' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Data Raw Mesin</button>
+                            <button onClick={() => setActiveTab('shift_config')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'shift_config' ? 'bg-purple-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Konfigurasi Shift</button>
+                            <button onClick={() => setActiveTab('shift_assign')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'shift_assign' ? 'bg-purple-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Penugasan Shift</button>
                         </div>
 
                         {activeTab === 'log' && (
@@ -19610,6 +19679,105 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </tr>
                                             ))}</tbody>
                                         </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'shift_config' && (
+                            <div>
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-500">Atur jam kerja untuk setiap shift. Shift 3 berfungsi sebagai blok lembur — karyawan yang ditugaskan Shift 3 akan dihitung lembur berdasarkan jam ini.</p>
+                                </div>
+                                <div className="space-y-3">
+                                    {absensiShifts.map(shift => (
+                                        <div key={shift.id} className={`border rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 ${shift.id === 'shift3' ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-gray-50'}`}>
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className={`font-bold text-sm ${shift.id === 'shift3' ? 'text-orange-700' : 'text-gray-800'}`}>{shift.name}</span>
+                                                    {shift.id === 'shift3' && <span className="text-xs bg-orange-100 text-orange-700 font-bold px-2 py-0.5 rounded-full">Lembur</span>}
+                                                </div>
+                                                <div className="text-sm text-gray-600">
+                                                    Masuk: <strong>{shift.jamMasuk}</strong> · Batas Telat: <strong>{shift.jamTelat}</strong> · Pulang: <strong>{shift.jamPulang}</strong>
+                                                    <span className="ml-3 text-gray-400">({Math.round((timeToMinutes(shift.jamPulang) - timeToMinutes(shift.jamMasuk)))} menit = {((timeToMinutes(shift.jamPulang) - timeToMinutes(shift.jamMasuk))/60).toFixed(1)} jam)</span>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => { setEditShiftForm({ ...shift }); setEditShiftModal(shift.id); }} className="px-3 py-1.5 bg-white border border-gray-300 rounded text-sm font-semibold hover:bg-gray-50">✏ Edit Jam</button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                                    <strong>Catatan:</strong> Perubahan jam shift berlaku untuk semua karyawan yang sudah ditugaskan ke shift tersebut. Data absensi lama tetap aman karena hanya cara pembacaan yang berubah, bukan data tap-nya.
+                                </div>
+
+                                {editShiftModal && (
+                                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                                        <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+                                            <h3 className="text-lg font-bold mb-4">Edit {editShiftForm.name}</h3>
+                                            <div className="space-y-3">
+                                                <div><label className="block text-sm font-semibold mb-1">Jam Masuk</label><input type="time" className="w-full p-2 border rounded" value={editShiftForm.jamMasuk || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamMasuk: e.target.value }))} /></div>
+                                                <div><label className="block text-sm font-semibold mb-1">Batas Telat</label><input type="time" className="w-full p-2 border rounded" value={editShiftForm.jamTelat || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamTelat: e.target.value }))} /></div>
+                                                <div><label className="block text-sm font-semibold mb-1">Jam Pulang</label><input type="time" className="w-full p-2 border rounded" value={editShiftForm.jamPulang || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamPulang: e.target.value }))} /></div>
+                                                {editShiftForm.jamMasuk && editShiftForm.jamPulang && timeToMinutes(editShiftForm.jamPulang) > timeToMinutes(editShiftForm.jamMasuk) && (
+                                                    <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">Durasi: {Math.round(timeToMinutes(editShiftForm.jamPulang) - timeToMinutes(editShiftForm.jamMasuk))} menit ({((timeToMinutes(editShiftForm.jamPulang) - timeToMinutes(editShiftForm.jamMasuk))/60).toFixed(1)} jam)</div>
+                                                )}
+                                            </div>
+                                            <div className="flex gap-2 mt-4">
+                                                <button onClick={() => setEditShiftModal(null)} className="flex-1 px-4 py-2 border rounded font-semibold text-gray-700 hover:bg-gray-50">Batal</button>
+                                                <button onClick={() => {
+                                                    if (!editShiftForm.jamMasuk || !editShiftForm.jamTelat || !editShiftForm.jamPulang) { showToast('Semua jam wajib diisi.', 'error'); return; }
+                                                    if (timeToMinutes(editShiftForm.jamPulang) <= timeToMinutes(editShiftForm.jamMasuk)) { showToast('Jam pulang harus lebih dari jam masuk.', 'error'); return; }
+                                                    saveShiftConfig(editShiftForm);
+                                                }} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700">Simpan</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'shift_assign' && (
+                            <div>
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-500">Tugaskan shift untuk setiap karyawan. Setiap karyawan bisa mendapat 1 atau 2 shift (Shift 1 + Shift 3 untuk yang lembur). Perubahan langsung tersimpan.</p>
+                                </div>
+                                {empsFP.length === 0 ? (
+                                    <div className="text-center py-10 text-gray-400 italic">Belum ada karyawan dengan PIN Finger terdaftar.</div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {empsFP.map(emp => {
+                                            const pin = String(emp.fingerPin).trim();
+                                            const assignment = absensiShiftAssignments.find(a => String(a.pin) === pin);
+                                            const currentShifts = safeArray(assignment?.shifts);
+                                            return (
+                                                <div key={pin} className="border rounded-lg p-3 flex items-center justify-between flex-wrap gap-3 bg-white">
+                                                    <div>
+                                                        <div className="font-semibold text-sm text-gray-800">{emp.name}</div>
+                                                        <div className="text-xs text-gray-500">PIN: {pin}</div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        {absensiShifts.map(shift => {
+                                                            const isChecked = currentShifts.includes(shift.id);
+                                                            return (
+                                                                <label key={shift.id} className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2.5 py-1.5 rounded-full border transition-colors ${isChecked ? (shift.id === 'shift3' ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-blue-100 border-blue-300 text-blue-700') : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
+                                                                    <input type="checkbox" className="hidden" checked={isChecked} onChange={(e) => {
+                                                                        let next;
+                                                                        if (e.target.checked) {
+                                                                            next = [...currentShifts, shift.id];
+                                                                        } else {
+                                                                            next = currentShifts.filter(id => id !== shift.id);
+                                                                        }
+                                                                        saveShiftAssignment(pin, next);
+                                                                    }} />
+                                                                    {shift.name}{shift.id === 'shift3' ? ' (Lembur)' : ''}
+                                                                </label>
+                                                            );
+                                                        })}
+                                                        {currentShifts.length === 0 && <span className="text-xs text-gray-400 italic">Belum ditugaskan (pakai setting global)</span>}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
