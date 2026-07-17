@@ -4951,9 +4951,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const currentOrder = orders.find(o => String(o.id) === String(orderId));
                 if (currentOrder) {
                     const vendorTotal = getVendorMaterialTotal(currentOrder, vendorName, batchDateKey);
-                    // Cek key baru dulu, fallback ke key lama jika kosong
+                    // Cek key baru dulu (hanya jika ada entry aktif), fallback ke key lama
                     const pmts = currentOrder.materialPayments || {};
-                    const allPayments = safeArray(pmts[batchKey]).length > 0 ? safeArray(pmts[batchKey]) : safeArray(pmts[legacyKey]);
+                    const hasActiveInBatchKey = safeArray(pmts[batchKey]).some(p => !p?.isDeleted);
+                    const allPayments = hasActiveInBatchKey ? safeArray(pmts[batchKey]) : safeArray(pmts[legacyKey]);
                     const otherPayments = allPayments.filter(p => String(p.id) !== String(paymentId) && !p.isDeleted);
                     const otherPaid = otherPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
                     const maxAllowed = Math.max(0, vendorTotal - otherPaid);
