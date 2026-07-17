@@ -4821,7 +4821,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             materials: validMaterials,
                             materialPurchasedBatches: nextPurchasedBatches,
                             materialStatus: nextStatus,
-                            materialPurchasedAt: o.materialPurchasedAt,
+                            materialPurchasedAt: nextStatus === 'Selesai' ? (o.materialPurchasedAt || now) : null,
                             materialLastActionAt: now,
                             materialLastAction: activeMaterialCount === 0 ? 'Disimpan' : 'Bahan Diinput - Menunggu Konfirmasi Pembelian',
                             status: nextOrderStatus
@@ -5039,6 +5039,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         materialPurchasedVendors: nextPurchasedVendors,
                         materialPurchasedBatches: nextPurchasedBatches,
                         materialStatus: nextMaterialStatus,
+                        materialPurchasedAt: nextMaterialStatus === 'Selesai' ? (order.materialPurchasedAt || now) : null,
                         status: nextOrderStatus,
                         materialLastActionAt: now,
                         materialLastAction: `Nota ${vendorKey} dihapus untuk input ulang`,
@@ -5792,7 +5793,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         // Tandai batch sebagai "sudah dibeli" — syarat agar computeMaterialStatus bisa Selesai
                         const nextPurchasedBatches = { ...(order.materialPurchasedBatches || {}), [batchKey]: true };
                         const checkOrder = { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches };
-                        return { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches, materialStatus: computeMaterialStatus(checkOrder), materialLastActionAt: now, materialLastAction: 'Pembayaran Vendor', status: getOrderStatusAfterMaterialPurchase(order) };
+                        const nextStatus = computeMaterialStatus(checkOrder);
+                        return { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches, materialStatus: nextStatus, materialPurchasedAt: nextStatus === 'Selesai' ? (order.materialPurchasedAt || now) : null, materialLastActionAt: now, materialLastAction: 'Pembayaran Vendor', status: getOrderStatusAfterMaterialPurchase(order) };
                     }));
                 }
                 if (manualShare > 0 && manualItems.length > 0) {
