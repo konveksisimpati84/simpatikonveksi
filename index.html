@@ -12214,7 +12214,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     const jmCfg = empPrimaryShift?.jamMasuk || templates?.absensiJamMasuk || '07:00';
                     const jpCfg = empPrimaryShift?.jamPulang || templates?.absensiJamPulang || '16:30';
                     const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
-                    const hasEmpShiftAssignment = !!empAssignment;
+                    const hasEmpShiftAssignment = !!(empAssignment && safeArray(empAssignment.shifts).length > 0);
                     const mMid = ttCfg ? ttm(ttCfg) : (mMasukCfg != null && mPulangCfg != null ? (mMasukCfg + mPulangCfg) / 2 : null);
                     // Find existing absensi logs that overlap with requested range
                     // Abaikan log yatim: rekapId ada tapi rekapnya tidak ada / sudah terhapus
@@ -12262,7 +12262,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                 if (amount !== 0) hourAdjDetails.push({ date, selisihMenit, selisihJam, amount });
                             }
                         }
-                        const shouldCalcLembur = empShift3 !== null ? true : !hasEmpShiftAssignment;
+                        const shouldCalcLembur = empShift3 != null ? true : !hasEmpShiftAssignment;
                         const mShift3Pulang = empShift3 ? ttm(empShift3.jamPulang) : null;
                         const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : mLS;
                         const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (mAktifBoundary != null && mLemburSelesaiRef != null ? (mAktifBoundary + mLemburSelesaiRef) / 2 : null);
@@ -18815,11 +18815,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const saveShiftConfig = (updatedShift) => {
                 const newShifts = absensiShifts.map(s => s.id === updatedShift.id ? { ...s, ...updatedShift } : s);
                 const now = new Date().toISOString();
-                setTemplates(prev => {
-                    const next = { ...prev, absensiShifts: newShifts, _syncUpdatedAt: now };
-                    try { localStorage.setItem('simpati_templates_sync', JSON.stringify(next)); } catch(e) {}
-                    return next;
-                });
+                setTemplates(prev => ({ ...prev, absensiShifts: newShifts, _syncUpdatedAt: now }));
                 setEditShiftModal(null);
                 showToast(`${updatedShift.name} berhasil disimpan.`, 'success');
             };
@@ -18830,14 +18826,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     showToast(`${names} waktunya tumpang tindih, tidak bisa digabung.`, 'error');
                     return;
                 }
+                const hasPrimary = selectedShifts.some(id => id !== 'shift3');
+                if (selectedShifts.includes('shift3') && !hasPrimary) {
+                    showToast('Shift 3 (Lembur) membutuhkan Shift 1 atau Shift 2 sebagai shift utama.', 'error');
+                    return;
+                }
                 const newAssignments = safeArray(absensiShiftAssignments).filter(a => String(a.pin) !== String(pin));
                 if (selectedShifts.length > 0) newAssignments.push({ pin: String(pin), shifts: selectedShifts });
                 const now = new Date().toISOString();
-                setTemplates(prev => {
-                    const next = { ...prev, absensiShiftAssignments: newAssignments, _syncUpdatedAt: now };
-                    try { localStorage.setItem('simpati_templates_sync', JSON.stringify(next)); } catch(e) {}
-                    return next;
-                });
+                setTemplates(prev => ({ ...prev, absensiShiftAssignments: newAssignments, _syncUpdatedAt: now }));
                 showToast('Penugasan shift disimpan.', 'success');
             };
 
@@ -18877,7 +18874,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : timeToMinutes(lemburSelesaiConfig);
                     const mMidLembur = titikTengahLemburConfig
                         ? timeToMinutes(titikTengahLemburConfig)
-                        : (mLemburFloor != null && mLemburSelesaiRef != null) ? (mLemburFloor + mLemburSelesaiRef) / 2 : null;
+                        : (mAktifBoundary != null && mLemburSelesaiRef != null) ? (mAktifBoundary + mLemburSelesaiRef) / 2 : null;
                     const lemburMasukZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) <= mMidLembur) : lemburEntries;
                     const lemburPulangZone = mMidLembur != null ? lemburEntries.filter(e => timeToMinutes(e.jam) > mMidLembur) : [];
                     rawLemburMasuk = lemburMasukZone.length > 0 ? lemburMasukZone[0].jam : null;
@@ -18886,8 +18883,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                 const jamMasuk = override?.jamMasuk || rawMasuk;
                 const jamPulang = override?.jamPulang || rawPulang;
-                const jamLemburMasuk = override?.jamLemburMasuk || rawLemburMasuk;
-                const jamLemburPulang = override?.jamLemburPulang || rawLemburPulang;
+                const jamLemburMasuk = shouldComputeLembur ? (override?.jamLemburMasuk || rawLemburMasuk) : null;
+                const jamLemburPulang = shouldComputeLembur ? (override?.jamLemburPulang || rawLemburPulang) : null;
 
                 const mMasuk = timeToMinutes(jamMasuk);
                 const mTelat = timeToMinutes(jamTelatEff);
