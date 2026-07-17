@@ -4754,9 +4754,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const openMaterialModal = (order) => {
                 setSelectedOrder(order);
                 const allMaterials = safeArray(order.materials);
-                const hasActiveMaterials = allMaterials.some(m => !m?.isDeleted);
+                // returnedToInput=true: bahan yang dikembalikan ke input — tampilkan kembali di form untuk diedit ulang
+                const hasActiveMaterials = allMaterials.some(m => !m?.isDeleted || m?.returnedToInput);
                 const existingMaterials = hasActiveMaterials
-                    ? [...allMaterials]
+                    ? allMaterials.map(m => m?.returnedToInput ? { ...m, isDeleted: false, returnedToInput: false } : m)
                     : allMaterials.length > 0
                         ? [...allMaterials, { id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }]
                         : [{ id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }];
@@ -4774,10 +4775,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const removeMaterialRow = (idToRemove) => {
-                const existed = getActiveMaterials(selectedOrder).some(m => String(m.id) === String(idToRemove));
+                // Cek seluruh materials (termasuk returnedToInput) agar tombstone tersimpan dan aman saat sync
+                const existed = safeArray(selectedOrder.materials).some(m => String(m.id) === String(idToRemove));
                 if (existed) {
                     const now = new Date().toISOString();
-                    setMaterials(materials.map(m => String(m.id) === String(idToRemove) ? { ...m, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : m));
+                    setMaterials(materials.map(m => String(m.id) === String(idToRemove) ? { ...m, isDeleted: true, returnedToInput: false, deletedAt: now, _syncUpdatedAt: now } : m));
                     return;
                 }
                 setMaterials(materials.filter(m => String(m.id) !== String(idToRemove)));
@@ -4803,6 +4805,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         _syncUpdatedAt: m.isDeleted ? (m._syncUpdatedAt || now) : now
                     }));
                 const activeMaterialCount = validMaterials.filter(m => !m.isDeleted).length;
+                const hasNegativeValues = validMaterials.filter(m => !m.isDeleted).some(m => (parseFloat(m.qty) || 0) < 0 || (parseFloat(m.price) || 0) < 0);
+                if (hasNegativeValues) { showToast('Qty dan harga tidak boleh bernilai negatif.', 'error'); return; }
 
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) === String(selectedOrder.id)) {
@@ -5741,6 +5745,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const method = String(paymentInputs[inputKey]?.method || 'Transfer').trim() || 'Transfer';
                 if (totalAmount <= 0) { showToast("Isi nominal pembayaran terlebih dahulu.", "error"); savingPaymentRef.current = false; return; }
                 setIsSavingPayment(true);
+                try {
                 const orderRemaining = orderGroups.reduce((sum, group) => {
                     if (!group.order) return sum;
                     const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
@@ -5754,8 +5759,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     showToast(totalRemaining <= 0
                         ? `Nota vendor ini sudah lunas, tidak ada sisa hutang.`
                         : `Pembayaran melebihi sisa hutang vendor (${formatRupiah(totalRemaining)})`, 'error');
-                    setIsSavingPayment(false);
-                    savingPaymentRef.current = false;
                     return;
                 }
                 const notaPaymentId = `NOTA-PAY-${Date.now()}`;
@@ -5803,9 +5806,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     setManualVendorPayments(prev => ({ ...(prev || {}), [batchKey]: [...safeArray((prev || {})[batchKey]), payment] }));
                 }
                 setPaymentInputs(prev => ({ ...prev, [inputKey]: { amount: '', note: '', date: '', method: 'Transfer' } }));
-                setIsSavingPayment(false);
-                savingPaymentRef.current = false;
                 showToast(`Pembayaran ${formatRupiah(totalAmount)} berhasil dicatat.`, "success");
+                } finally {
+                    setIsSavingPayment(false);
+                    savingPaymentRef.current = false;
+                }
             };
 
             const deleteNotaPayment = (batchKey, notaPaymentId) => {
