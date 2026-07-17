@@ -18938,7 +18938,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return rows.filter(r => !filterEmp || r.nama.toLowerCase().includes(filterEmp.toLowerCase()) || r.pin.includes(filterEmp));
             };
 
-            const dailyRows = React.useMemo(() => buildDailySummary(rawLogs, selectedDate), [rawLogs, selectedDate, absensiEdits, employees, filterEmp]);
+            const dailyRows = React.useMemo(() => buildDailySummary(rawLogs, selectedDate), [rawLogs, selectedDate, absensiEdits, employees, filterEmp, templates]);
 
             const printSertifikatAbsensi = (emp, bulan, tmpl) => {
                 const safe = (v) => String(v ?? '-').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -19084,7 +19084,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return Object.values(empMap).filter(r => !filterEmp || r.nama.toLowerCase().includes(filterEmp.toLowerCase())).sort((a,b) => a.nama.localeCompare(b.nama));
             };
 
-            const rekapRows = React.useMemo(() => buildRekap(), [monthLogs, rekapMonth, rekapMinggu, absensiEdits, employees, filterEmp]);
+            const rekapRows = React.useMemo(() => buildRekap(), [monthLogs, rekapMonth, rekapMinggu, absensiEdits, employees, filterEmp, templates]);
 
             const empsFP = visibleEmployees.filter(e => e.fingerPin);
             const rekapEmpPin = rekapEmp || (empsFP[0] ? String(empsFP[0].fingerPin).trim() : '');
@@ -19118,7 +19118,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
                 return days;
             };
-            const rekapDetail = React.useMemo(() => buildRekapDetail(), [monthLogs, rekapMonth, rekapEmpPin, absensiEdits, employees]);
+            const rekapDetail = React.useMemo(() => buildRekapDetail(), [monthLogs, rekapMonth, rekapEmpPin, absensiEdits, employees, templates]);
 
             const openEdit = (row) => {
                 setEditForm({ pin: row.pin, tanggal: row.tanggal, nama: row.nama, jamMasuk: row.jamMasuk || '', jamPulang: row.jamPulang || '', jamLemburMasuk: row.jamLemburMasuk || '', jamLemburPulang: row.jamLemburPulang || '', note: row.note || '' });
