@@ -5084,12 +5084,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const totalEstimasi = validMaterials.reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
                 const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(num);
                 const tglCetak = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
                 const printContent = `
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Daftar Belanja Bahan - ${selectedOrder.id}</title>
+                    <title>Daftar Belanja Bahan - ${escHtml(selectedOrder.id)}</title>
                     <style>
                         body { font-family: 'Arial', sans-serif; padding: 20px; color: #000; line-height: 1.5; }
                         .header { display: flex; align-items: center; justify-content: center; position: relative; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
@@ -5128,19 +5129,19 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         <table>
                             <tr>
                                 <td style="width: 150px;" class="font-bold">ID Order</td>
-                                <td>: <strong>${selectedOrder.id}</strong></td>
+                                <td>: <strong>${escHtml(selectedOrder.id)}</strong></td>
                                 <td style="width: 150px;" class="font-bold">Total Barang</td>
-                                <td>: ${selectedOrder.total} pcs</td>
+                                <td>: ${escHtml(selectedOrder.total)} pcs</td>
                             </tr>
                             <tr>
                                 <td class="font-bold">Klien / Instansi</td>
-                                <td>: ${selectedOrder.client}</td>
+                                <td>: ${escHtml(selectedOrder.client)}</td>
                                 <td class="font-bold">Tanggal Cetak</td>
                                 <td>: ${tglCetak}</td>
                             </tr>
                             <tr>
                                 <td class="font-bold">Jenis Produksi</td>
-                                <td colspan="3">: ${selectedOrder.type}</td>
+                                <td colspan="3">: ${escHtml(selectedOrder.type)}</td>
                             </tr>
                         </table>
                     </div>
@@ -5169,9 +5170,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             ${validMaterials.map((item, idx) => `
                                 <tr>
                                     <td class="text-center">${idx + 1}</td>
-                                    <td class="font-bold">${item.name}</td>
-                                    <td>${item.vendor || '-'}</td>
-                                    <td class="text-center">${item.qty} ${item.unit}</td>
+                                    <td class="font-bold">${escHtml(item.name)}</td>
+                                    <td>${escHtml(item.vendor || '-')}</td>
+                                    <td class="text-center">${escHtml(item.qty)} ${escHtml(item.unit)}</td>
                                     <td class="text-right">${item.price ? formatRupiah(item.price) : '-'}</td>
                                     <td class="text-right font-bold">${formatRupiah(getMaterialLineTotal(item))}</td>
                                     <td class="text-center"><div class="checkbox-box"></div></td>
@@ -5210,8 +5211,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const totalEstimasi = items.reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
                 const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(num);
                 const tglCetak = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-                const printContent = `<!DOCTYPE html><html><head><title>Daftar Belanja - ${vendorName}</title><style>
+                const printContent = `<!DOCTYPE html><html><head><title>Daftar Belanja - ${escHtml(vendorName)}</title><style>
 @page{size:A4;margin:0}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -5273,7 +5275,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   </div>
   <div class="party-box">
     <div class="party-label">Kepada / Vendor / Toko</div>
-    <div class="party-name">${vendorName}</div>
+    <div class="party-name">${escHtml(vendorName)}</div>
     <div class="party-detail">Mohon siapkan bahan sesuai daftar di bawah.</div>
   </div>
 </div>
@@ -5299,10 +5301,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
         <td class="c">
           ${item.designImage1 ? `<img src="${item.designImage1}" class="design-thumb"/>` : `<div class="design-empty">Tdk ada</div>`}
         </td>
-        <td class="b">${item.name}${item.spec ? `<div style="font-size:10px;font-weight:400;color:#64748b">${item.spec}</div>` : ''}${item.isManual ? `<span class="manual-badge">MANUAL</span>` : ''}</td>
-        <td style="font-size:10px">${item.isManual ? '<span style="color:#94a3b8;font-style:italic">— Pembelian Manual —</span>' : `<span style="font-weight:700">${item.orderId}</span><br/><span style="color:#64748b">${item.client || ''}</span>`}</td>
-        <td style="font-size:10px">${item.isManual ? '-' : (item.type || '-')}</td>
-        <td class="c b">${item.qty} ${item.unit}</td>
+        <td class="b">${escHtml(item.name)}${item.spec ? `<div style="font-size:10px;font-weight:400;color:#64748b">${escHtml(item.spec)}</div>` : ''}${item.isManual ? `<span class="manual-badge">MANUAL</span>` : ''}</td>
+        <td style="font-size:10px">${item.isManual ? '<span style="color:#94a3b8;font-style:italic">— Pembelian Manual —</span>' : `<span style="font-weight:700">${escHtml(item.orderId)}</span><br/><span style="color:#64748b">${escHtml(item.client || '')}</span>`}</td>
+        <td style="font-size:10px">${item.isManual ? '-' : escHtml(item.type || '-')}</td>
+        <td class="c b">${escHtml(item.qty)} ${escHtml(item.unit)}</td>
         <td class="r">${item.price ? formatRupiah(item.price) : '-'}</td>
         <td class="r b">${formatRupiah(getMaterialLineTotal(item))}</td>
         <td class="c"><div class="checkbox-box"></div></td>
@@ -5713,6 +5715,20 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const deleteManualPurchase = (id) => {
                 const now = new Date().toISOString();
+                const target = safeArray(manualPurchases).find(mp => String(mp.id) === String(id));
+                if (target) {
+                    const bk = getMaterialBatchKey(target.vendor || 'Tanpa Vendor', target.purchaseDate || '');
+                    const otherActive = safeArray(manualPurchases).some(mp =>
+                        String(mp.id) !== String(id) && !mp.isDeleted &&
+                        getMaterialBatchKey(mp.vendor || 'Tanpa Vendor', mp.purchaseDate || '') === bk
+                    );
+                    if (!otherActive) {
+                        setManualVendorPayments(prev => ({
+                            ...(prev || {}),
+                            [bk]: safeArray((prev || {})[bk]).map(p => ({ ...p, isDeleted: true, _syncUpdatedAt: now }))
+                        }));
+                    }
+                }
                 setManualPurchases(prev => safeArray(prev).map(mp => String(mp.id) === String(id) ? { ...mp, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : mp));
                 showToast("Bahan manual dihapus.", "success");
             };
