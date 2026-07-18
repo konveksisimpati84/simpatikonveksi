@@ -19851,9 +19851,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [historyItem, setHistoryItem] = useState(null);
             const emptyAmbilForm = { qty: '', note: '', date: new Date().toISOString().split('T')[0] };
             const [ambilForm, setAmbilForm] = useState(emptyAmbilForm);
-            const [adjustItem, setAdjustItem] = useState(null);
-            const [adjustTargetQty, setAdjustTargetQty] = useState('');
-            const [adjustNote, setAdjustNote] = useState('');
+            const emptyTambahForm = { qty: '', note: '', date: new Date().toISOString().split('T')[0] };
+            const [tambahForm, setTambahForm] = useState(emptyTambahForm);
             const [printStokItem, setPrintStokItem] = useState(null);
             const [printStokNote, setPrintStokNote] = useState('');
 
@@ -19922,29 +19921,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setPrintStokItem(null);
             };
 
-            const handleSaveAdjust = () => {
-                if (!adjustItem) return;
-                const target = Number(String(adjustTargetQty).replace(/[^0-9]/g, ''));
-                if (isNaN(target) || target < 0) return showToast('Stok baru harus angka positif', 'error');
-                const currentSaldo = adjustItem.saldo;
-                const delta = target - currentSaldo;
-                if (delta === 0) { showToast('Tidak ada perubahan, stok sudah sama.', 'error'); return; }
-                const type = delta > 0 ? 'Masuk' : 'Keluar';
-                const qty = Math.abs(delta);
-                const note = adjustNote.trim() ? `Penyesuaian: ${adjustNote.trim()}` : 'Penyesuaian stok';
-                const record = {
-                    id: Date.now().toString() + Math.random().toString(36).slice(2),
-                    clientName: adjustItem.clientName,
-                    itemName: adjustItem.itemName,
-                    unit: adjustItem.unit,
-                    qty, type, note,
-                    date: new Date().toISOString().split('T')[0],
-                };
+            const handleTambahStok = (itemName, unit, clientName) => {
+                const qty = Number(tambahForm.qty);
+                if (!qty || qty <= 0) return showToast('Jumlah harus angka positif', 'error');
+                const record = { id: Date.now().toString() + Math.random().toString(36).slice(2), clientName, itemName, qty, unit, type: 'Masuk', date: tambahForm.date || new Date().toISOString().split('T')[0], note: tambahForm.note || '' };
                 setStockItems(prev => [...prev, record]);
-                setAdjustItem(null);
-                setAdjustTargetQty('');
-                setAdjustNote('');
-                showToast(`Stok disesuaikan: ${delta > 0 ? '+' : ''}${delta} ${adjustItem.unit}`, 'success');
+                setTambahForm(emptyTambahForm);
+                showToast('Stok berhasil ditambahkan.', 'success');
             };
 
             const handleDeleteTrx = (txId, txType) => {
@@ -20151,8 +20134,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     <td className={`py-2.5 px-4 text-right font-black ${saldo > 0 ? 'text-teal-700' : saldo === 0 ? 'text-gray-400' : 'text-red-700'}`}>{saldo < 0 && <span className="text-xs bg-red-100 text-red-600 font-bold px-1 py-0.5 rounded mr-1" title="Stok negatif! Cek riwayat transaksi">NEGATIF</span>}{saldo}</td>
                                                                     <td className="py-2.5 px-4 text-center">
                                                                         <div className="flex gap-1.5 justify-center">
-                                                                            <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
-                                                                            <button onClick={() => { const s = iItem.masuk - iItem.keluar; setAdjustItem({ clientName: cKey, itemName: iItem.itemName, unit: iItem.unit || 'pcs', saldo: s }); setAdjustTargetQty(String(s)); setAdjustNote(''); }} className="text-xs px-2.5 py-1 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 border border-yellow-200 rounded font-semibold">Sesuaikan</button>
+                                                                            <button onClick={() => { setHistoryItem({ itemName: iItem.itemName, unit: iItem.unit, clientName: cKey }); setAmbilForm(emptyAmbilForm); setTambahForm(emptyTambahForm); }} className="text-xs px-2.5 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 rounded font-semibold">Riwayat</button>
                                                                             <button onClick={() => { setPrintStokItem({ clientName: cKey, itemName: iItem.itemName, qty: iItem.masuk - iItem.keluar, unit: iItem.unit || 'pcs' }); setPrintStokNote(''); }} className="p-1 text-blue-500 hover:bg-blue-50 rounded" title="Cetak Sticker Stok"><IconPrinter /></button>
                                                                         </div>
                                                                     </td>
@@ -20244,11 +20226,31 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </div>
                                             )}
                                         </div>
+                                        <div className="border border-green-200 rounded-xl p-4 bg-green-50">
+                                            <div className="text-xs font-bold text-green-700 mb-3">Tambah Stok (Masuk)</div>
+                                            <div className="space-y-2.5">
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 mb-1 block">Jumlah ({iUnit}) *</label>
+                                                        <input type="number" min="1" value={tambahForm.qty} onChange={e => setTambahForm(f => ({...f, qty: e.target.value}))} placeholder="Jumlah masuk" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 mb-1 block">Tanggal</label>
+                                                        <input type="date" value={tambahForm.date} onChange={e => setTambahForm(f => ({...f, date: e.target.value}))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs text-gray-500 mb-1 block">Catatan</label>
+                                                    <input type="text" value={tambahForm.note} onChange={e => setTambahForm(f => ({...f, note: e.target.value}))} placeholder="Misal: Produksi batch 1, Pembelian..." className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                                                </div>
+                                                <button onClick={() => handleTambahStok(iName, iUnit, iClient)} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Simpan Penambahan</button>
+                                            </div>
+                                        </div>
                                         {saldo > 0 && (
                                             <div className="border border-teal-200 rounded-xl p-4 bg-teal-50">
-                                                <div className="text-xs font-bold text-teal-700 mb-3">Ambil Stok</div>
+                                                <div className="text-xs font-bold text-teal-700 mb-3">Ambil Stok (Keluar)</div>
                                                 <div className="space-y-2.5">
-                                                    <div className="text-xs text-teal-700 bg-teal-100 rounded-lg px-3 py-2">Klien: <span className="font-bold">{iClient || '—'}</span></div>
+                                                    <div className="text-xs text-teal-700 bg-teal-100 rounded-lg px-3 py-2">Stok tersedia: <span className="font-bold">{saldo} {iUnit}</span></div>
                                                     <div className="grid grid-cols-2 gap-2">
                                                         <div>
                                                             <label className="text-xs text-gray-500 mb-1 block">Jumlah ({iUnit}) *</label>
@@ -20268,7 +20270,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             </div>
                                         )}
                                         {saldo <= 0 && txns.length > 0 && (
-                                            <div className="text-center py-3 text-sm font-bold text-gray-400 border border-dashed border-gray-200 rounded-xl">Stok sudah habis</div>
+                                            <div className="text-center py-3 text-sm font-bold text-gray-400 border border-dashed border-gray-200 rounded-xl">Stok habis — tambah stok di atas jika ada stok baru masuk</div>
                                         )}
                                     </div>
                                     <div className="px-5 py-3 border-t border-gray-100 flex justify-end bg-gray-50 flex-shrink-0">
@@ -20332,50 +20334,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         </div>
                     )}
 
-                    {adjustItem && (() => {
-                        const target = Number(String(adjustTargetQty).replace(/[^0-9]/g, ''));
-                        const delta = isNaN(target) ? 0 : target - adjustItem.saldo;
-                        return (
-                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setAdjustItem(null)}>
-                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-                                    <div className="bg-gradient-to-r from-yellow-500 to-orange-500 px-5 py-4 rounded-t-2xl flex items-center justify-between">
-                                        <div>
-                                            <div className="text-white font-black text-base">Sesuaikan Stok</div>
-                                            <div className="text-yellow-100 text-xs mt-0.5">{adjustItem.itemName} · {adjustItem.clientName}</div>
-                                        </div>
-                                        <button onClick={() => setAdjustItem(null)} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold">✕</button>
-                                    </div>
-                                    <div className="p-5 space-y-4">
-                                        <div className="bg-gray-50 rounded-xl p-3 flex items-center justify-between border border-gray-200">
-                                            <span className="text-sm text-gray-500">Stok saat ini</span>
-                                            <span className="font-black text-gray-800 text-lg">{adjustItem.saldo} <span className="text-xs font-normal text-gray-400">{adjustItem.unit}</span></span>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-600 mb-1 block">Stok Baru (target) *</label>
-                                            <input type="number" min="0" value={adjustTargetQty} onChange={e => setAdjustTargetQty(e.target.value)} placeholder="Masukkan jumlah stok yang benar" className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" />
-                                        </div>
-                                        {adjustTargetQty !== '' && !isNaN(target) && delta !== 0 && (
-                                            <div className={`flex items-center justify-between rounded-xl px-4 py-3 border ${delta > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                                                <span className="text-sm text-gray-600">Selisih</span>
-                                                <span className={`font-black text-base ${delta > 0 ? 'text-green-700' : 'text-red-700'}`}>{delta > 0 ? '+' : ''}{delta} {adjustItem.unit}</span>
-                                            </div>
-                                        )}
-                                        {adjustTargetQty !== '' && !isNaN(target) && delta === 0 && (
-                                            <div className="text-center text-sm text-gray-400 italic">Stok sudah sama, tidak ada perubahan.</div>
-                                        )}
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-600 mb-1 block">Keterangan</label>
-                                            <input type="text" value={adjustNote} onChange={e => setAdjustNote(e.target.value)} placeholder="Misal: koreksi opname, barang hilang..." className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" />
-                                        </div>
-                                        <div className="flex gap-2 pt-1">
-                                            <button onClick={() => setAdjustItem(null)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm">Batal</button>
-                                            <button onClick={handleSaveAdjust} className="flex-1 py-2.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded-xl font-bold text-sm">Simpan Penyesuaian</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
 
                     {showForm && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
