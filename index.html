@@ -19846,8 +19846,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [editItem, setEditItem] = useState(null);
             const emptyForm = { clientName: '', itemName: '', qty: '', unit: 'pcs', type: 'Masuk', date: new Date().toISOString().split('T')[0], note: '' };
             const [form, setForm] = useState(emptyForm);
-            const [showStickerModal, setShowStickerModal] = useState(false);
-            const [stickerItem, setStickerItem] = useState(null);
             const [historyItem, setHistoryItem] = useState(null);
             const emptyAmbilForm = { qty: '', note: '', date: new Date().toISOString().split('T')[0] };
             const [ambilForm, setAmbilForm] = useState(emptyAmbilForm);
@@ -20023,8 +20021,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     showToast('Gagal cetak. Izinkan pop-up di browser.', 'error');
                 }
             };
-
-            const typeColor = (t) => t === 'Masuk' ? 'bg-green-100 text-green-700' : t === 'Keluar' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700';
 
             const totalMasuk = visibleItems.filter(i => i.type === 'Masuk').reduce((s, i) => s + (i.qty || 0), 0);
             const totalKeluar = visibleItems.filter(i => i.type === 'Keluar').reduce((s, i) => s + (i.qty || 0), 0);
