@@ -407,87 +407,11 @@
         const isVisibleOrder = (order) => order && !order.isDeleted;
         const getActiveMaterials = (order) => (order?.materials || []).filter(item => item && !item.isDeleted);
 
-        const getMaterialStatusLabel = (status) => {
-            if (status === 'Selesai') return 'Selesai';
-            if (status === 'Dibeli Sebagian') return 'Dibeli Sebagian';
-            if (status === 'Direkap' || status === 'Dicetak') return 'Direkap';
-            if (status === 'Tidak Perlu') return 'Tidak Perlu Bahan';
-            return 'Belum Dibeli';
-        };
-
         const normalizeVendorName = (vendor) => String(vendor || 'Tanpa Vendor').trim() || 'Tanpa Vendor';
         const getMaterialQty = (item) => parseFloat(String(item?.qty ?? 0).replace(',', '.')) || 0;
         const getMaterialUnitPrice = (item) => parseFloat(String(item?.price ?? 0).replace(',', '.')) || 0;
         const getMaterialLineTotal = (item) => getMaterialQty(item) * getMaterialUnitPrice(item);
-        const getMaterialBatchDateKey = (order, material) => {
-            const rawDate = material?.purchaseDate || material?.materialBatchDate || order?.materialBatchDate || order?.materialPrintedAt || order?.date || order?.createdAt || new Date().toISOString();
-            const parsed = new Date(rawDate);
-            if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-            return String(rawDate).slice(0, 10) || new Date().toISOString().slice(0, 10);
-        };
-        const getMaterialBatchKey = (vendorName, batchDateKey) => `${normalizeVendorName(vendorName)}|||${batchDateKey || ''}`;
         const getOrderMaterialTotal = (order) => getActiveMaterials(order).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
-        const getVendorMaterialTotal = (order, vendorName, batchDateKey = '') => getActiveMaterials(order)
-            .filter(item => normalizeVendorName(item.vendor) === normalizeVendorName(vendorName))
-            .filter(item => !batchDateKey || getMaterialBatchDateKey(order, item) === batchDateKey)
-            .reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
-        const getVendorPayments = (order, vendorName, batchDateKey = '') => {
-            const payments = order?.materialPayments || {};
-            const vendorNorm = normalizeVendorName(vendorName);
-            const key = batchDateKey ? getMaterialBatchKey(vendorName, batchDateKey) : vendorNorm;
-            // Key format baru ('Vendor|||date') — gunakan hanya jika ada data aktif
-            if (Array.isArray(payments[key])) {
-                const active = payments[key].filter(p => !p?.isDeleted);
-                if (active.length > 0) return active;
-            }
-            // Fallback ke key format lama ('Vendor' tanpa tanggal) agar data lama tidak hilang.
-            if (batchDateKey && key !== vendorNorm && Array.isArray(payments[vendorNorm])) return payments[vendorNorm].filter(p => !p?.isDeleted);
-            return [];
-        };
-        const getVendorPaidTotal = (order, vendorName, batchDateKey = '') => getVendorPayments(order, vendorName, batchDateKey).reduce((sum, pay) => sum + (parseFloat(pay?.amount) || 0), 0);
-        const getVendorRemainingPayment = (order, vendorName, batchDateKey = '') => Math.max(0, getVendorMaterialTotal(order, vendorName, batchDateKey) - getVendorPaidTotal(order, vendorName, batchDateKey));
-        const isVendorMaterialPurchased = (order, vendorName, batchDateKey = '') => {
-            const vendorNorm = normalizeVendorName(vendorName);
-            if (batchDateKey) {
-                // Cek key format baru terlebih dahulu
-                if (!!order?.materialPurchasedBatches?.[getMaterialBatchKey(vendorName, batchDateKey)]) return true;
-                // Fallback ke format lama HANYA jika belum ada batch baru sama sekali untuk vendor ini
-                const hasAnyNewBatch = Object.keys(order?.materialPurchasedBatches || {}).some(k => k.startsWith(vendorNorm + '|||'));
-                if (!hasAnyNewBatch && !!order?.materialPurchasedVendors?.[vendorNorm]) return true;
-                return false;
-            }
-            return !!order?.materialPurchasedVendors?.[vendorNorm];
-        };
-        const isVendorMaterialSettled = (order, vendorName, batchDateKey = '') => isVendorMaterialPurchased(order, vendorName, batchDateKey) && getVendorRemainingPayment(order, vendorName, batchDateKey) <= 0;
-        const getOrderMaterialVendors = (order) => [...new Set(getActiveMaterials(order).map(item => normalizeVendorName(item.vendor)))].filter(Boolean);
-        const getOrderMaterialBatchKeys = (order) => [...new Set(getActiveMaterials(order).map(item => getMaterialBatchKey(item.vendor, getMaterialBatchDateKey(order, item))))].filter(Boolean);
-        const areAllOrderMaterialsPurchased = (order) => {
-            const batchKeys = getOrderMaterialBatchKeys(order);
-            return batchKeys.length > 0 && batchKeys.every(key => {
-                const [vendor, batchDateKey] = key.split('|||');
-                return isVendorMaterialPurchased(order, vendor, batchDateKey);
-            });
-        };
-        const areAllOrderMaterialsSettled = (order) => {
-            const batchKeys = getOrderMaterialBatchKeys(order);
-            return batchKeys.length > 0 && batchKeys.every(key => {
-                const [vendor, batchDateKey] = key.split('|||');
-                return isVendorMaterialSettled(order, vendor, batchDateKey);
-            });
-        };
-
-        const computeMaterialStatus = (order) => {
-            const activeMats = getActiveMaterials(order);
-            if (activeMats.length === 0) return 'Belum';
-            const batchKeys = getOrderMaterialBatchKeys(order);
-            const settledCount = batchKeys.filter(key => {
-                const [vendor, batchDateKey] = key.split('|||');
-                return isVendorMaterialSettled(order, vendor, batchDateKey);
-            }).length;
-            if (settledCount === 0) return 'Direkap';
-            if (settledCount === batchKeys.length) return 'Selesai';
-            return 'Dibeli Sebagian';
-        };
 
         const getWorkLogTakenQty = (log) => parseInt(log?.qty) || 0;
         const getWorkLogSubmittedQty = (log) => parseInt(log?.submittedQty ?? log?.qty) || 0;
@@ -4648,92 +4572,29 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const PembelianBahanView = ({ orders, setOrders, showToast, templates, manualPurchases, setManualPurchases, manualVendorPayments, setManualVendorPayments, vendorNotaPayments, setVendorNotaPayments }) => {
+        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes }) => {
             const [selectedOrder, setSelectedOrder] = useState(null);
             const [materials, setMaterials] = useState([]);
-            const [activeTab, setActiveTab] = useState('daftar_order'); // 'daftar_order', 'rekap_vendor', atau 'riwayat_bahan'
+            const [activeTab, setActiveTab] = useState('daftar_order'); // 'daftar_order', 'database_bahan', 'rekap_pembelian'
             const [searchTerm, setSearchTerm] = useState('');
-            const [statusFilter, setStatusFilter] = useState('Semua');
-            const [paymentStatusFilter, setPaymentStatusFilter] = useState('Semua');
             const [dateFilter, setDateFilter] = useState('');
-            const [rekapYearFilter, setRekapYearFilter] = useState('Semua');
-            const [rekapMonthFilter, setRekapMonthFilter] = useState('Semua');
-            const [rekapSortBy, setRekapSortBy] = useState('vendor');
-            const [paymentInputs, setPaymentInputs] = useState({});
             const [previewImage, setPreviewImage] = useState(null);
-            const [expandedPurchaseKeys, setExpandedPurchaseKeys] = useState({});
-            const [deletePurchaseConfirm, setDeletePurchaseConfirm] = useState(null);
-            const [manualFormOpen, setManualFormOpen] = useState(null);
-            const [manualFormRow, setManualFormRow] = useState({ name: '', spec: '', qty: '', unit: 'Meter', price: '', note: '', purchaseStatus: 'Sudah Dibeli' });
-            const [editManualId, setEditManualId] = useState(null);
-            const [newVendorForm, setNewVendorForm] = useState({ open: false, vendor: '', date: new Date().toISOString().slice(0, 10) });
-            const [detailVendorKey, setDetailVendorKey] = useState(null);
-            const [riwayatSearch, setRiwayatSearch] = useState('');
-            const [riwayatYearFilter, setRiwayatYearFilter] = useState('Semua');
-            const [expandedRiwayatIds, setExpandedRiwayatIds] = useState({});
-            const toggleRiwayat = (id) => setExpandedRiwayatIds(prev => ({ ...prev, [id]: !prev[id] }));
-            const [editingPaymentKey, setEditingPaymentKey] = useState(null);
-            const [editPaymentForm, setEditPaymentForm] = useState({ amount: '', method: 'Transfer', note: '' });
-            const [isSavingPayment, setIsSavingPayment] = useState(false);
-            const savingPaymentRef = React.useRef(false);
+            // State untuk Tab Rekap Pembelian
+            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [{ id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }], method: 'Transfer', note: '', paymentStatus: 'Lunas' };
+            const [noteForm, setNoteForm] = useState(emptyNoteForm);
+            const [editNoteId, setEditNoteId] = useState(null);
+            const [noteFormOpen, setNoteFormOpen] = useState(false);
+            // State untuk Tab Database Bahan
+            const [dbSearch, setDbSearch] = useState('');
+            const [dbVendorFilter, setDbVendorFilter] = useState('Semua');
+            const [dbYearFilter, setDbYearFilter] = useState('Semua');
 
             const materialOrders = (orders || []).filter(isVisibleOrder);
-            const activeOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.materialIsArchived);
-            const rekapOrders = materialOrders.filter(o => orderNeedsMaterials(o) && !o?.materialIsArchived && getActiveMaterials(o).length > 0);
-            const rekapYears = ['Semua', ...[...new Set([
-                ...rekapOrders.flatMap(o => getActiveMaterials(o).map(mat => String(getMaterialBatchDateKey(o, mat) || '').slice(0, 4))),
-                ...safeArray(manualPurchases).filter(isVisibleRecord).map(mp => String(mp.purchaseDate || '').slice(0, 4))
-            ].filter(y => y && y.length === 4))].sort().reverse()];
-
-            // Riwayat Bahan: hanya order yang sudah diarsipkan (materialIsArchived=true)
-            const riwayatBahanOrders = materialOrders
-                .filter(o => orderNeedsMaterials(o) && !!o.materialIsArchived)
-                .sort((a, b) => new Date(b.materialArchivedAt || b.date || b.createdAt || 0) - new Date(a.materialArchivedAt || a.date || a.createdAt || 0));
-            const riwayatYears = ['Semua', ...new Set(riwayatBahanOrders.map(o => String(o.materialArchivedAt || o.date || o.createdAt || '').slice(0, 4)).filter(Boolean)).values()].filter(Boolean);
-            const filteredRiwayatBahan = riwayatBahanOrders.filter(o => {
-                const yearMatch = riwayatYearFilter === 'Semua' || String(o.materialArchivedAt || o.date || o.createdAt || '').startsWith(riwayatYearFilter);
-                const searchMatch = !riwayatSearch.trim() || matchesSearch(orderSearchFields(o), riwayatSearch);
-                return yearMatch && searchMatch;
-            });
-            const { page: riwayatPage, setPage: setRiwayatPage, totalPages: riwayatTotalPages, paged: pagedRiwayat, total: riwayatTotal } = usePagination(filteredRiwayatBahan, 20);
-
-            const getOrderPaymentStatus = (order) => {
-                const batchKeys = getOrderMaterialBatchKeys(order);
-                if (batchKeys.length === 0) return 'Belum Bayar';
-                const anyPaid = batchKeys.some(key => { const [v, d] = key.split('|||'); return getVendorPaidTotal(order, v, d) > 0; });
-                if (areAllOrderMaterialsSettled(order)) return 'Lunas';
-                if (anyPaid) return 'Termin / Bayar Sebagian';
-                return 'Belum Bayar';
-            };
-            const filterOrder = (order, opts = {}) => {
-                const matchesDate = !dateFilter || String(order?.date || '').slice(0, 10) === dateFilter || String(order?.deadline || '').slice(0, 10) === dateFilter || getActiveMaterials(order).some(mat => getMaterialBatchDateKey(order, mat) === dateFilter);
-                const matchesStatus = statusFilter === 'Semua' || (order?.materialStatus || 'Belum') === statusFilter;
-                const matchesPayment = opts.skipPayment || paymentStatusFilter === 'Semua' || getOrderPaymentStatus(order) === paymentStatusFilter;
-                return matchesSearch(orderSearchFields(order), searchTerm) && matchesDate && matchesStatus && matchesPayment;
-            };
-            const filteredActiveOrders = activeOrders.filter(o => filterOrder(o))
-                .sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-            const filteredRekapOrders = React.useMemo(() => rekapOrders.filter(o => {
-                if (rekapYearFilter !== 'Semua' || rekapMonthFilter !== 'Semua') {
-                    const activeMats = getActiveMaterials(o);
-                    if (activeMats.length > 0) {
-                        const hasMatch = activeMats.some(mat => {
-                            const d = getMaterialBatchDateKey(o, mat);
-                            if (!d) return false;
-                            if (rekapYearFilter !== 'Semua' && d.slice(0, 4) !== rekapYearFilter) return false;
-                            if (rekapMonthFilter !== 'Semua' && d.slice(5, 7) !== rekapMonthFilter) return false;
-                            return true;
-                        });
-                        if (!hasMatch) return false;
-                    } else {
-                        const orderDate = String(o?.date || o?.createdAt || '');
-                        if (rekapYearFilter !== 'Semua' && orderDate.slice(0, 4) !== rekapYearFilter) return false;
-                        if (rekapMonthFilter !== 'Semua' && orderDate.slice(5, 7) !== rekapMonthFilter) return false;
-                    }
-                }
-                return filterOrder(o, { skipPayment: true });
-            }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0)),
-            [rekapOrders, rekapYearFilter, rekapMonthFilter, searchTerm, dateFilter, statusFilter]);
+            const activeOrders = materialOrders.filter(o => orderNeedsMaterials(o));
+            const filteredActiveOrders = activeOrders.filter(o => {
+                const matchesDate = !dateFilter || String(o?.date || '').slice(0, 10) === dateFilter || String(o?.deadline || '').slice(0, 10) === dateFilter;
+                return matchesSearch(orderSearchFields(o), searchTerm) && matchesDate;
+            }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
             const toggleMatOrder = (id) => setExpandedMatOrderIds(prev => ({ ...prev, [id]: !prev[id] }));
             const { page: bahanPage, setPage: setBahanPage, totalPages: bahanTotalPages, paged: pagedActiveOrders, total: bahanTotal } = usePagination(filteredActiveOrders, 20);
@@ -4749,8 +4610,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const existingMaterials = hasActiveMaterials
                     ? allMaterials.map(m => m?.returnedToInput ? { ...m, isDeleted: false, returnedToInput: false } : m)
                     : allMaterials.length > 0
-                        ? [...allMaterials, { id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }]
-                        : [{ id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }];
+                        ? [...allMaterials, { id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '' }]
+                        : [{ id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '' }];
                 setMaterials(existingMaterials);
             };
 
@@ -4761,7 +4622,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const addMaterialRow = () => {
-                setMaterials([...materials, { id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Meter', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '', purchaseStatus: 'Sudah Dibeli' }]);
+                setMaterials([...materials, { id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Meter', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '' }]);
             };
 
             const removeMaterialRow = (idToRemove) => {
@@ -4775,7 +4636,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setMaterials(materials.filter(m => String(m.id) !== String(idToRemove)));
             };
 
-            const saveMaterials = (statusBeli) => {
+            const saveMaterials = () => {
                 const now = new Date().toISOString();
                 const validMaterials = materials
                     .filter(m => m?.isDeleted || String(m?.name || '').trim() !== '')
@@ -4788,10 +4649,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         unit: m.unit || 'Pcs',
                         price: m.price ?? '',
                         vendor: String(m.vendor || '').trim().replace(/\|\|\|/g, '-') || 'Tanpa Vendor',
-                        purchaseDate: m.purchaseDate || m.materialBatchDate || now.slice(0, 10),
+                        purchaseDate: m.purchaseDate || now.slice(0, 10),
                         note: String(m.note || '').trim(),
-                        purchaseStatus: m.purchaseStatus || 'Sudah Dibeli',
-                        materialBatchDate: m.materialBatchDate || m.purchaseDate || now.slice(0, 10),
                         _syncUpdatedAt: m.isDeleted ? (m._syncUpdatedAt || now) : now
                     }));
                 const activeMaterialCount = validMaterials.filter(m => !m.isDeleted).length;
@@ -4800,270 +4659,19 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) === String(selectedOrder.id)) {
-                        // Hapus materialPurchasedBatches untuk batch yang tidak punya active material lagi
-                        const activeBatchKeys = new Set(
-                            validMaterials.filter(m => !m.isDeleted).map(m => getMaterialBatchKey(String(m.vendor || 'Tanpa Vendor').trim(), getMaterialBatchDateKey(o, m)))
-                        );
-                        const nextPurchasedBatches = Object.fromEntries(
-                            Object.entries(o.materialPurchasedBatches || {}).filter(([k]) => activeBatchKeys.has(k))
-                        );
-                        const checkOrder = { ...o, materials: validMaterials, materialPurchasedBatches: nextPurchasedBatches };
-                        const nextStatus = activeMaterialCount === 0 ? 'Belum' : computeMaterialStatus(checkOrder);
-                        const nextOrderStatus = activeMaterialCount === 0 ? (hasProductionStarted(o) ? o.status : 'Pending') : o.status;
                         return {
                             ...o,
                             materials: validMaterials,
-                            materialPurchasedBatches: nextPurchasedBatches,
-                            materialStatus: nextStatus,
-                            materialPurchasedAt: nextStatus === 'Selesai' ? (o.materialPurchasedAt || now) : null,
-                            materialLastActionAt: now,
-                            materialLastAction: activeMaterialCount === 0 ? 'Disimpan' : 'Bahan Diinput - Menunggu Konfirmasi Pembelian',
-                            status: nextOrderStatus
+                            materialStatus: activeMaterialCount > 0 ? 'Ada Bahan' : 'Belum',
                         };
                     }
                     return o;
                 }));
-                
+
                 setSelectedOrder(null);
                 showToast(`Data kebutuhan bahan berhasil disimpan.`, 'success');
             };
 
-            const markOrderMaterialsPrinted = (orderIds, materialsByOrder = {}) => {
-                const now = new Date().toISOString();
-                const ids = Array.isArray(orderIds) ? orderIds : [orderIds];
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (!ids.some(id => String(id) === String(o.id))) return o;
-                    if (o.materialStatus === 'Selesai') return o;
-                    const nextMaterials = materialsByOrder[o.id] || o.materials || [];
-                    const printedMatsCount = getActiveMaterials({ materials: nextMaterials }).length;
-                    const checkOrder = { ...o, materials: nextMaterials };
-                    return {
-                        ...o,
-                        materials: nextMaterials,
-                        materialStatus: printedMatsCount > 0 ? computeMaterialStatus(checkOrder) : 'Belum',
-                        materialPrintedAt: now,
-                        materialLastActionAt: now,
-                        materialLastAction: 'Direkap - Menunggu Konfirmasi Pembelian',
-                        materialPrintCount: (parseInt(o.materialPrintCount) || 0) + 1
-                    };
-                }));
-            };
-
-            const hasProductionStarted = (order) => {
-                return Object.values(order?.progress || {}).some(stage => (stage?.workLogs || []).some(log => !log.isDeleted && (log.checkBefore || log.checkAfter)));
-            };
-
-            const getOrderStatusAfterMaterialPurchase = (order) => {
-                if (order?.status === 'Terkirim' || order?.status === 'Siap Kirim' || String(order?.status || '').startsWith('Proses')) return order.status;
-                return hasProductionStarted(order) ? order.status : 'Pembelian Bahan';
-            };
-
-            const deleteVendorPayment = (orderId, vendorName, batchDateKey, paymentId) => {
-                const batchKey = getMaterialBatchKey(vendorName, batchDateKey);
-                const legacyKey = normalizeVendorName(vendorName);
-                const now = new Date().toISOString();
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) !== String(orderId)) return o;
-                    const nextPayments = { ...(o.materialPayments || {}) };
-                    // Soft-delete: tombstone agar tidak resurrection saat concurrent edit
-                    if (Array.isArray(nextPayments[batchKey])) {
-                        nextPayments[batchKey] = nextPayments[batchKey].map(pay =>
-                            String(pay.id) === String(paymentId) ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
-                        );
-                    }
-                    if (legacyKey !== batchKey && Array.isArray(nextPayments[legacyKey])) {
-                        nextPayments[legacyKey] = nextPayments[legacyKey].map(pay =>
-                            String(pay.id) === String(paymentId) ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
-                        );
-                    }
-                    // Reset materialPurchasedBatches[batchKey] jika tidak ada lagi pembayaran aktif untuk batch ini
-                    const allBatchPayments = [
-                        ...safeArray(nextPayments[batchKey]),
-                        ...(legacyKey !== batchKey ? safeArray(nextPayments[legacyKey]) : [])
-                    ];
-                    const hasActiveBatchPayment = allBatchPayments.some(p => !p.isDeleted);
-                    let nextBatches = o.materialPurchasedBatches || {};
-                    if (!hasActiveBatchPayment && nextBatches[batchKey]) {
-                        nextBatches = { ...nextBatches };
-                        delete nextBatches[batchKey];
-                    }
-                    const checkOrder = { ...o, materialPayments: nextPayments, materialPurchasedBatches: nextBatches };
-                    const nextStatus = computeMaterialStatus(checkOrder);
-                    return {
-                        ...o,
-                        materialPayments: nextPayments,
-                        materialPurchasedBatches: nextBatches,
-                        materialStatus: nextStatus,
-                        materialPurchasedAt: nextStatus === 'Selesai' ? o.materialPurchasedAt : null,
-                        materialLastActionAt: now,
-                        materialLastAction: 'Hapus Termin Pembayaran'
-                    };
-                }));
-                showToast("Termin pembayaran dihapus.", "success");
-            };
-
-            const archiveMaterialOrder = (orderId) => {
-                const order = (orders || []).find(o => String(o.id) === String(orderId));
-                if (order) {
-                    const batchKeys = getOrderMaterialBatchKeys(order);
-                    const totalHutang = batchKeys.reduce((sum, key) => {
-                        const [v, d] = key.split('|||');
-                        return sum + getVendorRemainingPayment(order, v, d);
-                    }, 0);
-                    if (totalHutang > 0) {
-                        if (!window.confirm(`Order ini masih memiliki hutang vendor sebesar ${formatRupiah(totalHutang)}. Yakin ingin diarsipkan? Hutang tidak akan terlihat di Rekap Vendor setelah diarsipkan.`)) return;
-                    }
-                }
-                const now = new Date().toISOString();
-                setOrders(prevOrders => prevOrders.map(o =>
-                    String(o.id) === String(orderId)
-                        ? { ...o, materialIsArchived: true, materialArchivedAt: now, materialLastActionAt: now, materialLastAction: 'Diarsipkan ke Riwayat Bahan' }
-                        : o
-                ));
-                showToast("Order diarsipkan ke Riwayat Bahan.", "success");
-            };
-
-            const unarchiveMaterialOrder = (orderId) => {
-                const now = new Date().toISOString();
-                setOrders(prevOrders => prevOrders.map(o =>
-                    String(o.id) === String(orderId)
-                        ? { ...o, materialIsArchived: false, materialLastActionAt: now, materialLastAction: 'Dikembalikan ke Daftar Aktif' }
-                        : o
-                ));
-                showToast("Order dikembalikan ke daftar aktif.", "success");
-            };
-
-            const editVendorPayment = (orderId, vendorName, batchDateKey, payment) => {
-                setEditingPaymentKey(`${orderId}__${payment.id}`);
-                setEditPaymentForm({ amount: String(payment.amount || ''), method: payment.method || 'Transfer', note: payment.note || '' });
-            };
-            const saveEditPayment = (orderId, vendorName, batchDateKey, paymentId) => {
-                const batchKey = getMaterialBatchKey(vendorName, batchDateKey);
-                const legacyKey = normalizeVendorName(vendorName);
-                const amount = parseFloat(editPaymentForm.amount) || 0;
-                if (amount <= 0) { showToast("Nominal pembayaran harus lebih dari 0.", "error"); return; }
-                const currentOrder = orders.find(o => String(o.id) === String(orderId));
-                if (currentOrder) {
-                    const vendorTotal = getVendorMaterialTotal(currentOrder, vendorName, batchDateKey);
-                    // Cek key baru dulu (hanya jika ada entry aktif), fallback ke key lama
-                    const pmts = currentOrder.materialPayments || {};
-                    const hasActiveInBatchKey = safeArray(pmts[batchKey]).some(p => !p?.isDeleted);
-                    const allPayments = hasActiveInBatchKey ? safeArray(pmts[batchKey]) : safeArray(pmts[legacyKey]);
-                    const otherPayments = allPayments.filter(p => String(p.id) !== String(paymentId) && !p.isDeleted);
-                    const otherPaid = otherPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
-                    const maxAllowed = Math.max(0, vendorTotal - otherPaid);
-                    if (amount > maxAllowed) {
-                        showToast(`Nominal melebihi sisa hutang (${formatRupiah(maxAllowed)})`, 'error');
-                        return;
-                    }
-                }
-                const updatedAt = new Date().toISOString();
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) !== String(orderId)) return o;
-                    const nextPayments = { ...(o.materialPayments || {}) };
-                    const applyEdit = (arr) => (arr || []).map(pay => String(pay.id) === String(paymentId)
-                        ? { ...pay, amount, method: editPaymentForm.method || 'Transfer', note: editPaymentForm.note, updatedAt, _syncUpdatedAt: updatedAt }
-                        : pay
-                    );
-                    // Update key format baru jika ada, jika tidak update key lama
-                    if (Array.isArray(nextPayments[batchKey]) && nextPayments[batchKey].some(p => String(p.id) === String(paymentId))) {
-                        nextPayments[batchKey] = applyEdit(nextPayments[batchKey]);
-                    } else if (legacyKey !== batchKey && Array.isArray(nextPayments[legacyKey])) {
-                        nextPayments[legacyKey] = applyEdit(nextPayments[legacyKey]);
-                    }
-                    const checkOrder = { ...o, materialPayments: nextPayments };
-                    const nextStatus = computeMaterialStatus(checkOrder);
-                    return { ...o, materialPayments: nextPayments, materialStatus: nextStatus, materialPurchasedAt: nextStatus === 'Selesai' ? o.materialPurchasedAt : null, materialLastActionAt: updatedAt, materialLastAction: 'Edit Termin Pembayaran' };
-                }));
-                setEditingPaymentKey(null);
-                setEditPaymentForm({ amount: '', method: 'Transfer', note: '' });
-                showToast("Termin pembayaran diperbarui.", "success");
-            };
-
-            const openDeletePurchaseConfirm = (group) => {
-                if (!group) return;
-                const orderIds = [...new Set((group.items || []).map(item => item.orderId).filter(Boolean))];
-                setDeletePurchaseConfirm({
-                    vendor: group.vendor,
-                    batchDateKey: group.batchDateKey,
-                    orderIds
-                });
-            };
-
-            const applyPurchaseDelete = (mode) => {
-                const confirm = deletePurchaseConfirm;
-                if (!confirm) return;
-                const vendorKey = normalizeVendorName(confirm.vendor);
-                const batchDateKey = confirm.batchDateKey;
-                const batchKey = getMaterialBatchKey(vendorKey, batchDateKey);
-                const now = new Date().toISOString();
-                setOrders(prevOrders => prevOrders.map(order => {
-                    if (!confirm.orderIds.some(id => String(id) === String(order.id))) return order;
-                    const nextMaterials = (order.materials || []).map(mat => {
-                        const matVendor = normalizeVendorName(mat.vendor);
-                        const matBatchDate = getMaterialBatchDateKey(order, mat);
-                        if (matVendor === vendorKey && matBatchDate === batchDateKey && !mat.isDeleted) {
-                            if (mode === 'permanent') return { ...mat, id: mat.id || genId('MAT-'), isDeleted: true, deletedAt: now, _syncUpdatedAt: now };
-                            return { ...mat, id: mat.id || genId('MAT-'), isDeleted: true, deletedAt: now, returnedToInput: true, _syncUpdatedAt: now };
-                        }
-                        return mat;
-                    });
-                    const nextPayments = { ...(order.materialPayments || {}) };
-                    // Soft-delete per-entry agar tombstone propagate via mergePaymentDict saat sync.
-                    // Hard-delete menyebabkan payment dari device lain muncul kembali setelah merge.
-                    nextPayments[batchKey] = safeArray(nextPayments[batchKey]).map(pay =>
-                        !pay.isDeleted ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
-                    );
-                    const hasActiveVendorMaterials = getActiveMaterials({ materials: nextMaterials }).some(mat => normalizeVendorName(mat.vendor) === vendorKey);
-                    if (!hasActiveVendorMaterials && Array.isArray(nextPayments[vendorKey])) {
-                        nextPayments[vendorKey] = nextPayments[vendorKey].map(pay =>
-                            !pay.isDeleted ? { ...pay, isDeleted: true, _syncUpdatedAt: now } : pay
-                        );
-                    }
-                    const nextPurchasedVendors = { ...(order.materialPurchasedVendors || {}) };
-                    if (!hasActiveVendorMaterials) delete nextPurchasedVendors[vendorKey];
-                    const nextPurchasedBatches = { ...(order.materialPurchasedBatches || {}) };
-                    delete nextPurchasedBatches[batchKey];
-                    const checkOrder = { ...order, materials: nextMaterials, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches, materialPurchasedVendors: nextPurchasedVendors };
-                    const nextMaterialStatus = computeMaterialStatus(checkOrder);
-                    const nextOrderStatus = hasProductionStarted(order) ? order.status : 'Pending';
-                    return {
-                        ...order,
-                        materials: nextMaterials,
-                        materialPayments: nextPayments,
-                        materialPurchasedVendors: nextPurchasedVendors,
-                        materialPurchasedBatches: nextPurchasedBatches,
-                        materialStatus: nextMaterialStatus,
-                        materialPurchasedAt: nextMaterialStatus === 'Selesai' ? (order.materialPurchasedAt || now) : null,
-                        status: nextOrderStatus,
-                        materialLastActionAt: now,
-                        materialLastAction: `Nota ${vendorKey} dihapus untuk input ulang`,
-                        _syncUpdatedAt: now
-                    };
-                }));
-                setVendorNotaPayments(prev => {
-                    if (!prev || !prev[batchKey]) return prev || {};
-                    const entries = safeArray(prev[batchKey]).map(p => ({ ...p, isDeleted: true, _syncUpdatedAt: now }));
-                    return { ...prev, [batchKey]: entries };
-                });
-                setManualVendorPayments(prev => {
-                    if (!prev || !prev[batchKey]) return prev || {};
-                    const entries = safeArray(prev[batchKey]).map(p => ({ ...p, isDeleted: true, _syncUpdatedAt: now }));
-                    return { ...prev, [batchKey]: entries };
-                });
-                // Hapus / kembalikan manual purchases yang ada di grup yang sama
-                setManualPurchases(prev => safeArray(prev).map(mp => {
-                    if (normalizeVendorName(mp.vendor) !== vendorKey) return mp;
-                    if ((mp.purchaseDate || '') !== batchDateKey) return mp;
-                    if (mp.isDeleted) return mp;
-                    if (mode === 'permanent') return { ...mp, isDeleted: true, deletedAt: now, _syncUpdatedAt: now };
-                    return { ...mp, isDeleted: true, deletedAt: now, returnedToInput: true, _syncUpdatedAt: now };
-                }));
-                setDeletePurchaseConfirm(null);
-                showToast(mode === 'permanent'
-                    ? `Nota pembelian dihapus permanen dari rekap aplikasi. Order produksi tetap aman.`
-                    : `Nota pembelian dikembalikan ke Input Pembelian. Order produksi tetap aman.`, 'success');
-            };
 
             const printDaftarBelanja = () => {
                 const validMaterials = materials.filter(m => !m?.isDeleted && String(m.name).trim() !== '');
@@ -5190,192 +4798,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     printWindow.document.write(printContent);
                     printWindow.document.close();
                     printWindow.focus();
-                    markOrderMaterialsPrinted(selectedOrder.id, { [selectedOrder.id]: validMaterials });
                     setTimeout(() => { printWindow.print(); }, 250);
                 } else {
                     showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
                 }
             };
 
-            const printDaftarBelanjaVendor = (vendorName, items) => {
-                const totalEstimasi = items.reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
-                const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(num);
-                const tglCetak = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-                const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-
-                const printContent = `<!DOCTYPE html><html><head><title>Daftar Belanja - ${escHtml(vendorName)}</title><style>
-@page{size:A4;margin:0}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page{width:210mm;min-height:297mm;padding:12mm 14mm}
-.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10mm;border-bottom:3px solid #1e3a5f}
-.brand{display:flex;align-items:center;gap:10px}
-.brand img{max-height:55px;max-width:150px;object-fit:contain}
-.co-name{font-size:18px;font-weight:900;color:#1e3a5f;line-height:1.1}
-.co-info{font-size:10px;color:#64748b;margin-top:2px}
-.doc-right{text-align:right}
-.doc-label{font-size:22px;font-weight:900;color:#1e3a5f;letter-spacing:-0.5px;line-height:1}
-.doc-sub{font-size:11px;color:#64748b;margin-top:4px}
-.parties{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:8mm}
-.party-box{background:#f4f6f8;border:1px solid #9ca3af;border-radius:8px;padding:10px 14px}
-.party-label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-bottom:5px}
-.party-name{font-size:14px;font-weight:900;color:#1e3a5f;line-height:1.2}
-.party-detail{font-size:11px;color:#64748b;margin-top:3px}
-.items-section{margin-top:8mm}
-.items-section table{width:100%;border-collapse:collapse}
-.items-section thead th{background:#1e3a5f;color:#fff;padding:8px 7px;font-size:10px;text-align:left;font-weight:700}
-.items-section thead th.c{text-align:center}
-.items-section thead th.r{text-align:right}
-.items-section tbody tr:nth-child(even) td{background:#dde3ea}
-.items-section tbody td{padding:7px;font-size:11px;vertical-align:middle;border-bottom:1px solid #9ca3af}
-.items-section tbody td.c{text-align:center}
-.items-section tbody td.r{text-align:right}
-.items-section tbody td.b{font-weight:700}
-.design-thumb{width:56px;height:46px;object-fit:contain;display:block;margin:0 auto;border-radius:4px;border:1px solid #9ca3af}
-.design-empty{width:56px;height:46px;border:1px dashed #9ca3af;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#475569;font-size:9px;text-align:center;margin:0 auto}
-.checkbox-box{width:14px;height:14px;border:1.5px solid #1e3a5f;display:inline-block;border-radius:2px}
-.manual-badge{display:inline-block;background:#dbeafe;color:#1d4ed8;font-size:8px;font-weight:900;padding:1px 5px;border-radius:10px;margin-left:4px}
-.footer-section{display:flex;justify-content:flex-end;margin-top:8mm;padding-top:4mm;border-top:1px solid #9ca3af}
-.sign-box{text-align:center;width:200px}
-.sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:38px}
-.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}
-.sign-name{font-size:11px;font-weight:700;color:#1e3a5f}
-@media print{.page{padding:10mm 12mm}}
-</style></head><body><div class="page">
-<div class="header">
-  <div class="brand">
-    ${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : ''}
-    <div>
-      <div class="co-name">${templates?.companyName || 'SIMPATI KONVEKSI'}</div>
-      ${templates?.companySubtitle ? `<div class="co-info">${templates.companySubtitle}</div>` : ''}
-      ${templates?.companyContact ? `<div class="co-info">${templates.companyContact}</div>` : ''}
-    </div>
-  </div>
-  <div class="doc-right">
-    <div class="doc-label">DAFTAR BELANJA</div>
-    <div class="doc-sub">Lembar Rincian Bahan Produksi</div>
-    <div class="doc-sub">Tanggal Cetak: ${tglCetak}</div>
-  </div>
-</div>
-<div class="parties">
-  <div class="party-box">
-    <div class="party-label">Dari / Pembeli</div>
-    <div class="party-name">${templates?.companyName || 'Simpati Konveksi'}</div>
-    ${templates?.companyContact ? `<div class="party-detail">${templates.companyContact}</div>` : ''}
-  </div>
-  <div class="party-box">
-    <div class="party-label">Kepada / Vendor / Toko</div>
-    <div class="party-name">${escHtml(vendorName)}</div>
-    <div class="party-detail">Mohon siapkan bahan sesuai daftar di bawah.</div>
-  </div>
-</div>
-<div class="items-section">
-  <table>
-    <thead>
-      <tr>
-        <th style="width:28px" class="c">No.</th>
-        <th style="width:70px" class="c">Desain</th>
-        <th>Nama Bahan / Material</th>
-        <th style="width:130px">Untuk Order (Klien)</th>
-        <th style="width:90px">Jenis Produksi</th>
-        <th style="width:70px" class="c">Jumlah</th>
-        <th style="width:90px" class="r">Harga Satuan</th>
-        <th style="width:95px" class="r">Subtotal</th>
-        <th style="width:30px" class="c">Cek</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items.map((item, idx) => `
-      <tr>
-        <td class="c">${idx + 1}</td>
-        <td class="c">
-          ${item.designImage1 ? `<img src="${item.designImage1}" class="design-thumb"/>` : `<div class="design-empty">Tdk ada</div>`}
-        </td>
-        <td class="b">${escHtml(item.name)}${item.spec ? `<div style="font-size:10px;font-weight:400;color:#64748b">${escHtml(item.spec)}</div>` : ''}${item.isManual ? `<span class="manual-badge">MANUAL</span>` : ''}</td>
-        <td style="font-size:10px">${item.isManual ? '<span style="color:#94a3b8;font-style:italic">— Pembelian Manual —</span>' : `<span style="font-weight:700">${escHtml(item.orderId)}</span><br/><span style="color:#64748b">${escHtml(item.client || '')}</span>`}</td>
-        <td style="font-size:10px">${item.isManual ? '-' : escHtml(item.type || '-')}</td>
-        <td class="c b">${escHtml(item.qty)} ${escHtml(item.unit)}</td>
-        <td class="r">${item.price ? formatRupiah(item.price) : '-'}</td>
-        <td class="r b">${formatRupiah(getMaterialLineTotal(item))}</td>
-        <td class="c"><div class="checkbox-box"></div></td>
-      </tr>`).join('')}
-      <tr>
-        <td colspan="7" style="background:#1e3a5f;color:#fff;font-size:11px;font-weight:700;padding:8px 7px;text-align:right">Total Pembelian</td>
-        <td class="r b" style="background:#1e3a5f;color:#fff;padding:8px 7px;font-size:13px">${formatRupiah(totalEstimasi)}</td>
-        <td style="background:#1e3a5f"></td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-<div class="footer-section">
-  <div class="sign-box">
-    <div class="sign-title">Bagian Pembelian / Admin</div>
-    <div class="sign-line"></div>
-    <div class="sign-name">${templates?.companyName || 'Simpati Konveksi'}</div>
-  </div>
-</div>
-</div></body></html>`;
-
-                let printWindow = window.open('', '_blank');
-                if (printWindow) {
-                    printWindow.document.open();
-                    printWindow.document.write(printContent);
-                    printWindow.document.close();
-                    printWindow.focus();
-                    markOrderMaterialsPrinted([...new Set(items.map(item => item.orderId).filter(Boolean))]);
-                    setTimeout(() => { printWindow.print(); }, 250);
-                } else {
-                    showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
-                }
-            };
-
-            const formatMaterialBatchDate = (dateKey) => {
-                const parsed = new Date(dateKey);
-                if (isNaN(parsed.getTime())) return dateKey || '-';
-                return parsed.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-            };
-
-            // Mengumpulkan semua material dari order yang belum dikirim ke dalam format rekap per vendor dan tanggal nota
-            const groupedMaterials = useMemo(() => {
-                const groups = {};
-                filteredRekapOrders.forEach(order => {
-                    const activeMaterials = getActiveMaterials(order);
-                    if (activeMaterials.length > 0) {
-                        activeMaterials.forEach(mat => {
-                            const batchDateKey = getMaterialBatchDateKey(order, mat);
-                            if (rekapYearFilter !== 'Semua' && String(batchDateKey || '').slice(0, 4) !== rekapYearFilter) return;
-                            if (rekapMonthFilter !== 'Semua' && String(batchDateKey || '').slice(5, 7) !== rekapMonthFilter) return;
-                            const vendorName = String(mat.vendor || 'Tanpa Vendor').trim();
-                            const groupKey = `${vendorName}|||${batchDateKey}`;
-                            if (!groups[groupKey]) {
-                                groups[groupKey] = { vendor: vendorName, batchDateKey, items: [] };
-                            }
-                            groups[groupKey].items.push({
-                                ...mat,
-                                orderId: order.id,
-                                client: order.client,
-                                type: order.type,
-                                designImage1: order.designImage1,
-                                batchDateKey
-                            });
-                        });
-                    }
-                });
-                safeArray(manualPurchases).filter(isVisibleRecord).forEach(mp => {
-                    if (searchTerm && !matchesSearch([mp.vendor, mp.name, mp.spec, mp.note, mp.purchaseDate, mp.purchaseStatus, mp.unit], searchTerm)) return;
-                    if (dateFilter && String(mp.purchaseDate || '').slice(0, 10) !== dateFilter) return;
-                    if (rekapYearFilter !== 'Semua' && String(mp.purchaseDate || '').slice(0, 4) !== rekapYearFilter) return;
-                    if (rekapMonthFilter !== 'Semua' && String(mp.purchaseDate || '').slice(5, 7) !== rekapMonthFilter) return;
-                    const vendorName = String(mp.vendor || 'Tanpa Vendor').trim();
-                    const batchDateKey = mp.purchaseDate || new Date().toISOString().slice(0, 10);
-                    const groupKey = `${vendorName}|||${batchDateKey}`;
-                    if (!groups[groupKey]) {
-                        groups[groupKey] = { vendor: vendorName, batchDateKey, items: [] };
-                    }
-                    groups[groupKey].items.push({ ...mp, orderId: null, isManual: true, batchDateKey });
-                });
-                return groups;
-            }, [filteredRekapOrders, manualPurchases, searchTerm, dateFilter, rekapYearFilter, rekapMonthFilter]);
 
             const renderOrderDesignPreview = (order, compact = false) => {
                 const images = [order?.designImage1, order?.designImage2].filter(Boolean);
@@ -5445,13 +4873,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                         >
                                                             <IconEdit />
                                                         </button>
-                                                        <button
-                                                            onClick={() => archiveMaterialOrder(order.id)}
-                                                            className="text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 p-2 rounded-lg transition-colors"
-                                                            title="Arsipkan ke Riwayat Bahan"
-                                                        >
-                                                            <IconArchive />
-                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -5506,9 +4927,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                             <button onClick={() => openMaterialModal(order)} className="text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg transition-colors" title="Rincian Bahan">
                                                 <IconEdit />
                                             </button>
-                                            <button onClick={() => archiveMaterialOrder(order.id)} className="text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 p-2 rounded-lg transition-colors" title="Arsipkan ke Riwayat Bahan">
-                                                <IconArchive />
-                                            </button>
                                         </div>
                                     </div>
                                     {isExpanded && mats.length > 0 && (
@@ -5533,749 +4951,211 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 </Card>
             );
 
-            const renderRiwayatBahan = () => (
-                <Card>
-                    <div className="flex flex-col md:flex-row gap-3 mb-4">
-                        <div className="flex-1">
-                            <SearchField value={riwayatSearch} onChange={setRiwayatSearch} placeholder="Cari order, klien, barang, vendor..." />
-                        </div>
-                        <select className="p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={riwayatYearFilter} onChange={e => setRiwayatYearFilter(e.target.value)}>
-                            {riwayatYears.map(y => <option key={y} value={y}>{y === 'Semua' ? 'Semua Tahun' : `Tahun ${y}`}</option>)}
-                        </select>
-                    </div>
-                    <div className="overflow-x-auto hidden md:block">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-purple-50 border-b border-purple-200">
-                                    <th className="p-3 text-sm font-semibold text-purple-700">Desain</th>
-                                    <th className="p-3 text-sm font-semibold text-purple-700">ID Order</th>
-                                    <th className="p-3 text-sm font-semibold text-purple-700">Klien / Instansi</th>
-                                    <th className="p-3 text-sm font-semibold text-purple-700">Barang & Total</th>
-                                    <th className="p-3 text-sm font-semibold text-purple-700">Tanggal Arsip</th>
-                                    <th className="p-3 text-sm font-semibold text-purple-700 text-center">Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {pagedRiwayat.map(order => {
-                                    const mats = getActiveMaterials(order);
-                                    const totalBahan = getOrderMaterialTotal(order);
-                                    const vendors = [...new Set(mats.map(m => normalizeVendorName(m.vendor)))];
-                                    const isExpanded = !!expandedRiwayatIds[order.id];
-                                    return (
-                                        <React.Fragment key={order.id}>
-                                            <tr className="border-b border-gray-100 hover:bg-purple-50/30 transition-colors cursor-pointer" onClick={() => toggleRiwayat(order.id)}>
-                                                <td className="p-3 align-middle">{renderOrderDesignPreview(order, true)}</td>
-                                                <td className="p-3 text-sm font-medium text-blue-600">{order.id}</td>
-                                                <td className="p-3 text-sm font-bold text-gray-800">{order.client}</td>
-                                                <td className="p-3 text-sm text-gray-600">
-                                                    {order.type} <span className="font-bold">({order.total} pcs)</span>
-                                                    <div className="text-xs text-red-600 font-bold mt-0.5">{formatRupiah(totalBahan)}</div>
-                                                    {mats.length > 0 && <div className="text-xs text-blue-500">{mats.length} bahan · {vendors.length} vendor</div>}
-                                                </td>
-                                                <td className="p-3 text-xs text-gray-500">{String(order.materialArchivedAt || order.date || '').slice(0, 10) || '-'}</td>
-                                                <td className="p-3 text-center">
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); unarchiveMaterialOrder(order.id); }}
-                                                        className="text-xs bg-amber-50 border border-amber-300 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1"
-                                                        title="Kembalikan ke daftar aktif untuk beli bahan lagi"
-                                                    >
-                                                        ↩ Beli Lagi
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                            {isExpanded && mats.length > 0 && (
-                                                <tr className="bg-purple-50/30">
-                                                    <td colSpan="6" className="px-6 py-3">
-                                                        <div className="text-xs font-bold text-gray-500 mb-2">Rincian bahan:</div>
-                                                        <div className="overflow-x-auto">
-                                                            <table className="w-full text-xs border border-gray-200 rounded-lg">
-                                                                <thead>
-                                                                    <tr className="bg-gray-100">
-                                                                        <th className="px-3 py-2 text-left">Nama Bahan</th>
-                                                                        <th className="px-3 py-2 text-left">Spek/Warna</th>
-                                                                        <th className="px-3 py-2 text-center">Qty</th>
-                                                                        <th className="px-3 py-2">Satuan</th>
-                                                                        <th className="px-3 py-2 text-right">Harga</th>
-                                                                        <th className="px-3 py-2 text-right">Total</th>
-                                                                        <th className="px-3 py-2">Vendor</th>
-                                                                        <th className="px-3 py-2 text-center">Tgl Beli</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    {mats.map((mat, i) => (
-                                                                        <tr key={mat.id || i} className="border-t border-gray-100">
-                                                                            <td className="px-3 py-2 font-medium text-gray-800">{mat.name || '-'}</td>
-                                                                            <td className="px-3 py-2 text-gray-600">{mat.spec || mat.color || '-'}</td>
-                                                                            <td className="px-3 py-2 text-center font-bold text-indigo-700">{mat.qty || 0}</td>
-                                                                            <td className="px-3 py-2 text-gray-600">{mat.unit || '-'}</td>
-                                                                            <td className="px-3 py-2 text-right text-gray-700">{formatRupiah(mat.price || 0)}</td>
-                                                                            <td className="px-3 py-2 text-right font-bold text-red-700">{formatRupiah(getMaterialLineTotal(mat))}</td>
-                                                                            <td className="px-3 py-2 font-medium text-blue-700">{normalizeVendorName(mat.vendor)}</td>
-                                                                            <td className="px-3 py-2 text-center text-gray-500">{String(mat.purchaseDate || '').slice(0, 10) || '-'}</td>
-                                                                        </tr>
-                                                                    ))}
-                                                                    <tr className="bg-red-50 border-t-2 border-red-200">
-                                                                        <td colSpan="5" className="px-3 py-2 font-bold text-gray-700 text-right">TOTAL BIAYA BAHAN:</td>
-                                                                        <td className="px-3 py-2 font-black text-red-700 text-right">{formatRupiah(totalBahan)}</td>
-                                                                        <td colSpan="2" className="px-3 py-2 text-xs text-gray-500">{vendors.length > 0 && <span>Vendor: {vendors.join(', ')}</span>}</td>
-                                                                    </tr>
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </React.Fragment>
-                                    );
-                                })}
-                                {filteredRiwayatBahan.length === 0 && (
-                                    <tr><td colSpan="6" className="p-8 text-center text-gray-500 italic">
-                                        {riwayatSearch ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada riwayat bahan yang diarsipkan. Arsipkan order dari tab Input Pembelian.'}
-                                    </td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                        {pagedRiwayat.map(order => {
-                            const mats = getActiveMaterials(order);
-                            const totalBahan = getOrderMaterialTotal(order);
-                            const isExpanded = !!expandedRiwayatIds[order.id];
-                            return (
-                                <div key={order.id} className="px-4 py-3">
-                                    <div className="flex items-start gap-3" onClick={() => toggleRiwayat(order.id)}>
-                                        <div className="shrink-0">{renderOrderDesignPreview(order, true)}</div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="font-bold text-gray-800 text-sm truncate">{order.client}</div>
-                                            <div className="text-blue-600 font-bold text-xs">{order.id}</div>
-                                            <div className="text-xs text-gray-500">{order.type} · {order.total} pcs · {formatRupiah(totalBahan)}</div>
-                                            <div className="text-xs text-gray-400">{mats.length} bahan · Arsip: {String(order.materialArchivedAt || '').slice(0, 10) || '-'}</div>
-                                        </div>
-                                        <div className="shrink-0 flex flex-col gap-1 items-end">
-                                            <button onClick={(e) => { e.stopPropagation(); unarchiveMaterialOrder(order.id); }} className="text-xs bg-amber-50 border border-amber-300 text-amber-700 px-2 py-1 rounded-lg font-bold flex items-center gap-1">
-                                                ↩ Beli Lagi
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {isExpanded && mats.length > 0 && (
-                                        <div className="mt-2 ml-10 grid grid-cols-1 gap-2">
-                                            {mats.map((mat, i) => (
-                                                <div key={mat.id || i} className="bg-purple-50/40 border border-purple-100 rounded-lg p-2 text-xs">
-                                                    <div className="font-bold text-gray-800">{mat.name || '-'} <span className="text-gray-400">({mat.spec || '-'})</span></div>
-                                                    <div className="text-gray-600">{mat.qty || 0} {mat.unit || ''} × {formatRupiah(mat.price || 0)}</div>
-                                                    <div className="text-blue-700 font-bold">{normalizeVendorName(mat.vendor)}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                        {filteredRiwayatBahan.length === 0 && (
-                            <div className="p-8 text-center text-gray-500 italic text-sm">{riwayatSearch ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada riwayat bahan yang diarsipkan.'}</div>
-                        )}
-                    </div>
-                    <Paginator page={riwayatPage} setPage={setRiwayatPage} totalPages={riwayatTotalPages} total={riwayatTotal} pageSize={20} label="riwayat order bahan" />
-                </Card>
-            );
-
-            const getManualVendorPaidTotal = (vendorName, batchDateKey) => {
-                const key = getMaterialBatchKey(vendorName, batchDateKey);
-                return safeArray((manualVendorPayments || {})[key]).filter(p => !p.isDeleted).reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-            };
-
-            const saveManualPurchase = (vendor, batchDateKey) => {
-                const { name, spec, qty, unit, price, note, purchaseStatus } = manualFormRow;
-                if (!name.trim() || !qty || !price) { showToast("Isi minimal Nama Bahan, Qty, dan Harga.", "error"); return; }
-                if (parseFloat(qty) <= 0 || parseFloat(price) <= 0) { showToast("Qty dan Harga harus lebih dari 0.", "error"); return; }
-                vendor = String(vendor || '').replace(/\|\|\|/g, '-');
+            const savePurchaseNote = () => {
+                const vendor = String(noteForm.vendor || '').trim();
+                if (!vendor) { showToast('Vendor tidak boleh kosong.', 'error'); return; }
+                const validItems = noteForm.items.filter(it => String(it.name || '').trim());
+                if (validItems.length === 0) { showToast('Minimal satu item harus diisi.', 'error'); return; }
                 const now = new Date().toISOString();
-                if (editManualId) {
-                    setManualPurchases(prev => safeArray(prev).map(mp => String(mp.id) === String(editManualId) ? { ...mp, name: name.trim(), spec: spec.trim(), qty, unit, price, note: note.trim(), purchaseStatus: purchaseStatus || 'Sudah Dibeli', _syncUpdatedAt: now } : mp));
-                    showToast("Bahan manual diperbarui.", "success");
-                } else {
-                    const newItem = { id: `MPUR-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, vendor, purchaseDate: batchDateKey, name: name.trim(), spec: spec.trim(), qty, unit, price, note: note.trim(), purchaseStatus: purchaseStatus || 'Sudah Dibeli', isDeleted: false, createdAt: now, _syncUpdatedAt: now };
-                    setManualPurchases(prev => [...safeArray(prev), newItem]);
-                    showToast("Bahan manual ditambahkan.", "success");
-                }
-                setManualFormRow({ name: '', spec: '', qty: '', unit: 'Meter', price: '', note: '', purchaseStatus: 'Sudah Dibeli' });
-                setManualFormOpen(null);
-                setEditManualId(null);
-            };
-
-            const deleteManualPurchase = (id) => {
-                const now = new Date().toISOString();
-                const target = safeArray(manualPurchases).find(mp => String(mp.id) === String(id));
-                if (target) {
-                    const bk = getMaterialBatchKey(target.vendor || 'Tanpa Vendor', target.purchaseDate || '');
-                    const otherActive = safeArray(manualPurchases).some(mp =>
-                        String(mp.id) !== String(id) && !mp.isDeleted &&
-                        getMaterialBatchKey(mp.vendor || 'Tanpa Vendor', mp.purchaseDate || '') === bk
-                    );
-                    if (!otherActive) {
-                        setManualVendorPayments(prev => ({
-                            ...(prev || {}),
-                            [bk]: safeArray((prev || {})[bk]).map(p => ({ ...p, isDeleted: true, _syncUpdatedAt: now }))
-                        }));
-                    }
-                }
-                setManualPurchases(prev => safeArray(prev).map(mp => String(mp.id) === String(id) ? { ...mp, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : mp));
-                showToast("Bahan manual dihapus.", "success");
-            };
-            const saveNewVendorManual = () => {
-                if (!newVendorForm.vendor.trim()) { showToast("Isi nama vendor/toko terlebih dahulu.", "error"); return; }
-                saveManualPurchase(newVendorForm.vendor.trim(), newVendorForm.date);
-                setNewVendorForm({ open: false, vendor: '', date: new Date().toISOString().slice(0, 10) });
-            };
-
-            const deleteManualVendorPayment = (vendor, batchDateKey, payId) => {
-                const key = getMaterialBatchKey(vendor, batchDateKey);
-                const now = new Date().toISOString();
-                setManualVendorPayments(prev => ({
-                    ...(prev || {}),
-                    [key]: safeArray((prev || {})[key]).map(p =>
-                        String(p.id) === String(payId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
-                    )
-                }));
-                showToast("Pembayaran dihapus.", "success");
-            };
-
-            const addNotaPayment = (vendor, batchDateKey, orderGroups, manualItems) => {
-                if (isSavingPayment || savingPaymentRef.current) return;
-                savingPaymentRef.current = true;
-                const batchKey = getMaterialBatchKey(vendor, batchDateKey);
-                const inputKey = `${batchKey}__UNIFIED`;
-                const totalAmount = safeMoney(paymentInputs[inputKey]?.amount);
-                const note = String(paymentInputs[inputKey]?.note || '').trim();
-                const payDate = paymentInputs[inputKey]?.date || new Date().toISOString().slice(0, 10);
-                const method = String(paymentInputs[inputKey]?.method || 'Transfer').trim() || 'Transfer';
-                if (totalAmount <= 0) { showToast("Isi nominal pembayaran terlebih dahulu.", "error"); savingPaymentRef.current = false; return; }
-                setIsSavingPayment(true);
-                try {
-                const orderRemaining = orderGroups.reduce((sum, group) => {
-                    if (!group.order) return sum;
-                    const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                    return sum + Math.max(0, t - getVendorPaidTotal(group.order, vendor, batchDateKey));
-                }, 0);
-                const manualTotal = manualItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                const manualPaidAlready = getManualVendorPaidTotal(vendor, batchDateKey);
-                const manualRemaining = Math.max(0, manualTotal - manualPaidAlready);
-                const totalRemaining = orderRemaining + manualRemaining;
-                if (totalAmount > totalRemaining) {
-                    showToast(totalRemaining <= 0
-                        ? `Nota vendor ini sudah lunas, tidak ada sisa hutang.`
-                        : `Pembayaran melebihi sisa hutang vendor (${formatRupiah(totalRemaining)})`, 'error');
-                    return;
-                }
-                const notaPaymentId = `NOTA-PAY-${Date.now()}`;
-                const now = new Date().toISOString();
-                const activeOrderCount = orderGroups.filter(g => g.order).length;
-                // Simpan satu record di level nota
-                const notaRecord = { id: notaPaymentId, date: payDate, amount: totalAmount, method, note, createdAt: now, ordersCount: activeOrderCount, _syncUpdatedAt: now };
-                setVendorNotaPayments(prev => ({ ...(prev || {}), [batchKey]: [...safeArray((prev || {})[batchKey]), notaRecord] }));
-                const orderShare = totalRemaining > 0 ? Math.min(orderRemaining, Math.round((orderRemaining / totalRemaining) * totalAmount)) : (orderGroups.length > 0 ? totalAmount : 0);
-                const manualShare = totalAmount - orderShare;
-                // Distribusi ke per-order, tandai dengan notaPaymentId untuk keperluan delete
-                if (orderShare > 0 && orderGroups.length > 0) {
-                    const paymentMap = {};
-                    let left = orderShare;
-                    let lastGroupOrderId = null;
-                    for (const group of orderGroups) {
-                        if (!group.order || left <= 0) continue;
-                        const t = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                        const paid = getVendorPaidTotal(group.order, vendor, batchDateKey);
-                        const rem = Math.max(0, t - paid);
-                        const applied = rem > 0 ? Math.min(rem, left) : 0;
-                        if (applied <= 0) continue;
-                        paymentMap[String(group.orderId)] = applied;
-                        left -= applied;
-                        lastGroupOrderId = String(group.orderId);
-                    }
-                    // Sisa 1 rupiah dari Math.round → tambahkan ke order terakhir agar total tepat
-                    if (left > 0 && lastGroupOrderId) {
-                        paymentMap[lastGroupOrderId] = (paymentMap[lastGroupOrderId] || 0) + left;
-                    }
-                    setOrders(prevOrders => prevOrders.map(order => {
-                        const applied = paymentMap[String(order.id)];
-                        if (!applied) return order;
-                        const nextPayments = { ...(order.materialPayments || {}) };
-                        nextPayments[batchKey] = [...(nextPayments[batchKey] || []), { id: `PAY-${Date.now()}-${order.id}`, notaPaymentId, date: payDate, amount: applied, method, note, vendor: normalizeVendorName(vendor), batchDateKey, createdAt: now, _syncUpdatedAt: now }];
-                        // Tandai batch sebagai "sudah dibeli" — syarat agar computeMaterialStatus bisa Selesai
-                        const nextPurchasedBatches = { ...(order.materialPurchasedBatches || {}), [batchKey]: true };
-                        const checkOrder = { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches };
-                        const nextStatus = computeMaterialStatus(checkOrder);
-                        return { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextPurchasedBatches, materialStatus: nextStatus, materialPurchasedAt: nextStatus === 'Selesai' ? (order.materialPurchasedAt || now) : null, materialLastActionAt: now, materialLastAction: 'Pembayaran Vendor', status: getOrderStatusAfterMaterialPurchase(order) };
-                    }));
-                }
-                if (manualShare > 0 && manualItems.length > 0) {
-                    const payment = { id: `MPAY-${Date.now()}`, notaPaymentId, date: payDate, amount: manualShare, method, note, _syncUpdatedAt: now };
-                    setManualVendorPayments(prev => ({ ...(prev || {}), [batchKey]: [...safeArray((prev || {})[batchKey]), payment] }));
-                }
-                setPaymentInputs(prev => ({ ...prev, [inputKey]: { amount: '', note: '', date: '', method: 'Transfer' } }));
-                showToast(`Pembayaran ${formatRupiah(totalAmount)} berhasil dicatat.`, "success");
-                } finally {
-                    setIsSavingPayment(false);
-                    savingPaymentRef.current = false;
-                }
-            };
-
-            const deleteNotaPayment = (batchKey, notaPaymentId) => {
-                const now = new Date().toISOString();
-                // Soft-delete record nota-level
-                setVendorNotaPayments(prev => ({
-                    ...(prev || {}),
-                    [batchKey]: safeArray((prev || {})[batchKey]).map(p =>
-                        String(p.id) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
-                    )
-                }));
-                // Soft-delete distribusi per-order yang bertag notaPaymentId ini (konsisten dengan deleteVendorPayment)
-                setOrders(prevOrders => prevOrders.map(order => {
-                    const pmts = order.materialPayments || {};
-                    if (!pmts[batchKey]) return order;
-                    const hasEntry = (pmts[batchKey] || []).some(p => String(p.notaPaymentId) === String(notaPaymentId) && !p.isDeleted);
-                    if (!hasEntry) return order;
-                    const nextPayments = { ...pmts, [batchKey]: (pmts[batchKey] || []).map(p =>
-                        String(p.notaPaymentId) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
-                    )};
-                    // Reset materialPurchasedBatches[batchKey] jika tidak ada lagi pembayaran aktif untuk batch ini
-                    const hasActiveBatchPayment = safeArray(nextPayments[batchKey]).some(p => !p.isDeleted);
-                    let nextBatches = order.materialPurchasedBatches || {};
-                    if (!hasActiveBatchPayment && nextBatches[batchKey]) {
-                        nextBatches = { ...nextBatches };
-                        delete nextBatches[batchKey];
-                    }
-                    const checkOrder = { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextBatches };
-                    const nextStatus = computeMaterialStatus(checkOrder);
-                    return { ...order, materialPayments: nextPayments, materialPurchasedBatches: nextBatches, materialStatus: nextStatus, materialPurchasedAt: nextStatus === 'Selesai' ? order.materialPurchasedAt : null, materialLastActionAt: now, materialLastAction: 'Hapus Pembayaran Nota' };
-                }));
-                // Soft-delete porsi manual yang bertag notaPaymentId ini
-                setManualVendorPayments(prev => ({
-                    ...(prev || {}),
-                    [batchKey]: safeArray((prev || {})[batchKey]).map(p =>
-                        String(p.notaPaymentId) === String(notaPaymentId) ? { ...p, isDeleted: true, _syncUpdatedAt: now } : p
-                    )
-                }));
-                showToast("Pembayaran berhasil dihapus.", "success");
-            };
-
-            const renderRekapVendor = () => {
-                const getGroupPaymentStatus = (group) => {
-                    const total = (group.items || []).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
-                    const paid = Object.values((group.items || []).reduce((acc, item) => {
-                        if (item.isManual) return acc;
-                        const order = (orders || []).find(o => String(o.id) === String(item.orderId));
-                        if (!order) return acc;
-                        acc[item.orderId] = getVendorPaidTotal(order, group.vendor, group.batchDateKey);
-                        return acc;
-                    }, {})).reduce((sum, amount) => sum + amount, 0) + getManualVendorPaidTotal(group.vendor, group.batchDateKey);
-                    if (paid <= 0) return 'Belum Bayar';
-                    return paid >= total ? 'Lunas' : 'Termin / Bayar Sebagian';
+                const note = {
+                    id: editNoteId || genId('PN-'),
+                    vendor,
+                    date: noteForm.date || now.slice(0, 10),
+                    method: noteForm.method || 'Transfer',
+                    note: noteForm.note || '',
+                    paymentStatus: noteForm.paymentStatus || 'Lunas',
+                    items: validItems.map(it => ({ ...it, id: it.id || genId('NI-'), qty: it.qty ?? '', price: it.price ?? '' })),
+                    _syncUpdatedAt: now,
                 };
-                const vendorGroups = Object.values(groupedMaterials).filter(group => paymentStatusFilter === 'Semua' || getGroupPaymentStatus(group) === paymentStatusFilter).sort((a, b) => {
-                    if (rekapSortBy === 'totalDesc' || rekapSortBy === 'totalAsc') {
-                        const totalA = (a.items||[]).reduce((s,it) => s + getMaterialLineTotal(it), 0);
-                        const totalB = (b.items||[]).reduce((s,it) => s + getMaterialLineTotal(it), 0);
-                        return rekapSortBy === 'totalDesc' ? totalB - totalA : totalA - totalB;
-                    }
-                    const vendorCompare = String(a.vendor).localeCompare(String(b.vendor));
-                    if (vendorCompare !== 0) return vendorCompare;
-                    return String(b.batchDateKey).localeCompare(String(a.batchDateKey));
+                setPurchaseNotes(prev => {
+                    if (editNoteId) return prev.map(n => n.id === editNoteId ? note : n);
+                    return [note, ...prev];
                 });
+                setNoteFormOpen(false);
+                setEditNoteId(null);
+                setNoteForm(emptyNoteForm);
+                showToast(editNoteId ? 'Nota diperbarui.' : 'Nota pembelian disimpan.', 'success');
+            };
 
+            const renderDatabaseBahan = () => {
+                const allMats = safeOrders.flatMap(order =>
+                    getActiveMaterials(order).map(mat => ({ ...mat, _orderId: order.id, _orderClient: order.client || '-', _orderType: order.type || '-' }))
+                );
+                const vendors = ['Semua', ...new Set(allMats.map(m => normalizeVendorName(m.vendor)).filter(Boolean))];
+                const years = ['Semua', ...new Set(allMats.map(m => (m.purchaseDate || '').slice(0, 4)).filter(Boolean)).values()].sort((a, b) => b - a);
+                const filtered = allMats.filter(m => {
+                    if (dbSearch && !`${m.name} ${m.spec} ${m.vendor}`.toLowerCase().includes(dbSearch.toLowerCase())) return false;
+                    if (dbVendorFilter !== 'Semua' && normalizeVendorName(m.vendor) !== dbVendorFilter) return false;
+                    if (dbYearFilter !== 'Semua' && (m.purchaseDate || '').slice(0, 4) !== dbYearFilter) return false;
+                    return true;
+                });
                 return (
                     <div className="space-y-4">
-                        {(() => {
-                            let gTotal = 0, gPaid = 0, gBelumLunas = 0;
-                            vendorGroups.forEach(group => {
-                                const t = (group.items||[]).reduce((s,it) => s + getMaterialLineTotal(it), 0);
-                                gTotal += t;
-                                const ordIds = [...new Set((group.items||[]).filter(it=>!it.isManual).map(it=>it.orderId))];
-                                const oPaid = ordIds.reduce((s, oid) => { const ord = (orders||[]).find(o => String(o.id)===String(oid)); return s + (ord ? getVendorPaidTotal(ord, group.vendor, group.batchDateKey) : 0); }, 0);
-                                const mPaid = getManualVendorPaidTotal(group.vendor, group.batchDateKey);
-                                const p = oPaid + mPaid;
-                                gPaid += p;
-                                if (p < t) gBelumLunas++;
-                            });
-                            const gSisa = Math.max(0, gTotal - gPaid);
-                            return (
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-4 text-white shadow-sm">
-                                        <div className="text-xs font-bold text-red-100 mb-1 uppercase tracking-wide">Total Pembelian</div>
-                                        <div className="text-base font-black leading-tight">{formatRupiah(gTotal)}</div>
-                                        <div className="text-xs text-red-200 mt-1">{vendorGroups.length} nota vendor</div>
-                                    </div>
-                                    <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-sm">
-                                        <div className="text-xs font-bold text-green-100 mb-1 uppercase tracking-wide">Sudah Dibayar</div>
-                                        <div className="text-base font-black leading-tight">{formatRupiah(gPaid)}</div>
-                                        <div className="text-xs text-green-200 mt-1">{vendorGroups.length - gBelumLunas} nota lunas</div>
-                                    </div>
-                                    <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-4 text-white shadow-sm">
-                                        <div className="text-xs font-bold text-orange-100 mb-1 uppercase tracking-wide">Sisa Hutang</div>
-                                        <div className="text-base font-black leading-tight">{formatRupiah(gSisa)}</div>
-                                        <div className="text-xs text-orange-200 mt-1">belum terbayar</div>
-                                    </div>
-                                    <div className="bg-gradient-to-br from-amber-500 to-amber-700 rounded-xl p-4 text-white shadow-sm">
-                                        <div className="text-xs font-bold text-amber-100 mb-1 uppercase tracking-wide">Belum Lunas</div>
-                                        <div className="text-3xl font-black leading-tight">{gBelumLunas}</div>
-                                        <div className="text-xs text-amber-200 mt-1">nota</div>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                        <Card className="p-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <div className="font-bold text-sm text-gray-700">Tambah Pembelian Manual</div>
-                                    <div className="text-xs text-gray-400 mt-0.5">Input pembelian bahan langsung ke vendor tanpa melalui order produksi</div>
-                                </div>
-                                <button onClick={() => { setNewVendorForm({ open: !newVendorForm.open, vendor: '', date: new Date().toISOString().slice(0, 10) }); setManualFormRow({ name: '', spec: '', qty: '', unit: 'Meter', price: '', note: '', purchaseStatus: 'Sudah Dibeli' }); setEditManualId(null); }} className={`text-xs font-bold px-3 py-1.5 rounded-lg border ${newVendorForm.open ? 'bg-gray-100 text-gray-600 border-gray-300' : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'}`}>
-                                    {newVendorForm.open ? 'Batal' : '+ Tambah Pembelian Manual'}
-                                </button>
+                        <Card>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <SearchField value={dbSearch} onChange={setDbSearch} placeholder="Cari nama bahan, spesifikasi, vendor..." />
+                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dbVendorFilter} onChange={e => setDbVendorFilter(e.target.value)}>
+                                    {vendors.map(v => <option key={v} value={v}>{v}</option>)}
+                                </select>
+                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dbYearFilter} onChange={e => setDbYearFilter(e.target.value)}>
+                                    {years.map(y => <option key={y} value={y}>{y === 'Semua' ? 'Semua Tahun' : y}</option>)}
+                                </select>
                             </div>
-                            {newVendorForm.open && (
-                                <div className="mt-3 border-t pt-3 space-y-3">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-600 mb-1">Nama Vendor / Toko *</label>
-                                            <input className="w-full p-2 border rounded text-sm" placeholder="Cth: Toko Maju Jaya" value={newVendorForm.vendor} onChange={e => setNewVendorForm(prev => ({ ...prev, vendor: e.target.value }))} />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Pembelian</label>
-                                            <input type="date" className="w-full p-2 border rounded text-sm" value={newVendorForm.date} onChange={e => setNewVendorForm(prev => ({ ...prev, date: e.target.value }))} />
-                                        </div>
+                        </Card>
+                        <Card>
+                            <div className="font-bold text-gray-600 text-sm mb-3">{filtered.length} bahan ditemukan dari semua order</div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-gray-200 text-left text-xs font-bold text-gray-500">
+                                            <th className="pb-2 pr-3">Nama Bahan</th>
+                                            <th className="pb-2 pr-3">Spesifikasi</th>
+                                            <th className="pb-2 pr-3">Vendor</th>
+                                            <th className="pb-2 pr-3 text-center">Qty</th>
+                                            <th className="pb-2 pr-3 text-right">Harga Satuan</th>
+                                            <th className="pb-2 pr-3">Tgl Beli</th>
+                                            <th className="pb-2">Order</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {filtered.length === 0 ? (
+                                            <tr><td colSpan={7} className="py-8 text-center text-gray-400 italic">Belum ada data bahan. Input bahan melalui tab Daftar Order.</td></tr>
+                                        ) : filtered.map((m, i) => (
+                                            <tr key={m.id || i} className="hover:bg-gray-50">
+                                                <td className="py-2 pr-3 font-medium text-gray-800">{m.name || '-'}</td>
+                                                <td className="py-2 pr-3 text-gray-500">{m.spec || m.color || '-'}</td>
+                                                <td className="py-2 pr-3 text-blue-700">{normalizeVendorName(m.vendor)}</td>
+                                                <td className="py-2 pr-3 text-center">{m.qty || 0} {m.unit || ''}</td>
+                                                <td className="py-2 pr-3 text-right font-mono">{formatRupiah(m.price || 0)}</td>
+                                                <td className="py-2 pr-3 text-gray-500">{m.purchaseDate || '-'}</td>
+                                                <td className="py-2 text-xs text-gray-400">{m._orderId} · {m._orderClient}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    </div>
+                );
+            };
+
+            const renderRekapPembelian = () => {
+                const notes = safeArray(purchaseNotes).filter(isVisibleRecord).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                const totalAll = notes.reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
+                return (
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                            <div className="text-sm text-gray-500">Total {notes.length} nota · <span className="font-bold text-red-600">{formatRupiah(totalAll)}</span></div>
+                            <button onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 flex items-center gap-2">
+                                + Nota Pembelian Baru
+                            </button>
+                        </div>
+
+                        {noteFormOpen && (
+                            <Card>
+                                <h3 className="font-bold text-gray-800 mb-4">{editNoteId ? 'Edit Nota Pembelian' : 'Input Nota Pembelian Baru'}</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Vendor / Toko</label>
+                                        <input type="text" list="pn-vendor-list" className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500" placeholder="Nama vendor/toko" value={noteForm.vendor} onChange={e => setNoteForm(f => ({ ...f, vendor: e.target.value }))} />
+                                        <datalist id="pn-vendor-list">{[...new Set(safeOrders.flatMap(o => getActiveMaterials(o).map(m => m.vendor)).filter(Boolean))].map((v, i) => <option key={i} value={v} />)}</datalist>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Rincian Bahan *</label>
-                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-2">
-                                            <input className="p-2 border rounded text-xs col-span-2 md:col-span-1" placeholder="Nama Bahan *" value={manualFormRow.name} onChange={e => setManualFormRow(r => ({ ...r, name: e.target.value }))} />
-                                            <input className="p-2 border rounded text-xs" placeholder="Warna/Spesifikasi" value={manualFormRow.spec} onChange={e => setManualFormRow(r => ({ ...r, spec: e.target.value }))} />
-                                            <input type="number" min="0" className="p-2 border rounded text-xs" placeholder="Qty *" value={manualFormRow.qty} onChange={e => setManualFormRow(r => ({ ...r, qty: e.target.value }))} />
-                                            <select className="p-2 border rounded text-xs" value={manualFormRow.unit} onChange={e => setManualFormRow(r => ({ ...r, unit: e.target.value }))}>
-                                                <option>Meter</option><option>Kg</option><option>Pcs</option><option>Lusin</option><option>Roll</option><option>Yard</option><option>Lainnya</option>
-                                            </select>
-                                            <input type="number" min="0" className="p-2 border rounded text-xs" placeholder="Harga/Satuan *" value={manualFormRow.price} onChange={e => setManualFormRow(r => ({ ...r, price: e.target.value }))} />
-                                            <input className="p-2 border rounded text-xs" placeholder="Catatan" value={manualFormRow.note} onChange={e => setManualFormRow(r => ({ ...r, note: e.target.value }))} />
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <select className="p-2 border rounded text-xs" value={manualFormRow.purchaseStatus} onChange={e => setManualFormRow(r => ({ ...r, purchaseStatus: e.target.value }))}>
-                                                <option>Sudah Dibeli</option><option>Belum Dibeli</option><option>Termin</option>
-                                            </select>
-                                            <button onClick={saveNewVendorManual} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold">Simpan Pembelian</button>
-                                        </div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Beli</label>
+                                        <input type="date" className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500" value={noteForm.date} onChange={e => setNoteForm(f => ({ ...f, date: e.target.value }))} />
                                     </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Metode Bayar</label>
+                                        <select className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500" value={noteForm.method} onChange={e => setNoteForm(f => ({ ...f, method: e.target.value }))}>
+                                            <option value="Transfer">Transfer</option>
+                                            <option value="Cash">Cash</option>
+                                            <option value="COD">COD</option>
+                                            <option value="Termin">Termin</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="space-y-2 mb-3">
+                                    <div className="grid grid-cols-12 gap-2 text-xs font-bold text-gray-500 px-1">
+                                        <span className="col-span-4">Nama Item</span>
+                                        <span className="col-span-2 text-center">Qty</span>
+                                        <span className="col-span-2">Satuan</span>
+                                        <span className="col-span-3 text-right">Harga Satuan</span>
+                                        <span className="col-span-1"></span>
+                                    </div>
+                                    {noteForm.items.map((it, idx) => (
+                                        <div key={it.id} className="grid grid-cols-12 gap-2 items-center">
+                                            <input type="text" className="col-span-4 p-2 text-sm border rounded" placeholder="Nama bahan/item" value={it.name} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, name: e.target.value } : x) }))} />
+                                            <input type="number" min="0" step="any" className="col-span-2 p-2 text-sm border rounded text-center" placeholder="0" value={it.qty} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, qty: e.target.value } : x) }))} />
+                                            <select className="col-span-2 p-2 text-sm border rounded" value={it.unit} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x) }))}>
+                                                <option>Meter</option><option>Roll</option><option>Kg</option><option>Yard</option><option>Lusin</option><option>Gross</option><option>Pcs</option><option>Pak</option>
+                                            </select>
+                                            <input type="number" min="0" className="col-span-3 p-2 text-sm border rounded text-right" placeholder="0" value={it.price} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, price: e.target.value } : x) }))} />
+                                            <button onClick={() => setNoteForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="col-span-1 h-9 bg-red-100 hover:bg-red-200 text-red-600 rounded flex items-center justify-center" disabled={noteForm.items.length <= 1}><IconTrash /></button>
+                                        </div>
+                                    ))}
+                                    <button onClick={() => setNoteForm(f => ({ ...f, items: [...f.items, { id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }] }))} className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded hover:bg-blue-100 border border-dashed border-blue-300 w-full">+ Tambah Item</button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label>
+                                        <input type="text" className="w-full p-2 text-sm border rounded" placeholder="Catatan nota (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Status Pembayaran</label>
+                                        <select className="w-full p-2 text-sm border rounded" value={noteForm.paymentStatus} onChange={e => setNoteForm(f => ({ ...f, paymentStatus: e.target.value }))}>
+                                            <option value="Lunas">Lunas</option>
+                                            <option value="Termin">Termin / Belum Lunas</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="flex justify-between items-center border-t pt-3">
+                                    <div className="font-bold text-gray-700">Total: <span className="text-red-600 text-lg">{formatRupiah(noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0))}</span></div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setNoteFormOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-bold text-sm hover:bg-gray-50">Batal</button>
+                                        <button onClick={savePurchaseNote} className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700">Simpan Nota</button>
+                                    </div>
+                                </div>
+                            </Card>
+                        )}
+
+                        <Card>
+                            {notes.length === 0 ? (
+                                <div className="py-12 text-center text-gray-400 italic">Belum ada nota pembelian. Klik "+ Nota Pembelian Baru" untuk menambah.</div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {notes.map(note => {
+                                        const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                        return (
+                                            <div key={note.id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-200 transition-colors">
+                                                <div className="flex justify-between items-start gap-4">
+                                                    <div>
+                                                        <div className="font-bold text-gray-800">{normalizeVendorName(note.vendor)}</div>
+                                                        <div className="text-sm text-gray-500">{note.date} · {note.method || 'Transfer'}</div>
+                                                        {note.note && <div className="text-xs text-gray-400 mt-1">{note.note}</div>}
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <div className="font-black text-red-600 text-lg">{formatRupiah(noteTotal)}</div>
+                                                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${note.paymentStatus === 'Lunas' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{note.paymentStatus || 'Lunas'}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-3 space-y-1">
+                                                    {safeArray(note.items).map((it, i) => (
+                                                        <div key={i} className="flex justify-between text-sm text-gray-600">
+                                                            <span>{it.name || '-'} · {it.qty || 0} {it.unit || ''}</span>
+                                                            <span className="font-mono">{formatRupiah(getMaterialLineTotal(it))}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                                                    <button onClick={() => { setEditNoteId(note.id); setNoteForm({ vendor: note.vendor, date: note.date, items: safeArray(note.items), method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas' }); setNoteFormOpen(true); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-200 hover:bg-blue-50">Edit</button>
+                                                    <button onClick={() => { if (window.confirm('Hapus nota ini?')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true } : n)); showToast('Nota dihapus.', 'success'); } }} className="text-xs font-bold text-red-600 hover:text-red-800 px-3 py-1 rounded border border-red-200 hover:bg-red-50">Hapus</button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
                         </Card>
-                        {vendorGroups.length === 0 && (
-                            <Card className="text-center p-8 text-gray-500 italic border-dashed border-2">
-                                <p>{searchTerm ? 'Tidak ada rekap vendor yang cocok dengan pencarian.' : 'Belum ada data bahan. Gunakan form di atas untuk menambah pembelian manual.'}</p>
-                            </Card>
-                        )}
-                        {vendorGroups.length > 0 && (
-                            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 bg-white border-b border-gray-100 text-[11px] text-gray-500">
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="font-bold text-gray-600">Tahun:</span>
-                                        <select value={rekapYearFilter} onChange={e => { setRekapYearFilter(e.target.value); setRekapMonthFilter('Semua'); }} className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                                            {rekapYears.map(y => <option key={y} value={y}>{y}</option>)}
-                                        </select>
-                                    </div>
-                                    {rekapYearFilter !== 'Semua' && (
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="font-bold text-gray-600">Bulan:</span>
-                                            <select value={rekapMonthFilter} onChange={e => setRekapMonthFilter(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                                                {[['Semua','Semua'],['01','Jan'],['02','Feb'],['03','Mar'],['04','Apr'],['05','Mei'],['06','Jun'],['07','Jul'],['08','Ags'],['09','Sep'],['10','Okt'],['11','Nov'],['12','Des']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                                            </select>
-                                        </div>
-                                    )}
-                                    <span className="text-gray-300">|</span>
-                                    <span className="font-bold text-gray-600">Filter Bayar:</span>
-                                    {[{v:'Lunas',c:'bg-green-400',l:'Lunas'},{v:'Termin / Bayar Sebagian',c:'bg-orange-400',l:'Sebagian'},{v:'Belum Bayar',c:'bg-red-400',l:'Belum Bayar'}].map(({v,c,l}) => (
-                                        <button key={v} onClick={() => setPaymentStatusFilter(prev => prev === v ? 'Semua' : v)} className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${paymentStatusFilter===v?'bg-gray-100 border-gray-400 font-bold text-gray-800':'border-transparent hover:bg-gray-100'}`}>
-                                            <span className={`inline-block w-2.5 h-3.5 rounded-sm ${c} flex-shrink-0`}></span>{l}
-                                        </button>
-                                    ))}
-                                    {paymentStatusFilter !== 'Semua' && <button onClick={() => setPaymentStatusFilter('Semua')} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
-                                    <span className="text-gray-300">|</span>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="font-bold text-gray-600">Urutan:</span>
-                                        <select value={rekapSortBy} onChange={e => setRekapSortBy(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white font-semibold text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                                            <option value="vendor">Nama Vendor A–Z</option>
-                                            <option value="totalDesc">Total Terbesar</option>
-                                            <option value="totalAsc">Total Terkecil</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-gray-200 text-[11px] text-gray-500">
-                                    <span>
-                                        {paymentStatusFilter !== 'Semua' || rekapYearFilter !== 'Semua' || rekapMonthFilter !== 'Semua'
-                                            ? <><span className="font-bold text-slate-700">{vendorGroups.length} nota</span> ditampilkan{rekapYearFilter !== 'Semua' ? ` · ${rekapYearFilter}${rekapMonthFilter !== 'Semua' ? `/${rekapMonthFilter}` : ''}` : ''}{paymentStatusFilter !== 'Semua' ? ` · ${paymentStatusFilter}` : ''}</>
-                                            : <><span className="font-bold text-slate-700">{vendorGroups.length} nota</span> total dalam daftar</>
-                                        }
-                                    </span>
-                                    <span className="text-gray-400 italic text-[10px]">Periksa jika ada nota yang tidak sesuai</span>
-                                </div>
-                                <div className="flex px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-500 uppercase tracking-wide gap-3 items-center">
-                                    <span className="w-7 text-center flex-shrink-0">#</span>
-                                    <span className="flex-1">Vendor / Nota</span>
-                                    <span className="w-36 text-right hidden sm:block">Total · Sisa</span>
-                                    <span className="w-28 text-center hidden md:block">Status</span>
-                                    <span className="text-center w-24">Aksi</span>
-                                </div>
-                                {vendorGroups.map((group, groupIdx) => {
-                                    const vendor = group.vendor;
-                                    const batchDateKey = group.batchDateKey;
-                                    const items = group.items;
-                                    const purchaseKey = `${vendor}|||${batchDateKey}`;
-                                    const noteNumber = `NOTA-${String(batchDateKey||'').replace(/-/g,'')}-${String(vendor||'VENDOR').replace(/\s+/g,'-').toUpperCase()}`;
-                                    const orderItems = items.filter(it => !it.isManual);
-                                    const orderGroups2 = Object.values(orderItems.reduce((acc, item) => {
-                                        if (!acc[item.orderId]) { const order = (orders||[]).find(o => String(o.id)===String(item.orderId)); acc[item.orderId] = { order, orderId: item.orderId, items: [] }; }
-                                        acc[item.orderId].items.push(item); return acc;
-                                    }, {}));
-                                    const totalEst = items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                                    const manualPaidTotal = getManualVendorPaidTotal(vendor, batchDateKey);
-                                    const paidTotal = orderGroups2.reduce((s, g) => s + (g.order ? getVendorPaidTotal(g.order, vendor, batchDateKey) : 0), 0) + manualPaidTotal;
-                                    const remainingTotal = Math.max(0, totalEst - paidTotal);
-                                    const paymentStatus = paidTotal <= 0 ? 'Belum Bayar' : remainingTotal <= 0 ? 'Lunas' : 'Termin / Bayar Sebagian';
-                                    const borderColor = paymentStatus === 'Lunas' ? 'border-l-green-600' : paymentStatus === 'Termin / Bayar Sebagian' ? 'border-l-orange-500' : 'border-l-red-500';
-                                    const rowBg = paymentStatus === 'Lunas' ? 'bg-green-100/75' : paymentStatus === 'Termin / Bayar Sebagian' ? 'bg-orange-100/75' : 'bg-red-100/75';
-                                    return (
-                                        <div key={purchaseKey} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg} hover:brightness-[0.97] transition-all`}>
-                                            <div className="w-7 flex-shrink-0 text-center">
-                                                <span className="text-[11px] font-black text-gray-400">{groupIdx + 1}</span>
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-gray-900 text-sm truncate">{vendor}</div>
-                                                <div className="text-xs text-gray-500 truncate">{formatMaterialBatchDate(batchDateKey)} · <span className="font-mono text-[10px]">{noteNumber}</span></div>
-                                                {(() => { const hasManual = items.some(it => it.isManual); const clients = [...new Set(items.filter(it => !it.isManual && it.client).map(it => it.client))]; const manualNotes = [...new Set(items.filter(it => it.isManual && it.note && it.note.trim()).map(it => it.note.trim()))]; const show = hasManual || clients.length > 0; return show ? <div className="mt-1 flex flex-wrap gap-1.5 items-center">{hasManual && <span className="inline-flex items-center text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full">✦ Manual</span>}{hasManual && manualNotes.length > 0 && <span className="text-[11px] text-gray-400 italic truncate">{manualNotes.join(' · ')}</span>}{clients.map(c => <span key={c} className="inline-flex items-center text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{c}</span>)}</div> : null; })()}
-                                            </div>
-                                            <div className="text-right w-36 hidden sm:block flex-shrink-0">
-                                                <div className="font-black text-gray-800 text-sm">{formatRupiah(totalEst)}</div>
-                                                <div className="text-[11px] text-gray-400">Sisa: {formatRupiah(remainingTotal)}</div>
-                                            </div>
-                                            <div className="w-28 text-center hidden md:block flex-shrink-0"><Badge status={paymentStatus} /></div>
-                                            <div className="flex gap-1.5 items-center w-24 justify-center flex-shrink-0">
-                                                <button onClick={() => setDetailVendorKey(purchaseKey)} title="Rincian" className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-100 transition-colors"><IconEye /></button>
-                                                <button onClick={() => printDaftarBelanjaVendor(vendor, items)} title="Cetak" className="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
-                                                <button onClick={() => openDeletePurchaseConfirm(group)} title="Hapus" className="p-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                        {detailVendorKey && (() => {
-                            const dGroup = groupedMaterials[detailVendorKey];
-                            if (!dGroup) return null;
-                            const dVendor = dGroup.vendor;
-                            const dBatchDateKey = dGroup.batchDateKey;
-                            const dItems = dGroup.items;
-                            const dBatchKey = getMaterialBatchKey(dVendor, dBatchDateKey);
-                            const dNoteNumber = `NOTA-${String(dBatchDateKey||'').replace(/-/g,'')}-${String(dVendor||'').replace(/\s+/g,'-').toUpperCase()}`;
-                            const dManualItems = dItems.filter(it => it.isManual);
-                            const dOrderItems = dItems.filter(it => !it.isManual);
-                            const dOrderGroups = Object.values(dOrderItems.reduce((acc, item) => {
-                                if (!acc[item.orderId]) { const order = (orders||[]).find(o => String(o.id)===String(item.orderId)); acc[item.orderId] = { order, orderId: item.orderId, client: item.client, type: item.type, designImage1: item.designImage1, items: [] }; }
-                                acc[item.orderId].items.push(item); return acc;
-                            }, {}));
-                            const dTotalEst = dItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                            const dManualPaid = getManualVendorPaidTotal(dVendor, dBatchDateKey);
-                            const dPaidTotal = dOrderGroups.reduce((s, g) => s + (g.order ? getVendorPaidTotal(g.order, dVendor, dBatchDateKey) : 0), 0) + dManualPaid;
-                            const dRemaining = Math.max(0, dTotalEst - dPaidTotal);
-                            const dPaymentStatus = dPaidTotal <= 0 ? 'Belum Bayar' : dRemaining <= 0 ? 'Lunas' : 'Termin / Bayar Sebagian';
-                            const dUnifiedKey = `${dBatchKey}__UNIFIED`;
-                            const fRp = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(num);
-                            return (
-                                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setDetailVendorKey(null)}>
-                                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-                                        <div className="bg-gradient-to-r from-slate-700 to-slate-800 px-5 py-4 flex items-center justify-between flex-shrink-0">
-                                            <div>
-                                                <div className="text-white font-black text-base">{dVendor}</div>
-                                                <div className="text-slate-300 text-xs mt-0.5">{dNoteNumber} · {formatMaterialBatchDate(dBatchDateKey)}</div>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <Badge status={dPaymentStatus} />
-                                                <button onClick={() => setDetailVendorKey(null)} className="text-white/80 hover:text-white w-8 h-8 flex items-center justify-center rounded-xl hover:bg-white/20 text-xl font-bold flex-shrink-0">✕</button>
-                                            </div>
-                                        </div>
-                                        <div className="overflow-y-auto flex-1 p-5 space-y-4">
-                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                                <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center"><div className="text-xs text-gray-400 mb-1">Total Tagihan</div><div className="font-black text-red-700">{fRp(dTotalEst)}</div></div>
-                                                <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-center"><div className="text-xs text-gray-400 mb-1">Sudah Dibayar</div><div className="font-black text-green-700">{fRp(dPaidTotal)}</div></div>
-                                                <div className={`border rounded-xl p-3 text-center ${dRemaining<=0?'bg-green-50 border-green-100':'bg-orange-50 border-orange-100'}`}><div className="text-xs text-gray-400 mb-1">Sisa</div><div className={`font-black ${dRemaining<=0?'text-green-700':'text-orange-700'}`}>{fRp(dRemaining)}</div></div>
-                                            </div>
-                                            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
-                                                <div className="text-xs font-black text-orange-800 mb-2">
-                                                    Tambah Pembayaran
-                                                    {dManualItems.length > 0 && dOrderGroups.length > 0 && <span className="ml-1 font-normal text-orange-600">(otomatis dibagi proporsional: bahan order + manual)</span>}
-                                                </div>
-                                                <div className="flex flex-col lg:flex-row gap-2">
-                                                    <input type="date" className="p-2 border rounded text-xs" value={paymentInputs[dUnifiedKey]?.date||new Date().toISOString().slice(0,10)} onChange={e => setPaymentInputs(prev => ({...prev, [dUnifiedKey]: {...(prev[dUnifiedKey]||{}), date: e.target.value}}))} />
-                                                    <input type="number" min="0" className="p-2 border rounded text-xs text-right flex-1" placeholder="Nominal bayar" value={paymentInputs[dUnifiedKey]?.amount||''} onChange={e => setPaymentInputs(prev => ({...prev, [dUnifiedKey]: {...(prev[dUnifiedKey]||{}), amount: e.target.value}}))} />
-                                                    <select className="p-2 border rounded text-xs" value={paymentInputs[dUnifiedKey]?.method||'Transfer'} onChange={e => setPaymentInputs(prev => ({...prev, [dUnifiedKey]: {...(prev[dUnifiedKey]||{}), method: e.target.value}}))}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
-                                                    <input type="text" className="p-2 border rounded text-xs flex-1" placeholder="Catatan" value={paymentInputs[dUnifiedKey]?.note||''} onChange={e => setPaymentInputs(prev => ({...prev, [dUnifiedKey]: {...(prev[dUnifiedKey]||{}), note: e.target.value}}))} />
-                                                    <button onClick={() => addNotaPayment(dVendor, dBatchDateKey, dOrderGroups, dManualItems)} disabled={isSavingPayment} className={`text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0 transition-colors ${isSavingPayment ? 'bg-slate-400 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-800'}`}>{isSavingPayment ? 'Menyimpan...' : 'Simpan Bayar'}</button>
-                                                </div>
-                                            </div>
-                                            {/* Riwayat Pembayaran Nota — satu record per transaksi */}
-                                            {(() => {
-                                                const notaPayments = safeArray((vendorNotaPayments || {})[dBatchKey]).filter(p => !p.isDeleted);
-                                                const hasLegacyOrderPay = dOrderGroups.some(g => g.order && getVendorPayments(g.order, dVendor, dBatchDateKey).some(p => !p.notaPaymentId));
-                                                const hasLegacyManualPay = safeArray((manualVendorPayments||{})[dBatchKey]).filter(p => !p.isDeleted).some(p => !p.notaPaymentId);
-                                                if (notaPayments.length === 0 && !hasLegacyOrderPay && !hasLegacyManualPay) return null;
-                                                return (
-                                                    <div className="bg-green-50 border border-green-200 rounded-xl overflow-hidden">
-                                                        <div className="px-3 py-2 bg-green-100 border-b border-green-200 text-xs font-black text-green-800">Riwayat Pembayaran</div>
-                                                        {notaPayments.length > 0 ? (
-                                                            <div className="divide-y divide-green-100">
-                                                                {notaPayments.map((pay, pi) => (
-                                                                    <div key={pay.id||pi} className="flex items-center justify-between px-3 py-2 gap-2 text-xs">
-                                                                        <div className="flex-1 min-w-0">
-                                                                            <span className="font-bold text-green-700">{fRp(pay.amount||0)}</span>
-                                                                            <span className="text-gray-500 ml-2">{pay.date} · {pay.method||'-'}</span>
-                                                                            {pay.ordersCount > 0 && <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded font-bold">↗ {pay.ordersCount} order</span>}
-                                                                            {pay.note && <span className="text-gray-400 ml-2 italic">{pay.note}</span>}
-                                                                        </div>
-                                                                        <button onClick={() => deleteNotaPayment(dBatchKey, pay.id)} className="text-red-500 font-bold shrink-0 hover:text-red-700 text-[11px]">Hapus</button>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        ) : null}
-                                                        {(hasLegacyOrderPay || hasLegacyManualPay) && (
-                                                            <div className="px-3 py-2 text-[10px] text-gray-400 italic border-t border-green-100">Data pembayaran lama (sebelum pembaruan sistem) — lihat di kartu order masing-masing di bawah.</div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })()}
-                                            {dOrderGroups.map(group => {
-                                                const order = group.order;
-                                                const allPayments = order ? getVendorPayments(order, dVendor, dBatchDateKey) : [];
-                                                const legacyPayments = allPayments.filter(p => !p.notaPaymentId);
-                                                const groupSubtotal = group.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                                                return (
-                                                    <div key={group.orderId} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                                                        <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border-b border-indigo-100">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="w-9 h-9 rounded-lg border border-indigo-200 bg-white overflow-hidden flex items-center justify-center shrink-0">{group.designImage1 ? <img src={group.designImage1} className="w-full h-full object-cover" /> : <IconImage />}</div>
-                                                                <div><span className="font-black text-indigo-700 text-xs">{group.orderId}</span><span className="text-xs text-gray-500 ml-2">{group.type||'-'} · {group.client||'-'}</span></div>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="font-bold text-xs text-indigo-700">{fRp(groupSubtotal)}</span>
-                                                                <button onClick={() => order && openMaterialModal(order)} className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg">Edit</button>
-                                                            </div>
-                                                        </div>
-                                                        <div className="px-3 py-2 divide-y divide-gray-50">
-                                                            {group.items.map((item, ii) => (
-                                                                <div key={item.id||ii} className="flex items-center justify-between py-1.5 gap-2 text-xs">
-                                                                    <div className="min-w-0"><span className="font-semibold text-gray-800">{item.name}</span>{item.spec && <span className="text-gray-400"> · {item.spec}</span>}{item.note && <span className="text-gray-400 italic"> ({item.note})</span>}</div>
-                                                                    <div className="text-gray-500 shrink-0">{item.qty} {item.unit} × {fRp(item.price||0)}</div>
-                                                                    <div className="font-bold text-red-600 shrink-0">{fRp(getMaterialLineTotal(item))}</div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        {legacyPayments.length > 0 && (
-                                                            <div className="px-3 py-2 bg-green-50 border-t border-green-100 space-y-1">
-                                                                <div className="text-[10px] text-green-600 font-bold opacity-70 mb-1">Data lama:</div>
-                                                                {legacyPayments.map((pay, pi) => {
-                                                                    const payKey = `${group.orderId}__${pay.id}`;
-                                                                    const isEditingThis = editingPaymentKey === payKey;
-                                                                    return (
-                                                                        <div key={pay.id||pi} className="text-xs">
-                                                                            {isEditingThis ? (
-                                                                                <div className="bg-white border border-blue-200 rounded-lg p-2 space-y-1.5">
-                                                                                    <div className="flex gap-1 flex-wrap">
-                                                                                        <input type="number" min="1" value={editPaymentForm.amount} onChange={e => setEditPaymentForm(p => ({...p, amount: e.target.value}))} className="border rounded px-2 py-1 text-xs w-28 font-bold" placeholder="Nominal" />
-                                                                                        <select value={editPaymentForm.method} onChange={e => setEditPaymentForm(p => ({...p, method: e.target.value}))} className="border rounded px-2 py-1 text-xs">
-                                                                                            <option>Transfer</option><option>Cash</option><option>QRIS</option><option>Cek</option>
-                                                                                        </select>
-                                                                                        <input type="text" value={editPaymentForm.note} onChange={e => setEditPaymentForm(p => ({...p, note: e.target.value}))} className="border rounded px-2 py-1 text-xs flex-1 min-w-20" placeholder="Catatan" />
-                                                                                    </div>
-                                                                                    <div className="flex gap-1">
-                                                                                        <button onClick={() => saveEditPayment(group.orderId, dVendor, dBatchDateKey, pay.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-bold text-xs">Simpan</button>
-                                                                                        <button onClick={() => { setEditingPaymentKey(null); setEditPaymentForm({amount:'',method:'Transfer',note:''}); }} className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded font-bold text-xs">Batal</button>
-                                                                                    </div>
-                                                                                </div>
-                                                                            ) : (
-                                                                                <div className="flex items-center justify-between gap-2">
-                                                                                    <span className="text-green-700"><span className="font-bold">Bayar {pi+1}:</span> {pay.date} · {pay.method}{pay.note ? ` · ${pay.note}` : ''}</span>
-                                                                                    <div className="flex items-center gap-2 shrink-0">
-                                                                                        <span className="font-bold text-green-700">{fRp(pay.amount||0)}</span>
-                                                                                        <button onClick={() => editVendorPayment(group.orderId, dVendor, dBatchDateKey, pay)} className="text-blue-600 font-bold">Edit</button>
-                                                                                        <button onClick={() => deleteVendorPayment(group.orderId, dVendor, dBatchDateKey, pay.id)} className="text-red-500 font-bold">Hapus</button>
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                            <div className="bg-white border border-blue-200 rounded-xl p-3">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <div className="font-black text-blue-700 text-sm flex items-center gap-2"><span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">MANUAL</span>Bahan Manual</div>
-                                                    <button onClick={() => { setManualFormOpen(manualFormOpen === detailVendorKey ? null : detailVendorKey); setManualFormRow({name:'',spec:'',qty:'',unit:'Meter',price:'',note:'',purchaseStatus:'Sudah Dibeli'}); setEditManualId(null); }} className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg">
-                                                        {manualFormOpen === detailVendorKey ? 'Batal' : '+ Tambah Bahan Manual'}
-                                                    </button>
-                                                </div>
-                                                {manualFormOpen === detailVendorKey && (
-                                                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3">
-                                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-2">
-                                                            <input className="p-2 border rounded text-xs col-span-2 md:col-span-1" placeholder="Nama Bahan *" value={manualFormRow.name} onChange={e => setManualFormRow(r => ({...r, name: e.target.value}))} />
-                                                            <input className="p-2 border rounded text-xs" placeholder="Warna/Spesifikasi" value={manualFormRow.spec} onChange={e => setManualFormRow(r => ({...r, spec: e.target.value}))} />
-                                                            <input type="number" min="0" className="p-2 border rounded text-xs" placeholder="Qty *" value={manualFormRow.qty} onChange={e => setManualFormRow(r => ({...r, qty: e.target.value}))} />
-                                                            <select className="p-2 border rounded text-xs" value={manualFormRow.unit} onChange={e => setManualFormRow(r => ({...r, unit: e.target.value}))}><option>Meter</option><option>Kg</option><option>Pcs</option><option>Lusin</option><option>Roll</option><option>Yard</option><option>Lainnya</option></select>
-                                                            <input type="number" min="0" className="p-2 border rounded text-xs" placeholder="Harga/Satuan *" value={manualFormRow.price} onChange={e => setManualFormRow(r => ({...r, price: e.target.value}))} />
-                                                            <input className="p-2 border rounded text-xs" placeholder="Catatan" value={manualFormRow.note} onChange={e => setManualFormRow(r => ({...r, note: e.target.value}))} />
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <select className="p-2 border rounded text-xs" value={manualFormRow.purchaseStatus} onChange={e => setManualFormRow(r => ({...r, purchaseStatus: e.target.value}))}><option>Sudah Dibeli</option><option>Belum Dibeli</option><option>Termin</option></select>
-                                                            <button onClick={() => saveManualPurchase(dVendor, dBatchDateKey)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold">{editManualId ? 'Simpan Perubahan' : 'Tambah'}</button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {dManualItems.length > 0 ? (
-                                                    <div className="divide-y divide-blue-50">
-                                                        {dManualItems.map((item, idx) => (
-                                                            <div key={item.id||idx} className="flex items-center justify-between py-1.5 gap-2 text-xs">
-                                                                <div className="min-w-0 flex-1"><span className="font-semibold text-blue-700">{item.name}</span>{item.spec && <span className="text-gray-400"> · {item.spec}</span>}{item.note && <span className="text-gray-400 italic"> ({item.note})</span>}</div>
-                                                                <div className="text-gray-500 shrink-0">{item.qty} {item.unit} × {fRp(item.price||0)}</div>
-                                                                <div className="font-bold text-red-600 shrink-0">{fRp(getMaterialLineTotal(item))}</div>
-                                                                <div className="flex gap-2 shrink-0">
-                                                                    <button onClick={() => { setEditManualId(item.id); setManualFormRow({name:item.name||'',spec:item.spec||'',qty:item.qty||'',unit:item.unit||'Meter',price:item.price||'',note:item.note||'',purchaseStatus:item.purchaseStatus||'Sudah Dibeli'}); setManualFormOpen(detailVendorKey); }} className="text-blue-600 font-bold">Edit</button>
-                                                                    <button onClick={() => deleteManualPurchase(item.id)} className="text-red-500 font-bold">Hapus</button>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : <div className="text-xs text-gray-400 italic py-2">Belum ada bahan manual.</div>}
-                                                {safeArray((manualVendorPayments||{})[dBatchKey]).filter(p => !p.isDeleted && !p.notaPaymentId).length > 0 && (
-                                                    <div className="mt-3 bg-blue-50 border border-blue-100 rounded-lg p-3">
-                                                        <div className="text-xs font-bold text-blue-700 mb-2">Riwayat Pembayaran Bahan Manual <span className="text-[10px] font-normal opacity-70">(data lama)</span></div>
-                                                        <div className="space-y-1">
-                                                            {safeArray((manualVendorPayments||{})[dBatchKey]).filter(p => !p.isDeleted && !p.notaPaymentId).map((pay, pi) => (
-                                                                <div key={pay.id||pi} className="flex items-center justify-between bg-white border border-blue-100 rounded p-2 text-xs">
-                                                                    <span><span className="font-bold">Bayar {pi+1}:</span> {fRp(pay.amount||0)} ({pay.method||'-'}) {pay.date?`- ${pay.date}`:''} {pay.note?`- ${pay.note}`:''}</span>
-                                                                    <button onClick={() => deleteManualVendorPayment(dVendor, dBatchDateKey, pay.id)} className="text-red-600 font-bold ml-2">Hapus</button>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 flex-shrink-0">
-                                            <button onClick={() => printDaftarBelanjaVendor(dVendor, dItems)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak</button>
-                                            <button onClick={() => { setDetailVendorKey(null); openDeletePurchaseConfirm(dGroup); }} className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-bold text-sm flex items-center gap-2"><IconTrash /> Hapus</button>
-                                            <button onClick={() => setDetailVendorKey(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })()}
                     </div>
                 );
             };
@@ -6283,12 +5163,8 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             return (
                 <div className="space-y-6">
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-800">
-                            {activeTab === 'rekap_vendor' ? 'Rekap Pembelian Bahan' : activeTab === 'riwayat_bahan' ? 'Riwayat Bahan' : 'Manajemen Pembelian Bahan'}
-                        </h2>
-                        <p className="text-gray-500 text-sm mt-1">
-                            {activeTab === 'rekap_vendor' ? 'Rekap nota bahan per vendor/toko beserta termin pembayaran.' : activeTab === 'riwayat_bahan' ? 'Arsip bahan order yang sudah selesai. Gunakan "Beli Lagi" untuk membuka kembali.' : 'Input pembelian bahan berdasarkan order produksi yang sudah masuk.'}
-                        </p>
+                        <h2 className="text-2xl font-bold text-gray-800">Manajemen Pembelian Bahan</h2>
+                        <p className="text-gray-500 text-sm mt-1">Input kebutuhan bahan per order, database bahan, dan rekap nota pembelian.</p>
                     </div>
 
                     <div className="flex gap-4 border-b border-gray-200 pb-2 flex-wrap">
@@ -6296,47 +5172,39 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             onClick={() => setActiveTab('daftar_order')}
                             className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeTab === 'daftar_order' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                         >
-                            Input Pembelian
+                            Daftar Order
                         </button>
                         <button
-                            onClick={() => setActiveTab('rekap_vendor')}
-                            className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'rekap_vendor' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                            onClick={() => setActiveTab('database_bahan')}
+                            className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeTab === 'database_bahan' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        >
+                            Database Bahan
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('rekap_pembelian')}
+                            className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'rekap_pembelian' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                         >
                             <IconBarChart /> Rekap Pembelian
                         </button>
-                        <button
-                            onClick={() => setActiveTab('riwayat_bahan')}
-                            className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'riwayat_bahan' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                        >
-                            📦 Riwayat Bahan {riwayatBahanOrders.length > 0 && <span className="bg-purple-100 text-purple-700 text-xs font-bold px-1.5 py-0.5 rounded-full">{riwayatBahanOrders.length}</span>}
-                        </button>
                     </div>
 
-                    {activeTab !== 'riwayat_bahan' && (
-                        <Card>
-                            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                                <div className="md:col-span-2">
-                                    <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan, status..." />
-                                </div>
-                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                                    <option value="Semua">Semua Status Bahan</option>
-                                    <option value="Belum">Belum Direkap</option>
-                                    <option value="Direkap">Sudah Direkap</option>
-                                    <option value="Dibeli Sebagian">Dibeli Sebagian</option>
-                                    <option value="Selesai">Selesai</option>
-                                </select>
-                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={paymentStatusFilter} onChange={e => setPaymentStatusFilter(e.target.value)}>
-                                    <option value="Semua">Semua Pembayaran</option>
-                                    <option value="Belum Bayar">Belum Bayar</option>
-                                    <option value="Termin / Bayar Sebagian">Termin / Bayar Sebagian</option>
-                                    <option value="Lunas">Lunas</option>
-                                </select>
-                                <input type="date" className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dateFilter} onChange={e => setDateFilter(e.target.value)} title="Filter tanggal masuk, deadline, atau tanggal beli" />
+                    <Card>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <div className="md:col-span-2">
+                                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan..." />
                             </div>
-                        </Card>
-                    )}
+                            <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                                <option value="Semua">Semua Status Bahan</option>
+                                <option value="Belum">Belum Ada Bahan</option>
+                                <option value="Ada Bahan">Ada Bahan</option>
+                            </select>
+                            <input type="date" className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dateFilter} onChange={e => setDateFilter(e.target.value)} title="Filter tanggal beli" />
+                        </div>
+                    </Card>
 
-                    {activeTab === 'daftar_order' ? renderDaftarOrder() : activeTab === 'rekap_vendor' ? renderRekapVendor() : renderRiwayatBahan()}
+                    {activeTab === 'daftar_order' && renderDaftarOrder()}
+                    {activeTab === 'database_bahan' && renderDatabaseBahan()}
+                    {activeTab === 'rekap_pembelian' && renderRekapPembelian()}
 
                     {selectedOrder && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
@@ -6449,18 +5317,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                     value={mat.note || ''} onChange={e => handleMaterialChange(index, 'note', e.target.value)}
                                                 />
                                             </div>
-                                            <div className="md:col-span-2">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Status Beli</label>
-                                                <select
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500"
-                                                    value={mat.purchaseStatus || 'Sudah Dibeli'} onChange={e => handleMaterialChange(index, 'purchaseStatus', e.target.value)}
-                                                >
-                                                    <option value="Belum Dibeli">Belum Dibeli</option>
-                                                    <option value="Sudah Dibeli">Sudah Dibeli</option>
-                                                    <option value="Termin">Termin</option>
-                                                </select>
-                                            </div>
-                                            <div className="md:col-span-7 text-right text-xs text-gray-600">
+                                            <div className="md:col-span-9 text-right text-xs text-gray-600">
                                                 Total baris: <span className="font-black text-red-600">{formatRupiah(getMaterialLineTotal(mat))}</span>
                                             </div>
                                         </div>
@@ -6498,27 +5355,10 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                     </button>
                                     
                                     <div className="flex w-full sm:w-auto gap-2">
-                                        <button onClick={() => saveMaterials('Selesai')} className="flex-1 sm:flex-none px-5 py-2.5 border border-yellow-500 text-yellow-700 bg-yellow-50 rounded-lg font-bold hover:bg-yellow-100 transition-colors">
-                                            Simpan Pembelian
+                                        <button onClick={() => saveMaterials()} className="flex-1 sm:flex-none px-5 py-2.5 border border-yellow-500 text-yellow-700 bg-yellow-50 rounded-lg font-bold hover:bg-yellow-100 transition-colors">
+                                            Simpan Bahan
                                         </button>
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    {deletePurchaseConfirm && (
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
-                            <div className="bg-white p-6 rounded-xl shadow-xl max-w-lg w-full">
-                                <h3 className="text-lg font-bold text-gray-900 mb-2">Konfirmasi Hapus Nota</h3>
-                                <p className="text-gray-600 mb-2 text-sm">Pilih tindakan untuk nota pembelian ini.</p>
-                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm mb-5">
-                                    <div><span className="font-bold">Vendor:</span> {deletePurchaseConfirm.vendor}</div>
-                                    <div><span className="font-bold">Tanggal:</span> {formatMaterialBatchDate(deletePurchaseConfirm.batchDateKey)}</div>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    <button onClick={() => setDeletePurchaseConfirm(null)} className="w-full px-4 py-2 font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg transition-colors text-sm">Batal</button>
-                                    <button onClick={() => applyPurchaseDelete('return')} className="w-full px-4 py-2 font-bold text-orange-800 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors text-sm">Hapus Nota & Batalkan Pembelian (bahan kembali ke daftar order)</button>
-                                    <button onClick={() => applyPurchaseDelete('permanent')} className="w-full px-4 py-2 font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm">Hapus Permanen</button>
                                 </div>
                             </div>
                         </div>
@@ -9522,7 +8362,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, manualPurchases = [], manualVendorPayments = {} }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [] }) => {
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
@@ -9589,7 +8429,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     .filter(order => Array.isArray(order.materials) && getActiveMaterials(order).length > 0)
                     .flatMap(order => {
                         const hasPayments = Object.keys(order.materialPayments || {}).length > 0;
-                        const wasProcessed = order.materialIsArchived || hasPayments || ['Direkap', 'Dibeli Sebagian', 'Selesai'].includes(order.materialStatus || 'Belum');
+                        const wasProcessed = order.materialIsArchived || hasPayments || ['Ada Bahan', 'Direkap', 'Dibeli Sebagian', 'Selesai'].includes(order.materialStatus || 'Belum');
                         if (!wasProcessed) return [];
                         const paymentRows = getOrderPaymentRows(order);
                         const materialTotal = getFinanceOrderMaterialTotal(order);
@@ -9629,32 +8469,22 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             isHutang: true
                         }];
                     }),
-                ...safeArray(manualPurchases).filter(isVisibleRecord).flatMap(mp => {
-                    const manualBatchKey = getMaterialBatchKey(mp.vendor || 'Tanpa Vendor', mp.purchaseDate || '');
-                    const manualPaysList = safeArray((manualVendorPayments || {})[manualBatchKey]).filter(p => !p.isDeleted);
-                    const hasManualPayments = manualPaysList.length > 0;
-                    const manualPaid = manualPaysList.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-                    const manualTotal = getMaterialLineTotal(mp);
-                    const baseRow = {
+                ...safeArray(purchaseNotes).filter(isVisibleRecord).map(note => {
+                    const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                    return {
+                        id: note.id,
                         orderId: null,
-                        date: mp.purchaseDate || new Date().toISOString().slice(0, 10),
+                        date: note.date || new Date().toISOString().slice(0, 10),
                         client: '-',
-                        type: 'Pembelian Manual',
+                        type: 'Nota Pembelian',
                         totalPcs: 0,
-                        vendors: [String(mp.vendor || 'Tanpa Vendor').trim()],
-                        materials: [mp],
-                        isManual: true
+                        vendors: [normalizeVendorName(note.vendor)],
+                        materials: safeArray(note.items),
+                        total: noteTotal,
+                        isPayment: note.paymentStatus === 'Lunas',
+                        isHutang: note.paymentStatus !== 'Lunas',
+                        isPurchaseNote: true,
                     };
-                    if (hasManualPayments) {
-                        const paidAmt = Math.min(manualPaid, manualTotal);
-                        const remaining = manualTotal - paidAmt;
-                        const rows = [];
-                        if (paidAmt > 0) rows.push({ ...baseRow, id: `${mp.id}-paid`, total: paidAmt, isPayment: true, isHutang: false });
-                        if (remaining > 0) rows.push({ ...baseRow, id: `${mp.id}-hutang`, total: remaining, isPayment: false, isHutang: true });
-                        if (rows.length === 0) rows.push({ ...baseRow, id: mp.id, total: manualTotal, isPayment: false, isHutang: true });
-                        return rows;
-                    }
-                    return [{ ...baseRow, id: mp.id, total: manualTotal, isPayment: false, isHutang: mp.purchaseStatus === 'Belum Dibeli' || mp.purchaseStatus === 'Termin' }];
                 })
             ];
 
@@ -9802,31 +8632,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return { order, billed, paid, remaining: Math.max(0, billed - paid) };
                 })
                 .filter(row => row.billed > 0);
-            // Hutang vendor dari pembelian manual (manualPurchases + manualVendorPayments)
-            const manualBillingByBatch = {};
-            safeArray(manualPurchases).filter(isVisibleRecord).forEach(mp => {
-                if (!mp.vendor) return;
-                const bk = getMaterialBatchKey(mp.vendor, mp.purchaseDate || '');
-                if (!manualBillingByBatch[bk]) manualBillingByBatch[bk] = { billed: 0, paid: 0 };
-                manualBillingByBatch[bk].billed += getMaterialLineTotal(mp);
-            });
-            Object.entries(manualVendorPayments || {}).forEach(([bk, pmts]) => {
-                if (!manualBillingByBatch[bk]) manualBillingByBatch[bk] = { billed: 0, paid: 0 };
-                manualBillingByBatch[bk].paid += safeArray(pmts).filter(p => !p.isDeleted).reduce((s, p) => s + safeMoney(p?.amount), 0);
-            });
-            const manualBillingTotals = Object.values(manualBillingByBatch).reduce(
-                (acc, { billed, paid }) => ({
-                    billed: acc.billed + billed,
-                    paid: acc.paid + Math.min(paid, billed),
-                    debt: acc.debt + Math.max(0, billed - paid)
-                }),
+            // Hutang vendor dari nota pembelian (purchaseNotes)
+            const purchaseNoteBillingTotals = safeArray(purchaseNotes).filter(isVisibleRecord).reduce(
+                (acc, note) => {
+                    const total = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                    const paid = note.paymentStatus === 'Lunas' ? total : 0;
+                    return { billed: acc.billed + total, paid: acc.paid + paid, debt: acc.debt + Math.max(0, total - paid) };
+                },
                 { billed: 0, paid: 0, debt: 0 }
             );
-            const totalMaterialBill = materialBillingRows.reduce((sum, row) => sum + row.billed, 0) + manualBillingTotals.billed;
-            const totalVendorPaid = materialBillingRows.reduce((sum, row) => sum + row.paid, 0) + manualBillingTotals.paid;
-            const totalVendorDebt = materialBillingRows.reduce((sum, row) => sum + row.remaining, 0) + manualBillingTotals.debt;
+            const totalMaterialBill = materialBillingRows.reduce((sum, row) => sum + row.billed, 0) + purchaseNoteBillingTotals.billed;
+            const totalVendorPaid = materialBillingRows.reduce((sum, row) => sum + row.paid, 0) + purchaseNoteBillingTotals.paid;
+            const totalVendorDebt = materialBillingRows.reduce((sum, row) => sum + row.remaining, 0) + purchaseNoteBillingTotals.debt;
             const totalPaidOffPurchase = materialBillingRows.filter(row => row.remaining <= 0).reduce((sum, row) => sum + row.billed, 0);
-            const totalUnpaidPurchase = materialBillingRows.filter(row => row.remaining > 0).reduce((sum, row) => sum + row.remaining, 0) + manualBillingTotals.debt;
+            const totalUnpaidPurchase = materialBillingRows.filter(row => row.remaining > 0).reduce((sum, row) => sum + row.remaining, 0) + purchaseNoteBillingTotals.debt;
 
             const orderCostMap = new Map();
             materialRows.forEach(row => {
@@ -16746,6 +15565,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [manualPurchases, setManualPurchases] = useState([]);
             const [manualVendorPayments, setManualVendorPayments] = useState({});
             const [vendorNotaPayments, setVendorNotaPayments] = useState({});
+            const [purchaseNotes, setPurchaseNotes] = useState([]);
             const [investors, setInvestors] = useState([]);
             const [investorBagiHasil, setInvestorBagiHasil] = useState([]);
             const [drivers, setDrivers] = useState([]);
@@ -16898,27 +15718,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     // Menyiapkan field bahan (materials) agar order lama tidak error
                     if (!updatedO.materials || !Array.isArray(updatedO.materials)) updatedO.materials = [];
                     if (!updatedO.materialStatus) updatedO.materialStatus = 'Belum';
-                    if (updatedO.materialStatus === 'Dicetak') updatedO.materialStatus = 'Direkap';
-                    if (!updatedO.materialPrintCount) updatedO.materialPrintCount = 0;
-                    if (!updatedO.materialPayments || typeof updatedO.materialPayments !== 'object') updatedO.materialPayments = {};
-                    if (!Array.isArray(updatedO.purchaseReceipts)) updatedO.purchaseReceipts = [];
-                    if (!Array.isArray(updatedO.vendorPayments)) updatedO.vendorPayments = [];
-                    if (!Array.isArray(updatedO.purchaseHistory)) updatedO.purchaseHistory = [];
-                    if (!updatedO.materialPurchasedVendors || typeof updatedO.materialPurchasedVendors !== 'object') updatedO.materialPurchasedVendors = {};
-                    if (!updatedO.materialPurchasedBatches || typeof updatedO.materialPurchasedBatches !== 'object') updatedO.materialPurchasedBatches = {};
+                    // Migrasi: normalisasi status lama ke status baru yang disederhanakan
+                    if (['Dicetak', 'Direkap', 'Dibeli Sebagian', 'Selesai'].includes(updatedO.materialStatus)) updatedO.materialStatus = 'Ada Bahan';
                     updatedO.processFlow = { ...getDefaultOrderProcessFlow(), ...(updatedO.processFlow || {}) };
                     updatedO.productionPrices = { ...getDefaultProductionPrices(), ...(updatedO.productionPrices || {}) };
                     if (updatedO.processFlow.materials === false && updatedO.materialStatus === 'Belum') updatedO.materialStatus = 'Tidak Perlu';
-                    if (updatedO.materialStatus === 'Selesai' && Object.keys(updatedO.materialPurchasedVendors || {}).length === 0) {
-                        getOrderMaterialVendors(updatedO).forEach(vendor => { updatedO.materialPurchasedVendors[vendor] = true; });
-                    }
-                    if (updatedO.materialStatus === 'Selesai' && Object.keys(updatedO.materialPurchasedBatches || {}).length === 0) {
-                        getOrderMaterialBatchKeys(updatedO).forEach(batchKey => { updatedO.materialPurchasedBatches[batchKey] = true; });
-                    }
-                    // Validasi: jika status Selesai tapi pembayaran aktual tidak mendukung, hitung ulang
-                    if (updatedO.materialStatus === 'Selesai' && !areAllOrderMaterialsSettled(updatedO)) {
-                        updatedO.materialStatus = computeMaterialStatus(updatedO);
-                    }
                     
                     const stagesOrder = ['cutting', 'sablon', 'jahit', 'kancing', 'finishing'];
                     stagesOrder.forEach(stage => {
@@ -17414,7 +16218,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const applyRemoteDataSnapshotInner = async () => {
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteVendorNotaPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteVendorNotaPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -17437,7 +16241,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreData('stockItems', []),
                     fetchStoreData('absensiEdits', []),
                     fetchStoreData('kartu_kredit', []),
-                    fetchStoreData('transaksi_kartu', [])
+                    fetchStoreData('transaksi_kartu', []),
+                    fetchStoreData('purchaseNotes', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -17533,6 +16338,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const merged = mergePaymentDict(prev, remoteVendorNotaPayments);
                         safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteVendorNotaPayments)) setTimeout(() => saveToSupabase('vendorNotaPayments', merged), 0);
+                        return merged;
+                    });
+                }
+                if (Array.isArray(remotePurchaseNotes)) {
+                    setPurchaseNotes(prev => {
+                        const merged = mergeRecordLists(prev || [], remotePurchaseNotes);
+                        safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remotePurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', merged), 0);
                         return merged;
                     });
                 }
@@ -17737,7 +16550,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
                             );
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu] = await Promise.race([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes] = await Promise.race([
                                 Promise.all([
                                     fetchStoreData('accounts', initialAccounts),
                                     fetchStoreData('employees', initialEmployees),
@@ -17762,7 +16575,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     fetchStoreData('absensiEdits', []),
                                     fetchStoreData('absensiRawLogs', []),
                                     fetchStoreData('kartu_kredit', []),
-                                    fetchStoreData('transaksi_kartu', [])
+                                    fetchStoreData('transaksi_kartu', []),
+                                    fetchStoreData('purchaseNotes', [])
                                 ]),
                                 _fetchTimeout
                             ]);
@@ -17822,6 +16636,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             setManualPurchases(nextManualPurchases);
                             setManualVendorPayments(nextManualVendorPayments);
                             setVendorNotaPayments(nextVendorNotaPayments);
+                            if (Array.isArray(remPurchaseNotes)) {
+                                const localPN = loadLocalData('simpati_purchase_notes_sync', []);
+                                const nextPN = mergeRecordLists(localPN, remPurchaseNotes);
+                                setPurchaseNotes(nextPN);
+                                safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(nextPN));
+                                if (JSON.stringify(nextPN) !== JSON.stringify(remPurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', nextPN), 0);
+                            }
                             setRekapKinerja(nextRekaps);
                             setRiwayatPengiriman(nextRiwayats);
                             setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : loadLocalData('simpati_templates_sync', initialTemplates));
@@ -18250,6 +17071,23 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
+            const updatePurchaseNotes = (updater) => {
+                setPurchaseNotes(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('purchaseNotes', valid);
+                        safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(merged));
+                        saveToSupabase('purchaseNotes', merged);
+                        setPurchaseNotes(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             const updateInvestors = (updater) => {
                 setInvestors(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -18666,13 +17504,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'antrean' && canOpen('antrean') && <AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />}
                                 {activeTab === 'karyawan' && canOpen('karyawan') && <KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} />}
                                 {activeTab === 'input_order' && canOpen('input_order') && <InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} />}
-                                {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} manualPurchases={manualPurchases} setManualPurchases={updateManualPurchases} manualVendorPayments={manualVendorPayments} setManualVendorPayments={updateManualVendorPayments} vendorNotaPayments={vendorNotaPayments} setVendorNotaPayments={updateVendorNotaPayments} />}
+                                {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} manualPurchases={manualPurchases} manualVendorPayments={manualVendorPayments} />}
+                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} />}
