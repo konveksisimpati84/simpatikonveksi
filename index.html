@@ -5172,7 +5172,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         {groupNotes.map(note => {
                                             const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
                                             const isLunas = note.paymentStatus === 'Lunas';
-                                            const [expandedNote, setExpandedNote] = React.useState ? undefined : undefined;
+
                                             return (
                                                 <div key={note.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                                                     <div className="flex items-stretch">
