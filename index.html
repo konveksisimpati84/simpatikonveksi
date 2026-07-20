@@ -4577,6 +4577,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [materials, setMaterials] = useState([]);
             const [activeTab, setActiveTab] = useState('daftar_order'); // 'daftar_order', 'database_bahan', 'rekap_pembelian'
             const [searchTerm, setSearchTerm] = useState('');
+            const [statusFilter, setStatusFilter] = useState('Semua');
             const [dateFilter, setDateFilter] = useState('');
             const [previewImage, setPreviewImage] = useState(null);
             // State untuk Tab Rekap Pembelian
@@ -4589,11 +4590,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [dbVendorFilter, setDbVendorFilter] = useState('Semua');
             const [dbYearFilter, setDbYearFilter] = useState('Semua');
 
-            const materialOrders = (orders || []).filter(isVisibleOrder);
+            const safeOrders = (orders || []).filter(isVisibleOrder);
+            const materialOrders = safeOrders;
             const activeOrders = materialOrders.filter(o => orderNeedsMaterials(o));
             const filteredActiveOrders = activeOrders.filter(o => {
                 const matchesDate = !dateFilter || String(o?.date || '').slice(0, 10) === dateFilter || String(o?.deadline || '').slice(0, 10) === dateFilter;
-                return matchesSearch(orderSearchFields(o), searchTerm) && matchesDate;
+                const matchesStatus = statusFilter === 'Semua' || (o?.materialStatus || 'Belum') === statusFilter;
+                return matchesSearch(orderSearchFields(o), searchTerm) && matchesDate && matchesStatus;
             }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
             const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
             const toggleMatOrder = (id) => setExpandedMatOrderIds(prev => ({ ...prev, [id]: !prev[id] }));
