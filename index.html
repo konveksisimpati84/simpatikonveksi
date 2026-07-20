@@ -4980,96 +4980,74 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 showToast(editNoteId ? 'Nota diperbarui.' : 'Nota pembelian disimpan.', 'success');
             };
 
-            const renderDatabaseBahan = () => {
-                const allMats = safeOrders.flatMap(order =>
-                    getActiveMaterials(order).map(mat => ({ ...mat, _orderId: order.id, _orderClient: order.client || '-', _orderType: order.type || '-' }))
-                );
-                const vendors = ['Semua', ...new Set(allMats.map(m => normalizeVendorName(m.vendor)).filter(Boolean))];
-                const years = ['Semua', ...new Set(allMats.map(m => (m.purchaseDate || '').slice(0, 4)).filter(Boolean)).values()].sort((a, b) => b - a);
-                const filtered = allMats.filter(m => {
-                    if (dbSearch && !`${m.name} ${m.spec} ${m.vendor}`.toLowerCase().includes(dbSearch.toLowerCase())) return false;
-                    if (dbVendorFilter !== 'Semua' && normalizeVendorName(m.vendor) !== dbVendorFilter) return false;
-                    if (dbYearFilter !== 'Semua' && (m.purchaseDate || '').slice(0, 4) !== dbYearFilter) return false;
-                    return true;
-                });
-                return (
-                    <div className="space-y-4">
-                        <Card>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <SearchField value={dbSearch} onChange={setDbSearch} placeholder="Cari nama bahan, spesifikasi, vendor..." />
-                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dbVendorFilter} onChange={e => setDbVendorFilter(e.target.value)}>
-                                    {vendors.map(v => <option key={v} value={v}>{v}</option>)}
-                                </select>
-                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dbYearFilter} onChange={e => setDbYearFilter(e.target.value)}>
-                                    {years.map(y => <option key={y} value={y}>{y === 'Semua' ? 'Semua Tahun' : y}</option>)}
-                                </select>
-                            </div>
-                        </Card>
-                        <Card>
-                            <div className="font-bold text-gray-600 text-sm mb-3">{filtered.length} bahan ditemukan dari semua order</div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="border-b border-gray-200 text-left text-xs font-bold text-gray-500">
-                                            <th className="pb-2 pr-3">Nama Bahan</th>
-                                            <th className="pb-2 pr-3">Spesifikasi</th>
-                                            <th className="pb-2 pr-3">Vendor</th>
-                                            <th className="pb-2 pr-3 text-center">Qty</th>
-                                            <th className="pb-2 pr-3 text-right">Harga Satuan</th>
-                                            <th className="pb-2 pr-3">Tgl Beli</th>
-                                            <th className="pb-2">Order</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {filtered.length === 0 ? (
-                                            <tr><td colSpan={7} className="py-8 text-center text-gray-400 italic">Belum ada data bahan. Input bahan melalui tab Daftar Order.</td></tr>
-                                        ) : filtered.map((m, i) => (
-                                            <tr key={m.id || i} className="hover:bg-gray-50">
-                                                <td className="py-2 pr-3 font-medium text-gray-800">{m.name || '-'}</td>
-                                                <td className="py-2 pr-3 text-gray-500">{m.spec || m.color || '-'}</td>
-                                                <td className="py-2 pr-3 text-blue-700">{normalizeVendorName(m.vendor)}</td>
-                                                <td className="py-2 pr-3 text-center">{m.qty || 0} {m.unit || ''}</td>
-                                                <td className="py-2 pr-3 text-right font-mono">{formatRupiah(m.price || 0)}</td>
-                                                <td className="py-2 pr-3 text-gray-500">{m.purchaseDate || '-'}</td>
-                                                <td className="py-2 text-xs text-gray-400">{m._orderId} · {m._orderClient}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </Card>
-                    </div>
-                );
-            };
 
             const renderRekapPembelian = () => {
                 const notes = safeArray(purchaseNotes).filter(isVisibleRecord).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
                 const totalAll = notes.reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
+                const totalLunas = notes.filter(n => n.paymentStatus === 'Lunas').reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
+                const totalTermin = notes.filter(n => n.paymentStatus !== 'Lunas').reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
+                const jumlahVendor = new Set(notes.map(n => normalizeVendorName(n.vendor))).size;
+
+                // Group by bulan
+                const grouped = {};
+                notes.forEach(note => {
+                    const key = (note.date || '').slice(0, 7); // 'YYYY-MM'
+                    if (!grouped[key]) grouped[key] = [];
+                    grouped[key].push(note);
+                });
+                const groupKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
+                const formatBulan = (key) => {
+                    if (!key) return '-';
+                    const [y, m] = key.split('-');
+                    const bulan = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+                    return `${bulan[parseInt(m,10)-1] || m} ${y}`;
+                };
+
+                const statCards = [
+                    { label: 'TOTAL PEMBELIAN', value: formatRupiah(totalAll), sub: `${notes.length} nota`, bg: 'linear-gradient(135deg,#1a7a4a 0%,#27ae60 60%,#1e8449 100%)' },
+                    { label: 'SUDAH LUNAS', value: formatRupiah(totalLunas), sub: `${notes.filter(n=>n.paymentStatus==='Lunas').length} nota`, bg: 'linear-gradient(135deg,#1a3a7a 0%,#2980b9 60%,#1a5276 100%)' },
+                    { label: 'BELUM LUNAS', value: formatRupiah(totalTermin), sub: `${notes.filter(n=>n.paymentStatus!=='Lunas').length} nota`, bg: 'linear-gradient(135deg,#7a1a1a 0%,#c0392b 60%,#8e1010 100%)' },
+                    { label: 'JUMLAH VENDOR', value: jumlahVendor, sub: 'vendor berbeda', bg: 'linear-gradient(135deg,#4a1a7a 0%,#8e44ad 60%,#6c1e8e 100%)' },
+                    { label: 'JUMLAH NOTA', value: notes.length, sub: 'nota pembelian', bg: 'linear-gradient(135deg,#1a5a7a 0%,#16a085 60%,#0e6655 100%)' },
+                ];
+
                 return (
-                    <div className="space-y-4">
-                        <div className="flex justify-between items-center">
-                            <div className="text-sm text-gray-500">Total {notes.length} nota · <span className="font-bold text-red-600">{formatRupiah(totalAll)}</span></div>
-                            <button onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 flex items-center gap-2">
+                    <div className="space-y-5">
+                        {/* Stat Cards */}
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            {statCards.map((c, i) => (
+                                <div key={i} style={{ background: c.bg }} className="rounded-xl p-4 text-white shadow-md">
+                                    <div className="text-xs font-black tracking-wider opacity-80 mb-1">{c.label}</div>
+                                    <div className="text-xl font-black leading-tight">{c.value}</div>
+                                    <div className="text-xs opacity-70 mt-1">{c.sub}</div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Tombol + Form */}
+                        <div className="flex justify-end">
+                            <button onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); }} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 shadow-sm flex items-center gap-2">
                                 + Nota Pembelian Baru
                             </button>
                         </div>
 
                         {noteFormOpen && (
                             <Card>
-                                <h3 className="font-bold text-gray-800 mb-4">{editNoteId ? 'Edit Nota Pembelian' : 'Input Nota Pembelian Baru'}</h3>
+                                <h3 className="font-bold text-gray-800 mb-4 text-base">{editNoteId ? 'Edit Nota Pembelian' : 'Input Nota Pembelian Baru'}</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Vendor / Toko</label>
-                                        <input type="text" list="pn-vendor-list" className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500" placeholder="Nama vendor/toko" value={noteForm.vendor} onChange={e => setNoteForm(f => ({ ...f, vendor: e.target.value }))} />
+                                        <input type="text" list="pn-vendor-list" className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Nama vendor/toko" value={noteForm.vendor} onChange={e => setNoteForm(f => ({ ...f, vendor: e.target.value }))} />
                                         <datalist id="pn-vendor-list">{[...new Set(safeOrders.flatMap(o => getActiveMaterials(o).map(m => m.vendor)).filter(Boolean))].map((v, i) => <option key={i} value={v} />)}</datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Beli</label>
-                                        <input type="date" className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500" value={noteForm.date} onChange={e => setNoteForm(f => ({ ...f, date: e.target.value }))} />
+                                        <input type="date" className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value={noteForm.date} onChange={e => setNoteForm(f => ({ ...f, date: e.target.value }))} />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Metode Bayar</label>
-                                        <select className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500" value={noteForm.method} onChange={e => setNoteForm(f => ({ ...f, method: e.target.value }))}>
+                                        <select className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500" value={noteForm.method} onChange={e => setNoteForm(f => ({ ...f, method: e.target.value }))}>
                                             <option value="Transfer">Transfer</option>
                                             <option value="Cash">Cash</option>
                                             <option value="COD">COD</option>
@@ -5077,88 +5055,120 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         </select>
                                     </div>
                                 </div>
-                                <div className="space-y-2 mb-3">
+                                <div className="bg-gray-50 rounded-lg p-3 mb-4 space-y-2">
                                     <div className="grid grid-cols-12 gap-2 text-xs font-bold text-gray-500 px-1">
-                                        <span className="col-span-4">Nama Item</span>
+                                        <span className="col-span-4">Nama Item / Bahan</span>
                                         <span className="col-span-2 text-center">Qty</span>
                                         <span className="col-span-2">Satuan</span>
-                                        <span className="col-span-3 text-right">Harga Satuan</span>
+                                        <span className="col-span-3 text-right">Harga Satuan (Rp)</span>
                                         <span className="col-span-1"></span>
                                     </div>
                                     {noteForm.items.map((it, idx) => (
                                         <div key={it.id} className="grid grid-cols-12 gap-2 items-center">
-                                            <input type="text" className="col-span-4 p-2 text-sm border rounded" placeholder="Nama bahan/item" value={it.name} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, name: e.target.value } : x) }))} />
-                                            <input type="number" min="0" step="any" className="col-span-2 p-2 text-sm border rounded text-center" placeholder="0" value={it.qty} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, qty: e.target.value } : x) }))} />
-                                            <select className="col-span-2 p-2 text-sm border rounded" value={it.unit} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x) }))}>
+                                            <input type="text" className="col-span-4 p-2 text-sm border rounded-lg bg-white" placeholder="Cth: Kain Cotton 30s" value={it.name} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, name: e.target.value } : x) }))} />
+                                            <input type="number" min="0" step="any" className="col-span-2 p-2 text-sm border rounded-lg bg-white text-center" placeholder="0" value={it.qty} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, qty: e.target.value } : x) }))} />
+                                            <select className="col-span-2 p-2 text-sm border rounded-lg bg-white" value={it.unit} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x) }))}>
                                                 <option>Meter</option><option>Roll</option><option>Kg</option><option>Yard</option><option>Lusin</option><option>Gross</option><option>Pcs</option><option>Pak</option>
                                             </select>
-                                            <input type="number" min="0" className="col-span-3 p-2 text-sm border rounded text-right" placeholder="0" value={it.price} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, price: e.target.value } : x) }))} />
-                                            <button onClick={() => setNoteForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="col-span-1 h-9 bg-red-100 hover:bg-red-200 text-red-600 rounded flex items-center justify-center" disabled={noteForm.items.length <= 1}><IconTrash /></button>
+                                            <input type="number" min="0" className="col-span-3 p-2 text-sm border rounded-lg bg-white text-right" placeholder="0" value={it.price} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, price: e.target.value } : x) }))} />
+                                            <button onClick={() => setNoteForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="col-span-1 h-9 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg flex items-center justify-center" disabled={noteForm.items.length <= 1}><IconTrash /></button>
                                         </div>
                                     ))}
-                                    <button onClick={() => setNoteForm(f => ({ ...f, items: [...f.items, { id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }] }))} className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded hover:bg-blue-100 border border-dashed border-blue-300 w-full">+ Tambah Item</button>
+                                    <button onClick={() => setNoteForm(f => ({ ...f, items: [...f.items, { id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }] }))} className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-2 rounded-lg hover:bg-blue-100 border border-dashed border-blue-300 w-full mt-1">+ Tambah Item</button>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label>
-                                        <input type="text" className="w-full p-2 text-sm border rounded" placeholder="Catatan nota (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
+                                        <input type="text" className="w-full p-2 text-sm border rounded-lg" placeholder="Catatan nota (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Status Pembayaran</label>
-                                        <select className="w-full p-2 text-sm border rounded" value={noteForm.paymentStatus} onChange={e => setNoteForm(f => ({ ...f, paymentStatus: e.target.value }))}>
+                                        <select className="w-full p-2 text-sm border rounded-lg" value={noteForm.paymentStatus} onChange={e => setNoteForm(f => ({ ...f, paymentStatus: e.target.value }))}>
                                             <option value="Lunas">Lunas</option>
                                             <option value="Termin">Termin / Belum Lunas</option>
                                         </select>
                                     </div>
                                 </div>
-                                <div className="flex justify-between items-center border-t pt-3">
-                                    <div className="font-bold text-gray-700">Total: <span className="text-red-600 text-lg">{formatRupiah(noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0))}</span></div>
+                                <div className="flex justify-between items-center bg-gray-50 rounded-lg px-4 py-3">
+                                    <div className="font-bold text-gray-700 text-sm">Total Nota: <span className="text-red-600 text-xl font-black ml-1">{formatRupiah(noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0))}</span></div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => setNoteFormOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-bold text-sm hover:bg-gray-50">Batal</button>
-                                        <button onClick={savePurchaseNote} className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700">Simpan Nota</button>
+                                        <button onClick={() => { setNoteFormOpen(false); setEditNoteId(null); }} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-bold text-sm hover:bg-gray-100">Batal</button>
+                                        <button onClick={savePurchaseNote} className="px-5 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 shadow-sm">Simpan Nota</button>
                                     </div>
                                 </div>
                             </Card>
                         )}
 
-                        <Card>
-                            {notes.length === 0 ? (
-                                <div className="py-12 text-center text-gray-400 italic">Belum ada nota pembelian. Klik "+ Nota Pembelian Baru" untuk menambah.</div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {notes.map(note => {
-                                        const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                                        return (
-                                            <div key={note.id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-200 transition-colors">
-                                                <div className="flex justify-between items-start gap-4">
-                                                    <div>
-                                                        <div className="font-bold text-gray-800">{normalizeVendorName(note.vendor)}</div>
-                                                        <div className="text-sm text-gray-500">{note.date} · {note.method || 'Transfer'}</div>
-                                                        {note.note && <div className="text-xs text-gray-400 mt-1">{note.note}</div>}
-                                                    </div>
-                                                    <div className="text-right shrink-0">
-                                                        <div className="font-black text-red-600 text-lg">{formatRupiah(noteTotal)}</div>
-                                                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${note.paymentStatus === 'Lunas' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{note.paymentStatus || 'Lunas'}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="mt-3 space-y-1">
-                                                    {safeArray(note.items).map((it, i) => (
-                                                        <div key={i} className="flex justify-between text-sm text-gray-600">
-                                                            <span>{it.name || '-'} · {it.qty || 0} {it.unit || ''}</span>
-                                                            <span className="font-mono">{formatRupiah(getMaterialLineTotal(it))}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                                <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                                                    <button onClick={() => { setEditNoteId(note.id); setNoteForm({ vendor: note.vendor, date: note.date, items: safeArray(note.items), method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas' }); setNoteFormOpen(true); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-200 hover:bg-blue-50">Edit</button>
-                                                    <button onClick={() => { if (window.confirm('Hapus nota ini?')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true } : n)); showToast('Nota dihapus.', 'success'); } }} className="text-xs font-bold text-red-600 hover:text-red-800 px-3 py-1 rounded border border-red-200 hover:bg-red-50">Hapus</button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                        {/* Daftar Nota Dikelompokkan per Bulan */}
+                        {notes.length === 0 ? (
+                            <Card>
+                                <div className="py-16 text-center">
+                                    <div className="text-4xl mb-3">🧾</div>
+                                    <div className="font-bold text-gray-500 mb-1">Belum ada nota pembelian</div>
+                                    <div className="text-sm text-gray-400">Klik "+ Nota Pembelian Baru" untuk mulai mencatat pembelian bahan.</div>
                                 </div>
-                            )}
-                        </Card>
+                            </Card>
+                        ) : groupKeys.map(groupKey => {
+                            const groupNotes = grouped[groupKey];
+                            const groupTotal = groupNotes.reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
+                            return (
+                                <div key={groupKey}>
+                                    <div className="flex items-center justify-between mb-2 px-1">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1 h-5 bg-blue-500 rounded-full"></div>
+                                            <span className="font-bold text-gray-700 text-sm">{formatBulan(groupKey)}</span>
+                                            <span className="text-xs text-gray-400">({groupNotes.length} nota)</span>
+                                        </div>
+                                        <span className="text-sm font-black text-gray-700">{formatRupiah(groupTotal)}</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {groupNotes.map(note => {
+                                            const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                            const isLunas = note.paymentStatus === 'Lunas';
+                                            const [expandedNote, setExpandedNote] = React.useState ? undefined : undefined;
+                                            return (
+                                                <div key={note.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                                                    <div className="flex items-stretch">
+                                                        {/* Stripe kiri berdasarkan status */}
+                                                        <div className={`w-1.5 shrink-0 ${isLunas ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
+                                                        <div className="flex-1 p-4">
+                                                            <div className="flex justify-between items-start gap-3">
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                        <span className="font-bold text-gray-900 text-base truncate">{normalizeVendorName(note.vendor)}</span>
+                                                                        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full shrink-0 ${isLunas ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{note.paymentStatus || 'Lunas'}</span>
+                                                                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 shrink-0">{note.method || 'Transfer'}</span>
+                                                                    </div>
+                                                                    <div className="text-sm text-gray-500 mt-0.5">{note.date}</div>
+                                                                    {note.note && <div className="text-xs text-gray-400 mt-0.5 italic">{note.note}</div>}
+                                                                </div>
+                                                                <div className="text-right shrink-0">
+                                                                    <div className="text-xl font-black text-gray-900">{formatRupiah(noteTotal)}</div>
+                                                                    <div className="text-xs text-gray-400">{safeArray(note.items).length} item</div>
+                                                                </div>
+                                                            </div>
+                                                            {/* Rincian item */}
+                                                            <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+                                                                {safeArray(note.items).map((it, i) => (
+                                                                    <div key={i} className="flex justify-between items-center text-sm">
+                                                                        <span className="text-gray-700">{it.name || '-'} <span className="text-gray-400">· {it.qty || 0} {it.unit || ''}</span></span>
+                                                                        <span className="font-mono font-bold text-gray-800 text-xs">{formatRupiah(getMaterialLineTotal(it))}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                                                                <button onClick={() => { setEditNoteId(note.id); setNoteForm({ vendor: note.vendor, date: note.date, items: safeArray(note.items).length > 0 ? safeArray(note.items) : [{ id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }], method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas' }); setNoteFormOpen(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors">Edit</button>
+                                                                <button onClick={() => { if (window.confirm('Hapus nota ini? Data tidak dapat dikembalikan.')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n)); showToast('Nota dihapus.', 'success'); } }} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors">Hapus</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 );
             };
@@ -5167,7 +5177,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 <div className="space-y-6">
                     <div>
                         <h2 className="text-2xl font-bold text-gray-800">Manajemen Pembelian Bahan</h2>
-                        <p className="text-gray-500 text-sm mt-1">Input kebutuhan bahan per order, database bahan, dan rekap nota pembelian.</p>
+                        <p className="text-gray-500 text-sm mt-1">Input kebutuhan bahan per order dan rekap nota pembelian bahan.</p>
                     </div>
 
                     <div className="flex gap-4 border-b border-gray-200 pb-2 flex-wrap">
@@ -5178,12 +5188,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             Daftar Order
                         </button>
                         <button
-                            onClick={() => setActiveTab('database_bahan')}
-                            className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeTab === 'database_bahan' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                        >
-                            Database Bahan
-                        </button>
-                        <button
                             onClick={() => setActiveTab('rekap_pembelian')}
                             className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'rekap_pembelian' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                         >
@@ -5191,22 +5195,23 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         </button>
                     </div>
 
-                    <Card>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                            <div className="md:col-span-2">
-                                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan..." />
+                    {activeTab === 'daftar_order' && (
+                        <Card>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <div className="md:col-span-2">
+                                    <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan..." />
+                                </div>
+                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                                    <option value="Semua">Semua Status Bahan</option>
+                                    <option value="Belum">Belum Ada Bahan</option>
+                                    <option value="Ada Bahan">Ada Bahan</option>
+                                </select>
+                                <input type="date" className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dateFilter} onChange={e => setDateFilter(e.target.value)} title="Filter tanggal beli" />
                             </div>
-                            <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                                <option value="Semua">Semua Status Bahan</option>
-                                <option value="Belum">Belum Ada Bahan</option>
-                                <option value="Ada Bahan">Ada Bahan</option>
-                            </select>
-                            <input type="date" className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dateFilter} onChange={e => setDateFilter(e.target.value)} title="Filter tanggal beli" />
-                        </div>
-                    </Card>
+                        </Card>
+                    )}
 
                     {activeTab === 'daftar_order' && renderDaftarOrder()}
-                    {activeTab === 'database_bahan' && renderDatabaseBahan()}
                     {activeTab === 'rekap_pembelian' && renderRekapPembelian()}
 
                     {selectedOrder && (
