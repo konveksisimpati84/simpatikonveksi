@@ -4581,7 +4581,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [dateFilter, setDateFilter] = useState('');
             const [previewImage, setPreviewImage] = useState(null);
             // State untuk Tab Rekap Pembelian
-            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [{ id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }], method: 'Transfer', note: '', paymentStatus: 'Lunas' };
+            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [{ id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }], method: 'Transfer', note: '', paymentStatus: 'Lunas', orderRefs: [] };
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
@@ -4967,6 +4967,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
                     paymentStatus: noteForm.paymentStatus || 'Lunas',
+                    orderRefs: Array.isArray(noteForm.orderRefs) ? noteForm.orderRefs : [],
                     items: validItems.map(it => ({ ...it, id: it.id || genId('NI-'), qty: it.qty ?? '', price: it.price ?? '' })),
                     _syncUpdatedAt: now,
                 };
@@ -5076,6 +5077,52 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     ))}
                                     <button onClick={() => setNoteForm(f => ({ ...f, items: [...f.items, { id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }] }))} className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-2 rounded-lg hover:bg-blue-100 border border-dashed border-blue-300 w-full mt-1">+ Tambah Item</button>
                                 </div>
+                                {/* Field: Untuk Order mana */}
+                                <div className="mb-4">
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Untuk Order / Klien <span className="text-gray-400 font-normal">(opsional, bisa pilih lebih dari satu)</span></label>
+                                    <div className="border rounded-lg bg-white overflow-hidden">
+                                        {safeOrders.filter(o => !o.isArchived).length === 0 ? (
+                                            <div className="p-3 text-sm text-gray-400 italic">Tidak ada order aktif.</div>
+                                        ) : (
+                                            <div className="max-h-36 overflow-y-auto divide-y divide-gray-100">
+                                                {safeOrders.filter(o => !o.isArchived).sort((a,b) => (b.date||'').localeCompare(a.date||'')).map(o => {
+                                                    const checked = (noteForm.orderRefs || []).includes(String(o.id));
+                                                    return (
+                                                        <label key={o.id} className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors ${checked ? 'bg-blue-50' : ''}`}>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={e => setNoteForm(f => ({
+                                                                    ...f,
+                                                                    orderRefs: e.target.checked
+                                                                        ? [...(f.orderRefs || []), String(o.id)]
+                                                                        : (f.orderRefs || []).filter(id => id !== String(o.id))
+                                                                }))}
+                                                                className="w-4 h-4 accent-blue-600 shrink-0"
+                                                            />
+                                                            <span className="text-sm font-bold text-blue-700 shrink-0">{o.id}</span>
+                                                            <span className="text-sm text-gray-700 truncate">{o.client || '-'}</span>
+                                                            <span className="text-xs text-gray-400 shrink-0 ml-auto">{o.type || ''} · {o.total || 0} pcs</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {(noteForm.orderRefs || []).length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5 mt-2">
+                                            {(noteForm.orderRefs || []).map(refId => {
+                                                const o = safeOrders.find(x => String(x.id) === refId);
+                                                return (
+                                                    <span key={refId} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">
+                                                        {refId}{o ? ` · ${o.client}` : ''}
+                                                        <button onClick={() => setNoteForm(f => ({ ...f, orderRefs: (f.orderRefs||[]).filter(id => id !== refId) }))} className="ml-0.5 text-blue-400 hover:text-blue-700 text-xs leading-none">&times;</button>
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label>
@@ -5140,6 +5187,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 shrink-0">{note.method || 'Transfer'}</span>
                                                                     </div>
                                                                     <div className="text-sm text-gray-500 mt-0.5">{note.date}</div>
+                                                                    {safeArray(note.orderRefs).length > 0 && (
+                                                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                                                            {safeArray(note.orderRefs).map(refId => {
+                                                                                const o = safeOrders.find(x => String(x.id) === refId);
+                                                                                return (
+                                                                                    <span key={refId} className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                                                                                        {refId}{o ? ` · ${o.client}` : ''}
+                                                                                    </span>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    )}
                                                                     {note.note && <div className="text-xs text-gray-400 mt-0.5 italic">{note.note}</div>}
                                                                 </div>
                                                                 <div className="text-right shrink-0">
@@ -5157,7 +5216,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                 ))}
                                                             </div>
                                                             <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                                                                <button onClick={() => { setEditNoteId(note.id); setNoteForm({ vendor: note.vendor, date: note.date, items: safeArray(note.items).length > 0 ? safeArray(note.items) : [{ id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }], method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas' }); setNoteFormOpen(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors">Edit</button>
+                                                                <button onClick={() => { setEditNoteId(note.id); setNoteForm({ vendor: note.vendor, date: note.date, items: safeArray(note.items).length > 0 ? safeArray(note.items) : [{ id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }], method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas', orderRefs: safeArray(note.orderRefs) }); setNoteFormOpen(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors">Edit</button>
                                                                 <button onClick={() => { if (window.confirm('Hapus nota ini? Data tidak dapat dikembalikan.')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n)); showToast('Nota dihapus.', 'success'); } }} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors">Hapus</button>
                                                             </div>
                                                         </div>
