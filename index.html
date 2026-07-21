@@ -5111,8 +5111,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                         <span className="text-[10px] font-medium text-gray-400 shrink-0">{note.method || 'Transfer'}</span>
                                                                         <span className="text-[10px] text-gray-400 shrink-0">{note.date}</span>
                                                                     </div>
-                                                                    {/* Progress bar inline */}
-                                                                    {noteStatus !== 'Belum Dibayar' && (
+                                                                    {/* Progress bar: sembunyikan jika pct=0 & bukan Lunas (legacy Sebagian tanpa payments[]) */}
+                                                                    {noteStatus !== 'Belum Dibayar' && (pct > 0 || noteStatus === 'Lunas') && (
                                                                         <div className="flex items-center gap-2 mt-1.5">
                                                                             <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden max-w-[120px]">
                                                                                 <div className="h-full rounded-full" style={{ width: `${pct}%`, background: st.bar }}></div>
@@ -8982,7 +8982,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <Card className="border-l-4 border-l-red-500">
                                         <h3 className="text-xs font-bold text-gray-500">Pembelian Bahan</h3>
                                         <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(totalMaterial)}</p>
-                                        <p className="text-xs text-gray-500 mt-1">{materialRows.length} order pembelian</p>
+                                        <p className="text-xs text-gray-500 mt-1">{new Set(materialRows.map(r => r.id)).size} order/nota pembelian</p>
                                     </Card>
                                     <Card className="border-l-4 border-l-rose-500">
                                         <h3 className="text-xs font-bold text-gray-500">Gaji Bersih Produksi</h3>
@@ -9173,7 +9173,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </thead>
                                         <tbody>
                                             {[
-                                                ...materialRows.filter(r => !r.isHutang).map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
+                                                ...materialRows.filter(r => !r.isHutang).map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.type === 'Nota Pembelian' ? r.vendors.join(', ') : (r.client + ' — ' + r.vendors.join(', ')), nominal: r.total })),
                                                 ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                                 ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                                                 ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
@@ -9198,7 +9198,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
                                     {[
-                                        ...materialRows.filter(r => !r.isHutang).map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
+                                        ...materialRows.filter(r => !r.isHutang).map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.type === 'Nota Pembelian' ? r.vendors.join(', ') : (r.client + ' — ' + r.vendors.join(', ')), nominal: r.total })),
                                         ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                         ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                                         ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
