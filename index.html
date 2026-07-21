@@ -4573,12 +4573,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         };
 
         const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes }) => {
-            const [activeTab, setActiveTab] = useState('input_pembelian');
             const [previewImage, setPreviewImage] = useState(null);
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
             const [orderComboState, setOrderComboState] = useState({});
             const [quickPayNoteId, setQuickPayNoteId] = useState(null);
             const [quickPayForm, setQuickPayForm] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
+            const [noteSearch, setNoteSearch] = useState('');
+            const [filterStatus, setFilterStatus] = useState('Semua');
 
             const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', orderId: '' });
             const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
@@ -4586,8 +4587,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
-            const [dbSearch, setDbSearch] = useState('');
-            const [expandedDbOrders, setExpandedDbOrders] = useState({});
 
             const safeOrders = (orders || []).filter(isVisibleOrder);
             const allOrderOptions = safeOrders
@@ -4711,8 +4710,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const renderInputPembelian = () => {
-                const notes = safeArray(purchaseNotes).filter(isVisibleRecord).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-                const totalAll = notes.reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const allNotes = safeArray(purchaseNotes).filter(isVisibleRecord).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                const notes = allNotes.filter(note => {
+                    if (filterStatus !== 'Semua' && getNotePaymentStatus(note) !== filterStatus) return false;
+                    if (!noteSearch.trim()) return true;
+                    const term = noteSearch.toLowerCase();
+                    const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.orderId, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
+                    return [note.vendor, note.date, note.note, note.method, getNotePaymentStatus(note), itemsText].join(' ').toLowerCase().includes(term);
+                });
+                const totalAll = allNotes.reduce((sum, n) => sum + getNoteTotal(n), 0);
                 const totalLunas = notes.filter(n => getNotePaymentStatus(n) === 'Lunas').reduce((sum, n) => sum + getNoteTotal(n), 0);
                 const totalBelum = notes.filter(n => getNotePaymentStatus(n) === 'Belum Dibayar').reduce((sum, n) => sum + getNoteTotal(n), 0);
                 const totalSebagian = notes.filter(n => getNotePaymentStatus(n) === 'Dibayar Sebagian').reduce((sum, n) => sum + getNoteTotal(n), 0);
@@ -4976,12 +4982,48 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </div>
                         )}
 
+                        {/* Search & Filter bar */}
+                        {allNotes.length > 0 && (
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <div className="relative flex-1">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+                                    <input
+                                        type="text"
+                                        className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                                        placeholder="Cari vendor, tanggal, nama bahan, kode, no. order, klien..."
+                                        value={noteSearch}
+                                        onChange={e => setNoteSearch(e.target.value)}
+                                    />
+                                    {noteSearch && <button onClick={() => setNoteSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-black">✕</button>}
+                                </div>
+                                <div className="flex gap-1.5 shrink-0">
+                                    {['Semua', 'Lunas', 'Dibayar Sebagian', 'Belum Dibayar'].map(s => {
+                                        const colors = s === 'Lunas' ? '#166534:#DCFCE7' : s === 'Dibayar Sebagian' ? '#92400E:#FEF3C7' : s === 'Belum Dibayar' ? '#991B1B:#FEE2E2' : '#1B4F72:#EFF6FF';
+                                        const [tc, bg] = colors.split(':');
+                                        const active = filterStatus === s;
+                                        return (
+                                            <button key={s} onClick={() => setFilterStatus(s)}
+                                                className="px-3 py-2 text-[11px] font-bold rounded-xl border transition-all whitespace-nowrap"
+                                                style={active ? { background: tc, color: 'white', borderColor: tc } : { background: bg, color: tc, borderColor: 'transparent' }}
+                                            >{s === 'Semua' ? `Semua (${allNotes.length})` : s}</button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Daftar Nota */}
-                        {notes.length === 0 ? (
+                        {allNotes.length === 0 ? (
                             <div className="rounded-2xl border-2 border-dashed border-gray-200 py-16 text-center bg-gray-50">
                                 <div className="text-5xl mb-4">🧾</div>
                                 <div className="font-bold text-gray-500 mb-1">Belum ada nota pembelian</div>
                                 <div className="text-sm text-gray-400">Klik "Input Pembelian Bahan" di atas untuk mulai mencatat.</div>
+                            </div>
+                        ) : notes.length === 0 ? (
+                            <div className="rounded-2xl border-2 border-dashed border-gray-200 py-12 text-center bg-gray-50">
+                                <div className="text-4xl mb-3">🔍</div>
+                                <div className="font-bold text-gray-500 mb-1">Tidak ada nota yang cocok</div>
+                                <div className="text-sm text-gray-400">Coba ubah kata kunci atau filter status.</div>
                             </div>
                         ) : groupKeys.map(groupKey => {
                             const groupNotes = grouped[groupKey];
@@ -5074,9 +5116,19 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                 {safeArray(note.items).map((it, i) => {
                                                                     const linkedOrder = it.orderId ? safeOrders.find(x => String(x.id) === it.orderId) : null;
                                                                     return (
-                                                                        <div key={i} className="flex justify-between items-center gap-2">
+                                                                        <div key={i} className="flex items-center gap-2 py-0.5">
+                                                                            {/* Order design thumbnail */}
+                                                                            {linkedOrder ? (() => {
+                                                                                const img = linkedOrder.designImage1 || linkedOrder.designImage2;
+                                                                                return img ? (
+                                                                                    <button type="button" onClick={() => setPreviewImage(img)} className="w-8 h-8 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 shrink-0 shadow-sm hover:shadow-md transition-shadow">
+                                                                                        <img src={img} alt="desain" className="w-full h-full object-cover" />
+                                                                                    </button>
+                                                                                ) : (
+                                                                                    <div className="w-8 h-8 rounded-lg border border-dashed border-gray-200 bg-gray-50 shrink-0 flex items-center justify-center text-gray-300 text-[10px]">📷</div>
+                                                                                );
+                                                                            })() : <div className="w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0 ml-3"></div>}
                                                                             <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                                                                                <div className="w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0"></div>
                                                                                 <span className="text-sm text-gray-700 font-medium truncate">{it.name || '-'}</span>
                                                                                 {it.code && <span className="text-[10px] text-gray-400 shrink-0 font-mono bg-gray-100 px-1.5 py-0.5 rounded">{it.code}</span>}
                                                                                 <span className="text-xs text-gray-400 shrink-0">{it.qty || 0} {it.unit || ''}</span>
@@ -5144,165 +5196,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 );
             };
 
-            const renderDatabasePembelian = () => {
-                const allNotes = safeArray(purchaseNotes).filter(isVisibleRecord);
-                const purchasedItems = allNotes.flatMap(nota =>
-                    safeArray(nota.items)
-                        .filter(it => String(it.orderId || '').trim() && String(it.name || '').trim())
-                        .map(it => ({
-                            ...it,
-                            _notaId: nota.id,
-                            _vendor: nota.vendor,
-                            _date: nota.date,
-                            _method: nota.method,
-                            _paymentStatus: getNotePaymentStatus(nota),
-                        }))
-                );
-
-                const byOrderId = {};
-                purchasedItems.forEach(it => {
-                    const oid = String(it.orderId);
-                    if (!byOrderId[oid]) byOrderId[oid] = [];
-                    byOrderId[oid].push(it);
-                });
-
-                let orderIds = Object.keys(byOrderId).sort((a, b) => {
-                    const latestA = Math.max(...byOrderId[a].map(i => new Date(i._date || 0).getTime()));
-                    const latestB = Math.max(...byOrderId[b].map(i => new Date(i._date || 0).getTime()));
-                    return latestB - latestA;
-                });
-
-                if (dbSearch) {
-                    const term = dbSearch.toLowerCase();
-                    orderIds = orderIds.filter(oid => {
-                        const o = safeOrders.find(x => String(x.id) === oid);
-                        const matchOrder = String(oid).toLowerCase().includes(term) || String(o?.client || '').toLowerCase().includes(term) || String(o?.type || '').toLowerCase().includes(term);
-                        const matchItems = byOrderId[oid].some(it => String(it.name || '').toLowerCase().includes(term) || String(it.code || '').toLowerCase().includes(term) || String(it._vendor || '').toLowerCase().includes(term));
-                        return matchOrder || matchItems;
-                    });
-                }
-
-                const totalPembelian = purchasedItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                const orderCount = Object.keys(byOrderId).length;
-
-                return (
-                    <div className="space-y-5">
-                        {/* Stat + Search */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4" style={{ borderTop: '3px solid #0D7F78' }}>
-                                <div className="text-[10px] font-black tracking-widest uppercase text-gray-400 mb-1">Total Beli (Terlink Order)</div>
-                                <div className="text-2xl font-black text-gray-900" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totalPembelian)}</div>
-                                <div className="text-xs font-medium text-teal-700 mt-1">{purchasedItems.length} item bahan</div>
-                            </div>
-                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4" style={{ borderTop: '3px solid #1B4F72' }}>
-                                <div className="text-[10px] font-black tracking-widest uppercase text-gray-400 mb-1">Order Sudah Beli Bahan</div>
-                                <div className="text-2xl font-black text-gray-900">{orderCount}</div>
-                                <div className="text-xs font-medium text-blue-700 mt-1">order aktif</div>
-                            </div>
-                            <div className="flex items-center">
-                                <SearchField value={dbSearch} onChange={setDbSearch} placeholder="Cari order, klien, bahan, vendor..." />
-                            </div>
-                        </div>
-
-                        {orderIds.length === 0 ? (
-                            <div className="rounded-2xl border-2 border-dashed border-gray-200 py-16 text-center bg-gray-50">
-                                <div className="text-5xl mb-4">📦</div>
-                                <div className="font-bold text-gray-500 mb-1">{dbSearch ? 'Tidak ada hasil pencarian' : 'Belum ada data pembelian per order'}</div>
-                                <div className="text-sm text-gray-400">{!dbSearch && 'Saat menginput bahan di Tab "Input Pembelian", pilih "Untuk Order" pada setiap item bahan.'}</div>
-                            </div>
-                        ) : orderIds.map((oid, oidIdx) => {
-                            const order = safeOrders.find(o => String(o.id) === oid);
-                            const items = byOrderId[oid];
-                            const totalOrder = items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                            const isExpanded = !!expandedDbOrders[oid];
-                            const vendorList = [...new Set(items.map(it => normalizeVendorName(it._vendor)))];
-                            const latestDate = items.reduce((max, it) => it._date > max ? it._date : max, '');
-                            return (
-                                <div key={oid} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all overflow-hidden">
-                                    {/* Card accent top */}
-                                    <div className="h-1" style={{ background: 'linear-gradient(90deg,#0D7F78,#1B4F72)' }}></div>
-                                    <div className="p-5">
-                                        <div className="flex items-start gap-4">
-                                            {/* Nomor urut + desain */}
-                                            <div className="shrink-0 flex flex-col items-center gap-2">
-                                                <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-black" style={{ background: 'linear-gradient(135deg,#0D7F78,#1B4F72)' }}>
-                                                    {String(oidIdx + 1).padStart(2, '0')}
-                                                </div>
-                                                {order && renderOrderDesignPreview(order, true)}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-start justify-between gap-3 flex-wrap">
-                                                    <div>
-                                                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                                                            <span className="font-black text-sm" style={{ color: '#1B4F72' }}>{oid}</span>
-                                                            {order && <span className="font-black text-gray-900">{order.client}</span>}
-                                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#DCFCE7', color: '#166534' }}>✓ Bahan Dibeli</span>
-                                                        </div>
-                                                        {order && <div className="text-xs text-gray-500 mb-1.5">{order.type} · <span className="font-bold">{order.total} pcs</span></div>}
-                                                        <div className="flex flex-wrap gap-1.5">
-                                                            {vendorList.map((v, vi) => (
-                                                                <span key={vi} className="text-[10px] font-bold px-2 py-0.5 rounded-full border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}>🏪 {v}</span>
-                                                            ))}
-                                                            <span className="text-[10px] text-gray-400 font-medium self-center">· {latestDate}</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right shrink-0">
-                                                        <div className="text-xl font-black text-gray-900" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totalOrder)}</div>
-                                                        <div className="text-xs text-gray-400 mt-0.5">{items.length} item bahan</div>
-                                                        <button onClick={() => setExpandedDbOrders(prev => ({ ...prev, [oid]: !prev[oid] }))} className="mt-2 px-4 py-1.5 text-xs font-bold rounded-lg transition-colors" style={isExpanded ? { background: '#0D7F78', color: 'white' } : { background: '#CCFBF1', color: '#0F766E', border: '1px solid #5EEAD4' }}>
-                                                            {isExpanded ? '▲ Tutup' : '▼ Lihat Detail'}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Tabel rincian */}
-                                        {isExpanded && (
-                                            <div className="mt-4 pt-4 border-t border-gray-100">
-                                                <div className="overflow-x-auto rounded-xl border border-gray-200">
-                                                    <table className="w-full text-sm">
-                                                        <thead>
-                                                            <tr style={{ background: '#F0FDFA' }}>
-                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Nama Bahan</th>
-                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Kode</th>
-                                                                <th className="px-4 py-2.5 text-center text-[10px] font-black text-teal-700 tracking-widest uppercase">Qty</th>
-                                                                <th className="px-4 py-2.5 text-right text-[10px] font-black text-teal-700 tracking-widest uppercase">Harga Satuan</th>
-                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Vendor</th>
-                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Tgl Beli</th>
-                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Bayar</th>
-                                                                <th className="px-4 py-2.5 text-right text-[10px] font-black text-teal-700 tracking-widest uppercase">Subtotal</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {items.map((it, i) => (
-                                                                <tr key={i} className={`border-t border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-teal-50/30 transition-colors`}>
-                                                                    <td className="px-4 py-2.5 font-semibold text-gray-800">{it.name || '-'}</td>
-                                                                    <td className="px-4 py-2.5 text-xs text-gray-400 font-mono">{it.code || '—'}</td>
-                                                                    <td className="px-4 py-2.5 text-center text-gray-700 font-medium">{it.qty || 0} {it.unit || ''}</td>
-                                                                    <td className="px-4 py-2.5 text-right text-gray-600 font-mono text-xs" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(it.price || 0)}</td>
-                                                                    <td className="px-4 py-2.5 font-semibold text-blue-700">{normalizeVendorName(it._vendor)}</td>
-                                                                    <td className="px-4 py-2.5 text-gray-500 text-xs">{it._date || '-'}</td>
-                                                                    <td className="px-4 py-2.5">{(() => { const s = it._paymentStatus || 'Belum Dibayar'; const c = s === 'Lunas' ? 'bg-green-100 text-green-700' : s === 'Dibayar Sebagian' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'; const lbl = s === 'Lunas' ? '✓ Lunas' : s === 'Dibayar Sebagian' ? '◑ Sebagian' : '✗ Belum'; return <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${c}`}>{lbl}</span>; })()}</td>
-                                                                    <td className="px-4 py-2.5 text-right font-black text-gray-900 font-mono text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</td>
-                                                                </tr>
-                                                            ))}
-                                                            <tr style={{ background: 'linear-gradient(90deg,#F0FDFA,#EFF6FF)' }}>
-                                                                <td colSpan="7" className="px-4 py-3 text-right text-sm font-black text-gray-700">Total Pembelian Bahan Order ini:</td>
-                                                                <td className="px-4 py-3 text-right font-black text-lg" style={{ color: '#1B4F72', fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totalOrder)}</td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                );
-            };
 
             return (
                 <div className="space-y-6">
@@ -5321,32 +5214,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         </div>
                     </div>
 
-                    {/* Pill Tabs */}
-                    <div className="flex gap-2 p-1 rounded-2xl w-fit" style={{ background: '#F1F5F9' }}>
-                        <button
-                            onClick={() => setActiveTab('input_pembelian')}
-                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
-                            style={activeTab === 'input_pembelian'
-                                ? { background: 'linear-gradient(135deg,#1B4F72,#1a7a8a)', color: 'white', boxShadow: '0 2px 8px rgba(27,79,114,0.4)' }
-                                : { background: 'transparent', color: '#64748B' }
-                            }
-                        >
-                            🧾 Input Pembelian
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('database_pembelian')}
-                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
-                            style={activeTab === 'database_pembelian'
-                                ? { background: 'linear-gradient(135deg,#0D7F78,#1B4F72)', color: 'white', boxShadow: '0 2px 8px rgba(13,127,120,0.4)' }
-                                : { background: 'transparent', color: '#64748B' }
-                            }
-                        >
-                            📦 Database Pembelian
-                        </button>
-                    </div>
-
-                    {activeTab === 'input_pembelian' && renderInputPembelian()}
-                    {activeTab === 'database_pembelian' && renderDatabasePembelian()}
+                    {renderInputPembelian()}
 
                     {previewImage && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4" onClick={() => setPreviewImage(null)}>
