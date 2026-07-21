@@ -4891,10 +4891,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                                     className="px-3 py-2 text-xs hover:bg-blue-50 cursor-pointer border-t border-gray-50"
                                                                                     onMouseDown={() => { updateItem(idx, 'orderId', String(o.id)); setComboVal(idx, { open: false, search: '' }); }}
                                                                                 >
-                                                                                    <span className="font-black text-blue-700">{o.id}</span>
-                                                                                    <span className="text-gray-700 ml-1">· {o.client || '-'}</span>
-                                                                                    <span className="text-gray-400 ml-1">· {o.type || ''}</span>
-                                                                                    {o.isArchived && <span className="ml-1 text-[9px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">[Arsip]</span>}
+                                                                                    <div className="flex items-center justify-between gap-2">
+                                                                                        <div className="min-w-0">
+                                                                                            <span className="font-black text-blue-700">{o.id}</span>
+                                                                                            <span className="text-gray-700 ml-1">· {o.client || '-'}</span>
+                                                                                            <span className="text-gray-400 ml-1">· {o.type || ''}</span>
+                                                                                            {o.isArchived && <span className="ml-1 text-[9px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">[Arsip]</span>}
+                                                                                        </div>
+                                                                                        {(() => { const pcs = Object.values(o.sizes || {}).reduce((s, v) => s + (parseInt(v) || 0), 0); return pcs > 0 ? <span className="shrink-0 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">{pcs} pcs</span> : null; })()}
+                                                                                    </div>
                                                                                 </div>
                                                                             ))}
                                                                             {getFilteredOrders(idx).length === 0 && <div className="px-3 py-3 text-xs text-gray-400 text-center">Tidak ada order ditemukan</div>}
