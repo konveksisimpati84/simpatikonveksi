@@ -4772,9 +4772,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         </div>
 
                         {noteFormOpen && (() => { const _noteFormEl = (
-                            <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-blue-100">
+                            <div className="bg-white rounded-2xl shadow-xl border border-blue-100">
                                 {/* Form header */}
-                                <div className="px-6 py-4 flex items-center gap-3" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
+                                <div className="px-6 py-4 flex items-center gap-3 rounded-t-2xl" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
                                     <span className="text-2xl">🧾</span>
                                     <div className="flex-1">
                                         <h3 className="font-black text-white text-base">{editNoteId ? 'Edit Nota Pembelian' : 'Input Nota Pembelian Baru'}</h3>
@@ -4873,7 +4873,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                         <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 text-xs" onClick={() => { updateItem(idx, 'orderId', ''); setComboVal(idx, { search: '', open: false }); }}>✕</button>
                                                                     )}
                                                                     {getComboOpen(idx) && (
-                                                                        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                                                                        <div className="absolute z-[200] mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
                                                                             <div className="px-3 py-1.5 flex items-center justify-between border-b border-gray-100">
                                                                                 <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Pilih order</span>
                                                                                 <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
@@ -4986,7 +4986,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 </div>
                             </div>
                         ); return editNoteId
-                            ? (<div className="fixed inset-0 z-[115] bg-black/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" onClick={e => { if (e.target === e.currentTarget) { setNoteFormOpen(false); setEditNoteId(null); } }}><div className="w-full max-w-3xl my-10">{_noteFormEl}</div></div>)
+                            ? (<div className="fixed inset-0 z-[115] bg-black/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }} onClick={e => { if (e.target === e.currentTarget) { setNoteFormOpen(false); setEditNoteId(null); } }}><div className="w-full max-w-3xl my-10" style={{ position: 'relative' }}>{_noteFormEl}</div></div>)
                             : _noteFormEl;
                         })()}
 
