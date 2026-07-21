@@ -4771,15 +4771,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </button>
                         </div>
 
-                        {noteFormOpen && (
-                            <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-blue-100">
+                        {noteFormOpen && (() => { const _noteFormEl = (
+                            <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-blue-100">
                                 {/* Form header */}
                                 <div className="px-6 py-4 flex items-center gap-3" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
                                     <span className="text-2xl">🧾</span>
-                                    <div>
+                                    <div className="flex-1">
                                         <h3 className="font-black text-white text-base">{editNoteId ? 'Edit Nota Pembelian' : 'Input Nota Pembelian Baru'}</h3>
                                         <p className="text-white/70 text-xs mt-0.5">Isi detail vendor, tanggal, dan rincian bahan yang dibeli</p>
                                     </div>
+                                    {editNoteId && (
+                                        <button onClick={() => { setNoteFormOpen(false); setEditNoteId(null); }} className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-sm font-black transition-colors shrink-0">✕</button>
+                                    )}
                                 </div>
                                 <div className="p-6 space-y-6">
                                     {/* Info Nota */}
@@ -4982,7 +4985,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </div>
                                 </div>
                             </div>
-                        )}
+                        ); return editNoteId
+                            ? (<div className="fixed inset-0 z-[115] bg-black/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" onClick={e => { if (e.target === e.currentTarget) { setNoteFormOpen(false); setEditNoteId(null); } }}><div className="w-full max-w-3xl my-10">{_noteFormEl}</div></div>)
+                            : _noteFormEl;
+                        })()}
 
                         {/* Search & Filter bar */}
                         {allNotes.length > 0 && (
@@ -5193,7 +5199,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                         setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments: safeArray(note.payments) });
                                                                         setOrderComboState({});
                                                                         setNoteFormOpen(true);
-                                                                        window.scrollTo({ top: 0, behavior: 'smooth' });
                                                                     }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
                                                                     <button onClick={() => { if (window.confirm('Hapus nota ini?')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n)); showToast('Nota dihapus.', 'success'); } }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-colors">🗑 Hapus</button>
                                                                 </div>
