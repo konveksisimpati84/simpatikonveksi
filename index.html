@@ -4687,10 +4687,14 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const now = new Date().toISOString();
                 setPurchaseNotes(prev => prev.map(n => {
                     if (n.id !== noteId) return n;
-                    const newPayments = [...safeArray(n.payments), { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' }];
-                    const total = safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                    const noteTotal = safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                    // Migrasi data legacy (tidak ada payments[]): buat riwayat awal jika Lunas
+                    const existingPayments = n.payments !== undefined ? safeArray(n.payments)
+                        : n.paymentStatus === 'Lunas' ? [{ id: genId('PAY-'), date: n.date || now.slice(0, 10), amount: noteTotal, method: n.method || 'Transfer', note: 'Migrasi dari data lama' }]
+                        : [];
+                    const newPayments = [...existingPayments, { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' }];
                     const paid = newPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-                    const payStatus = paid <= 0 ? 'Belum Dibayar' : total > 0 && paid >= total ? 'Lunas' : 'Dibayar Sebagian';
+                    const payStatus = paid <= 0 ? 'Belum Dibayar' : noteTotal > 0 && paid >= noteTotal ? 'Lunas' : 'Dibayar Sebagian';
                     return { ...n, payments: newPayments, paymentStatus: payStatus, _syncUpdatedAt: now };
                 }));
                 setQuickPayNoteId(null);
@@ -4730,11 +4734,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const paymentMethodsText = safeArray(note.payments).map(p => p.method || '').join(' ');
                     return [note.vendor, note.date, note.note, note.method, getNotePaymentStatus(note), itemsText, paymentMethodsText].join(' ').toLowerCase().includes(term);
                 });
-                const totalAll = notes.reduce((sum, n) => sum + getNoteTotal(n), 0);
-                const totalLunas = notes.filter(n => getNotePaymentStatus(n) === 'Lunas').reduce((sum, n) => sum + getNoteTotal(n), 0);
-                const totalBelum = notes.filter(n => getNotePaymentStatus(n) === 'Belum Dibayar').reduce((sum, n) => sum + getNoteTotal(n), 0);
-                const totalSebagian = notes.filter(n => getNotePaymentStatus(n) === 'Dibayar Sebagian').reduce((sum, n) => sum + getNoteTotal(n), 0);
-                const jumlahVendor = new Set(notes.map(n => normalizeVendorName(n.vendor))).size;
+                // Stat cards selalu dari allNotes (global) agar tetap informatif saat filter aktif
+                const totalAll = allNotes.reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const allLunas = allNotes.filter(n => getNotePaymentStatus(n) === 'Lunas');
+                const allBelum = allNotes.filter(n => getNotePaymentStatus(n) === 'Belum Dibayar');
+                const allSebagian = allNotes.filter(n => getNotePaymentStatus(n) === 'Dibayar Sebagian');
+                const totalLunas = allLunas.reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const totalBelum = allBelum.reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const totalSebagian = allSebagian.reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const jumlahVendor = new Set(allNotes.map(n => normalizeVendorName(n.vendor))).size;
                 const grouped = {};
                 notes.forEach(note => { const k = (note.date || '').slice(0, 7); if (!grouped[k]) grouped[k] = []; grouped[k].push(note); });
                 const groupKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
@@ -4746,10 +4754,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 };
 
                 const statCards = [
-                    { label: 'Total Pembelian', value: formatRupiah(totalAll), sub: `${notes.length} nota`, icon: '💰', accent: '#1B6B3A', text: '#166534' },
-                    { label: 'Lunas', value: formatRupiah(totalLunas), sub: `${notes.filter(n => getNotePaymentStatus(n) === 'Lunas').length} nota`, icon: '✅', accent: '#1B4F72', text: '#1e40af' },
-                    { label: 'Dibayar Sebagian', value: formatRupiah(totalSebagian), sub: `${notes.filter(n => getNotePaymentStatus(n) === 'Dibayar Sebagian').length} nota`, icon: '◑', accent: '#D97706', text: '#92400E' },
-                    { label: 'Belum Dibayar', value: formatRupiah(totalBelum), sub: `${notes.filter(n => getNotePaymentStatus(n) === 'Belum Dibayar').length} nota`, icon: '✗', accent: '#DC2626', text: '#991B1B' },
+                    { label: 'Total Pembelian', value: formatRupiah(totalAll), sub: `${allNotes.length} nota`, icon: '💰', accent: '#1B6B3A', text: '#166534' },
+                    { label: 'Lunas', value: formatRupiah(totalLunas), sub: `${allLunas.length} nota`, icon: '✅', accent: '#1B4F72', text: '#1e40af' },
+                    { label: 'Dibayar Sebagian', value: formatRupiah(totalSebagian), sub: `${allSebagian.length} nota`, icon: '◑', accent: '#D97706', text: '#92400E' },
+                    { label: 'Belum Dibayar', value: formatRupiah(totalBelum), sub: `${allBelum.length} nota`, icon: '✗', accent: '#DC2626', text: '#991B1B' },
                     { label: 'Vendor', value: jumlahVendor, sub: 'vendor berbeda', icon: '🏪', accent: '#5B21B6', text: '#5B21B6' },
                 ];
 
@@ -5132,7 +5140,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                 {safeArray(note.payments).length > 0 && (
                                                                     <div className="space-y-1">
                                                                         {safeArray(note.payments).map((p, pi) => (
-                                                                            <div key={pi} className="flex items-center gap-2 text-[11px] text-gray-500 bg-emerald-50 rounded-lg px-3 py-1.5">
+                                                                            <div key={p.id || pi} className="flex items-center gap-2 text-[11px] text-gray-500 bg-emerald-50 rounded-lg px-3 py-1.5">
                                                                                 <span className="text-emerald-600 font-black">✓</span>
                                                                                 <span className="font-bold text-gray-700">{p.date}</span>
                                                                                 <span className="font-black text-emerald-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(parseFloat(p.amount) || 0)}</span>
@@ -5150,7 +5158,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                         const linkedOrder = it.orderId ? safeOrders.find(x => String(x.id) === it.orderId) : null;
                                                                         const img = linkedOrder ? (linkedOrder.designImage1 || linkedOrder.designImage2) : null;
                                                                         return (
-                                                                            <div key={i} className="flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: i % 2 === 0 ? '#F8FAFC' : 'white' }}>
+                                                                            <div key={it.id || i} className="flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: i % 2 === 0 ? '#F8FAFC' : 'white' }}>
                                                                                 {img ? (
                                                                                     <button type="button" onClick={() => setPreviewImage(img)} className="w-9 h-9 rounded-lg overflow-hidden border border-gray-200 shrink-0 shadow-sm hover:shadow-md transition-shadow">
                                                                                         <img src={img} alt="desain" className="w-full h-full object-cover" />
@@ -8360,25 +8368,27 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             isHutang: true
                         }];
                     }),
-                ...safeArray(purchaseNotes).filter(isVisibleRecord).map(note => {
+                ...safeArray(purchaseNotes).filter(isVisibleRecord).flatMap(note => {
                     const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                    if (noteTotal <= 0) return []; // skip nota tanpa item/harga valid
                     const effectivePaid = getNoteEffectivePaid(note);
-                    const isLunas = noteTotal > 0 && effectivePaid >= noteTotal;
-                    return {
+                    const sisa = Math.max(0, noteTotal - effectivePaid);
+                    const baseRow = {
                         id: note.id,
                         orderId: null,
                         date: note.date || new Date().toISOString().slice(0, 10),
-                        client: '-',
+                        client: note.vendor || '-',
                         type: 'Nota Pembelian',
                         totalPcs: 0,
                         vendors: [normalizeVendorName(note.vendor)],
                         materials: safeArray(note.items),
-                        total: noteTotal,
-                        paidAmount: effectivePaid,
-                        isPayment: isLunas,
-                        isHutang: effectivePaid < noteTotal,
-                        isPurchaseNote: true,
                     };
+                    const rows = [];
+                    // Payment row: kas yang sudah keluar
+                    if (effectivePaid > 0) rows.push({ ...baseRow, total: effectivePaid, isPayment: true, isHutang: false });
+                    // Hutang row: sisa yang belum dibayar
+                    if (sisa > 0) rows.push({ ...baseRow, total: sisa, isPayment: false, isHutang: true });
+                    return rows;
                 })
             ];
 
@@ -8436,8 +8446,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             });
 
             const totalMaterial = materialRows.reduce((sum, row) => sum + row.total, 0);
-            // paidAmount is set on purchaseNote rows; order-based rows use full total when not hutang
-            const totalMaterialPaid = materialRows.reduce((sum, r) => sum + (r.paidAmount !== undefined ? r.paidAmount : r.isHutang ? 0 : r.total), 0);
+            const totalMaterialPaid = materialRows.filter(r => !r.isHutang).reduce((sum, r) => sum + r.total, 0);
             const totalWage = wageRows.reduce((sum, row) => sum + row.netSalary, 0);
             const totalGrossWage = wageRows.reduce((sum, row) => sum + row.grossSalary, 0);
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
@@ -8770,7 +8779,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         date: r.date || '-',
                         ref: r.orderId || r.id || '-',
                         sumber: 'Pembelian Bahan',
-                        ket: r.client + ' — ' + r.vendors.join(', '),
+                        ket: r.type === 'Nota Pembelian' ? r.vendors.join(', ') : (r.client + ' — ' + r.vendors.join(', ')),
                         nominal: r.total
                     })),
                     ...wageRows.map(r => ({
