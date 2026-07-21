@@ -4665,214 +4665,267 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const bulan = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
                     return `${bulan[parseInt(m, 10) - 1] || m} ${y}`;
                 };
+
                 const statCards = [
-                    { label: 'TOTAL PEMBELIAN', value: formatRupiah(totalAll), sub: `${notes.length} nota`, bg: 'linear-gradient(135deg,#1a7a4a 0%,#27ae60 60%,#1e8449 100%)' },
-                    { label: 'SUDAH LUNAS', value: formatRupiah(totalLunas), sub: `${notes.filter(n => n.paymentStatus === 'Lunas').length} nota`, bg: 'linear-gradient(135deg,#1a3a7a 0%,#2980b9 60%,#1a5276 100%)' },
-                    { label: 'BELUM LUNAS', value: formatRupiah(totalTermin), sub: `${notes.filter(n => n.paymentStatus !== 'Lunas').length} nota`, bg: 'linear-gradient(135deg,#7a1a1a 0%,#c0392b 60%,#8e1010 100%)' },
-                    { label: 'JUMLAH VENDOR', value: jumlahVendor, sub: 'vendor berbeda', bg: 'linear-gradient(135deg,#4a1a7a 0%,#8e44ad 60%,#6c1e8e 100%)' },
-                    { label: 'JUMLAH NOTA', value: notes.length, sub: 'nota pembelian', bg: 'linear-gradient(135deg,#1a5a7a 0%,#16a085 60%,#0e6655 100%)' },
+                    { label: 'Total Pembelian', value: formatRupiah(totalAll), sub: `${notes.length} nota`, icon: '💰', accent: '#1B6B3A', light: '#DCFCE7', text: '#166534' },
+                    { label: 'Sudah Lunas', value: formatRupiah(totalLunas), sub: `${notes.filter(n => n.paymentStatus === 'Lunas').length} nota`, icon: '✅', accent: '#1B4F72', light: '#DBEAFE', text: '#1e40af' },
+                    { label: 'Belum Lunas', value: formatRupiah(totalTermin), sub: `${notes.filter(n => n.paymentStatus !== 'Lunas').length} nota`, icon: '⏳', accent: '#92400E', light: '#FEF3C7', text: '#92400E' },
+                    { label: 'Vendor', value: jumlahVendor, sub: 'vendor berbeda', icon: '🏪', accent: '#5B21B6', light: '#EDE9FE', text: '#5B21B6' },
+                    { label: 'Nota', value: notes.length, sub: 'nota pembelian', icon: '🧾', accent: '#0D7F78', light: '#CCFBF1', text: '#0F766E' },
                 ];
 
                 return (
                     <div className="space-y-5">
+                        {/* Stat Cards */}
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                             {statCards.map((c, i) => (
-                                <div key={i} style={{ background: c.bg }} className="rounded-xl p-4 text-white shadow-md">
-                                    <div className="text-xs font-black tracking-wider opacity-80 mb-1">{c.label}</div>
-                                    <div className="text-xl font-black leading-tight">{c.value}</div>
-                                    <div className="text-xs opacity-70 mt-1">{c.sub}</div>
+                                <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col gap-1 hover:shadow-md transition-shadow" style={{ borderTop: `3px solid ${c.accent}` }}>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-black tracking-widest uppercase text-gray-400">{c.label}</span>
+                                        <span className="text-base" style={{ filter: 'saturate(0.9)' }}>{c.icon}</span>
+                                    </div>
+                                    <div className="text-xl font-black text-gray-900 leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{c.value}</div>
+                                    <div className="text-xs font-medium" style={{ color: c.text }}>{c.sub}</div>
                                 </div>
                             ))}
                         </div>
 
-                        <div className="flex justify-end">
-                            <button onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); }} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 shadow-sm flex items-center gap-2">
-                                + Input Pembelian Bahan
+                        {/* Tombol + Form */}
+                        <div className="flex justify-between items-center">
+                            <div className="text-sm font-semibold text-gray-500">{notes.length > 0 ? `${notes.length} nota pembelian tercatat` : 'Belum ada nota'}</div>
+                            <button
+                                onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                                className="flex items-center gap-2 px-5 py-2.5 text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg transition-all"
+                                style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}
+                            >
+                                <span style={{ fontSize: 16 }}>＋</span> Input Pembelian Bahan
                             </button>
                         </div>
 
                         {noteFormOpen && (
-                            <Card>
-                                <h3 className="font-bold text-gray-800 mb-4 text-base">{editNoteId ? 'Edit Nota Pembelian' : 'Input Nota Pembelian Baru'}</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                            <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-blue-100">
+                                {/* Form header */}
+                                <div className="px-6 py-4 flex items-center gap-3" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
+                                    <span className="text-2xl">🧾</span>
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Vendor / Toko</label>
-                                        <input type="text" list="pn-vendor-list" className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Nama vendor/toko" value={noteForm.vendor} onChange={e => setNoteForm(f => ({ ...f, vendor: e.target.value }))} />
-                                        <datalist id="pn-vendor-list">{vendorSuggestions.map((v, i) => <option key={i} value={v} />)}</datalist>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Beli</label>
-                                        <input type="date" className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500" value={noteForm.date} onChange={e => setNoteForm(f => ({ ...f, date: e.target.value }))} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Metode Bayar</label>
-                                        <select className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500" value={noteForm.method} onChange={e => setNoteForm(f => ({ ...f, method: e.target.value }))}>
-                                            <option value="Transfer">Transfer</option>
-                                            <option value="Cash">Cash</option>
-                                            <option value="COD">COD</option>
-                                            <option value="Termin">Termin</option>
-                                        </select>
+                                        <h3 className="font-black text-white text-base">{editNoteId ? 'Edit Nota Pembelian' : 'Input Nota Pembelian Baru'}</h3>
+                                        <p className="text-white/70 text-xs mt-0.5">Isi detail vendor, tanggal, dan rincian bahan yang dibeli</p>
                                     </div>
                                 </div>
-
-                                {/* Tabel Item Bahan */}
-                                <div className="mb-4">
-                                    <div className="text-xs font-bold text-gray-500 mb-2 px-1">Rincian Item Bahan</div>
-                                    <div className="space-y-3">
-                                        {noteForm.items.map((it, idx) => (
-                                            <div key={it.id} className="bg-gray-50 rounded-xl border border-gray-200 p-3 space-y-2">
-                                                {/* Baris 1: Nama, Kode, Qty, Satuan */}
-                                                <div className="grid grid-cols-12 gap-2">
-                                                    <div className="col-span-5">
-                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Nama Bahan</label>
-                                                        <input type="text" className="w-full p-2 text-sm border rounded-lg bg-white" placeholder="Cth: Kain Cotton 30s" value={it.name} onChange={e => updateItem(idx, 'name', e.target.value)} />
-                                                    </div>
-                                                    <div className="col-span-3">
-                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Kode Bahan <span className="font-normal text-gray-400">(opsional)</span></label>
-                                                        <input type="text" className="w-full p-2 text-sm border rounded-lg bg-white" placeholder="Cth: KB-001" value={it.code} onChange={e => updateItem(idx, 'code', e.target.value)} />
-                                                    </div>
-                                                    <div className="col-span-2">
-                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Qty</label>
-                                                        <input type="number" min="0" step="any" className="w-full p-2 text-sm border rounded-lg bg-white text-center" placeholder="0" value={it.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
-                                                    </div>
-                                                    <div className="col-span-2">
-                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Satuan</label>
-                                                        <select className="w-full p-2 text-sm border rounded-lg bg-white" value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)}>
-                                                            <option>Meter</option><option>Roll</option><option>Kg</option><option>Yard</option><option>Lusin</option><option>Gross</option><option>Pcs</option><option>Pak</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                {/* Baris 2: Harga, Untuk Order, Delete */}
-                                                <div className="grid grid-cols-12 gap-2 items-end">
-                                                    <div className="col-span-4">
-                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Harga Satuan (Rp)</label>
-                                                        <input type="number" min="0" className="w-full p-2 text-sm border rounded-lg bg-white text-right" placeholder="0" value={it.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
-                                                    </div>
-                                                    <div className="col-span-7">
-                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Untuk Order <span className="font-normal text-gray-400">(opsional)</span></label>
-                                                        <select className="w-full p-2 text-sm border rounded-lg bg-white" value={it.orderId} onChange={e => updateItem(idx, 'orderId', e.target.value)}>
-                                                            <option value="">-- Tidak ditautkan ke order --</option>
-                                                            {orderOptions.map(o => (
-                                                                <option key={o.id} value={String(o.id)}>
-                                                                    {o.id} · {o.client || '-'} · {o.type || ''} ({o.total || 0} pcs)
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                    <div className="col-span-1 flex items-end justify-end">
-                                                        <button onClick={() => setNoteForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="h-9 w-9 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg flex items-center justify-center" disabled={noteForm.items.length <= 1}><IconTrash /></button>
-                                                    </div>
-                                                </div>
-                                                {/* Subtotal baris */}
-                                                <div className="text-right text-xs text-gray-500">
-                                                    Subtotal: <span className="font-black text-gray-800">{formatRupiah(getMaterialLineTotal(it))}</span>
-                                                    {it.orderId && (() => { const o = orderOptions.find(x => String(x.id) === it.orderId); return o ? <span className="ml-2 bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full text-[10px]">{o.id} · {o.client}</span> : null; })()}
-                                                </div>
+                                <div className="p-6 space-y-6">
+                                    {/* Info Nota */}
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <div className="w-1 h-4 rounded-full bg-blue-500"></div>
+                                            <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Info Nota</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Vendor / Toko</label>
+                                                <input type="text" list="pn-vendor-list" className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-blue-400 bg-gray-50" placeholder="Nama vendor/toko" value={noteForm.vendor} onChange={e => setNoteForm(f => ({ ...f, vendor: e.target.value }))} />
+                                                <datalist id="pn-vendor-list">{vendorSuggestions.map((v, i) => <option key={i} value={v} />)}</datalist>
                                             </div>
-                                        ))}
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Tanggal Beli</label>
+                                                <input type="date" className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-blue-400 bg-gray-50" value={noteForm.date} onChange={e => setNoteForm(f => ({ ...f, date: e.target.value }))} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Metode Bayar</label>
+                                                <select className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-400 bg-gray-50" value={noteForm.method} onChange={e => setNoteForm(f => ({ ...f, method: e.target.value }))}>
+                                                    <option value="Transfer">Transfer</option>
+                                                    <option value="Cash">Cash</option>
+                                                    <option value="COD">COD</option>
+                                                    <option value="Termin">Termin</option>
+                                                </select>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <button onClick={() => setNoteForm(f => ({ ...f, items: [...f.items, emptyItem()] }))} className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-2 rounded-lg hover:bg-blue-100 border border-dashed border-blue-300 w-full mt-3">+ Tambah Item Bahan</button>
-                                </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                                    {/* Rincian Bahan */}
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Catatan Nota</label>
-                                        <input type="text" className="w-full p-2 text-sm border rounded-lg" placeholder="Catatan (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <div className="w-1 h-4 rounded-full bg-teal-500"></div>
+                                            <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Rincian Item Bahan</span>
+                                        </div>
+                                        <div className="space-y-3">
+                                            {noteForm.items.map((it, idx) => (
+                                                <div key={it.id} className="rounded-xl border border-gray-200 overflow-hidden" style={{ background: '#F8FAFC' }}>
+                                                    <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200" style={{ background: '#EFF6FF' }}>
+                                                        <span className="text-xs font-black text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full min-w-[28px] text-center">{String(idx + 1).padStart(2, '0')}</span>
+                                                        <span className="text-xs font-semibold text-blue-700 flex-1">Item Bahan #{idx + 1}</span>
+                                                        <button onClick={() => setNoteForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="w-7 h-7 bg-red-100 hover:bg-red-200 text-red-500 rounded-lg flex items-center justify-center transition-colors" disabled={noteForm.items.length <= 1}><IconTrash /></button>
+                                                    </div>
+                                                    <div className="p-3 space-y-2">
+                                                        <div className="grid grid-cols-12 gap-2">
+                                                            <div className="col-span-5">
+                                                                <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Nama Bahan</label>
+                                                                <input type="text" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="Cth: Kain Cotton 30s" value={it.name} onChange={e => updateItem(idx, 'name', e.target.value)} />
+                                                            </div>
+                                                            <div className="col-span-3">
+                                                                <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Kode <span className="normal-case font-normal text-gray-300">(opsional)</span></label>
+                                                                <input type="text" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="KB-001" value={it.code} onChange={e => updateItem(idx, 'code', e.target.value)} />
+                                                            </div>
+                                                            <div className="col-span-2">
+                                                                <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Qty</label>
+                                                                <input type="number" min="0" step="any" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-center focus:ring-1 focus:ring-blue-400" placeholder="0" value={it.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
+                                                            </div>
+                                                            <div className="col-span-2">
+                                                                <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Satuan</label>
+                                                                <select className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)}>
+                                                                    <option>Meter</option><option>Roll</option><option>Kg</option><option>Yard</option><option>Lusin</option><option>Gross</option><option>Pcs</option><option>Pak</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-12 gap-2 items-end">
+                                                            <div className="col-span-4">
+                                                                <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Harga Satuan (Rp)</label>
+                                                                <input type="number" min="0" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-right focus:ring-1 focus:ring-blue-400" placeholder="0" value={it.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                                                            </div>
+                                                            <div className="col-span-8">
+                                                                <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Untuk Order <span className="normal-case font-normal text-gray-300">(opsional)</span></label>
+                                                                <select className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" value={it.orderId} onChange={e => updateItem(idx, 'orderId', e.target.value)}>
+                                                                    <option value="">— Tidak ditautkan ke order —</option>
+                                                                    {orderOptions.map(o => (
+                                                                        <option key={o.id} value={String(o.id)}>{o.id} · {o.client || '-'} · {o.type || ''} ({o.total || 0} pcs)</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center justify-between pt-1">
+                                                            <div>
+                                                                {it.orderId && (() => { const o = orderOptions.find(x => String(x.id) === it.orderId); return o ? <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full border border-indigo-200">📋 {o.id} · {o.client}</span> : null; })()}
+                                                            </div>
+                                                            <div className="text-xs text-gray-400">Subtotal: <span className="font-black text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</span></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <button onClick={() => setNoteForm(f => ({ ...f, items: [...f.items, emptyItem()] }))} className="mt-3 w-full py-2.5 text-sm font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border-2 border-dashed border-teal-300 rounded-xl transition-colors flex items-center justify-center gap-2">
+                                            <span style={{ fontSize: 16 }}>＋</span> Tambah Item Bahan
+                                        </button>
                                     </div>
+
+                                    {/* Catatan & Status */}
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Status Pembayaran</label>
-                                        <select className="w-full p-2 text-sm border rounded-lg" value={noteForm.paymentStatus} onChange={e => setNoteForm(f => ({ ...f, paymentStatus: e.target.value }))}>
-                                            <option value="Lunas">Lunas</option>
-                                            <option value="Termin">Termin / Belum Lunas</option>
-                                        </select>
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <div className="w-1 h-4 rounded-full bg-purple-400"></div>
+                                            <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Catatan & Status</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Catatan Nota</label>
+                                                <input type="text" className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-400" placeholder="Catatan (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Status Pembayaran</label>
+                                                <select className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-400" value={noteForm.paymentStatus} onChange={e => setNoteForm(f => ({ ...f, paymentStatus: e.target.value }))}>
+                                                    <option value="Lunas">✅ Lunas</option>
+                                                    <option value="Termin">⏳ Termin / Belum Lunas</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Footer total + aksi */}
+                                    <div className="flex flex-col sm:flex-row justify-between items-center gap-3 rounded-2xl p-4" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
+                                        <div>
+                                            <div className="text-white/70 text-xs font-bold uppercase tracking-wide">Total Nota</div>
+                                            <div className="text-white text-2xl font-black leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0))}</div>
+                                        </div>
+                                        <div className="flex gap-2 w-full sm:w-auto">
+                                            <button onClick={() => { setNoteFormOpen(false); setEditNoteId(null); }} className="flex-1 sm:flex-none px-5 py-2.5 bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl font-bold text-sm transition-colors">Batal</button>
+                                            <button onClick={savePurchaseNote} className="flex-1 sm:flex-none px-6 py-2.5 bg-white text-blue-800 rounded-xl font-black text-sm hover:bg-blue-50 shadow-md transition-colors">Simpan Nota</button>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex justify-between items-center bg-gray-50 rounded-lg px-4 py-3">
-                                    <div className="font-bold text-gray-700 text-sm">Total Nota: <span className="text-red-600 text-xl font-black ml-1">{formatRupiah(noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0))}</span></div>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => { setNoteFormOpen(false); setEditNoteId(null); }} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-bold text-sm hover:bg-gray-100">Batal</button>
-                                        <button onClick={savePurchaseNote} className="px-5 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 shadow-sm">Simpan Nota</button>
-                                    </div>
-                                </div>
-                            </Card>
+                            </div>
                         )}
 
+                        {/* Daftar Nota */}
                         {notes.length === 0 ? (
-                            <Card>
-                                <div className="py-16 text-center">
-                                    <div className="text-4xl mb-3">🧾</div>
-                                    <div className="font-bold text-gray-500 mb-1">Belum ada nota pembelian</div>
-                                    <div className="text-sm text-gray-400">Klik "+ Input Pembelian Bahan" untuk mulai mencatat.</div>
-                                </div>
-                            </Card>
+                            <div className="rounded-2xl border-2 border-dashed border-gray-200 py-16 text-center bg-gray-50">
+                                <div className="text-5xl mb-4">🧾</div>
+                                <div className="font-bold text-gray-500 mb-1">Belum ada nota pembelian</div>
+                                <div className="text-sm text-gray-400">Klik "Input Pembelian Bahan" di atas untuk mulai mencatat.</div>
+                            </div>
                         ) : groupKeys.map(groupKey => {
                             const groupNotes = grouped[groupKey];
                             const groupTotal = groupNotes.reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
                             return (
                                 <div key={groupKey}>
-                                    <div className="flex items-center justify-between mb-2 px-1">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-1 h-5 bg-blue-500 rounded-full"></div>
-                                            <span className="font-bold text-gray-700 text-sm">{formatBulan(groupKey)}</span>
-                                            <span className="text-xs text-gray-400">({groupNotes.length} nota)</span>
+                                    {/* Group header bulan */}
+                                    <div className="flex items-center justify-between mb-3 px-1">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-black shrink-0" style={{ background: 'linear-gradient(135deg,#1B4F72,#1a7a8a)' }}>
+                                                {groupNotes.length}
+                                            </div>
+                                            <div>
+                                                <div className="font-black text-gray-800 text-sm leading-none">{formatBulan(groupKey)}</div>
+                                                <div className="text-[10px] text-gray-400 mt-0.5">{groupNotes.length} nota</div>
+                                            </div>
                                         </div>
-                                        <span className="text-sm font-black text-gray-700">{formatRupiah(groupTotal)}</span>
+                                        <div className="text-right">
+                                            <div className="font-black text-gray-800 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(groupTotal)}</div>
+                                            <div className="text-[10px] text-gray-400">total bulan ini</div>
+                                        </div>
                                     </div>
-                                    <div className="space-y-2">
+                                    <div className="space-y-2.5">
                                         {groupNotes.map(note => {
                                             const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
                                             const isLunas = note.paymentStatus === 'Lunas';
                                             const linkedOrders = [...new Set(safeArray(note.items).map(it => it.orderId).filter(Boolean))];
                                             return (
-                                                <div key={note.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                                                <div key={note.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all overflow-hidden group">
                                                     <div className="flex items-stretch">
-                                                        <div className={`w-1.5 shrink-0 ${isLunas ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
+                                                        <div className={`w-1 shrink-0 ${isLunas ? 'bg-green-400' : 'bg-amber-400'}`}></div>
                                                         <div className="flex-1 p-4">
                                                             <div className="flex justify-between items-start gap-3">
                                                                 <div className="flex-1 min-w-0">
-                                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                                        <span className="font-bold text-gray-900 text-base truncate">{normalizeVendorName(note.vendor)}</span>
-                                                                        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full shrink-0 ${isLunas ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{note.paymentStatus || 'Lunas'}</span>
-                                                                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 shrink-0">{note.method || 'Transfer'}</span>
+                                                                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                                                                        <span className="font-black text-gray-900 text-base leading-tight">{normalizeVendorName(note.vendor)}</span>
+                                                                        <span className={`text-[10px] font-black px-2.5 py-1 rounded-full shrink-0 tracking-wide ${isLunas ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{isLunas ? '✓ LUNAS' : '⏳ TERMIN'}</span>
+                                                                        <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-gray-100 text-gray-500 shrink-0">{note.method || 'Transfer'}</span>
                                                                     </div>
-                                                                    <div className="text-sm text-gray-500 mt-0.5">{note.date}</div>
+                                                                    <div className="text-xs text-gray-400 font-medium">{note.date}</div>
                                                                     {linkedOrders.length > 0 && (
-                                                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                                                        <div className="flex flex-wrap gap-1 mt-2">
                                                                             {linkedOrders.map(oid => {
                                                                                 const o = safeOrders.find(x => String(x.id) === oid);
                                                                                 return (
-                                                                                    <span key={oid} className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                                                                                        {oid}{o ? ` · ${o.client}` : ''}
+                                                                                    <span key={oid} className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}>
+                                                                                        📋 {oid}{o ? ` · ${o.client}` : ''}
                                                                                     </span>
                                                                                 );
                                                                             })}
                                                                         </div>
                                                                     )}
-                                                                    {note.note && <div className="text-xs text-gray-400 mt-0.5 italic">{note.note}</div>}
+                                                                    {note.note && <div className="text-[11px] text-gray-400 mt-1.5 italic">"{note.note}"</div>}
                                                                 </div>
-                                                                <div className="text-right shrink-0">
-                                                                    <div className="text-xl font-black text-gray-900">{formatRupiah(noteTotal)}</div>
-                                                                    <div className="text-xs text-gray-400">{safeArray(note.items).length} item</div>
+                                                                <div className="text-right shrink-0 pl-2">
+                                                                    <div className="text-xl font-black text-gray-900 leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(noteTotal)}</div>
+                                                                    <div className="text-[10px] text-gray-400 mt-0.5">{safeArray(note.items).length} item</div>
                                                                 </div>
                                                             </div>
+                                                            {/* Item list */}
                                                             <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
                                                                 {safeArray(note.items).map((it, i) => {
                                                                     const linkedOrder = it.orderId ? safeOrders.find(x => String(x.id) === it.orderId) : null;
                                                                     return (
-                                                                        <div key={i} className="flex justify-between items-start gap-2 text-sm">
-                                                                            <div className="flex-1 min-w-0">
-                                                                                <span className="text-gray-700 font-medium">{it.name || '-'}</span>
-                                                                                {it.code && <span className="text-gray-400 text-xs ml-1">({it.code})</span>}
-                                                                                <span className="text-gray-400 text-xs ml-1">· {it.qty || 0} {it.unit || ''}</span>
-                                                                                {linkedOrder && (
-                                                                                    <span className="ml-2 text-[10px] bg-indigo-50 text-indigo-600 font-bold px-1.5 py-0.5 rounded-full border border-indigo-100">{linkedOrder.id} · {linkedOrder.client}</span>
-                                                                                )}
+                                                                        <div key={i} className="flex justify-between items-center gap-2">
+                                                                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                                                                <div className="w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0"></div>
+                                                                                <span className="text-sm text-gray-700 font-medium truncate">{it.name || '-'}</span>
+                                                                                {it.code && <span className="text-[10px] text-gray-400 shrink-0 font-mono bg-gray-100 px-1.5 py-0.5 rounded">{it.code}</span>}
+                                                                                <span className="text-xs text-gray-400 shrink-0">{it.qty || 0} {it.unit || ''}</span>
+                                                                                {linkedOrder && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: '#EFF6FF', color: '#3B82F6' }}>{linkedOrder.id}</span>}
                                                                             </div>
-                                                                            <span className="font-mono font-bold text-gray-800 text-xs shrink-0">{formatRupiah(getMaterialLineTotal(it))}</span>
+                                                                            <span className="text-xs font-bold text-gray-700 shrink-0" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</span>
                                                                         </div>
                                                                     );
                                                                 })}
                                                             </div>
+                                                            {/* Action buttons */}
                                                             <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                                                                 <button onClick={() => {
                                                                     setEditNoteId(note.id);
@@ -4882,8 +4935,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                     setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas' });
                                                                     setNoteFormOpen(true);
                                                                     window.scrollTo({ top: 0, behavior: 'smooth' });
-                                                                }} className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200">Edit</button>
-                                                                <button onClick={() => { if (window.confirm('Hapus nota ini?')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n)); showToast('Nota dihapus.', 'success'); } }} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200">Hapus</button>
+                                                                }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
+                                                                <button onClick={() => { if (window.confirm('Hapus nota ini? Data tidak dapat dikembalikan.')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n)); showToast('Nota dihapus.', 'success'); } }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-colors">🗑 Hapus</button>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -4891,6 +4944,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             );
                                         })}
                                     </div>
+                                    <div className="mb-6"></div>
                                 </div>
                             );
                         })}
@@ -4900,7 +4954,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const renderDatabasePembelian = () => {
                 const allNotes = safeArray(purchaseNotes).filter(isVisibleRecord);
-                // Flatten semua item yang punya orderId dari semua nota
                 const purchasedItems = allNotes.flatMap(nota =>
                     safeArray(nota.items)
                         .filter(it => String(it.orderId || '').trim() && String(it.name || '').trim())
@@ -4914,7 +4967,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         }))
                 );
 
-                // Group by orderId
                 const byOrderId = {};
                 purchasedItems.forEach(it => {
                     const oid = String(it.orderId);
@@ -4928,7 +4980,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     return latestB - latestA;
                 });
 
-                // Filter pencarian
                 if (dbSearch) {
                     const term = dbSearch.toLowerCase();
                     orderIds = orderIds.filter(oid => {
@@ -4944,99 +4995,117 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                 return (
                     <div className="space-y-5">
-                        {/* Stat ringkas */}
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            <div style={{ background: 'linear-gradient(135deg,#1a7a4a 0%,#27ae60 60%,#1e8449 100%)' }} className="rounded-xl p-4 text-white shadow-md">
-                                <div className="text-xs font-black tracking-wider opacity-80 mb-1">TOTAL BELI (TERLINK ORDER)</div>
-                                <div className="text-xl font-black">{formatRupiah(totalPembelian)}</div>
-                                <div className="text-xs opacity-70 mt-1">{purchasedItems.length} item bahan</div>
+                        {/* Stat + Search */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4" style={{ borderTop: '3px solid #0D7F78' }}>
+                                <div className="text-[10px] font-black tracking-widest uppercase text-gray-400 mb-1">Total Beli (Terlink Order)</div>
+                                <div className="text-2xl font-black text-gray-900" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totalPembelian)}</div>
+                                <div className="text-xs font-medium text-teal-700 mt-1">{purchasedItems.length} item bahan</div>
                             </div>
-                            <div style={{ background: 'linear-gradient(135deg,#1a3a7a 0%,#2980b9 60%,#1a5276 100%)' }} className="rounded-xl p-4 text-white shadow-md">
-                                <div className="text-xs font-black tracking-wider opacity-80 mb-1">ORDER YANG SUDAH BELI BAHAN</div>
-                                <div className="text-xl font-black">{orderCount}</div>
-                                <div className="text-xs opacity-70 mt-1">order</div>
+                            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4" style={{ borderTop: '3px solid #1B4F72' }}>
+                                <div className="text-[10px] font-black tracking-widest uppercase text-gray-400 mb-1">Order Sudah Beli Bahan</div>
+                                <div className="text-2xl font-black text-gray-900">{orderCount}</div>
+                                <div className="text-xs font-medium text-blue-700 mt-1">order aktif</div>
                             </div>
-                            <div className="col-span-2 md:col-span-1">
-                                <SearchField value={dbSearch} onChange={setDbSearch} placeholder="Cari order, klien, nama bahan, vendor..." />
+                            <div className="flex items-center">
+                                <SearchField value={dbSearch} onChange={setDbSearch} placeholder="Cari order, klien, bahan, vendor..." />
                             </div>
                         </div>
 
                         {orderIds.length === 0 ? (
-                            <Card>
-                                <div className="py-16 text-center">
-                                    <div className="text-4xl mb-3">📦</div>
-                                    <div className="font-bold text-gray-500 mb-1">{dbSearch ? 'Tidak ada hasil pencarian' : 'Belum ada data pembelian per order'}</div>
-                                    <div className="text-sm text-gray-400">{!dbSearch && 'Saat menginput bahan di Tab "Input Pembelian", pilih "Untuk Order" pada setiap item.'}</div>
-                                </div>
-                            </Card>
-                        ) : orderIds.map(oid => {
+                            <div className="rounded-2xl border-2 border-dashed border-gray-200 py-16 text-center bg-gray-50">
+                                <div className="text-5xl mb-4">📦</div>
+                                <div className="font-bold text-gray-500 mb-1">{dbSearch ? 'Tidak ada hasil pencarian' : 'Belum ada data pembelian per order'}</div>
+                                <div className="text-sm text-gray-400">{!dbSearch && 'Saat menginput bahan di Tab "Input Pembelian", pilih "Untuk Order" pada setiap item bahan.'}</div>
+                            </div>
+                        ) : orderIds.map((oid, oidIdx) => {
                             const order = safeOrders.find(o => String(o.id) === oid);
                             const items = byOrderId[oid];
                             const totalOrder = items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
                             const isExpanded = !!expandedDbOrders[oid];
                             const vendorList = [...new Set(items.map(it => normalizeVendorName(it._vendor)))];
+                            const latestDate = items.reduce((max, it) => it._date > max ? it._date : max, '');
                             return (
-                                <Card key={oid}>
-                                    {/* Header order */}
-                                    <div className="flex items-start gap-4">
-                                        {order && <div className="shrink-0">{renderOrderDesignPreview(order, true)}</div>}
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className="font-bold text-blue-600 text-sm">{oid}</span>
-                                                {order && <span className="font-bold text-gray-800">{order.client}</span>}
-                                                {order && <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{order.type} · {order.total} pcs</span>}
-                                                <span className="text-xs bg-green-100 text-green-700 font-bold px-2 py-0.5 rounded-full">Bahan Dibeli</span>
+                                <div key={oid} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all overflow-hidden">
+                                    {/* Card accent top */}
+                                    <div className="h-1" style={{ background: 'linear-gradient(90deg,#0D7F78,#1B4F72)' }}></div>
+                                    <div className="p-5">
+                                        <div className="flex items-start gap-4">
+                                            {/* Nomor urut + desain */}
+                                            <div className="shrink-0 flex flex-col items-center gap-2">
+                                                <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-black" style={{ background: 'linear-gradient(135deg,#0D7F78,#1B4F72)' }}>
+                                                    {String(oidIdx + 1).padStart(2, '0')}
+                                                </div>
+                                                {order && renderOrderDesignPreview(order, true)}
                                             </div>
-                                            <div className="flex items-center gap-4 mt-1.5 flex-wrap">
-                                                <div className="text-sm text-gray-600">Total: <span className="font-black text-red-600">{formatRupiah(totalOrder)}</span></div>
-                                                <div className="text-xs text-gray-400">{items.length} item · {vendorList.join(', ')}</div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-start justify-between gap-3 flex-wrap">
+                                                    <div>
+                                                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                                                            <span className="font-black text-sm" style={{ color: '#1B4F72' }}>{oid}</span>
+                                                            {order && <span className="font-black text-gray-900">{order.client}</span>}
+                                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#DCFCE7', color: '#166534' }}>✓ Bahan Dibeli</span>
+                                                        </div>
+                                                        {order && <div className="text-xs text-gray-500 mb-1.5">{order.type} · <span className="font-bold">{order.total} pcs</span></div>}
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {vendorList.map((v, vi) => (
+                                                                <span key={vi} className="text-[10px] font-bold px-2 py-0.5 rounded-full border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}>🏪 {v}</span>
+                                                            ))}
+                                                            <span className="text-[10px] text-gray-400 font-medium self-center">· {latestDate}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <div className="text-xl font-black text-gray-900" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totalOrder)}</div>
+                                                        <div className="text-xs text-gray-400 mt-0.5">{items.length} item bahan</div>
+                                                        <button onClick={() => setExpandedDbOrders(prev => ({ ...prev, [oid]: !prev[oid] }))} className="mt-2 px-4 py-1.5 text-xs font-bold rounded-lg transition-colors" style={isExpanded ? { background: '#0D7F78', color: 'white' } : { background: '#CCFBF1', color: '#0F766E', border: '1px solid #5EEAD4' }}>
+                                                            {isExpanded ? '▲ Tutup' : '▼ Lihat Detail'}
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                        <button onClick={() => setExpandedDbOrders(prev => ({ ...prev, [oid]: !prev[oid] }))} className="shrink-0 text-xs text-blue-600 font-bold bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200">
-                                            {isExpanded ? '▲ Tutup' : '▼ Detail Bahan'}
-                                        </button>
-                                    </div>
 
-                                    {/* Rincian item */}
-                                    {isExpanded && (
-                                        <div className="mt-4 pt-4 border-t border-gray-100">
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full text-sm border-collapse">
-                                                    <thead>
-                                                        <tr className="bg-gray-50 text-xs font-bold text-gray-500">
-                                                            <th className="px-3 py-2 text-left">Nama Bahan</th>
-                                                            <th className="px-3 py-2 text-left">Kode</th>
-                                                            <th className="px-3 py-2 text-center">Qty</th>
-                                                            <th className="px-3 py-2 text-right">Harga Satuan</th>
-                                                            <th className="px-3 py-2 text-left">Vendor</th>
-                                                            <th className="px-3 py-2 text-left">Tgl Beli</th>
-                                                            <th className="px-3 py-2 text-left">Metode</th>
-                                                            <th className="px-3 py-2 text-right font-bold">Subtotal</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-gray-100">
-                                                        {items.map((it, i) => (
-                                                            <tr key={i} className="hover:bg-gray-50">
-                                                                <td className="px-3 py-2 font-medium text-gray-800">{it.name || '-'}</td>
-                                                                <td className="px-3 py-2 text-gray-400 text-xs">{it.code || '-'}</td>
-                                                                <td className="px-3 py-2 text-center text-gray-700">{it.qty || 0} {it.unit || ''}</td>
-                                                                <td className="px-3 py-2 text-right text-gray-600 font-mono">{formatRupiah(it.price || 0)}</td>
-                                                                <td className="px-3 py-2 text-blue-700 font-medium">{normalizeVendorName(it._vendor)}</td>
-                                                                <td className="px-3 py-2 text-gray-500">{it._date || '-'}</td>
-                                                                <td className="px-3 py-2"><span className={`text-xs font-bold px-2 py-0.5 rounded-full ${it._paymentStatus === 'Lunas' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{it._paymentStatus || 'Lunas'}</span></td>
-                                                                <td className="px-3 py-2 text-right font-bold font-mono text-gray-900">{formatRupiah(getMaterialLineTotal(it))}</td>
+                                        {/* Tabel rincian */}
+                                        {isExpanded && (
+                                            <div className="mt-4 pt-4 border-t border-gray-100">
+                                                <div className="overflow-x-auto rounded-xl border border-gray-200">
+                                                    <table className="w-full text-sm">
+                                                        <thead>
+                                                            <tr style={{ background: '#F0FDFA' }}>
+                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Nama Bahan</th>
+                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Kode</th>
+                                                                <th className="px-4 py-2.5 text-center text-[10px] font-black text-teal-700 tracking-widest uppercase">Qty</th>
+                                                                <th className="px-4 py-2.5 text-right text-[10px] font-black text-teal-700 tracking-widest uppercase">Harga Satuan</th>
+                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Vendor</th>
+                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Tgl Beli</th>
+                                                                <th className="px-4 py-2.5 text-left text-[10px] font-black text-teal-700 tracking-widest uppercase">Bayar</th>
+                                                                <th className="px-4 py-2.5 text-right text-[10px] font-black text-teal-700 tracking-widest uppercase">Subtotal</th>
                                                             </tr>
-                                                        ))}
-                                                        <tr className="bg-gray-50 font-bold">
-                                                            <td colSpan="7" className="px-3 py-2 text-right text-gray-700">Total Pembelian Bahan untuk Order ini:</td>
-                                                            <td className="px-3 py-2 text-right text-red-600 font-black font-mono">{formatRupiah(totalOrder)}</td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
+                                                        </thead>
+                                                        <tbody>
+                                                            {items.map((it, i) => (
+                                                                <tr key={i} className={`border-t border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-teal-50/30 transition-colors`}>
+                                                                    <td className="px-4 py-2.5 font-semibold text-gray-800">{it.name || '-'}</td>
+                                                                    <td className="px-4 py-2.5 text-xs text-gray-400 font-mono">{it.code || '—'}</td>
+                                                                    <td className="px-4 py-2.5 text-center text-gray-700 font-medium">{it.qty || 0} {it.unit || ''}</td>
+                                                                    <td className="px-4 py-2.5 text-right text-gray-600 font-mono text-xs" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(it.price || 0)}</td>
+                                                                    <td className="px-4 py-2.5 font-semibold text-blue-700">{normalizeVendorName(it._vendor)}</td>
+                                                                    <td className="px-4 py-2.5 text-gray-500 text-xs">{it._date || '-'}</td>
+                                                                    <td className="px-4 py-2.5"><span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${it._paymentStatus === 'Lunas' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{it._paymentStatus === 'Lunas' ? '✓ Lunas' : '⏳ Termin'}</span></td>
+                                                                    <td className="px-4 py-2.5 text-right font-black text-gray-900 font-mono text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</td>
+                                                                </tr>
+                                                            ))}
+                                                            <tr style={{ background: 'linear-gradient(90deg,#F0FDFA,#EFF6FF)' }}>
+                                                                <td colSpan="7" className="px-4 py-3 text-right text-sm font-black text-gray-700">Total Pembelian Bahan Order ini:</td>
+                                                                <td className="px-4 py-3 text-right font-black text-lg" style={{ color: '#1B4F72', fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totalOrder)}</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
-                                </Card>
+                                        )}
+                                    </div>
+                                </div>
                             );
                         })}
                     </div>
@@ -5045,17 +5114,42 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             return (
                 <div className="space-y-6">
-                    <div>
-                        <h2 className="text-2xl font-bold text-gray-800">Pembelian Bahan</h2>
-                        <p className="text-gray-500 text-sm mt-1">Input nota pembelian bahan dari vendor dan lihat database bahan per order.</p>
+                    {/* Page Header */}
+                    <div className="rounded-2xl overflow-hidden shadow-md" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#0D7F78 100%)' }}>
+                        <div className="px-6 py-5 flex items-center gap-4">
+                            <div className="text-4xl opacity-80" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}>🧵</div>
+                            <div className="flex-1">
+                                <h2 className="text-2xl font-black text-white leading-tight">Pembelian Bahan</h2>
+                                <p className="text-white/70 text-sm mt-0.5">Input nota pembelian dari vendor · pantau bahan per order produksi</p>
+                            </div>
+                            <div className="hidden md:flex flex-col items-end gap-1 text-right">
+                                <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest">Total Order Terisi</div>
+                                <div className="text-white font-black text-lg">{safeArray(purchaseNotes).filter(isVisibleRecord).flatMap(n => safeArray(n.items).map(it => it.orderId).filter(Boolean)).filter((v, i, a) => a.indexOf(v) === i).length} order</div>
+                            </div>
+                        </div>
                     </div>
 
-                    <div className="flex gap-4 border-b border-gray-200 pb-2 flex-wrap">
-                        <button onClick={() => setActiveTab('input_pembelian')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeTab === 'input_pembelian' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                            Input Pembelian Bahan
+                    {/* Pill Tabs */}
+                    <div className="flex gap-2 p-1 rounded-2xl w-fit" style={{ background: '#F1F5F9' }}>
+                        <button
+                            onClick={() => setActiveTab('input_pembelian')}
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
+                            style={activeTab === 'input_pembelian'
+                                ? { background: 'linear-gradient(135deg,#1B4F72,#1a7a8a)', color: 'white', boxShadow: '0 2px 8px rgba(27,79,114,0.4)' }
+                                : { background: 'transparent', color: '#64748B' }
+                            }
+                        >
+                            🧾 Input Pembelian
                         </button>
-                        <button onClick={() => setActiveTab('database_pembelian')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'database_pembelian' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                            <IconBarChart /> Database Pembelian
+                        <button
+                            onClick={() => setActiveTab('database_pembelian')}
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
+                            style={activeTab === 'database_pembelian'
+                                ? { background: 'linear-gradient(135deg,#0D7F78,#1B4F72)', color: 'white', boxShadow: '0 2px 8px rgba(13,127,120,0.4)' }
+                                : { background: 'transparent', color: '#64748B' }
+                            }
+                        >
+                            📦 Database Pembelian
                         </button>
                     </div>
 
@@ -5064,8 +5158,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                     {previewImage && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4" onClick={() => setPreviewImage(null)}>
-                            <div className="bg-white p-3 rounded-xl max-w-4xl max-h-[92vh] shadow-xl">
-                                <img src={previewImage} alt="Preview desain" className="max-w-full max-h-[84vh] object-contain" />
+                            <div className="bg-white p-3 rounded-2xl max-w-4xl max-h-[92vh] shadow-2xl">
+                                <img src={previewImage} alt="Preview desain" className="max-w-full max-h-[84vh] object-contain rounded-lg" />
                             </div>
                         </div>
                     )}
