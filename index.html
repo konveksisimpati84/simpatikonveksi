@@ -412,6 +412,15 @@
         const getMaterialUnitPrice = (item) => parseFloat(String(item?.price ?? 0).replace(',', '.')) || 0;
         const getMaterialLineTotal = (item) => getMaterialQty(item) * getMaterialUnitPrice(item);
         const getOrderMaterialTotal = (order) => getActiveMaterials(order).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
+        // Backward-compat paid amount for purchaseNotes (supports legacy paymentStatus string)
+        const getNoteEffectivePaid = (note) => {
+            if (!note.payments && note.paymentStatus) {
+                if (note.paymentStatus === 'Lunas') return safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                if (note.paymentStatus === 'Dibayar Sebagian') return 0; // amount unknown for legacy partial
+                return 0;
+            }
+            return safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+        };
 
         const getWorkLogTakenQty = (log) => parseInt(log?.qty) || 0;
         const getWorkLogSubmittedQty = (log) => parseInt(log?.submittedQty ?? log?.qty) || 0;
@@ -4599,11 +4608,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const updateItem = (idx, field, val) => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, [field]: val } : x) }));
 
             // Payment helpers
-            const getNotePaidTotal = (note) => safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+            const getNotePaidTotal = (note) => getNoteEffectivePaid(note);
             const getNoteTotal = (note) => safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
             const getNotePaymentStatus = (note) => {
                 const total = getNoteTotal(note);
-                if (!note.payments && note.paymentStatus) return note.paymentStatus === 'Lunas' ? 'Lunas' : 'Belum Dibayar';
+                if (!note.payments && note.paymentStatus) return note.paymentStatus; // preserve all legacy statuses as-is
                 const paid = getNotePaidTotal(note);
                 if (paid <= 0) return 'Belum Dibayar';
                 if (total > 0 && paid >= total) return 'Lunas';
@@ -4718,9 +4727,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     if (!noteSearch.trim()) return true;
                     const term = noteSearch.toLowerCase();
                     const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.orderId, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
-                    return [note.vendor, note.date, note.note, note.method, getNotePaymentStatus(note), itemsText].join(' ').toLowerCase().includes(term);
+                    const paymentMethodsText = safeArray(note.payments).map(p => p.method || '').join(' ');
+                    return [note.vendor, note.date, note.note, note.method, getNotePaymentStatus(note), itemsText, paymentMethodsText].join(' ').toLowerCase().includes(term);
                 });
-                const totalAll = allNotes.reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const totalAll = notes.reduce((sum, n) => sum + getNoteTotal(n), 0);
                 const totalLunas = notes.filter(n => getNotePaymentStatus(n) === 'Lunas').reduce((sum, n) => sum + getNoteTotal(n), 0);
                 const totalBelum = notes.filter(n => getNotePaymentStatus(n) === 'Belum Dibayar').reduce((sum, n) => sum + getNoteTotal(n), 0);
                 const totalSebagian = notes.filter(n => getNotePaymentStatus(n) === 'Dibayar Sebagian').reduce((sum, n) => sum + getNoteTotal(n), 0);
@@ -5201,7 +5211,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                     <button onClick={() => {
                                                                         setEditNoteId(note.id);
                                                                         const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it })) : [emptyItem()];
-                                                                        setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments: safeArray(note.payments) });
+                                                                        const legacyTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                                                        const migratedPayments = note.payments ? safeArray(note.payments) : note.paymentStatus === 'Lunas' ? [{ id: genId('PAY-'), date: note.date || new Date().toISOString().slice(0, 10), amount: legacyTotal, method: note.method || 'Transfer', note: 'Migrasi dari data lama' }] : [];
+                                                                        setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments: migratedPayments });
                                                                         setOrderComboState({});
                                                                         setNoteFormOpen(true);
                                                                     }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
@@ -8350,6 +8362,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     }),
                 ...safeArray(purchaseNotes).filter(isVisibleRecord).map(note => {
                     const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                    const effectivePaid = getNoteEffectivePaid(note);
+                    const isLunas = noteTotal > 0 && effectivePaid >= noteTotal;
                     return {
                         id: note.id,
                         orderId: null,
@@ -8360,8 +8374,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         vendors: [normalizeVendorName(note.vendor)],
                         materials: safeArray(note.items),
                         total: noteTotal,
-                        isPayment: (() => { const paid = safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0); const total = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0); return total > 0 && paid >= total; })(),
-                        isHutang: (() => { const paid = safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0); const total = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0); return paid < total; })(),
+                        paidAmount: effectivePaid,
+                        isPayment: isLunas,
+                        isHutang: effectivePaid < noteTotal,
                         isPurchaseNote: true,
                     };
                 })
@@ -8421,7 +8436,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             });
 
             const totalMaterial = materialRows.reduce((sum, row) => sum + row.total, 0);
-            const totalMaterialPaid = materialRows.filter(r => !r.isHutang).reduce((sum, r) => sum + r.total, 0);
+            // paidAmount is set on purchaseNote rows; order-based rows use full total when not hutang
+            const totalMaterialPaid = materialRows.reduce((sum, r) => sum + (r.paidAmount !== undefined ? r.paidAmount : r.isHutang ? 0 : r.total), 0);
             const totalWage = wageRows.reduce((sum, row) => sum + row.netSalary, 0);
             const totalGrossWage = wageRows.reduce((sum, row) => sum + row.grossSalary, 0);
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
@@ -8515,7 +8531,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const purchaseNoteBillingTotals = safeArray(purchaseNotes).filter(isVisibleRecord).reduce(
                 (acc, note) => {
                     const total = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                    const paid = safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+                    const paid = getNoteEffectivePaid(note);
                     return { billed: acc.billed + total, paid: acc.paid + paid, debt: acc.debt + Math.max(0, total - paid) };
                 },
                 { billed: 0, paid: 0, debt: 0 }
@@ -8637,7 +8653,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <p>Periode: ${periodLabel}</p>
                         </div>
                         <div class="summary">
-                            <div class="box"><span>Pembelian Bahan</span><strong>${formatRupiah(totalMaterial)}</strong></div>
+                            <div class="box"><span>Pembelian Bahan (dibayar)</span><strong>${formatRupiah(totalMaterialPaid)}</strong></div>
+                            <div class="box"><span>Hutang Bahan</span><strong>${formatRupiah(totalMaterial - totalMaterialPaid)}</strong></div>
                             <div class="box"><span>Gaji Bersih Produksi</span><strong>${formatRupiah(totalWage)}</strong></div>
                             <div class="box"><span>Total Pengeluaran</span><strong>${formatRupiah(totalExpense)}</strong></div>
                             <div class="box"><span>Kasbon Diberikan</span><strong>${formatRupiah(totalCashAdvanceGiven)}</strong></div>
@@ -8709,7 +8726,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr class="total-row"><td>TOTAL PENDAPATAN</td><td class="text-right">${formatRupiah(totalPendapatan)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="section-header"><td colspan="2">BEBAN OPERASIONAL</td></tr>
-                                <tr><td>&nbsp;&nbsp;Pembelian Bahan</td><td class="text-right">${formatRupiah(totalMaterial)}</td></tr>
+                                <tr><td>&nbsp;&nbsp;Pembelian Bahan (dibayar)</td><td class="text-right">${formatRupiah(totalMaterialPaid)}</td></tr>
+                                ${totalMaterial - totalMaterialPaid > 0 ? `<tr><td>&nbsp;&nbsp;&nbsp;&nbsp;↳ Hutang Bahan (belum dibayar)</td><td class="text-right" style="color:#dc2626">(${formatRupiah(totalMaterial - totalMaterialPaid)})</td></tr>` : ''}
                                 <tr><td>&nbsp;&nbsp;Gaji Bersih Produksi</td><td class="text-right">${formatRupiah(totalWage)}</td></tr>
                                 <tr><td>&nbsp;&nbsp;Kasbon Diberikan</td><td class="text-right">${formatRupiah(totalCashAdvanceGiven)}</td></tr>
                                 <tr><td>&nbsp;&nbsp;Biaya Operasional</td><td class="text-right">${formatRupiah(totalOperationalExpense)}</td></tr>
@@ -9047,7 +9065,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-green-800 bg-green-50 rounded"><span>TOTAL PENDAPATAN</span><span>{formatRupiah(totalPendapatan)}</span></div>
                                 <div className="py-1"></div>
                                 <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">BEBAN OPERASIONAL</div>
-                                <div className="flex justify-between px-3 py-1"><span>Pembelian Bahan</span><span className="font-bold">{formatRupiah(totalMaterial)}</span></div>
+                                <div className="flex justify-between px-3 py-1"><span>Pembelian Bahan (dibayar)</span><span className="font-bold">{formatRupiah(totalMaterialPaid)}</span></div>
+                                {totalMaterial - totalMaterialPaid > 0 && <div className="flex justify-between px-3 py-1 text-red-600"><span className="pl-4 text-xs">↳ Hutang Bahan (belum dibayar)</span><span className="font-bold text-xs">({formatRupiah(totalMaterial - totalMaterialPaid)})</span></div>}
                                 <div className="flex justify-between px-3 py-1"><span>Gaji Bersih Produksi</span><span className="font-bold">{formatRupiah(totalWage)}</span></div>
                                 <div className="flex justify-between px-3 py-1"><span>Kasbon Diberikan</span><span className="font-bold">{formatRupiah(totalCashAdvanceGiven)}</span></div>
                                 <div className="flex justify-between px-3 py-1"><span>Biaya Operasional</span><span className="font-bold">{formatRupiah(totalOperationalExpense)}</span></div>
