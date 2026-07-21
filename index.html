@@ -4573,386 +4573,22 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         };
 
         const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes }) => {
-            const [selectedOrder, setSelectedOrder] = useState(null);
-            const [materials, setMaterials] = useState([]);
-            const [activeTab, setActiveTab] = useState('daftar_order'); // 'daftar_order', 'database_bahan', 'rekap_pembelian'
-            const [searchTerm, setSearchTerm] = useState('');
-            const [statusFilter, setStatusFilter] = useState('Semua');
-            const [dateFilter, setDateFilter] = useState('');
+            const [activeTab, setActiveTab] = useState('input_pembelian');
             const [previewImage, setPreviewImage] = useState(null);
-            // State untuk Tab Rekap Pembelian
-            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [{ id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }], method: 'Transfer', note: '', paymentStatus: 'Lunas', orderRefs: [] };
+
+            const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', orderId: '' });
+            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', paymentStatus: 'Lunas' };
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
-            // State untuk Tab Database Bahan
             const [dbSearch, setDbSearch] = useState('');
-            const [dbVendorFilter, setDbVendorFilter] = useState('Semua');
-            const [dbYearFilter, setDbYearFilter] = useState('Semua');
+            const [expandedDbOrders, setExpandedDbOrders] = useState({});
 
             const safeOrders = (orders || []).filter(isVisibleOrder);
-            const materialOrders = safeOrders;
-            const activeOrders = materialOrders.filter(o => orderNeedsMaterials(o));
-            const filteredActiveOrders = activeOrders.filter(o => {
-                const matchesDate = !dateFilter || String(o?.date || '').slice(0, 10) === dateFilter || String(o?.deadline || '').slice(0, 10) === dateFilter;
-                const matchesStatus = statusFilter === 'Semua' || (o?.materialStatus || 'Belum') === statusFilter;
-                return matchesSearch(orderSearchFields(o), searchTerm) && matchesDate && matchesStatus;
-            }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-            const [expandedMatOrderIds, setExpandedMatOrderIds] = useState({});
-            const toggleMatOrder = (id) => setExpandedMatOrderIds(prev => ({ ...prev, [id]: !prev[id] }));
-            const { page: bahanPage, setPage: setBahanPage, totalPages: bahanTotalPages, paged: pagedActiveOrders, total: bahanTotal } = usePagination(filteredActiveOrders, 20);
-            const materialNameSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.name || '').trim()).filter(Boolean)))].sort();
-            const vendorSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.vendor || '').trim()).filter(Boolean)))].sort();
-            const specSuggestions = [...new Set(materialOrders.flatMap(order => getActiveMaterials(order).map(mat => String(mat.spec || mat.color || '').trim()).filter(Boolean)))].sort();
+            const orderOptions = safeOrders.filter(o => !o.isArchived).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const vendorSuggestions = [...new Set(safeArray(purchaseNotes).filter(isVisibleRecord).map(n => n.vendor).filter(Boolean))].sort();
 
-            const openMaterialModal = (order) => {
-                setSelectedOrder(order);
-                const allMaterials = safeArray(order.materials);
-                // returnedToInput=true: bahan yang dikembalikan ke input — tampilkan kembali di form untuk diedit ulang
-                const hasActiveMaterials = allMaterials.some(m => !m?.isDeleted || m?.returnedToInput);
-                const existingMaterials = hasActiveMaterials
-                    ? allMaterials.map(m => m?.returnedToInput ? { ...m, isDeleted: false, returnedToInput: false } : m)
-                    : allMaterials.length > 0
-                        ? [...allMaterials, { id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '' }]
-                        : [{ id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Kg', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '' }];
-                setMaterials(existingMaterials);
-            };
-
-            const handleMaterialChange = (index, field, value) => {
-                const newMats = [...materials];
-                newMats[index] = { ...newMats[index], [field]: value };
-                setMaterials(newMats);
-            };
-
-            const addMaterialRow = () => {
-                setMaterials([...materials, { id: genId('MAT-'), name: '', spec: '', qty: '', unit: 'Meter', price: '', vendor: '', purchaseDate: new Date().toISOString().slice(0, 10), note: '' }]);
-            };
-
-            const removeMaterialRow = (idToRemove) => {
-                // Cek seluruh materials (termasuk returnedToInput) agar tombstone tersimpan dan aman saat sync
-                const existed = safeArray(selectedOrder.materials).some(m => String(m.id) === String(idToRemove));
-                if (existed) {
-                    const now = new Date().toISOString();
-                    setMaterials(materials.map(m => String(m.id) === String(idToRemove) ? { ...m, isDeleted: true, returnedToInput: false, deletedAt: now, _syncUpdatedAt: now } : m));
-                    return;
-                }
-                setMaterials(materials.filter(m => String(m.id) !== String(idToRemove)));
-            };
-
-            const saveMaterials = () => {
-                const now = new Date().toISOString();
-                const validMaterials = materials
-                    .filter(m => m?.isDeleted || String(m?.name || '').trim() !== '')
-                    .map(m => ({
-                        ...m,
-                        id: m.id || `MAT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                        name: String(m.name || '').trim(),
-                        spec: String(m.spec || m.color || '').trim(),
-                        qty: m.qty ?? '',
-                        unit: m.unit || 'Pcs',
-                        price: m.price ?? '',
-                        vendor: String(m.vendor || '').trim().replace(/\|\|\|/g, '-') || 'Tanpa Vendor',
-                        purchaseDate: m.purchaseDate || now.slice(0, 10),
-                        note: String(m.note || '').trim(),
-                        _syncUpdatedAt: m.isDeleted ? (m._syncUpdatedAt || now) : now
-                    }));
-                const activeMaterialCount = validMaterials.filter(m => !m.isDeleted).length;
-                const hasNegativeValues = validMaterials.filter(m => !m.isDeleted).some(m => (parseFloat(m.qty) || 0) < 0 || (parseFloat(m.price) || 0) < 0);
-                if (hasNegativeValues) { showToast('Qty dan harga tidak boleh bernilai negatif.', 'error'); return; }
-
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) === String(selectedOrder.id)) {
-                        return {
-                            ...o,
-                            materials: validMaterials,
-                            materialStatus: activeMaterialCount > 0 ? 'Ada Bahan' : 'Belum',
-                        };
-                    }
-                    return o;
-                }));
-
-                setSelectedOrder(null);
-                showToast(`Data kebutuhan bahan berhasil disimpan.`, 'success');
-            };
-
-
-            const printDaftarBelanja = () => {
-                const validMaterials = materials.filter(m => !m?.isDeleted && String(m.name).trim() !== '');
-                if(validMaterials.length === 0) {
-                    showToast("Tambahkan minimal 1 bahan sebelum mencetak.", "error"); return;
-                }
-
-                const totalEstimasi = validMaterials.reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
-                const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(num);
-                const tglCetak = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-                const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-
-                const printContent = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Daftar Belanja Bahan - ${escHtml(selectedOrder.id)}</title>
-                    <style>
-                        body { font-family: 'Arial', sans-serif; padding: 20px; color: #000; line-height: 1.5; }
-                        .header { display: flex; align-items: center; justify-content: center; position: relative; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
-                        .header-logo { position: absolute; left: 0; top: 50%; transform: translateY(-50%); max-height: 60px; }
-                        .header-text { text-align: center; }
-                        .header h1 { margin: 0; font-size: 24px; text-transform: uppercase; color: #b91c1c; }
-                        .header p { margin: 5px 0 0 0; font-size: 14px; }
-                        .info { margin-bottom: 20px; font-size: 14px; }
-                        .info table { width: 100%; }
-                        .info table td { padding: 4px 10px 4px 0; vertical-align: top; }
-                        .data-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
-                        .data-table th, .data-table td { border: 1px solid #000; padding: 8px; text-align: left; }
-                        .data-table th { background-color: #f3f4f6; text-align: center; }
-                        .text-center { text-align: center; }
-                        .text-right { text-align: right; }
-                        .font-bold { font-weight: bold; }
-                        .footer { margin-top: 40px; font-size: 14px; text-align: right; padding-right: 20px; }
-                        .signature { margin-top: 80px; font-weight: bold; text-decoration: underline; }
-                        .checkbox-box { width: 16px; height: 16px; border: 1px solid #000; display: inline-block; margin: 0 auto; }
-                        .design-section { margin: -5px 0 20px 0; border: 1px solid #000; padding: 10px; display: inline-block; min-width: 180px; }
-                        .design-title { font-size: 12px; font-weight: bold; margin-bottom: 6px; text-align: center; background: #f3f4f6; padding: 4px; border: 1px solid #d1d5db; }
-                        .design-image { width: 180px; height: 140px; object-fit: contain; display: block; }
-                        .design-empty { width: 180px; height: 140px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 12px; border: 1px dashed #999; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        ${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo" />` : ''}
-                        <div class="header-text">
-                            <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
-                            <p>Lembar Rincian Belanja Bahan Produksi</p>
-                        </div>
-                    </div>
-                    
-                    <div class="info">
-                        <table>
-                            <tr>
-                                <td style="width: 150px;" class="font-bold">ID Order</td>
-                                <td>: <strong>${escHtml(selectedOrder.id)}</strong></td>
-                                <td style="width: 150px;" class="font-bold">Total Barang</td>
-                                <td>: ${escHtml(selectedOrder.total)} pcs</td>
-                            </tr>
-                            <tr>
-                                <td class="font-bold">Klien / Instansi</td>
-                                <td>: ${escHtml(selectedOrder.client)}</td>
-                                <td class="font-bold">Tanggal Cetak</td>
-                                <td>: ${tglCetak}</td>
-                            </tr>
-                            <tr>
-                                <td class="font-bold">Jenis Produksi</td>
-                                <td colspan="3">: ${escHtml(selectedOrder.type)}</td>
-                            </tr>
-                        </table>
-                    </div>
-
-                    <div class="design-section">
-                        <div class="design-title">Desain 1</div>
-                        ${selectedOrder.designImage1
-                            ? `<img src="${selectedOrder.designImage1}" class="design-image" />`
-                            : `<div class="design-empty">Desain 1 belum tersedia</div>`
-                        }
-                    </div>
-
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 40px;">No.</th>
-                                <th>Nama Bahan / Material</th>
-                                <th>Vendor/Toko</th>
-                                <th style="width: 90px;">Jumlah</th>
-                                <th style="width: 110px;">Harga Satuan</th>
-                                <th style="width: 120px;">Subtotal</th>
-                                <th style="width: 40px;">Cek</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${validMaterials.map((item, idx) => `
-                                <tr>
-                                    <td class="text-center">${idx + 1}</td>
-                                    <td class="font-bold">${escHtml(item.name)}</td>
-                                    <td>${escHtml(item.vendor || '-')}</td>
-                                    <td class="text-center">${escHtml(item.qty)} ${escHtml(item.unit)}</td>
-                                    <td class="text-right">${item.price ? formatRupiah(item.price) : '-'}</td>
-                                    <td class="text-right font-bold">${formatRupiah(getMaterialLineTotal(item))}</td>
-                                    <td class="text-center"><div class="checkbox-box"></div></td>
-                                </tr>
-                            `).join('')}
-                            <tr>
-                                <td colspan="5" class="text-right font-bold" style="font-size: 16px;">TOTAL PEMBELIAN:</td>
-                                <td class="text-right font-bold" style="font-size: 16px; color: #b91c1c;">${formatRupiah(totalEstimasi)}</td>
-                                <td></td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <div class="footer">
-                        <p>Bagian Pembelian / Admin</p>
-                        <div class="signature">(...................................)</div>
-                    </div>
-                </body>
-                </html>
-                `;
-
-                let printWindow = window.open('', '_blank');
-                if (printWindow) {
-                    printWindow.document.open();
-                    printWindow.document.write(printContent);
-                    printWindow.document.close();
-                    printWindow.focus();
-                    setTimeout(() => { printWindow.print(); }, 250);
-                } else {
-                    showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
-                }
-            };
-
-
-            const renderOrderDesignPreview = (order, compact = false) => {
-                const images = [order?.designImage1, order?.designImage2].filter(Boolean);
-                const boxClass = compact ? "w-16 h-16" : "w-24 h-24";
-                const labelClass = compact ? "text-[10px]" : "text-xs";
-
-                if (images.length === 0) {
-                    return (
-                        <div className={`${boxClass} rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 flex flex-col items-center justify-center text-gray-400`}>
-                            <IconImage />
-                            <span className={`${labelClass} mt-1 font-medium`}>Belum ada desain</span>
-                        </div>
-                    );
-                }
-
-                return (
-                    <div className={`grid ${images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
-                        {images.map((src, index) => (
-                            <button key={index} type="button" onClick={() => setPreviewImage(src)} className={`${boxClass} rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm relative`}>
-                                <img src={src} alt={`Desain ${index + 1} ${order?.id || ''}`} className="w-full h-full object-cover" />
-                                <span className={`absolute left-1 bottom-1 bg-black/60 text-white ${labelClass} px-1.5 py-0.5 rounded font-bold`}>
-                                    {index === 0 ? 'Depan' : 'Belakang'}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                );
-            };
-
-            const renderDaftarOrder = () => (
-                <Card>
-                    <div className="overflow-x-auto hidden md:block">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-gray-50 border-b border-gray-200">
-                                    <th className="p-3 text-sm font-semibold text-gray-600">Desain</th>
-                                    <th className="p-3 text-sm font-semibold text-gray-600">ID Order</th>
-                                    <th className="p-3 text-sm font-semibold text-gray-600">Klien / Instansi</th>
-                                    <th className="p-3 text-sm font-semibold text-gray-600">Barang & Total</th>
-                                    <th className="p-3 text-sm font-semibold text-gray-600 text-center">Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {pagedActiveOrders.map(order => {
-                                    const mats = getActiveMaterials(order);
-                                    const isExpanded = !!expandedMatOrderIds[order.id];
-                                    return (
-                                        <React.Fragment key={order.id}>
-                                            <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                                <td className="p-3 align-middle">{renderOrderDesignPreview(order, true)}</td>
-                                                <td className="p-3 text-sm font-medium text-blue-600">{order.id}</td>
-                                                <td className="p-3 text-sm font-bold text-gray-800">{order.client}</td>
-                                                <td className="p-3 text-sm text-gray-600">
-                                                    {order.type} <span className="font-bold">({order.total} pcs)</span>
-                                                    {mats.length > 0 && (
-                                                        <button onClick={() => toggleMatOrder(order.id)} className="ml-2 text-xs text-blue-600 hover:underline">
-                                                            {isExpanded ? '▲ tutup' : `▼ ${mats.length} bahan`}
-                                                        </button>
-                                                    )}
-                                                </td>
-                                                <td className="p-3 text-center">
-                                                    <div className="flex gap-1.5 items-center justify-center">
-                                                        <button
-                                                            onClick={() => openMaterialModal(order)}
-                                                            className="text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg transition-colors"
-                                                            title="Rincian Bahan"
-                                                        >
-                                                            <IconEdit />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            {isExpanded && mats.length > 0 && (
-                                                <tr className="bg-blue-50/40">
-                                                    <td colSpan="6" className="px-6 py-3">
-                                                        <div className="text-xs font-bold text-gray-500 mb-2">Bahan yang sudah diinput:</div>
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                                            {mats.map((mat, i) => (
-                                                                <div key={mat.id || i} className="bg-white border border-blue-100 rounded-lg p-2 text-xs">
-                                                                    <div className="font-bold text-gray-800">{mat.name || '-'} <span className="text-gray-400">({mat.spec || '-'})</span></div>
-                                                                    <div className="text-gray-600">{mat.qty || 0} {mat.unit || ''} × {formatRupiah(mat.price || 0)}</div>
-                                                                    <div className="text-blue-700 font-bold">{mat.vendor || 'Tanpa Vendor'}</div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </React.Fragment>
-                                    )
-                                })}
-                                {filteredActiveOrders.length === 0 && (
-                                    <tr><td colSpan="5" className="p-8 text-center text-gray-500 italic border border-dashed border-gray-200 rounded-lg">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order produksi yang aktif.'}</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                        {pagedActiveOrders.map(order => {
-                            const mats = getActiveMaterials(order);
-                            const isExpanded = !!expandedMatOrderIds[order.id];
-                            return (
-                                <div key={order.id} className="px-4 py-3">
-                                    <div className="flex items-start gap-3">
-                                        <div className="shrink-0">{renderOrderDesignPreview(order, true)}</div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                                                <span className="text-blue-600 font-bold text-sm">{order.id}</span>
-                                            </div>
-                                            <div className="font-bold text-gray-800 text-sm truncate">{order.client}</div>
-                                            <div className="text-xs text-gray-500 mt-0.5">
-                                                {order.type} · <span className="font-bold">{order.total} pcs</span>
-                                                {mats.length > 0 && (
-                                                    <button onClick={() => toggleMatOrder(order.id)} className="ml-2 text-blue-600 font-bold">
-                                                        {isExpanded ? ' ▲ tutup' : ` ▼ ${mats.length} bahan`}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="shrink-0 flex gap-1.5 items-center">
-                                            <button onClick={() => openMaterialModal(order)} className="text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg transition-colors" title="Rincian Bahan">
-                                                <IconEdit />
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {isExpanded && mats.length > 0 && (
-                                        <div className="mt-2 ml-10 grid grid-cols-1 gap-2">
-                                            {mats.map((mat, i) => (
-                                                <div key={mat.id || i} className="bg-blue-50/40 border border-blue-100 rounded-lg p-2 text-xs">
-                                                    <div className="font-bold text-gray-800">{mat.name || '-'} <span className="text-gray-400">({mat.spec || '-'})</span></div>
-                                                    <div className="text-gray-600">{mat.qty || 0} {mat.unit || ''} × {formatRupiah(mat.price || 0)}</div>
-                                                    <div className="text-blue-700 font-bold">{mat.vendor || 'Tanpa Vendor'}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                        {filteredActiveOrders.length === 0 && (
-                            <div className="p-8 text-center text-gray-500 italic text-sm">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order produksi yang aktif.'}</div>
-                        )}
-                    </div>
-                    <Paginator page={bahanPage} setPage={setBahanPage} totalPages={bahanTotalPages} total={bahanTotal} pageSize={20} label="order pembelian" />
-                </Card>
-            );
+            const updateItem = (idx, field, val) => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, [field]: val } : x) }));
 
             const savePurchaseNote = () => {
                 const vendor = String(noteForm.vendor || '').trim();
@@ -4967,55 +4603,78 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
                     paymentStatus: noteForm.paymentStatus || 'Lunas',
-                    orderRefs: Array.isArray(noteForm.orderRefs) ? noteForm.orderRefs : [],
-                    items: validItems.map(it => ({ ...it, id: it.id || genId('NI-'), qty: it.qty ?? '', price: it.price ?? '' })),
+                    items: validItems.map(it => ({
+                        ...it,
+                        id: it.id || genId('NI-'),
+                        qty: it.qty ?? '',
+                        price: it.price ?? '',
+                        code: String(it.code || '').trim(),
+                        orderId: String(it.orderId || '').trim(),
+                    })),
                     _syncUpdatedAt: now,
                 };
-                setPurchaseNotes(prev => {
-                    if (editNoteId) return prev.map(n => n.id === editNoteId ? note : n);
-                    return [note, ...prev];
-                });
+                setPurchaseNotes(prev => editNoteId ? prev.map(n => n.id === editNoteId ? note : n) : [note, ...prev]);
+                // Auto-update materialStatus for linked orders
+                const linkedOrderIds = [...new Set(validItems.map(it => String(it.orderId || '').trim()).filter(Boolean))];
+                if (linkedOrderIds.length > 0) {
+                    setOrders(prev => prev.map(o => linkedOrderIds.includes(String(o.id)) && o.materialStatus !== 'Ada Bahan'
+                        ? { ...o, materialStatus: 'Ada Bahan', _syncUpdatedAt: now }
+                        : o
+                    ));
+                }
                 setNoteFormOpen(false);
                 setEditNoteId(null);
                 setNoteForm(emptyNoteForm);
                 showToast(editNoteId ? 'Nota diperbarui.' : 'Nota pembelian disimpan.', 'success');
             };
 
+            const renderOrderDesignPreview = (order, compact = false) => {
+                const images = [order?.designImage1, order?.designImage2].filter(Boolean);
+                const boxClass = compact ? "w-14 h-14" : "w-20 h-20";
+                if (images.length === 0) {
+                    return (
+                        <div className={`${boxClass} rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-gray-300`}>
+                            <IconImage />
+                        </div>
+                    );
+                }
+                return (
+                    <div className={`grid ${images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-1`}>
+                        {images.map((src, index) => (
+                            <button key={index} type="button" onClick={() => setPreviewImage(src)} className={`${boxClass} rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm relative`}>
+                                <img src={src} alt={`Desain ${order?.id || ''}`} className="w-full h-full object-cover" />
+                                <span className={`absolute left-1 bottom-1 bg-black/60 text-white text-[9px] px-1 py-0.5 rounded font-bold`}>{index === 0 ? 'Dpn' : 'Blk'}</span>
+                            </button>
+                        ))}
+                    </div>
+                );
+            };
 
-            const renderRekapPembelian = () => {
+            const renderInputPembelian = () => {
                 const notes = safeArray(purchaseNotes).filter(isVisibleRecord).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
                 const totalAll = notes.reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
                 const totalLunas = notes.filter(n => n.paymentStatus === 'Lunas').reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
                 const totalTermin = notes.filter(n => n.paymentStatus !== 'Lunas').reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
                 const jumlahVendor = new Set(notes.map(n => normalizeVendorName(n.vendor))).size;
-
-                // Group by bulan
                 const grouped = {};
-                notes.forEach(note => {
-                    const key = (note.date || '').slice(0, 7); // 'YYYY-MM'
-                    if (!grouped[key]) grouped[key] = [];
-                    grouped[key].push(note);
-                });
+                notes.forEach(note => { const k = (note.date || '').slice(0, 7); if (!grouped[k]) grouped[k] = []; grouped[k].push(note); });
                 const groupKeys = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
-
                 const formatBulan = (key) => {
                     if (!key) return '-';
                     const [y, m] = key.split('-');
                     const bulan = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-                    return `${bulan[parseInt(m,10)-1] || m} ${y}`;
+                    return `${bulan[parseInt(m, 10) - 1] || m} ${y}`;
                 };
-
                 const statCards = [
                     { label: 'TOTAL PEMBELIAN', value: formatRupiah(totalAll), sub: `${notes.length} nota`, bg: 'linear-gradient(135deg,#1a7a4a 0%,#27ae60 60%,#1e8449 100%)' },
-                    { label: 'SUDAH LUNAS', value: formatRupiah(totalLunas), sub: `${notes.filter(n=>n.paymentStatus==='Lunas').length} nota`, bg: 'linear-gradient(135deg,#1a3a7a 0%,#2980b9 60%,#1a5276 100%)' },
-                    { label: 'BELUM LUNAS', value: formatRupiah(totalTermin), sub: `${notes.filter(n=>n.paymentStatus!=='Lunas').length} nota`, bg: 'linear-gradient(135deg,#7a1a1a 0%,#c0392b 60%,#8e1010 100%)' },
+                    { label: 'SUDAH LUNAS', value: formatRupiah(totalLunas), sub: `${notes.filter(n => n.paymentStatus === 'Lunas').length} nota`, bg: 'linear-gradient(135deg,#1a3a7a 0%,#2980b9 60%,#1a5276 100%)' },
+                    { label: 'BELUM LUNAS', value: formatRupiah(totalTermin), sub: `${notes.filter(n => n.paymentStatus !== 'Lunas').length} nota`, bg: 'linear-gradient(135deg,#7a1a1a 0%,#c0392b 60%,#8e1010 100%)' },
                     { label: 'JUMLAH VENDOR', value: jumlahVendor, sub: 'vendor berbeda', bg: 'linear-gradient(135deg,#4a1a7a 0%,#8e44ad 60%,#6c1e8e 100%)' },
                     { label: 'JUMLAH NOTA', value: notes.length, sub: 'nota pembelian', bg: 'linear-gradient(135deg,#1a5a7a 0%,#16a085 60%,#0e6655 100%)' },
                 ];
 
                 return (
                     <div className="space-y-5">
-                        {/* Stat Cards */}
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                             {statCards.map((c, i) => (
                                 <div key={i} style={{ background: c.bg }} className="rounded-xl p-4 text-white shadow-md">
@@ -5026,10 +4685,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             ))}
                         </div>
 
-                        {/* Tombol + Form */}
                         <div className="flex justify-end">
                             <button onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); }} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 shadow-sm flex items-center gap-2">
-                                + Nota Pembelian Baru
+                                + Input Pembelian Bahan
                             </button>
                         </div>
 
@@ -5039,12 +4697,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Vendor / Toko</label>
-                                        <input type="text" list="pn-vendor-list" className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Nama vendor/toko" value={noteForm.vendor} onChange={e => setNoteForm(f => ({ ...f, vendor: e.target.value }))} />
-                                        <datalist id="pn-vendor-list">{[...new Set(safeOrders.flatMap(o => getActiveMaterials(o).map(m => m.vendor)).filter(Boolean))].map((v, i) => <option key={i} value={v} />)}</datalist>
+                                        <input type="text" list="pn-vendor-list" className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Nama vendor/toko" value={noteForm.vendor} onChange={e => setNoteForm(f => ({ ...f, vendor: e.target.value }))} />
+                                        <datalist id="pn-vendor-list">{vendorSuggestions.map((v, i) => <option key={i} value={v} />)}</datalist>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Beli</label>
-                                        <input type="date" className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value={noteForm.date} onChange={e => setNoteForm(f => ({ ...f, date: e.target.value }))} />
+                                        <input type="date" className="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500" value={noteForm.date} onChange={e => setNoteForm(f => ({ ...f, date: e.target.value }))} />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Metode Bayar</label>
@@ -5056,77 +4714,70 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         </select>
                                     </div>
                                 </div>
-                                <div className="bg-gray-50 rounded-lg p-3 mb-4 space-y-2">
-                                    <div className="grid grid-cols-12 gap-2 text-xs font-bold text-gray-500 px-1">
-                                        <span className="col-span-4">Nama Item / Bahan</span>
-                                        <span className="col-span-2 text-center">Qty</span>
-                                        <span className="col-span-2">Satuan</span>
-                                        <span className="col-span-3 text-right">Harga Satuan (Rp)</span>
-                                        <span className="col-span-1"></span>
-                                    </div>
-                                    {noteForm.items.map((it, idx) => (
-                                        <div key={it.id} className="grid grid-cols-12 gap-2 items-center">
-                                            <input type="text" className="col-span-4 p-2 text-sm border rounded-lg bg-white" placeholder="Cth: Kain Cotton 30s" value={it.name} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, name: e.target.value } : x) }))} />
-                                            <input type="number" min="0" step="any" className="col-span-2 p-2 text-sm border rounded-lg bg-white text-center" placeholder="0" value={it.qty} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, qty: e.target.value } : x) }))} />
-                                            <select className="col-span-2 p-2 text-sm border rounded-lg bg-white" value={it.unit} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x) }))}>
-                                                <option>Meter</option><option>Roll</option><option>Kg</option><option>Yard</option><option>Lusin</option><option>Gross</option><option>Pcs</option><option>Pak</option>
-                                            </select>
-                                            <input type="number" min="0" className="col-span-3 p-2 text-sm border rounded-lg bg-white text-right" placeholder="0" value={it.price} onChange={e => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, price: e.target.value } : x) }))} />
-                                            <button onClick={() => setNoteForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="col-span-1 h-9 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg flex items-center justify-center" disabled={noteForm.items.length <= 1}><IconTrash /></button>
-                                        </div>
-                                    ))}
-                                    <button onClick={() => setNoteForm(f => ({ ...f, items: [...f.items, { id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }] }))} className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-2 rounded-lg hover:bg-blue-100 border border-dashed border-blue-300 w-full mt-1">+ Tambah Item</button>
-                                </div>
-                                {/* Field: Untuk Order mana */}
+
+                                {/* Tabel Item Bahan */}
                                 <div className="mb-4">
-                                    <label className="block text-xs font-bold text-gray-600 mb-1">Untuk Order / Klien <span className="text-gray-400 font-normal">(opsional, bisa pilih lebih dari satu)</span></label>
-                                    <div className="border rounded-lg bg-white overflow-hidden">
-                                        {safeOrders.filter(o => !o.isArchived).length === 0 ? (
-                                            <div className="p-3 text-sm text-gray-400 italic">Tidak ada order aktif.</div>
-                                        ) : (
-                                            <div className="max-h-36 overflow-y-auto divide-y divide-gray-100">
-                                                {safeOrders.filter(o => !o.isArchived).sort((a,b) => (b.date||'').localeCompare(a.date||'')).map(o => {
-                                                    const checked = (noteForm.orderRefs || []).includes(String(o.id));
-                                                    return (
-                                                        <label key={o.id} className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors ${checked ? 'bg-blue-50' : ''}`}>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={checked}
-                                                                onChange={e => setNoteForm(f => ({
-                                                                    ...f,
-                                                                    orderRefs: e.target.checked
-                                                                        ? [...(f.orderRefs || []), String(o.id)]
-                                                                        : (f.orderRefs || []).filter(id => id !== String(o.id))
-                                                                }))}
-                                                                className="w-4 h-4 accent-blue-600 shrink-0"
-                                                            />
-                                                            <span className="text-sm font-bold text-blue-700 shrink-0">{o.id}</span>
-                                                            <span className="text-sm text-gray-700 truncate">{o.client || '-'}</span>
-                                                            <span className="text-xs text-gray-400 shrink-0 ml-auto">{o.type || ''} · {o.total || 0} pcs</span>
-                                                        </label>
-                                                    );
-                                                })}
+                                    <div className="text-xs font-bold text-gray-500 mb-2 px-1">Rincian Item Bahan</div>
+                                    <div className="space-y-3">
+                                        {noteForm.items.map((it, idx) => (
+                                            <div key={it.id} className="bg-gray-50 rounded-xl border border-gray-200 p-3 space-y-2">
+                                                {/* Baris 1: Nama, Kode, Qty, Satuan */}
+                                                <div className="grid grid-cols-12 gap-2">
+                                                    <div className="col-span-5">
+                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Nama Bahan</label>
+                                                        <input type="text" className="w-full p-2 text-sm border rounded-lg bg-white" placeholder="Cth: Kain Cotton 30s" value={it.name} onChange={e => updateItem(idx, 'name', e.target.value)} />
+                                                    </div>
+                                                    <div className="col-span-3">
+                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Kode Bahan <span className="font-normal text-gray-400">(opsional)</span></label>
+                                                        <input type="text" className="w-full p-2 text-sm border rounded-lg bg-white" placeholder="Cth: KB-001" value={it.code} onChange={e => updateItem(idx, 'code', e.target.value)} />
+                                                    </div>
+                                                    <div className="col-span-2">
+                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Qty</label>
+                                                        <input type="number" min="0" step="any" className="w-full p-2 text-sm border rounded-lg bg-white text-center" placeholder="0" value={it.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
+                                                    </div>
+                                                    <div className="col-span-2">
+                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Satuan</label>
+                                                        <select className="w-full p-2 text-sm border rounded-lg bg-white" value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)}>
+                                                            <option>Meter</option><option>Roll</option><option>Kg</option><option>Yard</option><option>Lusin</option><option>Gross</option><option>Pcs</option><option>Pak</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                {/* Baris 2: Harga, Untuk Order, Delete */}
+                                                <div className="grid grid-cols-12 gap-2 items-end">
+                                                    <div className="col-span-4">
+                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Harga Satuan (Rp)</label>
+                                                        <input type="number" min="0" className="w-full p-2 text-sm border rounded-lg bg-white text-right" placeholder="0" value={it.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                                                    </div>
+                                                    <div className="col-span-7">
+                                                        <label className="block text-[10px] font-bold text-gray-500 mb-1">Untuk Order <span className="font-normal text-gray-400">(opsional)</span></label>
+                                                        <select className="w-full p-2 text-sm border rounded-lg bg-white" value={it.orderId} onChange={e => updateItem(idx, 'orderId', e.target.value)}>
+                                                            <option value="">-- Tidak ditautkan ke order --</option>
+                                                            {orderOptions.map(o => (
+                                                                <option key={o.id} value={String(o.id)}>
+                                                                    {o.id} · {o.client || '-'} · {o.type || ''} ({o.total || 0} pcs)
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="col-span-1 flex items-end justify-end">
+                                                        <button onClick={() => setNoteForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="h-9 w-9 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg flex items-center justify-center" disabled={noteForm.items.length <= 1}><IconTrash /></button>
+                                                    </div>
+                                                </div>
+                                                {/* Subtotal baris */}
+                                                <div className="text-right text-xs text-gray-500">
+                                                    Subtotal: <span className="font-black text-gray-800">{formatRupiah(getMaterialLineTotal(it))}</span>
+                                                    {it.orderId && (() => { const o = orderOptions.find(x => String(x.id) === it.orderId); return o ? <span className="ml-2 bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full text-[10px]">{o.id} · {o.client}</span> : null; })()}
+                                                </div>
                                             </div>
-                                        )}
+                                        ))}
                                     </div>
-                                    {(noteForm.orderRefs || []).length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5 mt-2">
-                                            {(noteForm.orderRefs || []).map(refId => {
-                                                const o = safeOrders.find(x => String(x.id) === refId);
-                                                return (
-                                                    <span key={refId} className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">
-                                                        {refId}{o ? ` · ${o.client}` : ''}
-                                                        <button onClick={() => setNoteForm(f => ({ ...f, orderRefs: (f.orderRefs||[]).filter(id => id !== refId) }))} className="ml-0.5 text-blue-400 hover:text-blue-700 text-xs leading-none">&times;</button>
-                                                    </span>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
+                                    <button onClick={() => setNoteForm(f => ({ ...f, items: [...f.items, emptyItem()] }))} className="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-2 rounded-lg hover:bg-blue-100 border border-dashed border-blue-300 w-full mt-3">+ Tambah Item Bahan</button>
                                 </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label>
-                                        <input type="text" className="w-full p-2 text-sm border rounded-lg" placeholder="Catatan nota (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Catatan Nota</label>
+                                        <input type="text" className="w-full p-2 text-sm border rounded-lg" placeholder="Catatan (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Status Pembayaran</label>
@@ -5146,13 +4797,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </Card>
                         )}
 
-                        {/* Daftar Nota Dikelompokkan per Bulan */}
                         {notes.length === 0 ? (
                             <Card>
                                 <div className="py-16 text-center">
                                     <div className="text-4xl mb-3">🧾</div>
                                     <div className="font-bold text-gray-500 mb-1">Belum ada nota pembelian</div>
-                                    <div className="text-sm text-gray-400">Klik "+ Nota Pembelian Baru" untuk mulai mencatat pembelian bahan.</div>
+                                    <div className="text-sm text-gray-400">Klik "+ Input Pembelian Bahan" untuk mulai mencatat.</div>
                                 </div>
                             </Card>
                         ) : groupKeys.map(groupKey => {
@@ -5172,11 +4822,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         {groupNotes.map(note => {
                                             const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
                                             const isLunas = note.paymentStatus === 'Lunas';
-
+                                            const linkedOrders = [...new Set(safeArray(note.items).map(it => it.orderId).filter(Boolean))];
                                             return (
                                                 <div key={note.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                                                     <div className="flex items-stretch">
-                                                        {/* Stripe kiri berdasarkan status */}
                                                         <div className={`w-1.5 shrink-0 ${isLunas ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
                                                         <div className="flex-1 p-4">
                                                             <div className="flex justify-between items-start gap-3">
@@ -5187,13 +4836,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 shrink-0">{note.method || 'Transfer'}</span>
                                                                     </div>
                                                                     <div className="text-sm text-gray-500 mt-0.5">{note.date}</div>
-                                                                    {safeArray(note.orderRefs).length > 0 && (
+                                                                    {linkedOrders.length > 0 && (
                                                                         <div className="flex flex-wrap gap-1 mt-1.5">
-                                                                            {safeArray(note.orderRefs).map(refId => {
-                                                                                const o = safeOrders.find(x => String(x.id) === refId);
+                                                                            {linkedOrders.map(oid => {
+                                                                                const o = safeOrders.find(x => String(x.id) === oid);
                                                                                 return (
-                                                                                    <span key={refId} className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                                                                                        {refId}{o ? ` · ${o.client}` : ''}
+                                                                                    <span key={oid} className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                                                                                        {oid}{o ? ` · ${o.client}` : ''}
                                                                                     </span>
                                                                                 );
                                                                             })}
@@ -5206,18 +4855,35 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                     <div className="text-xs text-gray-400">{safeArray(note.items).length} item</div>
                                                                 </div>
                                                             </div>
-                                                            {/* Rincian item */}
                                                             <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-                                                                {safeArray(note.items).map((it, i) => (
-                                                                    <div key={i} className="flex justify-between items-center text-sm">
-                                                                        <span className="text-gray-700">{it.name || '-'} <span className="text-gray-400">· {it.qty || 0} {it.unit || ''}</span></span>
-                                                                        <span className="font-mono font-bold text-gray-800 text-xs">{formatRupiah(getMaterialLineTotal(it))}</span>
-                                                                    </div>
-                                                                ))}
+                                                                {safeArray(note.items).map((it, i) => {
+                                                                    const linkedOrder = it.orderId ? safeOrders.find(x => String(x.id) === it.orderId) : null;
+                                                                    return (
+                                                                        <div key={i} className="flex justify-between items-start gap-2 text-sm">
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <span className="text-gray-700 font-medium">{it.name || '-'}</span>
+                                                                                {it.code && <span className="text-gray-400 text-xs ml-1">({it.code})</span>}
+                                                                                <span className="text-gray-400 text-xs ml-1">· {it.qty || 0} {it.unit || ''}</span>
+                                                                                {linkedOrder && (
+                                                                                    <span className="ml-2 text-[10px] bg-indigo-50 text-indigo-600 font-bold px-1.5 py-0.5 rounded-full border border-indigo-100">{linkedOrder.id} · {linkedOrder.client}</span>
+                                                                                )}
+                                                                            </div>
+                                                                            <span className="font-mono font-bold text-gray-800 text-xs shrink-0">{formatRupiah(getMaterialLineTotal(it))}</span>
+                                                                        </div>
+                                                                    );
+                                                                })}
                                                             </div>
                                                             <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                                                                <button onClick={() => { setEditNoteId(note.id); setNoteForm({ vendor: note.vendor, date: note.date, items: safeArray(note.items).length > 0 ? safeArray(note.items) : [{ id: genId('NI-'), name: '', qty: '', unit: 'Meter', price: '' }], method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas', orderRefs: safeArray(note.orderRefs) }); setNoteFormOpen(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors">Edit</button>
-                                                                <button onClick={() => { if (window.confirm('Hapus nota ini? Data tidak dapat dikembalikan.')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n)); showToast('Nota dihapus.', 'success'); } }} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors">Hapus</button>
+                                                                <button onClick={() => {
+                                                                    setEditNoteId(note.id);
+                                                                    const items = safeArray(note.items).length > 0
+                                                                        ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it }))
+                                                                        : [emptyItem()];
+                                                                    setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas' });
+                                                                    setNoteFormOpen(true);
+                                                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                                }} className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200">Edit</button>
+                                                                <button onClick={() => { if (window.confirm('Hapus nota ini?')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n)); showToast('Nota dihapus.', 'success'); } }} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200">Hapus</button>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -5232,208 +4898,174 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 );
             };
 
+            const renderDatabasePembelian = () => {
+                const allNotes = safeArray(purchaseNotes).filter(isVisibleRecord);
+                // Flatten semua item yang punya orderId dari semua nota
+                const purchasedItems = allNotes.flatMap(nota =>
+                    safeArray(nota.items)
+                        .filter(it => String(it.orderId || '').trim() && String(it.name || '').trim())
+                        .map(it => ({
+                            ...it,
+                            _notaId: nota.id,
+                            _vendor: nota.vendor,
+                            _date: nota.date,
+                            _method: nota.method,
+                            _paymentStatus: nota.paymentStatus,
+                        }))
+                );
+
+                // Group by orderId
+                const byOrderId = {};
+                purchasedItems.forEach(it => {
+                    const oid = String(it.orderId);
+                    if (!byOrderId[oid]) byOrderId[oid] = [];
+                    byOrderId[oid].push(it);
+                });
+
+                let orderIds = Object.keys(byOrderId).sort((a, b) => {
+                    const latestA = Math.max(...byOrderId[a].map(i => new Date(i._date || 0).getTime()));
+                    const latestB = Math.max(...byOrderId[b].map(i => new Date(i._date || 0).getTime()));
+                    return latestB - latestA;
+                });
+
+                // Filter pencarian
+                if (dbSearch) {
+                    const term = dbSearch.toLowerCase();
+                    orderIds = orderIds.filter(oid => {
+                        const o = safeOrders.find(x => String(x.id) === oid);
+                        const matchOrder = String(oid).toLowerCase().includes(term) || String(o?.client || '').toLowerCase().includes(term) || String(o?.type || '').toLowerCase().includes(term);
+                        const matchItems = byOrderId[oid].some(it => String(it.name || '').toLowerCase().includes(term) || String(it.code || '').toLowerCase().includes(term) || String(it._vendor || '').toLowerCase().includes(term));
+                        return matchOrder || matchItems;
+                    });
+                }
+
+                const totalPembelian = purchasedItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                const orderCount = Object.keys(byOrderId).length;
+
+                return (
+                    <div className="space-y-5">
+                        {/* Stat ringkas */}
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            <div style={{ background: 'linear-gradient(135deg,#1a7a4a 0%,#27ae60 60%,#1e8449 100%)' }} className="rounded-xl p-4 text-white shadow-md">
+                                <div className="text-xs font-black tracking-wider opacity-80 mb-1">TOTAL BELI (TERLINK ORDER)</div>
+                                <div className="text-xl font-black">{formatRupiah(totalPembelian)}</div>
+                                <div className="text-xs opacity-70 mt-1">{purchasedItems.length} item bahan</div>
+                            </div>
+                            <div style={{ background: 'linear-gradient(135deg,#1a3a7a 0%,#2980b9 60%,#1a5276 100%)' }} className="rounded-xl p-4 text-white shadow-md">
+                                <div className="text-xs font-black tracking-wider opacity-80 mb-1">ORDER YANG SUDAH BELI BAHAN</div>
+                                <div className="text-xl font-black">{orderCount}</div>
+                                <div className="text-xs opacity-70 mt-1">order</div>
+                            </div>
+                            <div className="col-span-2 md:col-span-1">
+                                <SearchField value={dbSearch} onChange={setDbSearch} placeholder="Cari order, klien, nama bahan, vendor..." />
+                            </div>
+                        </div>
+
+                        {orderIds.length === 0 ? (
+                            <Card>
+                                <div className="py-16 text-center">
+                                    <div className="text-4xl mb-3">📦</div>
+                                    <div className="font-bold text-gray-500 mb-1">{dbSearch ? 'Tidak ada hasil pencarian' : 'Belum ada data pembelian per order'}</div>
+                                    <div className="text-sm text-gray-400">{!dbSearch && 'Saat menginput bahan di Tab "Input Pembelian", pilih "Untuk Order" pada setiap item.'}</div>
+                                </div>
+                            </Card>
+                        ) : orderIds.map(oid => {
+                            const order = safeOrders.find(o => String(o.id) === oid);
+                            const items = byOrderId[oid];
+                            const totalOrder = items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                            const isExpanded = !!expandedDbOrders[oid];
+                            const vendorList = [...new Set(items.map(it => normalizeVendorName(it._vendor)))];
+                            return (
+                                <Card key={oid}>
+                                    {/* Header order */}
+                                    <div className="flex items-start gap-4">
+                                        {order && <div className="shrink-0">{renderOrderDesignPreview(order, true)}</div>}
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="font-bold text-blue-600 text-sm">{oid}</span>
+                                                {order && <span className="font-bold text-gray-800">{order.client}</span>}
+                                                {order && <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{order.type} · {order.total} pcs</span>}
+                                                <span className="text-xs bg-green-100 text-green-700 font-bold px-2 py-0.5 rounded-full">Bahan Dibeli</span>
+                                            </div>
+                                            <div className="flex items-center gap-4 mt-1.5 flex-wrap">
+                                                <div className="text-sm text-gray-600">Total: <span className="font-black text-red-600">{formatRupiah(totalOrder)}</span></div>
+                                                <div className="text-xs text-gray-400">{items.length} item · {vendorList.join(', ')}</div>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => setExpandedDbOrders(prev => ({ ...prev, [oid]: !prev[oid] }))} className="shrink-0 text-xs text-blue-600 font-bold bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200">
+                                            {isExpanded ? '▲ Tutup' : '▼ Detail Bahan'}
+                                        </button>
+                                    </div>
+
+                                    {/* Rincian item */}
+                                    {isExpanded && (
+                                        <div className="mt-4 pt-4 border-t border-gray-100">
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm border-collapse">
+                                                    <thead>
+                                                        <tr className="bg-gray-50 text-xs font-bold text-gray-500">
+                                                            <th className="px-3 py-2 text-left">Nama Bahan</th>
+                                                            <th className="px-3 py-2 text-left">Kode</th>
+                                                            <th className="px-3 py-2 text-center">Qty</th>
+                                                            <th className="px-3 py-2 text-right">Harga Satuan</th>
+                                                            <th className="px-3 py-2 text-left">Vendor</th>
+                                                            <th className="px-3 py-2 text-left">Tgl Beli</th>
+                                                            <th className="px-3 py-2 text-left">Metode</th>
+                                                            <th className="px-3 py-2 text-right font-bold">Subtotal</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {items.map((it, i) => (
+                                                            <tr key={i} className="hover:bg-gray-50">
+                                                                <td className="px-3 py-2 font-medium text-gray-800">{it.name || '-'}</td>
+                                                                <td className="px-3 py-2 text-gray-400 text-xs">{it.code || '-'}</td>
+                                                                <td className="px-3 py-2 text-center text-gray-700">{it.qty || 0} {it.unit || ''}</td>
+                                                                <td className="px-3 py-2 text-right text-gray-600 font-mono">{formatRupiah(it.price || 0)}</td>
+                                                                <td className="px-3 py-2 text-blue-700 font-medium">{normalizeVendorName(it._vendor)}</td>
+                                                                <td className="px-3 py-2 text-gray-500">{it._date || '-'}</td>
+                                                                <td className="px-3 py-2"><span className={`text-xs font-bold px-2 py-0.5 rounded-full ${it._paymentStatus === 'Lunas' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{it._paymentStatus || 'Lunas'}</span></td>
+                                                                <td className="px-3 py-2 text-right font-bold font-mono text-gray-900">{formatRupiah(getMaterialLineTotal(it))}</td>
+                                                            </tr>
+                                                        ))}
+                                                        <tr className="bg-gray-50 font-bold">
+                                                            <td colSpan="7" className="px-3 py-2 text-right text-gray-700">Total Pembelian Bahan untuk Order ini:</td>
+                                                            <td className="px-3 py-2 text-right text-red-600 font-black font-mono">{formatRupiah(totalOrder)}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+                                </Card>
+                            );
+                        })}
+                    </div>
+                );
+            };
+
             return (
                 <div className="space-y-6">
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-800">Manajemen Pembelian Bahan</h2>
-                        <p className="text-gray-500 text-sm mt-1">Input kebutuhan bahan per order dan rekap nota pembelian bahan.</p>
+                        <h2 className="text-2xl font-bold text-gray-800">Pembelian Bahan</h2>
+                        <p className="text-gray-500 text-sm mt-1">Input nota pembelian bahan dari vendor dan lihat database bahan per order.</p>
                     </div>
 
                     <div className="flex gap-4 border-b border-gray-200 pb-2 flex-wrap">
-                        <button
-                            onClick={() => setActiveTab('daftar_order')}
-                            className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeTab === 'daftar_order' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                        >
-                            Daftar Order
+                        <button onClick={() => setActiveTab('input_pembelian')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeTab === 'input_pembelian' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                            Input Pembelian Bahan
                         </button>
-                        <button
-                            onClick={() => setActiveTab('rekap_pembelian')}
-                            className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'rekap_pembelian' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                        >
-                            <IconBarChart /> Rekap Pembelian
+                        <button onClick={() => setActiveTab('database_pembelian')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors flex items-center gap-1 ${activeTab === 'database_pembelian' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                            <IconBarChart /> Database Pembelian
                         </button>
                     </div>
 
-                    {activeTab === 'daftar_order' && (
-                        <Card>
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                <div className="md:col-span-2">
-                                    <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari order, klien, barang, vendor, bahan..." />
-                                </div>
-                                <select className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                                    <option value="Semua">Semua Status Bahan</option>
-                                    <option value="Belum">Belum Ada Bahan</option>
-                                    <option value="Ada Bahan">Ada Bahan</option>
-                                </select>
-                                <input type="date" className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-sm font-medium" value={dateFilter} onChange={e => setDateFilter(e.target.value)} title="Filter tanggal beli" />
-                            </div>
-                        </Card>
-                    )}
+                    {activeTab === 'input_pembelian' && renderInputPembelian()}
+                    {activeTab === 'database_pembelian' && renderDatabasePembelian()}
 
-                    {activeTab === 'daftar_order' && renderDaftarOrder()}
-                    {activeTab === 'rekap_pembelian' && renderRekapPembelian()}
-
-                    {selectedOrder && (
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-                            <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-5xl max-h-[95vh] flex flex-col">
-                                <div className="flex justify-between items-start gap-4 border-b pb-4 mb-4 shrink-0">
-                                    <div className="flex items-start gap-4">
-                                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                                            <div className="text-xs font-black text-gray-600 mb-2">Desain Produksi</div>
-                                            {renderOrderDesignPreview(selectedOrder, false)}
-                                        </div>
-                                        <div>
-                                        <h3 className="text-xl font-bold text-gray-900">Input Kebutuhan Bahan</h3>
-                                        <p className="text-sm text-gray-600">ID: <span className="font-bold">{selectedOrder.id}</span> | {selectedOrder.client} ({selectedOrder.type} - {selectedOrder.total} pcs)</p>
-                                        <p className="text-xs text-gray-500 mt-1">Desain diambil langsung dari gambar order.</p>
-                                        </div>
-                                    </div>
-                                    <button onClick={() => setSelectedOrder(null)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-                                </div>
-
-                                <div className="flex-1 overflow-y-auto pr-2 space-y-4">
-                                    {materials.map((mat, index) => !mat?.isDeleted && (
-                                        <div key={mat.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-gray-50 p-3 rounded-lg border border-gray-200">
-                                            <div className="md:col-span-2">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Nama Bahan (Kain/Aksesoris)</label>
-                                                <input 
-                                                    type="text" 
-                                                    list="material-name-suggestions"
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500" 
-                                                    placeholder="Cth: Kain Cotton Combed 30s Hitam"
-                                                    value={mat.name} onChange={e => handleMaterialChange(index, 'name', e.target.value)} 
-                                                />
-                                            </div>
-                                            <div className="md:col-span-2">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Warna / Spesifikasi</label>
-                                                <input
-                                                    type="text"
-                                                    list="material-spec-suggestions"
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500"
-                                                    placeholder="Cth: Hitam, 30s, rib 1x1"
-                                                    value={mat.spec || mat.color || ''} onChange={e => handleMaterialChange(index, 'spec', e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="md:col-span-2">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Vendor / Toko</label>
-                                                <input 
-                                                    type="text" 
-                                                    list="material-vendor-suggestions"
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500" 
-                                                    placeholder="Cth: Toko Maju Jaya"
-                                                    value={mat.vendor || ''} onChange={e => handleMaterialChange(index, 'vendor', e.target.value)} 
-                                                />
-                                            </div>
-                                            <div className="md:col-span-1">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Jumlah</label>
-                                                <input 
-                                                    type="number" min="0" step="any"
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500 text-center" 
-                                                    placeholder="0"
-                                                    value={mat.qty} onChange={e => handleMaterialChange(index, 'qty', e.target.value)} 
-                                                />
-                                            </div>
-                                            <div className="md:col-span-1">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Satuan</label>
-                                                <select 
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500"
-                                                    value={mat.unit} onChange={e => handleMaterialChange(index, 'unit', e.target.value)}
-                                                >
-                                                    <option value="Kg">Kg</option>
-                                                    <option value="Roll">Roll</option>
-                                                    <option value="Meter">Meter</option>
-                                                    <option value="Yard">Yard</option>
-                                                    <option value="Lusin">Lusin</option>
-                                                    <option value="Gross">Gross</option>
-                                                    <option value="Pcs">Pcs</option>
-                                                    <option value="Pak">Pak</option>
-                                                </select>
-                                            </div>
-                                            <div className="md:col-span-2">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Harga Satuan (Rp)</label>
-                                                <input 
-                                                    type="number" min="0"
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500 text-right" 
-                                                    placeholder="0"
-                                                    value={mat.price} onChange={e => handleMaterialChange(index, 'price', e.target.value)} 
-                                                />
-                                            </div>
-                                            <div className="md:col-span-1">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Tgl Beli</label>
-                                                <input
-                                                    type="date"
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500"
-                                                    value={mat.purchaseDate || ''} onChange={e => handleMaterialChange(index, 'purchaseDate', e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="md:col-span-1">
-                                                <button 
-                                                    onClick={() => removeMaterialRow(mat.id)}
-                                                    className="w-full h-9 bg-red-100 hover:bg-red-200 text-red-600 flex items-center justify-center rounded transition-colors shrink-0"
-                                                    title="Hapus Baris"
-                                                >
-                                                    <IconTrash />
-                                                </button>
-                                            </div>
-                                            <div className="md:col-span-3">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label>
-                                                <input
-                                                    type="text"
-                                                    className="w-full p-2 text-sm border rounded focus:ring-1 focus:ring-blue-500"
-                                                    placeholder="Catatan bahan / nota"
-                                                    value={mat.note || ''} onChange={e => handleMaterialChange(index, 'note', e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="md:col-span-9 text-right text-xs text-gray-600">
-                                                Total baris: <span className="font-black text-red-600">{formatRupiah(getMaterialLineTotal(mat))}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    <datalist id="material-name-suggestions">
-                                        {materialNameSuggestions.map((name, idx) => <option key={idx} value={name} />)}
-                                    </datalist>
-                                    <datalist id="material-vendor-suggestions">
-                                        {vendorSuggestions.map((vendor, idx) => <option key={idx} value={vendor} />)}
-                                    </datalist>
-                                    <datalist id="material-spec-suggestions">
-                                        {specSuggestions.map((spec, idx) => <option key={idx} value={spec} />)}
-                                    </datalist>
-                                    
-                                    <button 
-                                        onClick={addMaterialRow} 
-                                        className="text-sm font-bold text-blue-600 bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors w-full border border-dashed border-blue-300"
-                                    >
-                                        + Tambah Bahan Lainnya
-                                    </button>
-
-                                    <div className="bg-white border-t-2 border-dashed border-gray-300 pt-4 mt-4 flex justify-between items-center px-2">
-                                        <span className="font-bold text-gray-600">Total Estimasi Order Ini:</span>
-                                        <span className="text-2xl font-black text-red-600">
-                                            {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(
-                                                materials.filter(item => !item?.isDeleted).reduce((sum, item) => sum + getMaterialLineTotal(item), 0)
-                                            )}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6 pt-4 border-t shrink-0">
-                                    <button onClick={printDaftarBelanja} className="w-full sm:w-auto px-5 py-2.5 bg-gray-800 text-white rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-700 shadow-sm">
-                                        <IconPrinter /> Cetak & Rekap Order Ini
-                                    </button>
-                                    
-                                    <div className="flex w-full sm:w-auto gap-2">
-                                        <button onClick={() => saveMaterials()} className="flex-1 sm:flex-none px-5 py-2.5 border border-yellow-500 text-yellow-700 bg-yellow-50 rounded-lg font-bold hover:bg-yellow-100 transition-colors">
-                                            Simpan Bahan
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                     {previewImage && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4" onClick={() => setPreviewImage(null)}>
                             <div className="bg-white p-3 rounded-xl max-w-4xl max-h-[92vh] shadow-xl">
-                                <img src={previewImage} alt="Preview desain produksi" className="max-w-full max-h-[84vh] object-contain" />
+                                <img src={previewImage} alt="Preview desain" className="max-w-full max-h-[84vh] object-contain" />
                             </div>
                         </div>
                     )}
