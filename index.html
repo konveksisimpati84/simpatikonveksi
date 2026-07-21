@@ -4821,8 +4821,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         </div>
                                         <div className="space-y-3">
                                             {noteForm.items.map((it, idx) => (
-                                                <div key={it.id} className="rounded-xl border border-gray-200 overflow-hidden" style={{ background: '#F8FAFC' }}>
-                                                    <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200" style={{ background: '#EFF6FF' }}>
+                                                <div key={it.id} className="rounded-xl border border-gray-200" style={{ background: '#F8FAFC' }}>
+                                                    <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 rounded-t-xl" style={{ background: '#EFF6FF' }}>
                                                         <span className="text-xs font-black text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full min-w-[28px] text-center">{String(idx + 1).padStart(2, '0')}</span>
                                                         <span className="text-xs font-semibold text-blue-700 flex-1">Item Bahan #{idx + 1}</span>
                                                         <button onClick={() => setNoteForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="w-7 h-7 bg-red-100 hover:bg-red-200 text-red-500 rounded-lg flex items-center justify-center transition-colors" disabled={noteForm.items.length <= 1}><IconTrash /></button>
@@ -4865,15 +4865,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                             ? (() => { const o = allOrderOptions.find(x => String(x.id) === it.orderId); return o ? `${o.id} · ${o.client || '-'}` : it.orderId; })()
                                                                             : getComboSearch(idx)
                                                                         }
-                                                                        onFocus={() => setComboVal(idx, { open: true, search: '' })}
-                                                                        onChange={e => { updateItem(idx, 'orderId', ''); setComboVal(idx, { search: e.target.value, open: true }); }}
+                                                                        onFocus={(e) => { const r = e.target.getBoundingClientRect(); setComboVal(idx, { open: true, search: '', dropTop: r.bottom, dropLeft: r.left, dropWidth: r.width }); }}
+                                                                        onChange={e => { const r = e.target.getBoundingClientRect(); updateItem(idx, 'orderId', ''); setComboVal(idx, { search: e.target.value, open: true, dropTop: r.bottom, dropLeft: r.left, dropWidth: r.width }); }}
                                                                         onBlur={() => setTimeout(() => setComboVal(idx, { open: false }), 180)}
                                                                     />
                                                                     {it.orderId && (
                                                                         <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 text-xs" onClick={() => { updateItem(idx, 'orderId', ''); setComboVal(idx, { search: '', open: false }); }}>✕</button>
                                                                     )}
                                                                     {getComboOpen(idx) && (
-                                                                        <div className="absolute z-[200] mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                                                        <div style={{ position: 'fixed', top: (orderComboState[idx]?.dropTop || 0) + 4, left: orderComboState[idx]?.dropLeft || 0, width: orderComboState[idx]?.dropWidth || 240, zIndex: 9999, maxHeight: 200, overflowY: 'auto' }} className="bg-white border border-gray-200 rounded-xl shadow-xl">
                                                                             <div className="px-3 py-1.5 flex items-center justify-between border-b border-gray-100">
                                                                                 <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Pilih order</span>
                                                                                 <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
