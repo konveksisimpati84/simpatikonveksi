@@ -5091,18 +5091,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                             ))}
                                                                         </div>
                                                                     )}
-                                                                    {linkedOrders.length > 0 && (
-                                                                        <div className="flex flex-wrap gap-1 mt-2">
-                                                                            {linkedOrders.map(oid => {
-                                                                                const o = safeOrders.find(x => String(x.id) === oid);
-                                                                                return (
-                                                                                    <span key={oid} className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}>
-                                                                                        📋 {oid}{o ? ` · ${o.client}` : ''}
-                                                                                    </span>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    )}
                                                                     {note.note && <div className="text-[11px] text-gray-400 mt-1.5 italic">"{note.note}"</div>}
                                                                 </div>
                                                                 <div className="text-right shrink-0 pl-2">
@@ -5132,7 +5120,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                                 <span className="text-sm text-gray-700 font-medium truncate">{it.name || '-'}</span>
                                                                                 {it.code && <span className="text-[10px] text-gray-400 shrink-0 font-mono bg-gray-100 px-1.5 py-0.5 rounded">{it.code}</span>}
                                                                                 <span className="text-xs text-gray-400 shrink-0">{it.qty || 0} {it.unit || ''}</span>
-                                                                                {linkedOrder && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: '#EFF6FF', color: '#3B82F6' }}>{linkedOrder.id}</span>}
+                                                                                {linkedOrder && (
+                                                                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}>
+                                                                                        📋 {linkedOrder.id}{linkedOrder.client ? ` · ${linkedOrder.client}` : ''}
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
                                                                             <span className="text-xs font-bold text-gray-700 shrink-0" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</span>
                                                                         </div>
