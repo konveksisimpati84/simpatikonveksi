@@ -4575,9 +4575,14 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes }) => {
             const [activeTab, setActiveTab] = useState('input_pembelian');
             const [previewImage, setPreviewImage] = useState(null);
+            const [showArchivedOrders, setShowArchivedOrders] = useState(false);
+            const [orderComboState, setOrderComboState] = useState({});
+            const [quickPayNoteId, setQuickPayNoteId] = useState(null);
+            const [quickPayForm, setQuickPayForm] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
 
             const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', orderId: '' });
-            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', paymentStatus: 'Lunas' };
+            const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
+            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [] };
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
@@ -4585,10 +4590,43 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [expandedDbOrders, setExpandedDbOrders] = useState({});
 
             const safeOrders = (orders || []).filter(isVisibleOrder);
-            const orderOptions = safeOrders.filter(o => !o.isArchived).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const allOrderOptions = safeOrders
+                .filter(o => showArchivedOrders || !o.isArchived)
+                .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const vendorSuggestions = [...new Set(safeArray(purchaseNotes).filter(isVisibleRecord).map(n => n.vendor).filter(Boolean))].sort();
 
             const updateItem = (idx, field, val) => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, [field]: val } : x) }));
+
+            // Payment helpers
+            const getNotePaidTotal = (note) => safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+            const getNoteTotal = (note) => safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+            const getNotePaymentStatus = (note) => {
+                const total = getNoteTotal(note);
+                if (!note.payments && note.paymentStatus) return note.paymentStatus === 'Lunas' ? 'Lunas' : 'Belum Dibayar';
+                const paid = getNotePaidTotal(note);
+                if (paid <= 0) return 'Belum Dibayar';
+                if (total > 0 && paid >= total) return 'Lunas';
+                return 'Dibayar Sebagian';
+            };
+            const statusStyle = (s) => s === 'Lunas'
+                ? { bg: '#DCFCE7', text: '#166534', label: '✓ LUNAS', bar: '#22C55E' }
+                : s === 'Dibayar Sebagian'
+                ? { bg: '#FEF3C7', text: '#92400E', label: '◑ SEBAGIAN', bar: '#F59E0B' }
+                : { bg: '#FEE2E2', text: '#991B1B', label: '✗ BELUM BAYAR', bar: '#EF4444' };
+
+            // Order combobox helpers
+            const getComboSearch = (idx) => orderComboState[idx]?.search ?? '';
+            const getComboOpen = (idx) => orderComboState[idx]?.open ?? false;
+            const setComboVal = (idx, patch) => setOrderComboState(p => ({ ...p, [idx]: { ...p[idx], ...patch } }));
+            const getFilteredOrders = (idx) => {
+                const s = getComboSearch(idx).toLowerCase();
+                if (!s) return allOrderOptions.slice(0, 25);
+                return allOrderOptions.filter(o =>
+                    String(o.id).toLowerCase().includes(s) ||
+                    String(o.client || '').toLowerCase().includes(s) ||
+                    String(o.type || '').toLowerCase().includes(s)
+                ).slice(0, 25);
+            };
 
             const savePurchaseNote = () => {
                 const vendor = String(noteForm.vendor || '').trim();
@@ -4596,13 +4634,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const validItems = noteForm.items.filter(it => String(it.name || '').trim());
                 if (validItems.length === 0) { showToast('Minimal satu item harus diisi.', 'error'); return; }
                 const now = new Date().toISOString();
+                const noteTotal = validItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                const cleanPayments = safeArray(noteForm.payments).filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, amount: parseFloat(p.amount) || 0 }));
+                const paidTotal = cleanPayments.reduce((s, p) => s + p.amount, 0);
+                const payStatus = paidTotal <= 0 ? 'Belum Dibayar' : noteTotal > 0 && paidTotal >= noteTotal ? 'Lunas' : 'Dibayar Sebagian';
                 const note = {
                     id: editNoteId || genId('PN-'),
                     vendor,
                     date: noteForm.date || now.slice(0, 10),
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
-                    paymentStatus: noteForm.paymentStatus || 'Lunas',
+                    payments: cleanPayments,
+                    paymentStatus: payStatus,
                     items: validItems.map(it => ({
                         ...it,
                         id: it.id || genId('NI-'),
@@ -4614,7 +4657,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     _syncUpdatedAt: now,
                 };
                 setPurchaseNotes(prev => editNoteId ? prev.map(n => n.id === editNoteId ? note : n) : [note, ...prev]);
-                // Auto-update materialStatus for linked orders
                 const linkedOrderIds = [...new Set(validItems.map(it => String(it.orderId || '').trim()).filter(Boolean))];
                 if (linkedOrderIds.length > 0) {
                     setOrders(prev => prev.map(o => linkedOrderIds.includes(String(o.id)) && o.materialStatus !== 'Ada Bahan'
@@ -4625,7 +4667,25 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setNoteFormOpen(false);
                 setEditNoteId(null);
                 setNoteForm(emptyNoteForm);
+                setOrderComboState({});
                 showToast(editNoteId ? 'Nota diperbarui.' : 'Nota pembelian disimpan.', 'success');
+            };
+
+            const saveQuickPay = (noteId) => {
+                const amt = parseFloat(quickPayForm.amount);
+                if (!amt || amt <= 0) { showToast('Jumlah bayar harus diisi.', 'error'); return; }
+                const now = new Date().toISOString();
+                setPurchaseNotes(prev => prev.map(n => {
+                    if (n.id !== noteId) return n;
+                    const newPayments = [...safeArray(n.payments), { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' }];
+                    const total = safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                    const paid = newPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+                    const payStatus = paid <= 0 ? 'Belum Dibayar' : total > 0 && paid >= total ? 'Lunas' : 'Dibayar Sebagian';
+                    return { ...n, payments: newPayments, paymentStatus: payStatus, _syncUpdatedAt: now };
+                }));
+                setQuickPayNoteId(null);
+                setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
+                showToast('Pembayaran dicatat.', 'success');
             };
 
             const renderOrderDesignPreview = (order, compact = false) => {
@@ -4652,9 +4712,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const renderInputPembelian = () => {
                 const notes = safeArray(purchaseNotes).filter(isVisibleRecord).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-                const totalAll = notes.reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
-                const totalLunas = notes.filter(n => n.paymentStatus === 'Lunas').reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
-                const totalTermin = notes.filter(n => n.paymentStatus !== 'Lunas').reduce((sum, n) => sum + safeArray(n.items).reduce((s, it) => s + getMaterialLineTotal(it), 0), 0);
+                const totalAll = notes.reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const totalLunas = notes.filter(n => getNotePaymentStatus(n) === 'Lunas').reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const totalBelum = notes.filter(n => getNotePaymentStatus(n) === 'Belum Dibayar').reduce((sum, n) => sum + getNoteTotal(n), 0);
+                const totalSebagian = notes.filter(n => getNotePaymentStatus(n) === 'Dibayar Sebagian').reduce((sum, n) => sum + getNoteTotal(n), 0);
                 const jumlahVendor = new Set(notes.map(n => normalizeVendorName(n.vendor))).size;
                 const grouped = {};
                 notes.forEach(note => { const k = (note.date || '').slice(0, 7); if (!grouped[k]) grouped[k] = []; grouped[k].push(note); });
@@ -4667,11 +4728,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 };
 
                 const statCards = [
-                    { label: 'Total Pembelian', value: formatRupiah(totalAll), sub: `${notes.length} nota`, icon: '💰', accent: '#1B6B3A', light: '#DCFCE7', text: '#166534' },
-                    { label: 'Sudah Lunas', value: formatRupiah(totalLunas), sub: `${notes.filter(n => n.paymentStatus === 'Lunas').length} nota`, icon: '✅', accent: '#1B4F72', light: '#DBEAFE', text: '#1e40af' },
-                    { label: 'Belum Lunas', value: formatRupiah(totalTermin), sub: `${notes.filter(n => n.paymentStatus !== 'Lunas').length} nota`, icon: '⏳', accent: '#92400E', light: '#FEF3C7', text: '#92400E' },
-                    { label: 'Vendor', value: jumlahVendor, sub: 'vendor berbeda', icon: '🏪', accent: '#5B21B6', light: '#EDE9FE', text: '#5B21B6' },
-                    { label: 'Nota', value: notes.length, sub: 'nota pembelian', icon: '🧾', accent: '#0D7F78', light: '#CCFBF1', text: '#0F766E' },
+                    { label: 'Total Pembelian', value: formatRupiah(totalAll), sub: `${notes.length} nota`, icon: '💰', accent: '#1B6B3A', text: '#166534' },
+                    { label: 'Lunas', value: formatRupiah(totalLunas), sub: `${notes.filter(n => getNotePaymentStatus(n) === 'Lunas').length} nota`, icon: '✅', accent: '#1B4F72', text: '#1e40af' },
+                    { label: 'Dibayar Sebagian', value: formatRupiah(totalSebagian), sub: `${notes.filter(n => getNotePaymentStatus(n) === 'Dibayar Sebagian').length} nota`, icon: '◑', accent: '#D97706', text: '#92400E' },
+                    { label: 'Belum Dibayar', value: formatRupiah(totalBelum), sub: `${notes.filter(n => getNotePaymentStatus(n) === 'Belum Dibayar').length} nota`, icon: '✗', accent: '#DC2626', text: '#991B1B' },
+                    { label: 'Vendor', value: jumlahVendor, sub: 'vendor berbeda', icon: '🏪', accent: '#5B21B6', text: '#5B21B6' },
                 ];
 
                 return (
@@ -4783,17 +4844,57 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             </div>
                                                             <div className="col-span-8">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Untuk Order <span className="normal-case font-normal text-gray-300">(opsional)</span></label>
-                                                                <select className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" value={it.orderId} onChange={e => updateItem(idx, 'orderId', e.target.value)}>
-                                                                    <option value="">— Tidak ditautkan ke order —</option>
-                                                                    {orderOptions.map(o => (
-                                                                        <option key={o.id} value={String(o.id)}>{o.id} · {o.client || '-'} · {o.type || ''} ({o.total || 0} pcs)</option>
-                                                                    ))}
-                                                                </select>
+                                                                {/* Combobox searchable */}
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400 pr-8"
+                                                                        placeholder="Ketik no. order / nama klien..."
+                                                                        value={it.orderId
+                                                                            ? (() => { const o = allOrderOptions.find(x => String(x.id) === it.orderId); return o ? `${o.id} · ${o.client || '-'}` : it.orderId; })()
+                                                                            : getComboSearch(idx)
+                                                                        }
+                                                                        onFocus={() => { if (it.orderId) { updateItem(idx, 'orderId', ''); } setComboVal(idx, { open: true, search: '' }); }}
+                                                                        onChange={e => { updateItem(idx, 'orderId', ''); setComboVal(idx, { search: e.target.value, open: true }); }}
+                                                                        onBlur={() => setTimeout(() => setComboVal(idx, { open: false }), 180)}
+                                                                    />
+                                                                    {it.orderId && (
+                                                                        <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 text-xs" onClick={() => { updateItem(idx, 'orderId', ''); setComboVal(idx, { search: '', open: false }); }}>✕</button>
+                                                                    )}
+                                                                    {getComboOpen(idx) && (
+                                                                        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                                                                            <div className="px-3 py-1.5 flex items-center justify-between border-b border-gray-100">
+                                                                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Pilih order</span>
+                                                                                <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
+                                                                                    <input type="checkbox" checked={showArchivedOrders} onChange={e => setShowArchivedOrders(e.target.checked)} className="w-3 h-3" />
+                                                                                    Tampilkan arsip
+                                                                                </label>
+                                                                            </div>
+                                                                            <div
+                                                                                className="px-3 py-2 text-xs text-gray-400 hover:bg-gray-50 cursor-pointer"
+                                                                                onMouseDown={() => { updateItem(idx, 'orderId', ''); setComboVal(idx, { open: false, search: '' }); }}
+                                                                            >— Tidak ditautkan —</div>
+                                                                            {getFilteredOrders(idx).map(o => (
+                                                                                <div
+                                                                                    key={o.id}
+                                                                                    className="px-3 py-2 text-xs hover:bg-blue-50 cursor-pointer border-t border-gray-50"
+                                                                                    onMouseDown={() => { updateItem(idx, 'orderId', String(o.id)); setComboVal(idx, { open: false, search: '' }); }}
+                                                                                >
+                                                                                    <span className="font-black text-blue-700">{o.id}</span>
+                                                                                    <span className="text-gray-700 ml-1">· {o.client || '-'}</span>
+                                                                                    <span className="text-gray-400 ml-1">· {o.type || ''}</span>
+                                                                                    {o.isArchived && <span className="ml-1 text-[9px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">[Arsip]</span>}
+                                                                                </div>
+                                                                            ))}
+                                                                            {getFilteredOrders(idx).length === 0 && <div className="px-3 py-3 text-xs text-gray-400 text-center">Tidak ada order ditemukan</div>}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center justify-between pt-1">
                                                             <div>
-                                                                {it.orderId && (() => { const o = orderOptions.find(x => String(x.id) === it.orderId); return o ? <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full border border-indigo-200">📋 {o.id} · {o.client}</span> : null; })()}
+                                                                {it.orderId && (() => { const o = allOrderOptions.find(x => String(x.id) === it.orderId) || safeOrders.find(x => String(x.id) === it.orderId); return o ? <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full border border-indigo-200">📋 {o.id} · {o.client}</span> : null; })()}
                                                             </div>
                                                             <div className="text-xs text-gray-400">Subtotal: <span className="font-black text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</span></div>
                                                         </div>
@@ -4806,25 +4907,58 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         </button>
                                     </div>
 
-                                    {/* Catatan & Status */}
+                                    {/* Catatan */}
                                     <div>
                                         <div className="flex items-center gap-2 mb-3">
                                             <div className="w-1 h-4 rounded-full bg-purple-400"></div>
-                                            <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Catatan & Status</span>
+                                            <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Catatan</span>
                                         </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Catatan Nota</label>
-                                                <input type="text" className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-400" placeholder="Catatan (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
+                                        <input type="text" className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-400" placeholder="Catatan nota (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
+                                    </div>
+
+                                    {/* Pembayaran Termin */}
+                                    <div>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-1 h-4 rounded-full bg-emerald-500"></div>
+                                                <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Pembayaran</span>
                                             </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Status Pembayaran</label>
-                                                <select className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-400" value={noteForm.paymentStatus} onChange={e => setNoteForm(f => ({ ...f, paymentStatus: e.target.value }))}>
-                                                    <option value="Lunas">✅ Lunas</option>
-                                                    <option value="Termin">⏳ Termin / Belum Lunas</option>
-                                                </select>
-                                            </div>
+                                            {(() => {
+                                                const formTotal = noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                                const formPaid = safeArray(noteForm.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+                                                const st = statusStyle(formPaid <= 0 ? 'Belum Dibayar' : formTotal > 0 && formPaid >= formTotal ? 'Lunas' : 'Dibayar Sebagian');
+                                                return <span className="text-[10px] font-black px-2.5 py-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>;
+                                            })()}
                                         </div>
+                                        {safeArray(noteForm.payments).length > 0 && (
+                                            <div className="space-y-2 mb-3">
+                                                {safeArray(noteForm.payments).map((p, pi) => (
+                                                    <div key={p.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
+                                                        <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full min-w-[22px] text-center">{pi + 1}</span>
+                                                        <input type="date" className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:ring-1 focus:ring-emerald-400" value={p.date} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, date: e.target.value } : x) }))} />
+                                                        <input type="number" min="0" className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-right focus:ring-1 focus:ring-emerald-400" placeholder="Jumlah" value={p.amount} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, amount: e.target.value } : x) }))} />
+                                                        <select className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:ring-1 focus:ring-emerald-400" value={p.method} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, method: e.target.value } : x) }))}>
+                                                            <option>Transfer</option><option>Cash</option><option>COD</option>
+                                                        </select>
+                                                        <button type="button" onClick={() => setNoteForm(f => ({ ...f, payments: f.payments.filter((_, i) => i !== pi) }))} className="text-red-400 hover:text-red-600 text-sm font-black w-6 h-6 flex items-center justify-center shrink-0">✕</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {(() => {
+                                            const formTotal = noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                            const formPaid = safeArray(noteForm.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+                                            const sisa = Math.max(0, formTotal - formPaid);
+                                            return (
+                                                <div className="flex items-center justify-between mb-2 text-xs text-gray-500">
+                                                    <span>Sudah dibayar: <b className="text-emerald-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(formPaid)}</b></span>
+                                                    <span>Sisa: <b className={sisa > 0 ? 'text-red-600' : 'text-emerald-600'} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(sisa)}</b></span>
+                                                </div>
+                                            );
+                                        })()}
+                                        <button type="button" onClick={() => setNoteForm(f => ({ ...f, payments: [...f.payments, emptyPayment()] }))} className="w-full py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-2 border-dashed border-emerald-300 rounded-xl transition-colors flex items-center justify-center gap-1.5">
+                                            ＋ Tambah Termin Pembayaran
+                                        </button>
                                     </div>
 
                                     {/* Footer total + aksi */}
@@ -4872,22 +5006,49 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </div>
                                     <div className="space-y-2.5">
                                         {groupNotes.map(note => {
-                                            const noteTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                                            const isLunas = note.paymentStatus === 'Lunas';
+                                            const noteTotal = getNoteTotal(note);
+                                            const notePaid = getNotePaidTotal(note);
+                                            const noteStatus = getNotePaymentStatus(note);
+                                            const st = statusStyle(noteStatus);
+                                            const pct = noteTotal > 0 ? Math.min(100, Math.round(notePaid / noteTotal * 100)) : 0;
                                             const linkedOrders = [...new Set(safeArray(note.items).map(it => it.orderId).filter(Boolean))];
+                                            const isQuickPayOpen = quickPayNoteId === note.id;
+                                            const barColor = st.bar;
                                             return (
-                                                <div key={note.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all overflow-hidden group">
+                                                <div key={note.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all overflow-hidden">
                                                     <div className="flex items-stretch">
-                                                        <div className={`w-1 shrink-0 ${isLunas ? 'bg-green-400' : 'bg-amber-400'}`}></div>
+                                                        <div className="w-1 shrink-0" style={{ background: barColor }}></div>
                                                         <div className="flex-1 p-4">
                                                             <div className="flex justify-between items-start gap-3">
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-center gap-2 flex-wrap mb-1">
                                                                         <span className="font-black text-gray-900 text-base leading-tight">{normalizeVendorName(note.vendor)}</span>
-                                                                        <span className={`text-[10px] font-black px-2.5 py-1 rounded-full shrink-0 tracking-wide ${isLunas ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{isLunas ? '✓ LUNAS' : '⏳ TERMIN'}</span>
+                                                                        <span className="text-[10px] font-black px-2.5 py-1 rounded-full shrink-0 tracking-wide" style={{ background: st.bg, color: st.text }}>{st.label}</span>
                                                                         <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-gray-100 text-gray-500 shrink-0">{note.method || 'Transfer'}</span>
                                                                     </div>
                                                                     <div className="text-xs text-gray-400 font-medium">{note.date}</div>
+                                                                    {/* Progress bar */}
+                                                                    {noteStatus !== 'Belum Dibayar' && (
+                                                                        <div className="mt-2 flex items-center gap-2">
+                                                                            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                                                                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: barColor }}></div>
+                                                                            </div>
+                                                                            <span className="text-[10px] font-black shrink-0" style={{ color: st.text }}>{pct}%</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {/* Payment summary */}
+                                                                    {safeArray(note.payments).length > 0 && (
+                                                                        <div className="mt-2 space-y-0.5">
+                                                                            {safeArray(note.payments).map((p, pi) => (
+                                                                                <div key={pi} className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                                                                                    <span className="text-emerald-500 font-black">✓</span>
+                                                                                    <span>{p.date}</span>
+                                                                                    <span className="font-bold text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(parseFloat(p.amount) || 0)}</span>
+                                                                                    <span className="text-gray-400">via {p.method || '-'}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                     {linkedOrders.length > 0 && (
                                                                         <div className="flex flex-wrap gap-1 mt-2">
                                                                             {linkedOrders.map(oid => {
@@ -4904,6 +5065,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                 </div>
                                                                 <div className="text-right shrink-0 pl-2">
                                                                     <div className="text-xl font-black text-gray-900 leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(noteTotal)}</div>
+                                                                    {noteStatus !== 'Lunas' && <div className="text-[10px] font-bold mt-0.5" style={{ color: st.text }}>Sisa {formatRupiah(Math.max(0, noteTotal - notePaid))}</div>}
                                                                     <div className="text-[10px] text-gray-400 mt-0.5">{safeArray(note.items).length} item</div>
                                                                 </div>
                                                             </div>
@@ -4925,14 +5087,44 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                     );
                                                                 })}
                                                             </div>
+                                                            {/* Quick pay form */}
+                                                            {isQuickPayOpen && (
+                                                                <div className="mt-3 pt-3 border-t border-emerald-100 bg-emerald-50 rounded-xl p-3 space-y-2">
+                                                                    <div className="text-xs font-black text-emerald-700 uppercase tracking-wide mb-1">Catat Pembayaran</div>
+                                                                    <div className="grid grid-cols-2 gap-2">
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Tanggal</label>
+                                                                            <input type="date" className="w-full mt-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-emerald-400" value={quickPayForm.date} onChange={e => setQuickPayForm(f => ({ ...f, date: e.target.value }))} />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Jumlah (Rp)</label>
+                                                                            <input type="number" min="0" className="w-full mt-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-right focus:ring-1 focus:ring-emerald-400" placeholder={`Sisa ${formatRupiah(Math.max(0, noteTotal - notePaid))}`} value={quickPayForm.amount} onChange={e => setQuickPayForm(f => ({ ...f, amount: e.target.value }))} />
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-2 gap-2">
+                                                                        <select className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-emerald-400" value={quickPayForm.method} onChange={e => setQuickPayForm(f => ({ ...f, method: e.target.value }))}>
+                                                                            <option>Transfer</option><option>Cash</option><option>COD</option>
+                                                                        </select>
+                                                                        <input type="text" className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-emerald-400" placeholder="Catatan (opsional)" value={quickPayForm.note} onChange={e => setQuickPayForm(f => ({ ...f, note: e.target.value }))} />
+                                                                    </div>
+                                                                    <div className="flex gap-2">
+                                                                        <button onClick={() => saveQuickPay(note.id)} className="flex-1 py-1.5 text-xs font-black text-white rounded-lg" style={{ background: 'linear-gradient(135deg,#059669,#0D7F78)' }}>Simpan Pembayaran</button>
+                                                                        <button onClick={() => setQuickPayNoteId(null)} className="px-3 py-1.5 text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Batal</button>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                             {/* Action buttons */}
-                                                            <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                                                            <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100 flex-wrap">
+                                                                {noteStatus !== 'Lunas' && (
+                                                                    <button onClick={() => { setQuickPayNoteId(isQuickPayOpen ? null : note.id); setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' }); }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#059669', background: '#ECFDF5', borderColor: '#6EE7B7' }}>💳 Catat Bayar</button>
+                                                                )}
                                                                 <button onClick={() => {
                                                                     setEditNoteId(note.id);
                                                                     const items = safeArray(note.items).length > 0
                                                                         ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it }))
                                                                         : [emptyItem()];
-                                                                    setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', paymentStatus: note.paymentStatus || 'Lunas' });
+                                                                    setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments: safeArray(note.payments) });
+                                                                    setOrderComboState({});
                                                                     setNoteFormOpen(true);
                                                                     window.scrollTo({ top: 0, behavior: 'smooth' });
                                                                 }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
@@ -4963,7 +5155,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             _vendor: nota.vendor,
                             _date: nota.date,
                             _method: nota.method,
-                            _paymentStatus: nota.paymentStatus,
+                            _paymentStatus: getNotePaymentStatus(nota),
                         }))
                 );
 
@@ -5091,7 +5283,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                     <td className="px-4 py-2.5 text-right text-gray-600 font-mono text-xs" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(it.price || 0)}</td>
                                                                     <td className="px-4 py-2.5 font-semibold text-blue-700">{normalizeVendorName(it._vendor)}</td>
                                                                     <td className="px-4 py-2.5 text-gray-500 text-xs">{it._date || '-'}</td>
-                                                                    <td className="px-4 py-2.5"><span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${it._paymentStatus === 'Lunas' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{it._paymentStatus === 'Lunas' ? '✓ Lunas' : '⏳ Termin'}</span></td>
+                                                                    <td className="px-4 py-2.5">{(() => { const s = it._paymentStatus || 'Belum Dibayar'; const c = s === 'Lunas' ? 'bg-green-100 text-green-700' : s === 'Dibayar Sebagian' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'; const lbl = s === 'Lunas' ? '✓ Lunas' : s === 'Dibayar Sebagian' ? '◑ Sebagian' : '✗ Belum'; return <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${c}`}>{lbl}</span>; })()}</td>
                                                                     <td className="px-4 py-2.5 text-right font-black text-gray-900 font-mono text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</td>
                                                                 </tr>
                                                             ))}
@@ -8274,8 +8466,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         vendors: [normalizeVendorName(note.vendor)],
                         materials: safeArray(note.items),
                         total: noteTotal,
-                        isPayment: note.paymentStatus === 'Lunas',
-                        isHutang: note.paymentStatus !== 'Lunas',
+                        isPayment: (() => { const paid = safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0); const total = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0); return total > 0 && paid >= total; })(),
+                        isHutang: (() => { const paid = safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0); const total = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0); return paid < total; })(),
                         isPurchaseNote: true,
                     };
                 })
@@ -8429,7 +8621,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const purchaseNoteBillingTotals = safeArray(purchaseNotes).filter(isVisibleRecord).reduce(
                 (acc, note) => {
                     const total = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                    const paid = note.paymentStatus === 'Lunas' ? total : 0;
+                    const paid = safeArray(note.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
                     return { billed: acc.billed + total, paid: acc.paid + paid, debt: acc.debt + Math.max(0, total - paid) };
                 },
                 { billed: 0, paid: 0, debt: 0 }
