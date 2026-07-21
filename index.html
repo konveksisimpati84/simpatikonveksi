@@ -4860,7 +4860,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                             ? (() => { const o = allOrderOptions.find(x => String(x.id) === it.orderId); return o ? `${o.id} · ${o.client || '-'}` : it.orderId; })()
                                                                             : getComboSearch(idx)
                                                                         }
-                                                                        onFocus={() => { if (it.orderId) { updateItem(idx, 'orderId', ''); } setComboVal(idx, { open: true, search: '' }); }}
+                                                                        onFocus={() => setComboVal(idx, { open: true, search: '' })}
                                                                         onChange={e => { updateItem(idx, 'orderId', ''); setComboVal(idx, { search: e.target.value, open: true }); }}
                                                                         onBlur={() => setTimeout(() => setComboVal(idx, { open: false }), 180)}
                                                                     />
