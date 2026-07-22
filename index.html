@@ -421,6 +421,8 @@
         };
         const noteDebt   = (note) => Math.max(0, noteTotal(note) - notePaid(note));
         const noteStatus = (note) => {
+            // Preserve legacy paymentStatus: 'Dibayar Sebagian' tanpa payments[] (jumlah bayar tidak diketahui)
+            if (!note.payments && note.paymentStatus === 'Dibayar Sebagian') return 'Dibayar Sebagian';
             const paid = notePaid(note), total = noteTotal(note);
             if (paid <= 0) return 'Belum Dibayar';
             if (total > 0 && paid >= total) return 'Lunas';
@@ -8462,7 +8464,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         id: `${order.id}|||${vendorNorm}`,
                         vendor: vendorNorm,
                         date: getMaterialDate(order),
-                        items: vendorItems.length > 0 ? vendorItems : getActiveMaterials(order),
+                        // key '|||' = vendor-spesifik: jika tidak ada item cocok (nama berubah), items kosong agar noteTotal tidak inflate
+                        // key tanpa '|||' = format lama tanpa segregasi vendor: fallback ke semua material
+                        items: vendorItems.length > 0 ? vendorItems : key.includes('|||') ? [] : getActiveMaterials(order),
                         payments,
                         _meta: { ...meta, vendors: [vendorNorm] }
                     };
@@ -8636,7 +8640,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalUnpaidPurchase = vendorBilling.debt;
 
             const orderCostMap = new Map();
-            materialRows.forEach(row => {
+            // Hanya isPayment (bukan hutang) agar konsisten dengan totalMaterialPaid di totalBeban
+            materialRows.filter(r => r.isPayment).forEach(row => {
                 const key = String(row.orderId || row.id);
                 const existing = orderCostMap.get(key) || {
                     orderId: row.orderId || row.id,
@@ -9459,17 +9464,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <Card className="border-l-4 border-l-slate-500">
                                     <h3 className="text-sm font-bold text-gray-500">Total Tagihan Vendor</h3>
                                     <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalMaterialBill)}</p>
-                                    <p className="text-xs text-gray-500 mt-1">{allUnifiedNotes.filter(n => noteTotal(n) > 0).length} nota/order bahan</p>
+                                    <p className="text-xs text-gray-500 mt-1">{allUnifiedNotes.filter(n => noteTotal(n) > 0).length} nota/order · akumulatif semua periode</p>
                                 </Card>
                                 <Card className="border-l-4 border-l-emerald-500">
                                     <h3 className="text-sm font-bold text-gray-500">Sudah Dibayar Vendor</h3>
                                     <p className="text-2xl font-black text-emerald-700 mt-2">{formatRupiah(totalVendorPaid)}</p>
-                                    <p className="text-xs text-gray-500 mt-1">Akumulasi termin pembayaran</p>
+                                    <p className="text-xs text-gray-500 mt-1">Akumulatif semua termin pembayaran</p>
                                 </Card>
                                 <Card className="border-l-4 border-l-orange-500">
                                     <h3 className="text-sm font-bold text-gray-500">Sisa Hutang Vendor</h3>
                                     <p className="text-2xl font-black text-orange-700 mt-2">{formatRupiah(totalVendorDebt)}</p>
-                                    <p className="text-xs text-gray-500 mt-1">Tagihan dikurangi termin</p>
+                                    <p className="text-xs text-gray-500 mt-1">Liabilitas kumulatif · semua periode</p>
                                 </Card>
                             </div>
 
@@ -9477,12 +9482,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <Card className="border-l-4 border-l-green-500">
                                     <h3 className="text-sm font-bold text-gray-500">Pembelian Lunas</h3>
                                     <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalPaidOffPurchase)}</p>
-                                    <p className="text-xs text-gray-500 mt-1">Tagihan vendor yang sudah lunas</p>
+                                    <p className="text-xs text-gray-500 mt-1">Nota/order yang sudah lunas · semua periode</p>
                                 </Card>
                                 <Card className="border-l-4 border-l-yellow-500">
                                     <h3 className="text-sm font-bold text-gray-500">Pembelian Belum Lunas</h3>
                                     <p className="text-2xl font-black text-yellow-700 mt-2">{formatRupiah(totalUnpaidPurchase)}</p>
-                                    <p className="text-xs text-gray-500 mt-1">Sisa pembayaran vendor</p>
+                                    <p className="text-xs text-gray-500 mt-1">Hutang vendor yang masih berjalan · semua periode</p>
                                 </Card>
                             </div>
                         </>
