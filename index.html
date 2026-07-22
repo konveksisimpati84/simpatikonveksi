@@ -430,6 +430,29 @@
         };
         const getNoteEffectivePaid = notePaid; // alias untuk kompatibilitas
 
+        // Satu-satunya tempat menghitung semua nilai form nota — dipakai display DAN validasi
+        const calcNoteForm = (form) => {
+            const validItems = safeArray(form.items).filter(it => String(it.name || '').trim());
+            const total = validItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+            const cleanPayments = safeArray(form.payments).filter(p => parseFloat(p.amount) > 0)
+                .map(p => ({ ...p, amount: parseFloat(p.amount) || 0 }));
+            const paid = safeArray(form.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+            const cleanPaid = cleanPayments.reduce((s, p) => s + p.amount, 0);
+            const debt = Math.max(0, total - paid);
+            const status = paid <= 0 ? 'Belum Dibayar' : total > 0 && paid >= total ? 'Lunas' : 'Dibayar Sebagian';
+            return { validItems, total, cleanPayments, paid, cleanPaid, debt, status };
+        };
+
+        // Normalisasi legacy paymentStatus ke payments[] — dipakai di edit handler dan saveQuickPay
+        const normalizeNote = (note) => {
+            if (!note || note.payments !== undefined) return note;
+            if (note.paymentStatus === 'Lunas') {
+                const tot = noteTotal(note);
+                return { ...note, payments: tot > 0 ? [{ id: genId('PAY-'), date: note.date || new Date().toISOString().slice(0, 10), amount: tot, method: note.method || 'Transfer', note: 'Migrasi otomatis' }] : [] };
+            }
+            return { ...note, payments: [] };
+        };
+
         const getWorkLogTakenQty = (log) => parseInt(log?.qty) || 0;
         const getWorkLogSubmittedQty = (log) => parseInt(log?.submittedQty ?? log?.qty) || 0;
         const getWorkLogEffectiveQty = (log) => log?.checkAfter ? getWorkLogSubmittedQty(log) : getWorkLogTakenQty(log);
@@ -4639,21 +4662,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const savePurchaseNote = () => {
                 const vendor = String(noteForm.vendor || '').trim();
                 if (!vendor) { showToast('Vendor tidak boleh kosong.', 'error'); return; }
-                const validItems = noteForm.items.filter(it => String(it.name || '').trim());
-                if (validItems.length === 0) { showToast('Minimal satu item harus diisi.', 'error'); return; }
+                const fc = calcNoteForm(noteForm);
+                if (fc.validItems.length === 0) { showToast('Minimal satu item harus diisi.', 'error'); return; }
                 const now = new Date().toISOString();
-                const total = validItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                const cleanPayments = safeArray(noteForm.payments).filter(p => parseFloat(p.amount) > 0).map(p => ({ ...p, amount: parseFloat(p.amount) || 0 }));
-                const paidTotal = cleanPayments.reduce((s, p) => s + p.amount, 0);
-                if (total > 0 && paidTotal > total) { showToast('Jumlah bayar melebihi total nota.', 'error'); return; }
+                if (fc.total > 0 && fc.cleanPaid > fc.total) { showToast('Jumlah bayar melebihi total nota.', 'error'); return; }
                 const note = {
                     id: editNoteId || genId('PN-'),
                     vendor,
                     date: noteForm.date || now.slice(0, 10),
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
-                    payments: cleanPayments,
-                    items: validItems.map(it => ({
+                    payments: fc.cleanPayments,
+                    items: fc.validItems.map(it => ({
                         ...it,
                         id: it.id || genId('NI-'),
                         qty: it.qty ?? '',
@@ -4664,7 +4684,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     _syncUpdatedAt: now,
                 };
                 setPurchaseNotes(prev => editNoteId ? prev.map(n => n.id === editNoteId ? note : n) : [note, ...prev]);
-                const linkedOrderIds = [...new Set(validItems.map(it => String(it.orderId || '').trim()).filter(Boolean))];
+                const linkedOrderIds = [...new Set(fc.validItems.map(it => String(it.orderId || '').trim()).filter(Boolean))];
                 if (linkedOrderIds.length > 0) {
                     // Hanya update jika status belum diisi — tidak menimpa status lebih lanjut atau 'Tidak Perlu'
                     setOrders(prev => prev.map(o => linkedOrderIds.includes(String(o.id)) && (!o.materialStatus || o.materialStatus === 'Belum')
@@ -4686,11 +4706,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 // Cari nota dulu untuk validasi sebelum update state
                 const targetNote = safeArray(purchaseNotes).find(n => n.id === noteId);
                 if (!targetNote) return;
-                const tot = noteTotal(targetNote);
-                const existingPayments = targetNote.payments !== undefined ? safeArray(targetNote.payments)
-                    : targetNote.paymentStatus === 'Lunas' ? [{ id: genId('PAY-'), date: targetNote.date || now.slice(0, 10), amount: tot, method: targetNote.method || 'Transfer', note: 'Migrasi otomatis' }]
-                    : [];
-                const currentPaid = notePaid({ ...targetNote, payments: existingPayments });
+                const normalizedTarget = normalizeNote(targetNote);
+                const existingPayments = safeArray(normalizedTarget.payments);
+                const tot = noteTotal(normalizedTarget);
+                const currentPaid = notePaid(normalizedTarget);
                 if (tot > 0 && currentPaid + amt > tot) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
                 const newPayments = [...existingPayments, { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' }];
                 setPurchaseNotes(prev => prev.map(n => n.id === noteId ? { ...n, payments: newPayments, _syncUpdatedAt: now } : n));
@@ -4801,7 +4820,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </button>
                         </div>
 
-                        {noteFormOpen && (() => { const _noteFormEl = (
+                        {noteFormOpen && (() => { const fc = calcNoteForm(noteForm); const _noteFormEl = (
                             <div className="bg-white rounded-2xl shadow-xl border border-blue-100">
                                 {/* Form header */}
                                 <div className="px-6 py-4 flex items-center gap-3 rounded-t-2xl" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
@@ -4969,12 +4988,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <div className="w-1 h-4 rounded-full bg-emerald-500"></div>
                                                 <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Pembayaran</span>
                                             </div>
-                                            {(() => {
-                                                const formTotal = noteForm.items.filter(it => String(it.name || '').trim()).reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                                                const formPaid = safeArray(noteForm.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-                                                const st = statusStyle(formPaid <= 0 ? 'Belum Dibayar' : formTotal > 0 && formPaid >= formTotal ? 'Lunas' : 'Dibayar Sebagian');
-                                                return <span className="text-[10px] font-black px-2.5 py-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>;
-                                            })()}
+                                            {(() => { const st = statusStyle(fc.status); return <span className="text-[10px] font-black px-2.5 py-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>; })()}
                                         </div>
                                         {safeArray(noteForm.payments).length > 0 && (
                                             <div className="space-y-2 mb-3">
@@ -4991,17 +5005,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 ))}
                                             </div>
                                         )}
-                                        {(() => {
-                                            const formTotal = noteForm.items.filter(it => String(it.name || '').trim()).reduce((s, it) => s + getMaterialLineTotal(it), 0);
-                                            const formPaid = safeArray(noteForm.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-                                            const sisa = Math.max(0, formTotal - formPaid);
-                                            return (
-                                                <div className="flex items-center justify-between mb-2 text-xs text-gray-500">
-                                                    <span>Sudah dibayar: <b className="text-emerald-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(formPaid)}</b></span>
-                                                    <span>Sisa: <b className={sisa > 0 ? 'text-red-600' : 'text-emerald-600'} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(sisa)}</b></span>
-                                                </div>
-                                            );
-                                        })()}
+                                        <div className="flex items-center justify-between mb-2 text-xs text-gray-500">
+                                            <span>Sudah dibayar: <b className="text-emerald-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(fc.paid)}</b></span>
+                                            <span>Sisa: <b className={fc.debt > 0 ? 'text-red-600' : 'text-emerald-600'} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(fc.debt)}</b></span>
+                                        </div>
                                         <button type="button" onClick={() => setNoteForm(f => ({ ...f, payments: [...f.payments, emptyPayment()] }))} className="w-full py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-2 border-dashed border-emerald-300 rounded-xl transition-colors flex items-center justify-center gap-1.5">
                                             ＋ Tambah Termin Pembayaran
                                         </button>
@@ -5011,7 +5018,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     <div className="flex flex-col sm:flex-row justify-between items-center gap-3 rounded-2xl p-4" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
                                         <div>
                                             <div className="text-white/70 text-xs font-bold uppercase tracking-wide">Total Nota</div>
-                                            <div className="text-white text-2xl font-black leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(noteForm.items.filter(it => String(it.name || '').trim()).reduce((s, it) => s + getMaterialLineTotal(it), 0))}</div>
+                                            <div className="text-white text-2xl font-black leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(fc.total)}</div>
                                         </div>
                                         <div className="flex gap-2 w-full sm:w-auto">
                                             <button onClick={() => { setNoteFormOpen(false); setEditNoteId(null); }} className="flex-1 sm:flex-none px-5 py-2.5 bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl font-bold text-sm transition-colors">Batal</button>
@@ -5243,7 +5250,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                     <button onClick={() => {
                                                                         setEditNoteId(note.id);
                                                                         const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it })) : [emptyItem()];
-                                                                        const payments = note.payments ? safeArray(note.payments) : note.paymentStatus === 'Lunas' ? [{ id: genId('PAY-'), date: note.date || new Date().toISOString().slice(0, 10), amount: noteTotal(note), method: note.method || 'Transfer', note: 'Migrasi otomatis' }] : [];
+                                                                        const payments = safeArray(normalizeNote(note).payments);
                                                                         setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments });
                                                                         setOrderComboState({});
                                                                         setNoteFormOpen(true);
@@ -5365,7 +5372,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             <button onClick={() => {
                                                                 setEditNoteId(note.id);
                                                                 const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it })) : [emptyItem()];
-                                                                const payments = note.payments ? safeArray(note.payments) : note.paymentStatus === 'Lunas' ? [{ id: genId('PAY-'), date: note.date || new Date().toISOString().slice(0, 10), amount: noteTotal(note), method: note.method || 'Transfer', note: 'Migrasi otomatis' }] : [];
+                                                                const payments = safeArray(normalizeNote(note).payments);
                                                                 setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments });
                                                                 setOrderComboState({});
                                                                 setNoteFormOpen(true);
