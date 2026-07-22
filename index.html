@@ -4666,7 +4666,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setPurchaseNotes(prev => editNoteId ? prev.map(n => n.id === editNoteId ? note : n) : [note, ...prev]);
                 const linkedOrderIds = [...new Set(validItems.map(it => String(it.orderId || '').trim()).filter(Boolean))];
                 if (linkedOrderIds.length > 0) {
-                    setOrders(prev => prev.map(o => linkedOrderIds.includes(String(o.id)) && o.materialStatus !== 'Ada Bahan'
+                    // Hanya update jika status belum diisi — tidak menimpa status lebih lanjut atau 'Tidak Perlu'
+                    setOrders(prev => prev.map(o => linkedOrderIds.includes(String(o.id)) && (!o.materialStatus || o.materialStatus === 'Belum')
                         ? { ...o, materialStatus: 'Ada Bahan', _syncUpdatedAt: now }
                         : o
                     ));
@@ -4969,7 +4970,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Pembayaran</span>
                                             </div>
                                             {(() => {
-                                                const formTotal = noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                                const formTotal = noteForm.items.filter(it => String(it.name || '').trim()).reduce((s, it) => s + getMaterialLineTotal(it), 0);
                                                 const formPaid = safeArray(noteForm.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
                                                 const st = statusStyle(formPaid <= 0 ? 'Belum Dibayar' : formTotal > 0 && formPaid >= formTotal ? 'Lunas' : 'Dibayar Sebagian');
                                                 return <span className="text-[10px] font-black px-2.5 py-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>;
@@ -4991,7 +4992,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             </div>
                                         )}
                                         {(() => {
-                                            const formTotal = noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                            const formTotal = noteForm.items.filter(it => String(it.name || '').trim()).reduce((s, it) => s + getMaterialLineTotal(it), 0);
                                             const formPaid = safeArray(noteForm.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
                                             const sisa = Math.max(0, formTotal - formPaid);
                                             return (
@@ -5010,7 +5011,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     <div className="flex flex-col sm:flex-row justify-between items-center gap-3 rounded-2xl p-4" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
                                         <div>
                                             <div className="text-white/70 text-xs font-bold uppercase tracking-wide">Total Nota</div>
-                                            <div className="text-white text-2xl font-black leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(noteForm.items.reduce((s, it) => s + getMaterialLineTotal(it), 0))}</div>
+                                            <div className="text-white text-2xl font-black leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(noteForm.items.filter(it => String(it.name || '').trim()).reduce((s, it) => s + getMaterialLineTotal(it), 0))}</div>
                                         </div>
                                         <div className="flex gap-2 w-full sm:w-auto">
                                             <button onClick={() => { setNoteFormOpen(false); setEditNoteId(null); }} className="flex-1 sm:flex-none px-5 py-2.5 bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl font-bold text-sm transition-colors">Batal</button>
