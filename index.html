@@ -4680,17 +4680,17 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const amt = parseFloat(quickPayForm.amount);
                 if (!amt || amt <= 0) { showToast('Jumlah bayar harus diisi.', 'error'); return; }
                 const now = new Date().toISOString();
-                setPurchaseNotes(prev => prev.map(n => {
-                    if (n.id !== noteId) return n;
-                    const tot = noteTotal(n);
-                    const existingPayments = n.payments !== undefined ? safeArray(n.payments)
-                        : n.paymentStatus === 'Lunas' ? [{ id: genId('PAY-'), date: n.date || now.slice(0, 10), amount: tot, method: n.method || 'Transfer', note: 'Migrasi otomatis' }]
-                        : [];
-                    const currentPaid = notePaid({ ...n, payments: existingPayments });
-                    if (tot > 0 && currentPaid + amt > tot) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return n; }
-                    const newPayments = [...existingPayments, { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' }];
-                    return { ...n, payments: newPayments, _syncUpdatedAt: now };
-                }));
+                // Cari nota dulu untuk validasi sebelum update state
+                const targetNote = safeArray(purchaseNotes).find(n => n.id === noteId);
+                if (!targetNote) return;
+                const tot = noteTotal(targetNote);
+                const existingPayments = targetNote.payments !== undefined ? safeArray(targetNote.payments)
+                    : targetNote.paymentStatus === 'Lunas' ? [{ id: genId('PAY-'), date: targetNote.date || now.slice(0, 10), amount: tot, method: targetNote.method || 'Transfer', note: 'Migrasi otomatis' }]
+                    : [];
+                const currentPaid = notePaid({ ...targetNote, payments: existingPayments });
+                if (tot > 0 && currentPaid + amt > tot) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
+                const newPayments = [...existingPayments, { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' }];
+                setPurchaseNotes(prev => prev.map(n => n.id === noteId ? { ...n, payments: newPayments, _syncUpdatedAt: now } : n));
                 setQuickPayNoteId(null);
                 setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
                 showToast('Pembayaran dicatat.', 'success');
