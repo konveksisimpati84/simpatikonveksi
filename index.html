@@ -4810,7 +4810,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                         {/* Tombol + Form */}
                         <div className="flex justify-between items-center">
-                            <div className="text-sm font-semibold text-gray-500">{notes.length > 0 ? `${notes.length} nota pembelian tercatat` : 'Belum ada nota'}</div>
+                            <div className="text-sm font-semibold text-gray-500">
+                                {notes.length > 0 ? `${notes.length} nota pembelian` : 'Belum ada nota'}
+                                {(filterStatus !== 'Semua' || noteSearch.trim()) && allNotes.length !== notes.length && <span className="text-xs font-normal text-gray-400 ml-1">(dari {allNotes.length} total)</span>}
+                            </div>
                             <button
                                 onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
                                 className="flex items-center gap-2 px-5 py-2.5 text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg transition-all"
@@ -5219,6 +5222,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                 {isQuickPayOpen && (
                                                                     <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-2">
                                                                         <div className="text-xs font-black text-emerald-700 uppercase tracking-wide">Catat Pembayaran</div>
+                                                                        {!note.payments && note.paymentStatus === 'Dibayar Sebagian' && (
+                                                                            <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ Nota ini punya catatan "Dibayar Sebagian" lama tanpa rincian jumlah. Pembayaran baru dihitung mulai dari 0.</div>
+                                                                        )}
                                                                         <div className="grid grid-cols-2 gap-2">
                                                                             <div>
                                                                                 <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Tanggal</label>
@@ -5351,6 +5357,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         {isQuickPayOpen && (
                                                             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-2">
                                                                 <div className="text-xs font-black text-emerald-700 uppercase tracking-wide">Catat Pembayaran</div>
+                                                                {!note.payments && note.paymentStatus === 'Dibayar Sebagian' && (
+                                                                    <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ Nota ini punya catatan "Dibayar Sebagian" lama tanpa rincian jumlah. Pembayaran baru dihitung mulai dari 0.</div>
+                                                                )}
                                                                 <div className="grid grid-cols-2 gap-2">
                                                                     <div><label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Tanggal</label><input type="date" className="w-full mt-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-emerald-400" value={quickPayForm.date} onChange={e => setQuickPayForm(f => ({ ...f, date: e.target.value }))} /></div>
                                                                     <div><label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Jumlah (Rp)</label><input type="number" min="0" className="w-full mt-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-right focus:ring-1 focus:ring-emerald-400" placeholder={`Sisa ${formatRupiah(Math.max(0, amt - paid))}`} value={quickPayForm.amount} onChange={e => setQuickPayForm(f => ({ ...f, amount: e.target.value }))} /></div>
@@ -8611,7 +8620,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Hanya invoice yang BELUM di-rekap — yang sudah di-rekap komisinnya sudah masuk totalWage
             const totalMarketingCommission = invoiceRows.filter(inv => !inv.commissionRekapId).reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
             const totalIncomeAll = totalInvoiceIncome + totalClientDpIncome + totalManualIncome;
-            const totalExpense = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
 
             // AKUNTANSI STANDAR
             // Pendapatan = pembayaran invoice + pemasukan manual (BUKAN saldo DP)
@@ -8754,7 +8762,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div class="box"><span>Pembelian Bahan (dibayar)</span><strong>${formatRupiah(totalMaterialPaid)}</strong></div>
                             <div class="box"><span>Hutang Bahan</span><strong>${formatRupiah(totalMaterial - totalMaterialPaid)}</strong></div>
                             <div class="box"><span>Gaji Bersih Produksi</span><strong>${formatRupiah(totalWage)}</strong></div>
-                            <div class="box"><span>Total Pengeluaran</span><strong>${formatRupiah(totalExpense)}</strong></div>
+                            <div class="box"><span>Total Pengeluaran</span><strong>${formatRupiah(totalBeban)}</strong></div>
                             <div class="box"><span>Kasbon Diberikan</span><strong>${formatRupiah(totalCashAdvanceGiven)}</strong></div>
                             <div class="box"><span>Kasbon Dipotong</span><strong>${formatRupiah(totalCashAdvanceDeductionInPeriod)}</strong></div>
                             <div class="box"><span>Sisa Kasbon</span><strong>${formatRupiah(totalCashAdvanceRemaining)}</strong></div>
@@ -9069,9 +9077,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <h3 className="text-base font-black text-red-800 mb-3 uppercase tracking-wide">Beban Operasional</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <Card className="border-l-4 border-l-red-500">
-                                        <h3 className="text-xs font-bold text-gray-500">Pembelian Bahan</h3>
-                                        <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(totalMaterial)}</p>
-                                        <p className="text-xs text-gray-500 mt-1">{new Set(materialRows.map(r => r.orderId || r.id)).size} order/nota pembelian</p>
+                                        <h3 className="text-xs font-bold text-gray-500">Pembelian Bahan (dibayar)</h3>
+                                        <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(totalMaterialPaid)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">{new Set(materialRows.filter(r => r.isPayment).map(r => r.orderId || r.id)).size} transaksi{totalMaterial - totalMaterialPaid > 0 ? ` · hutang ${formatRupiah(totalMaterial - totalMaterialPaid)}` : ''}</p>
                                     </Card>
                                     <Card className="border-l-4 border-l-rose-500">
                                         <h3 className="text-xs font-bold text-gray-500">Gaji Bersih Produksi</h3>
@@ -16339,7 +16347,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
                 if (Array.isArray(remotePurchaseNotes)) {
                     setPurchaseNotes(prev => {
-                        const merged = mergeRecordLists(prev || [], remotePurchaseNotes);
+                        // Migrasi satu kali: nota 'Lunas' tanpa payments[] → payments[{amount:total}]
+                        const merged = mergeRecordLists(prev || [], remotePurchaseNotes)
+                            .map(n => (!n || n.payments !== undefined || n.paymentStatus !== 'Lunas') ? n : normalizeNote(n));
                         safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remotePurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', merged), 0);
                         return merged;
@@ -16634,7 +16644,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             setVendorNotaPayments(nextVendorNotaPayments);
                             if (Array.isArray(remPurchaseNotes)) {
                                 const localPN = loadLocalData('simpati_purchase_notes_sync', []);
-                                const nextPN = mergeRecordLists(localPN, remPurchaseNotes);
+                                // Migrasi satu kali: nota 'Lunas' tanpa payments[] → payments[{amount:total}]
+                                const nextPN = mergeRecordLists(localPN, remPurchaseNotes)
+                                    .map(n => (!n || n.payments !== undefined || n.paymentStatus !== 'Lunas') ? n : normalizeNote(n));
                                 setPurchaseNotes(nextPN);
                                 safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(nextPN));
                                 if (JSON.stringify(nextPN) !== JSON.stringify(remPurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', nextPN), 0);
