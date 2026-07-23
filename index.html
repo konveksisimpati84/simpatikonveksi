@@ -428,8 +428,6 @@
             if (total > 0 && paid >= total) return 'Lunas';
             return 'Dibayar Sebagian';
         };
-        const getNoteEffectivePaid = notePaid; // alias untuk kompatibilitas
-
         // Satu-satunya tempat menghitung semua nilai form nota — dipakai display DAN validasi
         const calcNoteForm = (form) => {
             const validItems = safeArray(form.items).filter(it => String(it.name || '').trim());
@@ -8449,7 +8447,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const getMaterialDate = (order) => order.materialPurchasedAt || order.materialLastActionAt || order.materialPrintedAt || order.date;
-            const getFinanceOrderMaterialTotal = (order) => getActiveMaterials(order).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
 
             const orderToVirtualNotes = (order) => {
                 if (!Array.isArray(order.materials) || getActiveMaterials(order).length === 0) return [];
@@ -15567,8 +15564,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [invoices, setInvoices] = useState([]);
             const [clients, setClients] = useState([]);
             const [manualPurchases, setManualPurchases] = useState([]);
-            const [manualVendorPayments, setManualVendorPayments] = useState({});
-            const [vendorNotaPayments, setVendorNotaPayments] = useState({});
             const [purchaseNotes, setPurchaseNotes] = useState([]);
             const [investors, setInvestors] = useState([]);
             const [investorBagiHasil, setInvestorBagiHasil] = useState([]);
@@ -16222,7 +16217,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const applyRemoteDataSnapshotInner = async () => {
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteManualVendorPayments, remoteVendorNotaPayments, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -16233,8 +16228,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreData('clients', []),
                     fetchStoreData('templates', initialTemplates),
                     fetchStoreData('manualPurchases', []),
-                    fetchStoreData('manualVendorPayments', {}),
-                    fetchStoreData('vendorNotaPayments', {}),
                     fetchStoreData('investors', []),
                     fetchStoreData('investorBagiHasil', []),
                     fetchStoreData('drivers', []),
@@ -16326,22 +16319,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const merged = mergeRecordLists(prev || [], remoteManualPurchases);
                         safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteManualPurchases)) setTimeout(() => saveToSupabase('manualPurchases', merged), 0);
-                        return merged;
-                    });
-                }
-                if (remoteManualVendorPayments && typeof remoteManualVendorPayments === 'object' && !Array.isArray(remoteManualVendorPayments)) {
-                    setManualVendorPayments(prev => {
-                        const merged = mergePaymentDict(prev, remoteManualVendorPayments);
-                        safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteManualVendorPayments)) setTimeout(() => saveToSupabase('manualVendorPayments', merged), 0);
-                        return merged;
-                    });
-                }
-                if (remoteVendorNotaPayments && typeof remoteVendorNotaPayments === 'object' && !Array.isArray(remoteVendorNotaPayments)) {
-                    setVendorNotaPayments(prev => {
-                        const merged = mergePaymentDict(prev, remoteVendorNotaPayments);
-                        safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteVendorNotaPayments)) setTimeout(() => saveToSupabase('vendorNotaPayments', merged), 0);
                         return merged;
                     });
                 }
@@ -16505,18 +16482,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             setManualPurchases(prev => mergeRecordLists(prev || [], incoming));
                         } catch(err) {}
                     }
-                    if (e.key === 'simpati_manual_vendor_payments_sync' && e.newValue) {
-                        try {
-                            const incoming = JSON.parse(e.newValue);
-                            setManualVendorPayments(prev => mergePaymentDict(prev || {}, incoming));
-                        } catch(err) {}
-                    }
-                    if (e.key === 'simpati_vendor_nota_payments_sync' && e.newValue) {
-                        try {
-                            const incoming = JSON.parse(e.newValue);
-                            setVendorNotaPayments(prev => mergePaymentDict(prev || {}, incoming));
-                        } catch(err) {}
-                    }
                     if (e.key === 'simpati_investors_sync' && e.newValue) {
                         try { setInvestors(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
@@ -16556,7 +16521,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
                             );
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, manVPays, vendNotaPays, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes] = await Promise.race([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes] = await Promise.race([
                                 Promise.all([
                                     fetchStoreData('accounts', initialAccounts),
                                     fetchStoreData('employees', initialEmployees),
@@ -16568,8 +16533,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     fetchStoreData('clients', []),
                                     fetchStoreData('templates', initialTemplates),
                                     fetchStoreData('manualPurchases', []),
-                                    fetchStoreData('manualVendorPayments', {}),
-                                    fetchStoreData('vendorNotaPayments', {}),
                                     fetchStoreData('investors', []),
                                     fetchStoreData('investorBagiHasil', []),
                                     fetchStoreData('drivers', []),
@@ -16605,10 +16568,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const nextClients = mergeRecordLists(localClients, Array.isArray(cls) ? cls : []);
                             const localManualPurchases = loadLocalData('simpati_manual_purchases_sync', []);
                             const nextManualPurchases = mergeRecordLists(localManualPurchases, Array.isArray(manPurs) ? manPurs : []);
-                            const localManualVendorPayments = loadLocalData('simpati_manual_vendor_payments_sync', {});
-                            const nextManualVendorPayments = mergePaymentDict(localManualVendorPayments, (manVPays && typeof manVPays === 'object' && !Array.isArray(manVPays)) ? manVPays : {});
-                            const localVendorNotaPayments = loadLocalData('simpati_vendor_nota_payments_sync', {});
-                            const nextVendorNotaPayments = mergePaymentDict(localVendorNotaPayments, (vendNotaPays && typeof vendNotaPays === 'object' && !Array.isArray(vendNotaPays)) ? vendNotaPays : {});
                             setAccounts(nextAccounts);
                             setEmployees(nextEmployees);
                             setOrders(nextOrders);
@@ -16624,8 +16583,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             safeLocalSet('simpati_invoices_sync', JSON.stringify(nextInvoices));
                             safeLocalSet('simpati_clients_sync', JSON.stringify(nextClients));
                             safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(nextManualPurchases));
-                            safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(nextManualVendorPayments));
-                            safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(nextVendorNotaPayments));
                             if (JSON.stringify(nextAccounts) !== JSON.stringify(Array.isArray(accs) ? accs : [])) setTimeout(() => saveToSupabase('accounts', nextAccounts), 0);
                             if (JSON.stringify(nextEmployees) !== JSON.stringify(Array.isArray(emps) ? emps : [])) setTimeout(() => saveToSupabase('employees', nextEmployees), 0);
                             if (JSON.stringify(nextOrders) !== JSON.stringify(patchOrders(Array.isArray(ords) ? ords : []))) {
@@ -16637,11 +16594,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             if (JSON.stringify(nextInvoices) !== JSON.stringify(Array.isArray(invs) ? invs : [])) setTimeout(() => saveToSupabase('invoices', nextInvoices), 0);
                             if (JSON.stringify(nextClients) !== JSON.stringify(Array.isArray(cls) ? cls : [])) setTimeout(() => saveToSupabase('clients', nextClients), 0);
                             if (JSON.stringify(nextManualPurchases) !== JSON.stringify(Array.isArray(manPurs) ? manPurs : [])) setTimeout(() => saveToSupabase('manualPurchases', nextManualPurchases), 0);
-                            if (JSON.stringify(nextManualVendorPayments) !== JSON.stringify((manVPays && typeof manVPays === 'object' && !Array.isArray(manVPays)) ? manVPays : {})) setTimeout(() => saveToSupabase('manualVendorPayments', nextManualVendorPayments), 0);
-                            if (JSON.stringify(nextVendorNotaPayments) !== JSON.stringify((vendNotaPays && typeof vendNotaPays === 'object' && !Array.isArray(vendNotaPays)) ? vendNotaPays : {})) setTimeout(() => saveToSupabase('vendorNotaPayments', nextVendorNotaPayments), 0);
                             setManualPurchases(nextManualPurchases);
-                            setManualVendorPayments(nextManualVendorPayments);
-                            setVendorNotaPayments(nextVendorNotaPayments);
                             if (Array.isArray(remPurchaseNotes)) {
                                 const localPN = loadLocalData('simpati_purchase_notes_sync', []);
                                 // Migrasi satu kali: nota 'Lunas' tanpa payments[] → payments[{amount:total}]
@@ -16744,8 +16697,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setClients(loadLocalData('simpati_clients_sync', []));
                     setTemplates(loadLocalData('simpati_templates_sync', initialTemplates));
                     setManualPurchases(loadLocalData('simpati_manual_purchases_sync', []));
-                    setManualVendorPayments(loadLocalData('simpati_manual_vendor_payments_sync', {}));
-                    setVendorNotaPayments(loadLocalData('simpati_vendor_nota_payments_sync', {}));
                     setInvestors(loadLocalData('simpati_investors_sync', []));
                     setInvestorBagiHasil(loadLocalData('simpati_investor_bagi_hasil_sync', []));
                     setDrivers(loadLocalData('simpati_drivers_sync', []));
@@ -17037,42 +16988,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         setManualPurchases(current => {
                             const currentMerged = mergeRecordLists(current || [], merged);
                             return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
-                        });
-                    }, 0);
-                    return valid;
-                });
-            };
-
-            const updateManualVendorPayments = (updater) => {
-                setManualVendorPayments(prev => {
-                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
-                    const valid = (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) ? nextVal : {};
-                    safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(valid));
-                    setTimeout(async () => {
-                        const merged = await mergeRemotePaymentDictForSave('manualVendorPayments', valid);
-                        safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(merged));
-                        saveToSupabase('manualVendorPayments', merged);
-                        setManualVendorPayments(current => {
-                            const m = mergePaymentDict(current || {}, merged);
-                            return JSON.stringify(m) !== JSON.stringify(current || {}) ? m : current;
-                        });
-                    }, 0);
-                    return valid;
-                });
-            };
-
-            const updateVendorNotaPayments = (updater) => {
-                setVendorNotaPayments(prev => {
-                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
-                    const valid = (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) ? nextVal : {};
-                    safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(valid));
-                    setTimeout(async () => {
-                        const merged = await mergeRemotePaymentDictForSave('vendorNotaPayments', valid);
-                        safeLocalSet('simpati_vendor_nota_payments_sync', JSON.stringify(merged));
-                        saveToSupabase('vendorNotaPayments', merged);
-                        setVendorNotaPayments(current => {
-                            const m = mergePaymentDict(current || {}, merged);
-                            return JSON.stringify(m) !== JSON.stringify(current || {}) ? m : current;
                         });
                     }, 0);
                     return valid;
