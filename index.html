@@ -4752,7 +4752,14 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     if (sortBy === 'terlama')   return (a.date || '').localeCompare(b.date || '');
                     if (sortBy === 'terbesar')  return noteTotal(b) - noteTotal(a);
                     if (sortBy === 'terkecil')  return noteTotal(a) - noteTotal(b);
-                    if (sortBy === 'hutang')    return noteDebt(b) - noteDebt(a);
+                    if (sortBy === 'hutang') {
+                        // Legacy Dibayar Sebagian (no payments[]) has unknown debt — push to bottom
+                        const aLegacy = !Array.isArray(a.payments) && a.paymentStatus === 'Dibayar Sebagian';
+                        const bLegacy = !Array.isArray(b.payments) && b.paymentStatus === 'Dibayar Sebagian';
+                        if (aLegacy && !bLegacy) return 1;
+                        if (!aLegacy && bLegacy) return -1;
+                        return noteDebt(b) - noteDebt(a);
+                    }
                     return (b.date || '').localeCompare(a.date || ''); // default: terbaru
                 });
                 const useGrouped = sortBy === 'terbaru' || sortBy === 'terlama';
@@ -4939,7 +4946,23 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 setOrderComboState({});
                                                 setNoteFormOpen(true);
                                             }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
-                                            <button onClick={() => { if (window.confirm('Hapus nota ini?')) { setPurchaseNotes(prev => prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n)); showToast('Nota dihapus.', 'success'); } }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-colors">🗑 Hapus</button>
+                                            <button onClick={() => { if (window.confirm('Hapus nota ini?')) {
+                                                const linkedOrderIds = new Set(safeArray(note.items).map(it => it.orderId).filter(Boolean));
+                                                setPurchaseNotes(prev => {
+                                                    const updated = prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n);
+                                                    if (linkedOrderIds.size > 0) {
+                                                        const remainingVisible = updated.filter(n => !n.isDeleted && n.id !== note.id);
+                                                        linkedOrderIds.forEach(oid => {
+                                                            const stillCovered = remainingVisible.some(n => safeArray(n.items).some(it => it.orderId === oid));
+                                                            if (!stillCovered) {
+                                                                setOrders(prev2 => prev2.map(o => String(o.id) === String(oid) && o.materialStatus === 'Ada Bahan' ? { ...o, materialStatus: 'Belum', _syncUpdatedAt: new Date().toISOString() } : o));
+                                                            }
+                                                        });
+                                                    }
+                                                    return updated;
+                                                });
+                                                showToast('Nota dihapus.', 'success');
+                                            } }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-colors">🗑 Hapus</button>
                                         </div>
                                     </div>
                                 </div>
@@ -8378,7 +8401,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const buildMaterialRows = (notes) => notes.flatMap(note => {
                 const tot = noteTotal(note), paid = notePaid(note), debt = noteDebt(note);
-                if (tot <= 0) return [];
+                if (tot <= 0 && paid <= 0) return [];
                 const isOrderNote = !!note._meta;
                 const meta = note._meta || {};
                 const base = {
