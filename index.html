@@ -5156,7 +5156,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                 {/* Right: total + item count + chevron */}
                                                                 <div className="text-right shrink-0">
                                                                     <div className="font-black text-gray-900 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(amt)}</div>
-                                                                    {status !== 'Lunas' && <div className="text-[10px] font-bold" style={{ color: st.text }}>Sisa {formatRupiah(Math.max(0, amt - paid))}</div>}
+                                                                    {status !== 'Lunas' && (!note.payments && note.paymentStatus === 'Dibayar Sebagian' ? <div className="text-[10px] font-bold" style={{ color: st.text }}>Sisa tidak diketahui</div> : <div className="text-[10px] font-bold" style={{ color: st.text }}>Sisa {formatRupiah(Math.max(0, amt - paid))}</div>)}
                                                                     <div className="text-[10px] text-gray-400">{safeArray(note.items).length} item</div>
                                                                 </div>
                                                                 <div className="text-gray-400 text-xs ml-1 shrink-0 w-4">{isExpanded ? '▲' : '▼'}</div>
@@ -5308,7 +5308,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         </div>
                                                         <div className="text-right shrink-0">
                                                             <div className="font-black text-gray-900 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(amt)}</div>
-                                                            {status !== 'Lunas' && <div className="text-[10px] font-bold" style={{ color: st.text }}>Sisa {formatRupiah(Math.max(0, amt - paid))}</div>}
+                                                            {status !== 'Lunas' && (!note.payments && note.paymentStatus === 'Dibayar Sebagian' ? <div className="text-[10px] font-bold" style={{ color: st.text }}>Sisa tidak diketahui</div> : <div className="text-[10px] font-bold" style={{ color: st.text }}>Sisa {formatRupiah(Math.max(0, amt - paid))}</div>)}
                                                             <div className="text-[10px] text-gray-400">{safeArray(note.items).length} item</div>
                                                         </div>
                                                         <div className="text-gray-400 text-xs ml-1 shrink-0 w-4">{isExpanded ? '▲' : '▼'}</div>
@@ -8694,9 +8694,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 materialRows.filter(r => r.isPayment).reduce((acc, row) => {
                     (row.vendors || ['Tanpa Vendor']).forEach(v => {
                         const vendor = String(v || 'Tanpa Vendor').trim() || 'Tanpa Vendor';
-                        if (!acc[vendor]) acc[vendor] = { name: vendor, total: 0, items: 0 };
+                        if (!acc[vendor]) acc[vendor] = { name: vendor, total: 0, transaksi: 0 };
                         acc[vendor].total += row.total;
-                        acc[vendor].items += 1;
+                        acc[vendor].transaksi += 1;
                     });
                     return acc;
                 }, {})
@@ -9415,7 +9415,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div key={vendor.name} className="flex items-center justify-between border border-gray-100 rounded-lg p-3 bg-gray-50">
                                                 <div>
                                                     <div className="font-bold text-gray-800">{vendor.name}</div>
-                                                    <div className="text-xs text-gray-500">{vendor.items} item bahan</div>
+                                                    <div className="text-xs text-gray-500">{vendor.transaksi} transaksi</div>
                                                 </div>
                                                 <div className="font-black text-red-600">{formatRupiah(vendor.total)}</div>
                                             </div>
