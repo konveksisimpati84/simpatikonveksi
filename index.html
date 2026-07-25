@@ -4701,16 +4701,20 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const amt = parseFloat(quickPayForm.amount);
                 if (!amt || amt <= 0) { showToast('Jumlah bayar harus diisi.', 'error'); return; }
                 const now = new Date().toISOString();
-                // Cari nota dulu untuk validasi sebelum update state
+                // Validasi awal pakai snapshot state untuk feedback cepat ke user
                 const targetNote = safeArray(purchaseNotes).find(n => n.id === noteId);
                 if (!targetNote) return;
-                const normalizedTarget = normalizeNote(targetNote);
-                const existingPayments = safeArray(normalizedTarget.payments);
-                const tot = noteTotal(normalizedTarget);
-                const currentPaid = notePaid(normalizedTarget);
+                const tot = noteTotal(targetNote);
+                const currentPaid = notePaid(normalizeNote(targetNote));
                 if (tot > 0 && currentPaid + amt > tot) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
-                const newPayments = [...existingPayments, { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' }];
-                setPurchaseNotes(prev => prev.map(n => n.id === noteId ? { ...n, payments: newPayments, _syncUpdatedAt: now } : n));
+                // Buat payment baru sekali di sini, lalu ambil existingPayments dari state terkini di dalam updater
+                // agar tidak ada stale closure jika sync terjadi antara validasi dan save
+                const newPayment = { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' };
+                setPurchaseNotes(prev => prev.map(n => {
+                    if (n.id !== noteId) return n;
+                    const existing = safeArray(normalizeNote(n).payments);
+                    return { ...n, payments: [...existing, newPayment], _syncUpdatedAt: now };
+                }));
                 setQuickPayNoteId(null);
                 setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
                 showToast('Pembayaran dicatat.', 'success');
@@ -4947,20 +4951,17 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 setNoteFormOpen(true);
                                             }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
                                             <button onClick={() => { if (window.confirm('Hapus nota ini?')) {
+                                                const ts = new Date().toISOString();
                                                 const linkedOrderIds = new Set(safeArray(note.items).map(it => it.orderId).filter(Boolean));
-                                                setPurchaseNotes(prev => {
-                                                    const updated = prev.map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : n);
-                                                    if (linkedOrderIds.size > 0) {
-                                                        const remainingVisible = updated.filter(n => !n.isDeleted && n.id !== note.id);
-                                                        linkedOrderIds.forEach(oid => {
-                                                            const stillCovered = remainingVisible.some(n => safeArray(n.items).some(it => it.orderId === oid));
-                                                            if (!stillCovered) {
-                                                                setOrders(prev2 => prev2.map(o => String(o.id) === String(oid) && o.materialStatus === 'Ada Bahan' ? { ...o, materialStatus: 'Belum', _syncUpdatedAt: new Date().toISOString() } : o));
-                                                            }
-                                                        });
-                                                    }
-                                                    return updated;
-                                                });
+                                                // Hitung semua perubahan dulu secara sinkron — baru panggil setter terpisah
+                                                const nextNotes = safeArray(purchaseNotes).map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: ts } : n);
+                                                const orderIdsToRevert = linkedOrderIds.size > 0
+                                                    ? [...linkedOrderIds].filter(oid => !nextNotes.filter(n => !n.isDeleted).some(n => safeArray(n.items).some(it => it.orderId === oid)))
+                                                    : [];
+                                                setPurchaseNotes(nextNotes);
+                                                if (orderIdsToRevert.length > 0) {
+                                                    setOrders(prev => prev.map(o => orderIdsToRevert.includes(String(o.id)) && o.materialStatus === 'Ada Bahan' ? { ...o, materialStatus: 'Belum', _syncUpdatedAt: ts } : o));
+                                                }
                                                 showToast('Nota dihapus.', 'success');
                                             } }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-colors">🗑 Hapus</button>
                                         </div>
@@ -8396,7 +8397,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const allUnifiedNotes = [
                 ...safeOrders.flatMap(orderToVirtualNotes),
-                ...safeArray(purchaseNotes).filter(isVisibleRecord).filter(n => noteTotal(n) > 0).map(n => ({ ...n, _meta: null }))
+                ...safeArray(purchaseNotes).filter(isVisibleRecord).filter(n => noteTotal(n) > 0 || notePaid(n) > 0).map(n => ({ ...n, _meta: null }))
             ];
 
             const buildMaterialRows = (notes) => notes.flatMap(note => {
