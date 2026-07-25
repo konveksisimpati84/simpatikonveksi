@@ -4681,15 +4681,43 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     })),
                     _syncUpdatedAt: now,
                 };
-                setPurchaseNotes(prev => editNoteId ? prev.map(n => n.id === editNoteId ? note : n) : [note, ...prev]);
-                const linkedOrderIds = [...new Set(fc.validItems.map(it => String(it.orderId || '').trim()).filter(Boolean))];
-                if (linkedOrderIds.length > 0) {
-                    // Hanya update jika status belum diisi — tidak menimpa status lebih lanjut atau 'Tidak Perlu'
-                    setOrders(prev => prev.map(o => linkedOrderIds.includes(String(o.id)) && (!o.materialStatus || o.materialStatus === 'Belum')
+
+                // Hitung nextNotes dari state sekarang untuk keperluan revert logic order
+                const currentNotes = safeArray(purchaseNotes);
+                const nextNotes = editNoteId
+                    ? currentNotes.map(n => n.id === editNoteId ? note : n)
+                    : [note, ...currentNotes];
+                setPurchaseNotes(editNoteId ? prev => prev.map(n => n.id === editNoteId ? note : n) : prev => [note, ...prev]);
+
+                const newLinkedOrderIds = new Set(fc.validItems.map(it => String(it.orderId || '').trim()).filter(Boolean));
+
+                if (editNoteId) {
+                    // Saat edit: cek orderId lama yang dihapus/diganti, revert jika tidak ada nota aktif lain yang masih merujuknya
+                    const oldNote = currentNotes.find(n => n.id === editNoteId);
+                    const oldOrderIds = oldNote
+                        ? new Set(safeArray(oldNote.items).map(it => String(it.orderId || '').trim()).filter(Boolean))
+                        : new Set();
+                    const removedOrderIds = [...oldOrderIds].filter(oid => !newLinkedOrderIds.has(oid));
+                    const activeOtherNotes = nextNotes.filter(n => !n.isDeleted && n.id !== note.id);
+                    const orderIdsToRevert = removedOrderIds.filter(oid =>
+                        !activeOtherNotes.some(n => safeArray(n.items).some(it => String(it.orderId || '').trim() === oid))
+                    );
+                    setOrders(prev => prev.map(o => {
+                        const oid = String(o.id);
+                        if (orderIdsToRevert.includes(oid) && o.materialStatus === 'Ada Bahan')
+                            return { ...o, materialStatus: 'Belum', _syncUpdatedAt: now };
+                        if (newLinkedOrderIds.has(oid) && (!o.materialStatus || o.materialStatus === 'Belum'))
+                            return { ...o, materialStatus: 'Ada Bahan', _syncUpdatedAt: now };
+                        return o;
+                    }));
+                } else if (newLinkedOrderIds.size > 0) {
+                    // Nota baru: set Ada Bahan untuk order yang terhubung
+                    setOrders(prev => prev.map(o => newLinkedOrderIds.has(String(o.id)) && (!o.materialStatus || o.materialStatus === 'Belum')
                         ? { ...o, materialStatus: 'Ada Bahan', _syncUpdatedAt: now }
                         : o
                     ));
                 }
+
                 setNoteFormOpen(false);
                 setEditNoteId(null);
                 setNoteForm(emptyNoteForm);
