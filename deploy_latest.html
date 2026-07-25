@@ -4610,6 +4610,46 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
+        const getMaterialDate = (order) => order.materialPurchasedAt || order.materialLastActionAt || order.materialPrintedAt || order.date;
+
+        const orderToVirtualNotes = (order) => {
+            if (!Array.isArray(order.materials) || getActiveMaterials(order).length === 0) return [];
+            const hasPayments = Object.keys(order.materialPayments || {}).length > 0;
+            const wasProcessed = order.materialIsArchived || hasPayments ||
+                ['Ada Bahan', 'Direkap', 'Dibeli Sebagian', 'Selesai'].includes(order.materialStatus || 'Belum');
+            if (!wasProcessed) return [];
+            const pmts = order.materialPayments || {};
+            const allPmtKeys = Object.keys(pmts);
+            const activeKeys = allPmtKeys.filter(key => {
+                if (!key.includes('|||')) {
+                    const vn = normalizeVendorName(key);
+                    return !allPmtKeys.some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vn && safeArray(pmts[k]).some(p => !p.isDeleted));
+                }
+                return true;
+            });
+            const meta = { orderId: order.id, client: order.client || '-', type: order.type || '-', pcs: parseInt(order.total) || 0 };
+            if (activeKeys.length === 0) {
+                const vendorList = [...new Set(getActiveMaterials(order).map(m => normalizeVendorName(m.vendor || 'Tanpa Vendor')))];
+                return [{ id: order.id, vendor: vendorList[0] || 'Tanpa Vendor', date: getMaterialDate(order), items: getActiveMaterials(order), payments: [], _meta: { ...meta, vendors: vendorList }, _virtual: true }];
+            }
+            return activeKeys.map(key => {
+                const vendor = key.includes('|||') ? key.split('|||')[0] : key;
+                const vendorNorm = normalizeVendorName(vendor);
+                const payments = safeArray(pmts[key]).filter(p => !p.isDeleted)
+                    .map(p => ({ id: p.id || '', date: p.date || getMaterialDate(order), amount: parseFloat(p.amount) || 0, method: p.method || 'Transfer', note: p.note || '' }));
+                const vendorItems = getActiveMaterials(order).filter(m => normalizeVendorName(m.vendor || '') === vendorNorm);
+                return {
+                    id: `${order.id}|||${vendorNorm}`,
+                    vendor: vendorNorm,
+                    date: getMaterialDate(order),
+                    items: vendorItems.length > 0 ? vendorItems : key.includes('|||') ? [] : getActiveMaterials(order),
+                    payments,
+                    _meta: { ...meta, vendors: [vendorNorm] },
+                    _virtual: true
+                };
+            });
+        };
+
         const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes }) => {
             const [previewImage, setPreviewImage] = useState(null);
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
@@ -4743,7 +4783,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const renderInputPembelian = () => {
-                const allNotes = safeArray(purchaseNotes).filter(isVisibleRecord);
+                const virtualNotes = safeArray(orders).filter(isVisibleRecord).flatMap(o => orderToVirtualNotes(o));
+                const allNotes = [
+                    ...virtualNotes,
+                    ...safeArray(purchaseNotes).filter(isVisibleRecord)
+                ];
                 const filteredNotes = allNotes.filter(note => {
                     if (filterStatus !== 'Semua' && noteStatus(note) !== filterStatus) return false;
                     if (!noteSearch.trim()) return true;
@@ -4809,29 +4853,31 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const pct = amt > 0 ? Math.min(100, Math.round(paid / amt * 100)) : 0;
                     const isQuickPayOpen = quickPayNoteId === note.id;
                     const isExpanded = !!expandedNotes[note.id];
+                    const isVirtual = !!note._virtual;
                     return (
-                        <div key={note.id} className="rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all" style={{ border: `1.5px solid ${st.bar}22` }}>
+                        <div key={note.id} className="rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all" style={{ border: `1.5px solid ${isVirtual ? '#D1D5DB' : st.bar + '22'}` }}>
                             {/* Compact header — always visible, clickable to expand */}
                             <button
                                 type="button"
                                 onClick={() => toggleNote(note.id)}
                                 className="w-full text-left"
-                                style={{ background: `linear-gradient(135deg, ${st.bar}18 0%, white 60%)` }}
+                                style={{ background: isVirtual ? 'linear-gradient(135deg,#F9FAFB,#F3F4F6)' : `linear-gradient(135deg, ${st.bar}18 0%, white 60%)` }}
                             >
                                 <div className="flex items-center gap-0">
                                     {/* Left status stripe */}
-                                    <div className="w-1.5 self-stretch shrink-0 rounded-l-2xl" style={{ background: st.bar }}></div>
+                                    <div className="w-1.5 self-stretch shrink-0 rounded-l-2xl" style={{ background: isVirtual ? '#9CA3AF' : st.bar }}></div>
                                     <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
                                         {/* Status icon */}
-                                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-sm" style={{ background: st.bg, color: st.text }}>
+                                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-sm" style={{ background: isVirtual ? '#F3F4F6' : st.bg, color: isVirtual ? '#6B7280' : st.text }}>
                                             {status === 'Lunas' ? '✓' : status === 'Dibayar Sebagian' ? '◑' : '✗'}
                                         </div>
                                         {/* Main info */}
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <span className="font-black text-gray-900 text-sm leading-tight">{normalizeVendorName(note.vendor)}</span>
-                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full tracking-wide shrink-0" style={{ background: st.bg, color: st.text }}>{st.label}</span>
-                                                <span className="text-[10px] font-medium text-gray-400 shrink-0">{note.method || 'Transfer'}</span>
+                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full tracking-wide shrink-0" style={{ background: isVirtual ? '#F3F4F6' : st.bg, color: isVirtual ? '#6B7280' : st.text }}>{isVirtual ? 'Data Lama' : st.label}</span>
+                                                {isVirtual && note._meta && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE' }}>Order #{note._meta.orderId}</span>}
+                                                {!isVirtual && <span className="text-[10px] font-medium text-gray-400 shrink-0">{note.method || 'Transfer'}</span>}
                                                 <span className="text-[10px] text-gray-400 shrink-0">{note.date}</span>
                                             </div>
                                             {/* Progress bar: sembunyikan jika pct=0 & bukan Lunas (legacy Sebagian tanpa payments[]) */}
@@ -4939,31 +4985,36 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                                         {/* Action buttons */}
                                         <div className="flex gap-2 pt-1 flex-wrap">
-                                            {status !== 'Lunas' && (
-                                                <button onClick={() => { setQuickPayNoteId(isQuickPayOpen ? null : note.id); setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' }); }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#059669', background: '#ECFDF5', borderColor: '#6EE7B7' }}>💳 Catat Bayar</button>
+                                            {isVirtual ? (
+                                                <div className="text-[11px] text-gray-400 italic px-1 py-1">Data lama dari order — untuk edit, buka detail order terkait.</div>
+                                            ) : (
+                                                <>
+                                                    {status !== 'Lunas' && (
+                                                        <button onClick={() => { setQuickPayNoteId(isQuickPayOpen ? null : note.id); setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' }); }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#059669', background: '#ECFDF5', borderColor: '#6EE7B7' }}>💳 Catat Bayar</button>
+                                                    )}
+                                                    <button onClick={() => {
+                                                        setEditNoteId(note.id);
+                                                        const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it })) : [emptyItem()];
+                                                        const payments = safeArray(normalizeNote(note).payments);
+                                                        setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments });
+                                                        setOrderComboState({});
+                                                        setNoteFormOpen(true);
+                                                    }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
+                                                    <button onClick={() => { if (window.confirm('Hapus nota ini?')) {
+                                                        const ts = new Date().toISOString();
+                                                        const linkedOrderIds = new Set(safeArray(note.items).map(it => it.orderId).filter(Boolean));
+                                                        const nextNotes = safeArray(purchaseNotes).map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: ts } : n);
+                                                        const orderIdsToRevert = linkedOrderIds.size > 0
+                                                            ? [...linkedOrderIds].filter(oid => !nextNotes.filter(n => !n.isDeleted).some(n => safeArray(n.items).some(it => it.orderId === oid)))
+                                                            : [];
+                                                        setPurchaseNotes(nextNotes);
+                                                        if (orderIdsToRevert.length > 0) {
+                                                            setOrders(prev => prev.map(o => orderIdsToRevert.includes(String(o.id)) && o.materialStatus === 'Ada Bahan' ? { ...o, materialStatus: 'Belum', _syncUpdatedAt: ts } : o));
+                                                        }
+                                                        showToast('Nota dihapus.', 'success');
+                                                    } }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-colors">🗑 Hapus</button>
+                                                </>
                                             )}
-                                            <button onClick={() => {
-                                                setEditNoteId(note.id);
-                                                const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it })) : [emptyItem()];
-                                                const payments = safeArray(normalizeNote(note).payments);
-                                                setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments });
-                                                setOrderComboState({});
-                                                setNoteFormOpen(true);
-                                            }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
-                                            <button onClick={() => { if (window.confirm('Hapus nota ini?')) {
-                                                const ts = new Date().toISOString();
-                                                const linkedOrderIds = new Set(safeArray(note.items).map(it => it.orderId).filter(Boolean));
-                                                // Hitung semua perubahan dulu secara sinkron — baru panggil setter terpisah
-                                                const nextNotes = safeArray(purchaseNotes).map(n => n.id === note.id ? { ...n, isDeleted: true, _syncUpdatedAt: ts } : n);
-                                                const orderIdsToRevert = linkedOrderIds.size > 0
-                                                    ? [...linkedOrderIds].filter(oid => !nextNotes.filter(n => !n.isDeleted).some(n => safeArray(n.items).some(it => it.orderId === oid)))
-                                                    : [];
-                                                setPurchaseNotes(nextNotes);
-                                                if (orderIdsToRevert.length > 0) {
-                                                    setOrders(prev => prev.map(o => orderIdsToRevert.includes(String(o.id)) && o.materialStatus === 'Ada Bahan' ? { ...o, materialStatus: 'Belum', _syncUpdatedAt: ts } : o));
-                                                }
-                                                showToast('Nota dihapus.', 'success');
-                                            } }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-colors">🗑 Hapus</button>
                                         </div>
                                     </div>
                                 </div>
@@ -8352,47 +8403,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const date = new Date(value);
                 if (isNaN(date.getTime())) return false;
                 return date.toISOString().slice(0, 7) === period;
-            };
-
-            const getMaterialDate = (order) => order.materialPurchasedAt || order.materialLastActionAt || order.materialPrintedAt || order.date;
-
-            const orderToVirtualNotes = (order) => {
-                if (!Array.isArray(order.materials) || getActiveMaterials(order).length === 0) return [];
-                const hasPayments = Object.keys(order.materialPayments || {}).length > 0;
-                const wasProcessed = order.materialIsArchived || hasPayments ||
-                    ['Ada Bahan', 'Direkap', 'Dibeli Sebagian', 'Selesai'].includes(order.materialStatus || 'Belum');
-                if (!wasProcessed) return [];
-                const pmts = order.materialPayments || {};
-                const allPmtKeys = Object.keys(pmts);
-                const activeKeys = allPmtKeys.filter(key => {
-                    if (!key.includes('|||')) {
-                        const vn = normalizeVendorName(key);
-                        return !allPmtKeys.some(k => k.includes('|||') && normalizeVendorName(k.split('|||')[0]) === vn && safeArray(pmts[k]).some(p => !p.isDeleted));
-                    }
-                    return true;
-                });
-                const meta = { orderId: order.id, client: order.client || '-', type: order.type || '-', pcs: parseInt(order.total) || 0 };
-                if (activeKeys.length === 0) {
-                    const vendorList = [...new Set(getActiveMaterials(order).map(m => normalizeVendorName(m.vendor || 'Tanpa Vendor')))];
-                    return [{ id: order.id, vendor: vendorList[0] || 'Tanpa Vendor', date: getMaterialDate(order), items: getActiveMaterials(order), payments: [], _meta: { ...meta, vendors: vendorList } }];
-                }
-                return activeKeys.map(key => {
-                    const vendor = key.includes('|||') ? key.split('|||')[0] : key;
-                    const vendorNorm = normalizeVendorName(vendor);
-                    const payments = safeArray(pmts[key]).filter(p => !p.isDeleted)
-                        .map(p => ({ id: p.id || '', date: p.date || getMaterialDate(order), amount: parseFloat(p.amount) || 0, method: p.method || 'Transfer', note: p.note || '' }));
-                    const vendorItems = getActiveMaterials(order).filter(m => normalizeVendorName(m.vendor || '') === vendorNorm);
-                    return {
-                        id: `${order.id}|||${vendorNorm}`,
-                        vendor: vendorNorm,
-                        date: getMaterialDate(order),
-                        // key '|||' = vendor-spesifik: jika tidak ada item cocok (nama berubah), items kosong agar noteTotal tidak inflate
-                        // key tanpa '|||' = format lama tanpa segregasi vendor: fallback ke semua material
-                        items: vendorItems.length > 0 ? vendorItems : key.includes('|||') ? [] : getActiveMaterials(order),
-                        payments,
-                        _meta: { ...meta, vendors: [vendorNorm] }
-                    };
-                });
             };
 
             const allUnifiedNotes = [
