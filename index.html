@@ -8548,7 +8548,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 .reduce((sum, inv) => sum + Math.max(0, getInvoiceTotals(inv).total - getInvoicePaidTotal(inv)), 0);
             const vendorBilling = allUnifiedNotes.reduce((acc, note) => {
                 const tot = noteTotal(note), paid = notePaid(note), debt = noteDebt(note);
-                if (tot <= 0) return acc;
+                if (tot <= 0 && paid <= 0) return acc;
                 return { billed: acc.billed + tot, paid: acc.paid + paid, debt: acc.debt + debt };
             }, { billed: 0, paid: 0, debt: 0 });
             const totalMaterialBill = vendorBilling.billed;
