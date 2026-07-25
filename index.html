@@ -16414,6 +16414,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     if (e.key === 'simpati_absensi_edits_sync' && e.newValue) {
                         try { setAbsensiEdits(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
+                    if (e.key === 'simpati_purchase_notes_sync' && e.newValue) {
+                        try { setPurchaseNotes(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
                 };
                 window.addEventListener('storage', handleStorageChange);
                 return () => window.removeEventListener('storage', handleStorageChange);
