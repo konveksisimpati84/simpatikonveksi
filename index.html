@@ -6838,7 +6838,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
   <div class="sign"><div><span class="date-line">${safe(pay?.date || '-')}</span></div>
     <div class="sign-box"><div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:0">Hormat Kami,</div>
       ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
-      <div class="sign-line"></div><div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div><div class="sign-sub">Administration</div>
+      <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div><div class="sign-sub">Administration</div>
     </div></div></div>
 </div></div></body></html>`;
                 const w = window.open('', '_blank'); if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
