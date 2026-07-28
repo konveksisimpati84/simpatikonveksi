@@ -6783,6 +6783,66 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 </div></body></html>`;
                 const w = window.open('', '_blank'); if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
             };
+            const printInvoicePayment = (inv, pay, paymentLabel, isLunas) => {
+                const safe = (value) => String(value ?? '-').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+                const amount = safeMoney(pay?.amount);
+                const totals = getInvoiceTotals(inv);
+                const jenisProduksi = getInvoiceItems(inv).map(item => item.productionType).filter(Boolean).join(', ') || '-';
+                const totalPcs = getInvoicePcsTotal(inv);
+                const isDP = String(paymentLabel).toLowerCase().includes('dp');
+                const badgeBg = isLunas ? '#eff6ff' : isDP ? '#f0fdf4' : '#fef3c7';
+                const badgeBorder = isLunas ? '#93c5fd' : isDP ? '#86efac' : '#fcd34d';
+                const badgeColor = isLunas ? '#1d4ed8' : isDP ? '#166534' : '#92400e';
+                const badgeText = isLunas ? `${safe(paymentLabel)} &nbsp;·&nbsp; LUNAS ✓` : safe(paymentLabel);
+                const payNo = pay?.id || `${inv.id}-${isDP ? 'DP' : 'PAY'}`;
+                const printContent = `<!DOCTYPE html><html><head><title>Kwt - ${safe(inv.customer || inv.id)}</title><style>
+@page{size:A5 landscape;margin:8mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Arial',Helvetica,sans-serif;color:#10264a;background:#fff}
+.sheet{width:100%;padding:10px 12px 8px}.top{display:flex;justify-content:space-between;align-items:flex-start}
+.brand img{max-height:48px;max-width:150px;object-fit:contain}.brand-text{line-height:.95}
+.brand-konveksi{font-size:11px;font-weight:700;color:#10264a;font-style:italic;letter-spacing:1px;display:block}
+.brand-main{font-size:34px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-1px;line-height:1;font-family:Georgia,serif;display:block}
+.title-block{text-align:right}.kw-title{font-size:26px;font-weight:900;letter-spacing:5px;color:#10264a;line-height:1}
+.kw-subtitle{font-size:10px;font-weight:700;letter-spacing:3px;color:#e31b23;margin-top:3px}
+.no-row{font-size:11px;margin-top:7px;display:flex;align-items:center;justify-content:flex-end;gap:4px;color:#374151}
+.no-val{border-bottom:1.5px dotted #10264a;display:inline-block;min-width:150px;text-align:left;padding:0 5px 1px;font-weight:700;color:#10264a;font-family:'Courier New',monospace;font-size:10px}
+.line{border-bottom:3px solid #10264a;margin:10px 0 12px}.inv-badge{display:inline-flex;align-items:center;gap:5px;border-radius:3px;padding:3px 9px;margin-bottom:10px;font-size:10px;font-weight:700}
+.field{display:grid;grid-template-columns:128px 12px 1fr;gap:6px;align-items:end;font-size:13px;margin:7px 0;color:#10264a}.field .label{font-weight:600}
+.dots{border-bottom:1.5px dotted #374151;min-height:20px;padding:0 6px 1px;color:#10264a;font-size:13px}
+.terbilang{margin-left:140px;background:#f1f5f9;border-bottom:1.5px dotted #374151;min-height:22px;padding:4px 8px;font-size:11px;color:#374151;font-style:italic;margin-bottom:8px}
+.bottom{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;align-items:start}
+.rp-box{width:248px;height:42px;border:2px solid #10264a;display:grid;grid-template-columns:60px 1fr;transform:skewX(-10deg);overflow:hidden}
+.rp-label,.rp-value{display:flex;align-items:center;padding:0 12px;transform:skewX(10deg);font-size:17px;font-weight:900}
+.rp-label{border-right:2px solid #10264a}.rp-value{background:#d0d8e6;color:#10264a}
+.sign{text-align:center}.date-line{border-bottom:1.5px dotted #10264a;display:inline-block;min-width:180px;text-align:left;color:#374151;font-size:12px;padding-bottom:2px}
+.sign-box{text-align:center;width:175px;position:relative;margin:10px auto 0}
+.sign-img{max-height:100px;max-width:155px;object-fit:contain;display:block;margin:-12px auto -18px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}
+.sign-space{height:58px}.sign-line{border-bottom:1.5px solid #374151;margin:0 0 4px}
+.sign-name{font-size:12px;font-weight:900;color:#10264a;text-decoration:underline;text-underline-offset:3px}.sign-sub{font-size:10px;color:#64748b;margin-top:2px}
+.cut-wrap{border:1.5px dashed #bbb;border-radius:3px;position:relative;margin:4px}.cut-scr{position:absolute;font-size:15px;color:#999;background:#fff;padding:0 3px;line-height:1}
+.cut-scr-tl{top:-10px;left:2px}.cut-scr-br{bottom:-10px;right:2px;transform:rotate(180deg)}
+</style></head><body><div class="cut-wrap"><div class="cut-scr cut-scr-tl">✂</div><div class="cut-scr cut-scr-br">✂</div>
+<div class="sheet"><div class="top">
+  <div class="brand">${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : `<div class="brand-text"><span class="brand-konveksi">Konveksi</span><span class="brand-main">${safe(templates?.companyName || 'Simpati')}</span></div>`}</div>
+  <div class="title-block"><div class="kw-title">KWITANSI</div><div class="kw-subtitle">PEMBAYARAN INVOICE</div>
+  <div class="no-row">No. &nbsp;: <span class="no-val">${safe(payNo)}</span></div></div>
+</div>
+<div class="line"></div>
+<div class="inv-badge" style="background:${badgeBg};border:1px solid ${badgeBorder};color:${badgeColor}">Invoice ${safe(inv.id || '-')} &nbsp;·&nbsp; ${badgeText}</div>
+<div class="field"><span class="label">Diterima dari</span><span>:</span><span class="dots">${safe(inv.customer || '-')}</span></div>
+<div class="field"><span class="label">Uang sejumlah</span><span>:</span><span class="dots" style="font-weight:800;color:#e31b23;font-size:15px">${formatRupiah(amount)}</span></div>
+<div class="terbilang">${safe(terbilangRupiah(amount))}</div>
+<div class="field"><span class="label">Untuk pembayaran</span><span>:</span><span class="dots">${safe(paymentLabel)} &nbsp;·&nbsp; Invoice ${safe(inv.id || '-')}</span></div>
+<div class="field" style="margin-bottom:0"><span></span><span></span><span class="dots" style="font-size:11px;color:#475569">${safe(jenisProduksi)} &nbsp;·&nbsp; ${totalPcs} pcs &nbsp;·&nbsp; Total Invoice: ${formatRupiah(totals.total)}</span></div>
+<div class="field" style="margin-top:7px"><span></span><span></span><span class="dots" style="font-size:11px">Metode: ${safe(pay?.method || '-')}${pay?.note ? ' &nbsp;|&nbsp; ' + safe(pay.note) : ''}</span></div>
+<div class="bottom"><div><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${amount.toLocaleString('id-ID')}</div></div></div>
+  <div class="sign"><div><span class="date-line">${safe(pay?.date || '-')}</span></div>
+    <div class="sign-box"><div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:0">Hormat Kami,</div>
+      ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
+      <div class="sign-line"></div><div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div><div class="sign-sub">Administration</div>
+    </div></div></div>
+</div></div></body></html>`;
+                const w = window.open('', '_blank'); if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
+            };
             const commissionRows = Object.values(safeInvoiceRows.filter(isVisibleRecord).reduce((acc, inv) => {
                 const key = inv.marketing || 'Tanpa Marketing';
                 if (!acc[key]) acc[key] = { marketing: key, invoices: 0, pcs: 0, sales: 0, commission: 0 };
@@ -7132,13 +7192,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <div className="mb-4">
                                         <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Riwayat Pembayaran</div>
                                         <div className="space-y-2">
-                                            {existingPayments.map(pay => (
+                                            {existingPayments.map((pay, pi) => (
                                                 <div key={pay.id} className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-xs">
                                                     <span className="text-gray-500 w-20 shrink-0">{pay.date}</span>
                                                     <span className="text-gray-600 shrink-0">{pay.method||'-'}</span>
                                                     <span className="font-bold text-green-700 flex-1">{formatRupiah(pay.amount)}</span>
                                                     <span className="text-gray-400 truncate max-w-[80px]">{pay.note||''}</span>
                                                     {pay.proofImage && <img src={pay.proofImage} alt="bukti" onClick={() => setProofViewImg(pay.proofImage)} className="w-8 h-8 object-cover rounded cursor-pointer border border-gray-200 shrink-0" />}
+                                                    <button onClick={() => { const dp = getInvoiceDpAmount(inv); const linked = getInvoiceLinkedDpAmount(inv); const cum = dp + linked + existingPayments.slice(0, pi+1).reduce((s,p) => s + safeMoney(p.amount), 0); printInvoicePayment(inv, pay, `Termin ke-${pi+1}`, cum >= totals.total); }} title="Cetak Kwitansi" className="text-slate-400 hover:text-blue-600 shrink-0 transition-colors"><IconPrinter /></button>
                                                     <button onClick={() => deleteInvoicePayment(payInvId, pay.id)} className="text-red-400 hover:text-red-600 shrink-0 font-bold ml-1">✕</button>
                                                 </div>
                                             ))}
@@ -7268,7 +7329,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             {dpAmt > 0 && (
                                                 <div className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
                                                     <span className="text-sm text-gray-500">DP Awal</span>
-                                                    <span className="text-sm font-bold text-green-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(dpAmt)}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <button onClick={() => { const dpObj = getInvoiceDp(inv); const cum = dpAmt + getInvoiceLinkedDpAmount(inv); printInvoicePayment(inv, { id: (dpObj.id || inv.id+'-DP'), date: dpObj.date, amount: dpAmt, method: dpObj.method || 'Transfer', note: dpObj.note || '' }, 'DP / Uang Muka', cum >= totals.total); }} title="Cetak Kwitansi DP" className="text-slate-400 hover:text-blue-600 transition-colors"><IconPrinter /></button>
+                                                        <span className="text-sm font-bold text-green-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(dpAmt)}</span>
+                                                    </div>
                                                 </div>
                                             )}
                                             {linkedDp > 0 && (
@@ -7284,7 +7348,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         <span className="text-[10px] text-gray-400 ml-2">{pay.date} · {pay.method || 'Transfer'}</span>
                                                         {pay.note && <span className="text-[10px] text-gray-400 ml-1 italic">· {pay.note}</span>}
                                                     </div>
-                                                    <span className="text-sm font-bold text-green-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(safeMoney(pay.amount))}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <button onClick={() => { const cum = dpAmt + linkedDp + termins.slice(0, pi+1).reduce((s,p) => s + safeMoney(p.amount), 0); printInvoicePayment(inv, pay, `Termin ke-${pi+1}`, cum >= totals.total); }} title="Cetak Kwitansi" className="text-slate-400 hover:text-blue-600 transition-colors"><IconPrinter /></button>
+                                                        <span className="text-sm font-bold text-green-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(safeMoney(pay.amount))}</span>
+                                                    </div>
                                                 </div>
                                             ))}
                                             <div className={`flex justify-between items-center px-4 py-3 ${remaining > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
