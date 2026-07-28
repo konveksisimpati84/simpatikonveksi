@@ -17354,15 +17354,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     {templates?.companyLogo ? (
                                         <img src={templates.companyLogo} alt="Logo" className="mx-auto max-h-14 object-contain mb-2 bg-white/5 p-1 rounded" />
                                     ) : (
-                                        <h1 className="text-xl font-bold tracking-wider text-red-500">SIMPATI</h1>
+                                        <h1 className="text-xl font-bold tracking-wider text-red-500">{templates?.companyName || 'SIMPATI'}</h1>
                                     )}
-                                    <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">Sistem Konveksi</p>
+                                    <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">{templates?.companySubtitle || 'Sistem Konveksi'}</p>
                                 </>
                             )}
                             {sidebarCollapsed && (
                                 templates?.companyLogo
                                     ? <img src={templates.companyLogo} alt="Logo" className="w-8 h-8 object-contain bg-white/5 rounded" />
-                                    : <span className="text-red-500 font-bold text-sm">S</span>
+                                    : <span className="text-red-500 font-bold text-sm">{(templates?.companyName || 'S')[0]}</span>
                             )}
                         </div>
                         <div className={`flex ${sidebarCollapsed ? 'justify-center' : 'justify-end'} px-2 pt-2`}>
@@ -17404,7 +17404,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {templates?.companyLogo ? (
                                     <img src={templates.companyLogo} alt="Logo" className="max-h-8 object-contain bg-white/5 p-0.5 rounded" />
                                 ) : (
-                                    <h1 className="font-bold text-red-500 text-lg tracking-wider">SIMPATI</h1>
+                                    <h1 className="font-bold text-red-500 text-lg tracking-wider">{templates?.companyName || 'SIMPATI'}</h1>
                                 )}
                             </div>
                             <div className="flex items-center space-x-2">
