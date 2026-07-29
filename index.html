@@ -6787,7 +6787,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const safe = (value) => String(value ?? '-').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
                 const amount = safeMoney(pay?.amount);
                 const totals = getInvoiceTotals(inv);
-                const jenisProduksi = getInvoiceItems(inv).map(item => item.productionType).filter(Boolean).join(', ') || '-';
+                const jumlahJenis = getInvoiceItems(inv).filter(item => item.productionType).length;
                 const totalPcs = getInvoicePcsTotal(inv);
                 const isDP = String(paymentLabel).toLowerCase().includes('dp');
                 const badgeBg = isLunas ? '#eff6ff' : isDP ? '#f0fdf4' : '#fef3c7';
@@ -6832,7 +6832,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 <div class="field"><span class="label">Uang sejumlah</span><span>:</span><span class="dots" style="font-weight:800;color:#e31b23;font-size:15px">${formatRupiah(amount)}</span></div>
 <div class="terbilang">${safe(terbilangRupiah(amount))}</div>
 <div class="field"><span class="label">Untuk pembayaran</span><span>:</span><span class="dots">${safe(paymentLabel)} &nbsp;·&nbsp; Invoice ${safe(inv.id || '-')}</span></div>
-<div class="field" style="margin-bottom:0"><span></span><span></span><span class="dots" style="font-size:11px;color:#475569">${safe(jenisProduksi)} &nbsp;·&nbsp; ${totalPcs} pcs &nbsp;·&nbsp; Total Invoice: ${formatRupiah(totals.total)}</span></div>
+<div class="field" style="margin-bottom:0"><span></span><span></span><span class="dots" style="font-size:11px;color:#475569">${jumlahJenis} jenis produksi &nbsp;·&nbsp; ${totalPcs} pcs &nbsp;·&nbsp; Total Invoice: ${formatRupiah(totals.total)}</span></div>
 <div class="field" style="margin-top:7px"><span></span><span></span><span class="dots" style="font-size:11px">Metode: ${safe(pay?.method || '-')}${pay?.note ? ' &nbsp;|&nbsp; ' + safe(pay.note) : ''}</span></div>
 <div class="bottom"><div><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${amount.toLocaleString('id-ID')}</div></div></div>
   <div class="sign"><div><span class="date-line">${safe(pay?.date || '-')}</span></div>
