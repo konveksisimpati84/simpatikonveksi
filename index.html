@@ -6852,7 +6852,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const lastDate = lastPay?.date || getInvoiceDp(inv)?.date || inv.date || new Date().toISOString().slice(0, 10);
                 const lastMethod = lastPay?.method || getInvoiceDp(inv)?.method || 'Transfer';
                 const lastNote = lastPay?.note || '';
-                const jenisProduksi = getInvoiceItems(inv).map(i => i.productionType).filter(Boolean).join(', ') || '-';
+                const jumlahJenis = getInvoiceItems(inv).filter(i => i.productionType).length;
                 const totalPcs = getInvoicePcsTotal(inv);
                 const kwtNo = `KWT-LNS-${safe(inv.id)}`;
                 const printContent = `<!DOCTYPE html><html><head><title>Kwt Pelunasan - ${safe(inv.customer || inv.id)}</title><style>
@@ -6893,7 +6893,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 <div class="field"><span class="label">Uang sejumlah</span><span>:</span><span class="dots" style="font-weight:800;color:#e31b23;font-size:15px">${formatRupiah(amount)}</span></div>
 <div class="terbilang">${safe(terbilangRupiah(amount))}</div>
 <div class="field"><span class="label">Untuk pembayaran</span><span>:</span><span class="dots">Pelunasan &nbsp;&middot;&nbsp; Invoice ${safe(inv.id || '-')}</span></div>
-<div class="field" style="margin-bottom:0"><span></span><span></span><span class="dots" style="font-size:11px;color:#475569">${safe(jenisProduksi)} &nbsp;&middot;&nbsp; ${totalPcs} pcs &nbsp;&middot;&nbsp; Total Invoice: ${formatRupiah(amount)}</span></div>
+<div class="field" style="margin-bottom:0"><span></span><span></span><span class="dots" style="font-size:11px;color:#475569">${jumlahJenis} jenis produksi &nbsp;&middot;&nbsp; ${totalPcs} pcs &nbsp;&middot;&nbsp; ${formatRupiah(amount)}</span></div>
 <div class="field" style="margin-top:7px"><span></span><span></span><span class="dots" style="font-size:11px">Metode: ${safe(lastMethod)}${lastNote ? ' &nbsp;|&nbsp; ' + safe(lastNote) : ''}</span></div>
 <div class="bottom"><div><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${amount.toLocaleString('id-ID')}</div></div></div>
   <div class="sign"><div><span class="date-line">${safe(lastDate)}</span></div>
