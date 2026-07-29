@@ -6843,6 +6843,67 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 </div></div></body></html>`;
                 const w = window.open('', '_blank'); if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
             };
+            const printKwitansiPelunasan = (inv) => {
+                const safe = (v) => String(v ?? '-').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+                const totals = getInvoiceTotals(inv);
+                const amount = totals.total;
+                const payments = getInvoicePayments(inv);
+                const lastPay = payments.length > 0 ? payments[payments.length - 1] : null;
+                const lastDate = lastPay?.date || getInvoiceDp(inv)?.date || inv.date || new Date().toISOString().slice(0, 10);
+                const lastMethod = lastPay?.method || getInvoiceDp(inv)?.method || 'Transfer';
+                const lastNote = lastPay?.note || '';
+                const jenisProduksi = getInvoiceItems(inv).map(i => i.productionType).filter(Boolean).join(', ') || '-';
+                const totalPcs = getInvoicePcsTotal(inv);
+                const kwtNo = `KWT-LNS-${safe(inv.id)}`;
+                const printContent = `<!DOCTYPE html><html><head><title>Kwt Pelunasan - ${safe(inv.customer || inv.id)}</title><style>
+@page{size:A5 landscape;margin:8mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Arial',Helvetica,sans-serif;color:#10264a;background:#fff}
+.sheet{width:100%;padding:10px 12px 8px}.top{display:flex;justify-content:space-between;align-items:flex-start}
+.brand img{max-height:48px;max-width:150px;object-fit:contain}.brand-text{line-height:.95}
+.brand-konveksi{font-size:11px;font-weight:700;color:#10264a;font-style:italic;letter-spacing:1px;display:block}
+.brand-main{font-size:34px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-1px;line-height:1;font-family:Georgia,serif;display:block}
+.title-block{text-align:right}.kw-title{font-size:26px;font-weight:900;letter-spacing:5px;color:#10264a;line-height:1}
+.kw-subtitle{font-size:10px;font-weight:700;letter-spacing:3px;color:#e31b23;margin-top:3px}
+.no-row{font-size:11px;margin-top:7px;display:flex;align-items:center;justify-content:flex-end;gap:4px;color:#374151}
+.no-val{border-bottom:1.5px dotted #10264a;display:inline-block;min-width:150px;text-align:left;padding:0 5px 1px;font-weight:700;color:#10264a;font-family:'Courier New',monospace;font-size:10px}
+.line{border-bottom:3px solid #10264a;margin:10px 0 12px}
+.inv-badge{display:inline-flex;align-items:center;gap:5px;border-radius:3px;padding:3px 9px;margin-bottom:10px;font-size:10px;font-weight:700;background:#dcfce7;border:1px solid #86efac;color:#15803d}
+.field{display:grid;grid-template-columns:128px 12px 1fr;gap:6px;align-items:end;font-size:13px;margin:7px 0;color:#10264a}.field .label{font-weight:600}
+.dots{border-bottom:1.5px dotted #374151;min-height:20px;padding:0 6px 1px;color:#10264a;font-size:13px}
+.terbilang{margin-left:140px;background:#f1f5f9;border-bottom:1.5px dotted #374151;min-height:22px;padding:4px 8px;font-size:11px;color:#374151;font-style:italic;margin-bottom:8px}
+.bottom{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;align-items:start}
+.rp-box{width:248px;height:42px;border:2px solid #10264a;display:grid;grid-template-columns:60px 1fr;transform:skewX(-10deg);overflow:hidden}
+.rp-label,.rp-value{display:flex;align-items:center;padding:0 12px;transform:skewX(10deg);font-size:17px;font-weight:900}
+.rp-label{border-right:2px solid #10264a}.rp-value{background:#d0d8e6;color:#10264a}
+.sign{text-align:center}.date-line{border-bottom:1.5px dotted #10264a;display:inline-block;min-width:180px;text-align:left;color:#374151;font-size:12px;padding-bottom:2px}
+.sign-box{text-align:center;width:175px;position:relative;margin:10px auto 0}
+.sign-img{max-height:100px;max-width:155px;object-fit:contain;display:block;margin:-12px auto -18px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}
+.sign-space{height:58px}
+.sign-name{font-size:12px;font-weight:900;color:#10264a;text-decoration:underline;text-underline-offset:3px}.sign-sub{font-size:10px;color:#64748b;margin-top:2px}
+.cut-wrap{border:1.5px dashed #bbb;border-radius:3px;position:relative;margin:4px}.cut-scr{position:absolute;font-size:15px;color:#999;background:#fff;padding:0 3px;line-height:1}
+.cut-scr-tl{top:-10px;left:2px}.cut-scr-br{bottom:-10px;right:2px;transform:rotate(180deg)}
+</style></head><body><div class="cut-wrap"><div class="cut-scr cut-scr-tl">✂</div><div class="cut-scr cut-scr-br">✂</div>
+<div class="sheet"><div class="top">
+  <div class="brand">${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : `<div class="brand-text"><span class="brand-konveksi">Konveksi</span><span class="brand-main">${safe(templates?.companyName || 'Simpati')}</span></div>`}</div>
+  <div class="title-block"><div class="kw-title">KWITANSI</div><div class="kw-subtitle">PELUNASAN INVOICE</div>
+  <div class="no-row">No. &nbsp;: <span class="no-val">${safe(kwtNo)}</span></div></div>
+</div>
+<div class="line"></div>
+<div class="inv-badge">Invoice ${safe(inv.id || '-')} &nbsp;&middot;&nbsp; Semua termin telah dibayar &nbsp;&middot;&nbsp; &#10003; LUNAS</div>
+<div class="field"><span class="label">Diterima dari</span><span>:</span><span class="dots">${safe(inv.customer || '-')}</span></div>
+<div class="field"><span class="label">Uang sejumlah</span><span>:</span><span class="dots" style="font-weight:800;color:#e31b23;font-size:15px">${formatRupiah(amount)}</span></div>
+<div class="terbilang">${safe(terbilangRupiah(amount))}</div>
+<div class="field"><span class="label">Untuk pembayaran</span><span>:</span><span class="dots">Pelunasan &nbsp;&middot;&nbsp; Invoice ${safe(inv.id || '-')}</span></div>
+<div class="field" style="margin-bottom:0"><span></span><span></span><span class="dots" style="font-size:11px;color:#475569">${safe(jenisProduksi)} &nbsp;&middot;&nbsp; ${totalPcs} pcs &nbsp;&middot;&nbsp; Total Invoice: ${formatRupiah(amount)}</span></div>
+<div class="field" style="margin-top:7px"><span></span><span></span><span class="dots" style="font-size:11px">Metode: ${safe(lastMethod)}${lastNote ? ' &nbsp;|&nbsp; ' + safe(lastNote) : ''}</span></div>
+<div class="bottom"><div><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${amount.toLocaleString('id-ID')}</div></div></div>
+  <div class="sign"><div><span class="date-line">${safe(lastDate)}</span></div>
+    <div class="sign-box"><div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:0">Hormat Kami,</div>
+      ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
+      <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div><div class="sign-sub">Administration</div>
+    </div></div></div>
+</div></div></body></html>`;
+                const w = window.open('', '_blank'); if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
+            };
             const commissionRows = Object.values(safeInvoiceRows.filter(isVisibleRecord).reduce((acc, inv) => {
                 const key = inv.marketing || 'Tanpa Marketing';
                 if (!acc[key]) acc[key] = { marketing: key, invoices: 0, pcs: 0, sales: 0, commission: 0 };
@@ -7141,6 +7202,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     {status !== 'Lunas' && <button onClick={() => { setPayInvId(inv.id); setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' }); }} title="Bayar" className="bg-green-50 hover:bg-green-100 text-green-700 p-2 rounded-lg border border-green-100 transition-colors"><IconCash /></button>}
                                                     <button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: getInvoiceItems(inv), invoiceDp: getInvoiceDp(inv) }); setEditModalOpen(true); }} title="Edit Invoice" className="bg-purple-50 hover:bg-purple-100 text-purple-700 p-2 rounded-lg border border-purple-100 transition-colors"><IconEdit /></button>
                                                     <button onClick={() => printInvoice(inv)} title="Cetak Invoice" className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2 rounded-lg border border-slate-100 transition-colors"><IconPrinter /></button>
+                                                    {status === 'Lunas' && <button onClick={() => printKwitansiPelunasan(inv)} title="Cetak Kwitansi Pelunasan" className="bg-green-50 hover:bg-green-100 text-green-700 px-2 py-2 rounded-lg border border-green-100 transition-colors text-xs font-bold">Kwt</button>}
                                                     <button onClick={() => setDeleteInvConfirmId(inv.id)} title="Hapus Invoice" className="bg-red-50 hover:bg-red-100 text-red-600 p-2 rounded-lg border border-red-100 transition-colors"><IconTrash /></button>
                                                 </div>
                                             </div>
@@ -7442,8 +7504,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
 
                                 {/* Footer */}
-                                <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 shrink-0">
-                                    <button onClick={() => { setDetailInvId(null); printInvoice(inv); }} className="px-4 py-2 text-white rounded-xl font-bold text-sm flex items-center gap-2" style={{ background: 'linear-gradient(135deg,#1B4F72,#1a6a7a)' }}><IconPrinter /> Cetak</button>
+                                <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 shrink-0 flex-wrap">
+                                    {status === 'Lunas' && <button onClick={() => { setDetailInvId(null); printKwitansiPelunasan(inv); }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">🧾 Kwitansi Pelunasan</button>}
+                                    <button onClick={() => { setDetailInvId(null); printInvoice(inv); }} className="px-4 py-2 text-white rounded-xl font-bold text-sm flex items-center gap-2" style={{ background: 'linear-gradient(135deg,#1B4F72,#1a6a7a)' }}><IconPrinter /> Cetak Invoice</button>
                                     <button onClick={() => setDetailInvId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
                                 </div>
                             </div>
