@@ -419,8 +419,8 @@
         const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses) => {
             const eid = String(empId);
             const totalIn = safeArray(danaOperasional).filter(d => !d.isDeleted && String(d.karyawanId) === eid).reduce((s, d) => s + safeMoney(d.nominal), 0);
-            const usedPN  = safeArray(purchaseNotes).filter(n => !n.isDeleted && String(n.operasionalKaryawanId || '') === eid).reduce((s, n) => s + noteTotal(n), 0);
-            const usedExp = safeArray(expenses).filter(e => !e.isDeleted && String(e.operasionalKaryawanId || '') === eid).reduce((s, e) => s + safeMoney(e.amount), 0);
+            const usedPN  = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
+            const usedExp = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             return { totalIn, totalUsed: usedPN + usedExp, saldo: totalIn - usedPN - usedExp };
         };
         const notePaid   = (note) => {
@@ -4624,7 +4624,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
             const [orderComboState, setOrderComboState] = useState({});
             const [quickPayNoteId, setQuickPayNoteId] = useState(null);
-            const [quickPayForm, setQuickPayForm] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
+            const [quickPayForm, setQuickPayForm] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
             const [noteSearch, setNoteSearch] = useState('');
             const [filterStatus, setFilterStatus] = useState('Semua');
             const [sortBy, setSortBy] = useState('terbaru');
@@ -4632,8 +4632,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const toggleNote = (id) => setExpandedNotes(p => ({ ...p, [id]: !p[id] }));
 
             const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', orderId: '' });
-            const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
-            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [], operasionalKaryawanId: '' };
+            const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
+            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [] };
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
@@ -4679,7 +4679,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     date: noteForm.date || now.slice(0, 10),
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
-                    operasionalKaryawanId: noteForm.operasionalKaryawanId || '',
                     payments: fc.cleanPayments,
                     items: fc.validItems.map(it => ({
                         ...it,
@@ -4747,14 +4746,14 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (tot > 0 && currentPaid + amt > tot) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
                 // Buat payment baru sekali di sini, lalu ambil existingPayments dari state terkini di dalam updater
                 // agar tidak ada stale closure jika sync terjadi antara validasi dan save
-                const newPayment = { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '' };
+                const newPayment = { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '', operasionalKaryawanId: quickPayForm.operasionalKaryawanId || '' };
                 setPurchaseNotes(prev => prev.map(n => {
                     if (n.id !== noteId) return n;
                     const existing = safeArray(normalizeNote(n).payments);
                     return { ...n, payments: [...existing, newPayment], _syncUpdatedAt: now };
                 }));
                 setQuickPayNoteId(null);
-                setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
+                setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
                 showToast('Pembayaran dicatat.', 'success');
             };
 
@@ -4968,6 +4967,20 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     </select>
                                                     <input type="text" className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-emerald-400" placeholder="Catatan (opsional)" value={quickPayForm.note} onChange={e => setQuickPayForm(f => ({ ...f, note: e.target.value }))} />
                                                 </div>
+                                                {(() => {
+                                                    const safeEmps = (employees || []).filter(isVisibleRecord);
+                                                    const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []).totalIn > 0);
+                                                    if (empsWithDana.length === 0) return null;
+                                                    return (
+                                                        <select className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-emerald-400" value={quickPayForm.operasionalKaryawanId || ''} onChange={e => setQuickPayForm(f => ({ ...f, operasionalKaryawanId: e.target.value }))}>
+                                                            <option value="">Sumber Dana: Kas Perusahaan</option>
+                                                            {empsWithDana.map(emp => {
+                                                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
+                                                                return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
+                                                            })}
+                                                        </select>
+                                                    );
+                                                })()}
                                                 <div className="flex gap-2">
                                                     <button onClick={() => saveQuickPay(note.id)} className="flex-1 py-1.5 text-xs font-black text-white rounded-lg" style={{ background: 'linear-gradient(135deg,#059669,#0D7F78)' }}>Simpan Pembayaran</button>
                                                     <button onClick={() => setQuickPayNoteId(null)} className="px-3 py-1.5 text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Batal</button>
@@ -4978,13 +4991,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         {/* Action buttons */}
                                         <div className="flex gap-2 pt-1 flex-wrap">
                                             {status !== 'Lunas' && (
-                                                <button onClick={() => { setQuickPayNoteId(isQuickPayOpen ? null : note.id); setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' }); }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#059669', background: '#ECFDF5', borderColor: '#6EE7B7' }}>💳 Catat Bayar</button>
+                                                <button onClick={() => { setQuickPayNoteId(isQuickPayOpen ? null : note.id); setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' }); }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#059669', background: '#ECFDF5', borderColor: '#6EE7B7' }}>💳 Catat Bayar</button>
                                             )}
                                             <button onClick={() => {
                                                 setEditNoteId(note.id);
                                                 const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it })) : [emptyItem()];
                                                 const payments = safeArray(normalizeNote(note).payments);
-                                                setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments, operasionalKaryawanId: note.operasionalKaryawanId || '' });
+                                                setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments });
                                                 setOrderComboState({});
                                                 setNoteFormOpen(true);
                                             }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
@@ -5079,23 +5092,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     <option value="Termin">Termin</option>
                                                 </select>
                                             </div>
-                                            {(() => {
-                                                const safeEmps = (employees || []).filter(isVisibleRecord);
-                                                const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []).totalIn > 0);
-                                                if (empsWithDana.length === 0) return null;
-                                                return (
-                                                    <div>
-                                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Sumber Dana</label>
-                                                        <select className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-400 bg-gray-50" value={noteForm.operasionalKaryawanId || ''} onChange={e => setNoteForm(f => ({ ...f, operasionalKaryawanId: e.target.value }))}>
-                                                            <option value="">Kas Perusahaan</option>
-                                                            {empsWithDana.map(emp => {
-                                                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
-                                                                return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
-                                                            })}
-                                                        </select>
-                                                    </div>
-                                                );
-                                            })()}
                                         </div>
                                     </div>
 
@@ -5229,8 +5225,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         </div>
                                         {safeArray(noteForm.payments).length > 0 && (
                                             <div className="space-y-2 mb-3">
-                                                {safeArray(noteForm.payments).map((p, pi) => (
-                                                    <div key={p.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
+                                                {safeArray(noteForm.payments).map((p, pi) => {
+                                                    const safeEmps = (employees || []).filter(isVisibleRecord);
+                                                    const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []).totalIn > 0);
+                                                    return (
+                                                    <div key={p.id} className="flex flex-col gap-1.5 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
+                                                        <div className="flex items-center gap-2">
                                                         <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full min-w-[22px] text-center">{pi + 1}</span>
                                                         <input type="date" className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:ring-1 focus:ring-emerald-400" value={p.date} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, date: e.target.value } : x) }))} />
                                                         <input type="number" min="0" className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-right focus:ring-1 focus:ring-emerald-400" placeholder="Jumlah" value={p.amount} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, amount: e.target.value } : x) }))} />
@@ -5238,8 +5238,19 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             <option>Transfer</option><option>Cash</option><option>COD</option>
                                                         </select>
                                                         <button type="button" onClick={() => setNoteForm(f => ({ ...f, payments: f.payments.filter((_, i) => i !== pi) }))} className="text-red-400 hover:text-red-600 text-sm font-black w-6 h-6 flex items-center justify-center shrink-0">✕</button>
+                                                        </div>
+                                                        {empsWithDana.length > 0 && (
+                                                            <select className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:ring-1 focus:ring-emerald-400" value={p.operasionalKaryawanId || ''} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, operasionalKaryawanId: e.target.value } : x) }))}>
+                                                                <option value="">Sumber Dana: Kas Perusahaan</option>
+                                                                {empsWithDana.map(emp => {
+                                                                    const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
+                                                                    return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
+                                                                })}
+                                                            </select>
+                                                        )}
                                                     </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                         <div className="flex items-center justify-between mb-2 text-xs text-gray-500">
@@ -5790,8 +5801,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const empDana = safeDana.filter(d => String(d.karyawanId) === selectedEmpId).sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
-            const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted && String(n.operasionalKaryawanId || '') === selectedEmpId).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-            const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted && String(ex.operasionalKaryawanId || '') === selectedEmpId).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, notaId: n.id, vendor: n.vendor, notaDate: n.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted).flatMap(ex => safeArray(ex.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, expId: ex.id, category: ex.category, expDate: ex.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const stats = selectedEmp ? getDanaSaldoKaryawan(selectedEmp.id, danaOperasional, purchaseNotes, expenses) : null;
 
             return (
@@ -5931,21 +5942,21 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Penggunaan Dana — {selectedEmp.name}</span>
                                 </div>
                                 <div className="space-y-2">
-                                    {linkedPN.map(n => (
-                                        <div key={n.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+                                    {linkedPN.map(p => (
+                                        <div key={p.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
                                             <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-700 font-black text-sm flex-shrink-0">↑</div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-red-800 text-sm">{formatRupiah(noteTotal(n))}</div>
-                                                <div className="text-xs text-gray-500">Pembelian Bahan · {n.date} · {n.vendor || '-'} · <span className="font-mono text-gray-400 text-[10px]">{n.id}</span></div>
+                                                <div className="font-bold text-red-800 text-sm">{formatRupiah(p.amount)}</div>
+                                                <div className="text-xs text-gray-500">Pembelian Bahan · {p.date} · {p.vendor || '-'} · <span className="font-mono text-gray-400 text-[10px]">{p.notaId}</span></div>
                                             </div>
                                         </div>
                                     ))}
-                                    {linkedExp.map(ex => (
-                                        <div key={ex.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+                                    {linkedExp.map(p => (
+                                        <div key={p.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
                                             <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-700 font-black text-sm flex-shrink-0">↑</div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-red-800 text-sm">{formatRupiah(ex.amount)}</div>
-                                                <div className="text-xs text-gray-500">Biaya · {ex.date} · {ex.category || '-'} · <span className="font-mono text-gray-400 text-[10px]">{ex.id}</span></div>
+                                                <div className="font-bold text-red-800 text-sm">{formatRupiah(p.amount)}</div>
+                                                <div className="text-xs text-gray-500">Biaya · {p.date} · {p.category || '-'} · <span className="font-mono text-gray-400 text-[10px]">{p.expId}</span></div>
                                             </div>
                                         </div>
                                     ))}
@@ -5982,8 +5993,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes }) => {
             const [biayaSubTab, setBiayaSubTab] = useState('biaya');
             const emptyItem = () => ({ id: genId('BI-'), desc: '', qty: '1', unit: 'pcs', price: '' });
-            const emptyForm = { date: new Date().toISOString().slice(0, 10), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '', operasionalKaryawanId: '' };
-            const emptyPayForm = { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Tunai', note: '' };
+            const emptyForm = { date: new Date().toISOString().slice(0, 10), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '' };
+            const emptyPayForm = { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Tunai', note: '', operasionalKaryawanId: '' };
             const [form, setForm] = useState(emptyForm);
             const [editId, setEditId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
@@ -6151,7 +6162,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const amt = safeMoney(pf.amount);
                 if (amt <= 0) return showToast('Isi nominal pembayaran.', 'error');
                 const now = new Date().toISOString();
-                const pay = { id: genId('BPAY-'), date: pf.date || now.slice(0, 10), amount: amt, method: pf.method || 'Tunai', note: pf.note || '' };
+                const pay = { id: genId('BPAY-'), date: pf.date || now.slice(0, 10), amount: amt, method: pf.method || 'Tunai', note: pf.note || '', operasionalKaryawanId: pf.operasionalKaryawanId || '' };
                 setExpenses(prev => (prev || []).map(item => {
                     if (String(item.id) !== String(itemId)) return item;
                     const newPays = [...(item.payments || []), pay];
@@ -6205,20 +6216,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <select className="p-2 border rounded" value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
                                 <input className="p-2 border rounded" placeholder="Penerima/pembayar" value={form.party} onChange={e => setForm({ ...form, party: e.target.value })} />
                                 <input className="p-2 border rounded md:col-span-2" placeholder="Keterangan tambahan" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
-                                {form.type === 'Uang Keluar' && (() => {
-                                    const safeEmps = (employees || []).filter(isVisibleRecord);
-                                    const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses).totalIn > 0);
-                                    if (empsWithDana.length === 0) return null;
-                                    return (
-                                        <select className="p-2 border rounded md:col-span-2" value={form.operasionalKaryawanId || ''} onChange={e => setForm({ ...form, operasionalKaryawanId: e.target.value })}>
-                                            <option value="">Sumber Dana: Kas Perusahaan</option>
-                                            {empsWithDana.map(emp => {
-                                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses);
-                                                return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
-                                            })}
-                                        </select>
-                                    );
-                                })()}
                             </div>
                             <div className="border rounded-lg overflow-hidden">
                                 <div className="bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600 flex justify-between items-center border-b">
@@ -6304,7 +6301,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <div className="w-28 text-center hidden lg:block flex-shrink-0">{payStatusBadge(status)}</div>
                                                 <div className="flex gap-1 items-center flex-shrink-0 justify-end">
                                                     <button onClick={() => setExpandedIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))} title="Rincian" className={`p-1.5 rounded-lg border transition-colors ${isExpanded ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100'}`}><IconEye /></button>
-                                                    <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '', operasionalKaryawanId: item.operasionalKaryawanId || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                    <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
                                                     <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
                                                     <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                                 </div>
@@ -6324,7 +6321,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         {payStatusBadge(status)}
                                                         <div className="flex gap-1 mt-0.5">
                                                             <button onClick={() => setExpandedIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))} title="Rincian" className={`p-1.5 rounded-lg border transition-colors ${isExpanded ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100'}`}><IconEye /></button>
-                                                            <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '', operasionalKaryawanId: item.operasionalKaryawanId || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                            <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
                                                             <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
                                                             <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                                         </div>
@@ -6379,6 +6376,20 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                             <input type="number" min="0" className="p-1.5 border rounded text-xs text-right" placeholder="Nominal bayar" value={pf.amount} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), amount: e.target.value } }))} />
                                                                             <select className="p-1.5 border rounded text-xs" value={pf.method} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), method: e.target.value } }))}><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
                                                                             <input className="p-1.5 border rounded text-xs" placeholder="Keterangan" value={pf.note} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), note: e.target.value } }))} />
+                                                                            {(() => {
+                                                                                const safeEmps = (employees || []).filter(isVisibleRecord);
+                                                                                const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses).totalIn > 0);
+                                                                                if (empsWithDana.length === 0) return null;
+                                                                                return (
+                                                                                    <select className="p-1.5 border rounded text-xs md:col-span-4" value={pf.operasionalKaryawanId || ''} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), operasionalKaryawanId: e.target.value } }))}>
+                                                                                        <option value="">Sumber Dana: Kas Perusahaan</option>
+                                                                                        {empsWithDana.map(emp => {
+                                                                                            const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses);
+                                                                                            return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
+                                                                                        })}
+                                                                                    </select>
+                                                                                );
+                                                                            })()}
                                                                         </div>
                                                                         <div className="flex justify-end mt-2">
                                                                             <button onClick={() => addPayment(item.id)} className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-bold">Simpan Pembayaran</button>
