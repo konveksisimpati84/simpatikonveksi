@@ -5243,8 +5243,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             <select className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:ring-1 focus:ring-emerald-400" value={p.operasionalKaryawanId || ''} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, operasionalKaryawanId: e.target.value } : x) }))}>
                                                                 <option value="">Sumber Dana: Kas Perusahaan</option>
                                                                 {empsWithDana.map(emp => {
-                                                                    const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
-                                                                    return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
+                                                                    const base = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
+                                                                    // Kurangi payment lain di form yang sama agar hint saldo akurat
+                                                                    const uncommitted = safeArray(noteForm.payments).filter((x, xi) => xi !== pi && String(x.operasionalKaryawanId || '') === String(emp.id)).reduce((s, x) => s + safeMoney(x.amount), 0);
+                                                                    const displaySaldo = Math.max(0, base.saldo - uncommitted);
+                                                                    return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(displaySaldo)})</option>;
                                                                 })}
                                                             </select>
                                                         )}
