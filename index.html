@@ -177,6 +177,7 @@
             { id: 'laporan_order', label: 'Laporan Per Order' },
             { id: 'investor', label: 'Investor' },
             { id: 'karyawan', label: 'Data Karyawan' },
+            { id: 'dana_operasional', label: 'Dana Operasional' },
             { id: 'pengaturan', label: 'Pengaturan Cetak' },
             { id: 'master_akun', label: 'Master Akun' },
             { id: 'ekspedisi', label: 'Driver / Ekspedisi' },
@@ -414,6 +415,14 @@
         const getOrderMaterialTotal = (order) => getActiveMaterials(order).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
         // 4 fungsi murni — satu-satunya cara menghitung data nota pembelian
         const noteTotal  = (note) => safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+        // Hitung saldo dana operasional karyawan secara dinamis dari data
+        const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses) => {
+            const eid = String(empId);
+            const totalIn = safeArray(danaOperasional).filter(d => !d.isDeleted && String(d.karyawanId) === eid).reduce((s, d) => s + safeMoney(d.nominal), 0);
+            const usedPN  = safeArray(purchaseNotes).filter(n => !n.isDeleted && String(n.operasionalKaryawanId || '') === eid).reduce((s, n) => s + noteTotal(n), 0);
+            const usedExp = safeArray(expenses).filter(e => !e.isDeleted && String(e.operasionalKaryawanId || '') === eid).reduce((s, e) => s + safeMoney(e.amount), 0);
+            return { totalIn, totalUsed: usedPN + usedExp, saldo: totalIn - usedPN - usedExp };
+        };
         const notePaid   = (note) => {
             if (!note.payments && note.paymentStatus)
                 return note.paymentStatus === 'Lunas' ? noteTotal(note) : 0;
@@ -4610,7 +4619,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes }) => {
+        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses }) => {
             const [previewImage, setPreviewImage] = useState(null);
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
             const [orderComboState, setOrderComboState] = useState({});
@@ -4624,7 +4633,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', orderId: '' });
             const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' });
-            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [] };
+            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [], operasionalKaryawanId: '' };
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
@@ -4670,6 +4679,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     date: noteForm.date || now.slice(0, 10),
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
+                    operasionalKaryawanId: noteForm.operasionalKaryawanId || '',
                     payments: fc.cleanPayments,
                     items: fc.validItems.map(it => ({
                         ...it,
@@ -4974,7 +4984,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 setEditNoteId(note.id);
                                                 const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it })) : [emptyItem()];
                                                 const payments = safeArray(normalizeNote(note).payments);
-                                                setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments });
+                                                setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments, operasionalKaryawanId: note.operasionalKaryawanId || '' });
                                                 setOrderComboState({});
                                                 setNoteFormOpen(true);
                                             }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
@@ -5069,6 +5079,23 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     <option value="Termin">Termin</option>
                                                 </select>
                                             </div>
+                                            {(() => {
+                                                const safeEmps = (employees || []).filter(isVisibleRecord);
+                                                const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []).totalIn > 0);
+                                                if (empsWithDana.length === 0) return null;
+                                                return (
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Sumber Dana</label>
+                                                        <select className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-400 bg-gray-50" value={noteForm.operasionalKaryawanId || ''} onChange={e => setNoteForm(f => ({ ...f, operasionalKaryawanId: e.target.value }))}>
+                                                            <option value="">Kas Perusahaan</option>
+                                                            {empsWithDana.map(emp => {
+                                                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
+                                                                return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
+                                                            })}
+                                                        </select>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
 
@@ -5719,10 +5746,243 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu }) => {
+        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, showToast }) => {
+            const safeEmployees = (employees || []).filter(isVisibleRecord);
+            const [selectedEmpId, setSelectedEmpId] = useState('');
+            const emptyTransferForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '' };
+            const [form, setForm] = useState(emptyTransferForm);
+            const [editId, setEditId] = useState(null);
+            const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+            const [showForm, setShowForm] = useState(false);
+
+            const selectedEmp = safeEmployees.find(e => String(e.id) === selectedEmpId);
+            const safeDana = safeArray(danaOperasional).filter(isVisibleRecord);
+
+            const handleSave = (e) => {
+                e.preventDefault();
+                const nominal = safeMoney(form.nominal);
+                if (!selectedEmpId) { showToast('Pilih karyawan terlebih dahulu.', 'error'); return; }
+                if (nominal <= 0) { showToast('Nominal harus lebih dari 0.', 'error'); return; }
+                const now = new Date().toISOString();
+                const record = {
+                    id: editId || genId('DO-'),
+                    karyawanId: selectedEmpId,
+                    karyawanNama: selectedEmp?.name || '',
+                    tanggal: form.tanggal || now.slice(0, 10),
+                    nominal,
+                    keterangan: form.keterangan || '',
+                    _syncUpdatedAt: now,
+                };
+                setDanaOperasional(prev => editId
+                    ? safeArray(prev).map(d => String(d.id) === editId ? record : d)
+                    : [record, ...safeArray(prev)]);
+                setForm(emptyTransferForm);
+                setEditId(null);
+                setShowForm(false);
+                showToast(editId ? 'Transfer diperbarui.' : 'Transfer dana dicatat.', 'success');
+            };
+
+            const handleDelete = (id) => {
+                const now = new Date().toISOString();
+                setDanaOperasional(prev => safeArray(prev).map(d => String(d.id) === String(id) ? { ...d, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : d));
+                setDeleteConfirmId(null);
+                showToast('Transfer dihapus.', 'success');
+            };
+
+            const empDana = safeDana.filter(d => String(d.karyawanId) === selectedEmpId).sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
+            const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted && String(n.operasionalKaryawanId || '') === selectedEmpId).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted && String(ex.operasionalKaryawanId || '') === selectedEmpId).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const stats = selectedEmp ? getDanaSaldoKaryawan(selectedEmp.id, danaOperasional, purchaseNotes, expenses) : null;
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800">Dana Operasional Karyawan</h2>
+                            <p className="text-sm text-gray-500 mt-1">Transfer dana perusahaan ke karyawan dan pantau penggunaannya di pembelian bahan &amp; biaya.</p>
+                        </div>
+                        <button onClick={() => { setShowForm(f => !f); setForm(emptyTransferForm); setEditId(null); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">
+                            <span>+</span> Transfer Dana
+                        </button>
+                    </div>
+
+                    {showForm && (
+                        <Card>
+                            <div className="flex items-center gap-2 mb-4">
+                                <div className="w-1 h-4 rounded-full bg-blue-500"></div>
+                                <span className="text-xs font-black text-gray-500 tracking-widest uppercase">{editId ? 'Edit Transfer Dana' : 'Transfer Dana Baru'}</span>
+                            </div>
+                            <form onSubmit={handleSave} className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Karyawan</label>
+                                        <select className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={selectedEmpId} onChange={e => setSelectedEmpId(e.target.value)} required>
+                                            <option value="">— Pilih Karyawan —</option>
+                                            {safeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Tanggal</label>
+                                        <input type="date" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={form.tanggal} onChange={e => setForm(f => ({ ...f, tanggal: e.target.value }))} required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Nominal (Rp)</label>
+                                        <input type="number" min="1" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="0" value={form.nominal} onChange={e => setForm(f => ({ ...f, nominal: e.target.value }))} required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Keterangan</label>
+                                        <input type="text" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="Misal: Belanja bahan Juli" value={form.keterangan} onChange={e => setForm(f => ({ ...f, keterangan: e.target.value }))} />
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 justify-end">
+                                    <button type="button" onClick={() => { setShowForm(false); setForm(emptyTransferForm); setEditId(null); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-sm">Batal</button>
+                                    <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">{editId ? 'Simpan Perubahan' : 'Simpan Transfer'}</button>
+                                </div>
+                            </form>
+                        </Card>
+                    )}
+
+                    <Card>
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="w-1 h-4 rounded-full bg-indigo-500"></div>
+                            <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Pilih Karyawan</span>
+                        </div>
+                        {safeEmployees.length === 0 && <p className="text-sm text-gray-400 italic">Belum ada data karyawan. Tambahkan di menu Data Karyawan.</p>}
+                        <div className="flex flex-wrap gap-2">
+                            {safeEmployees.map(emp => {
+                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses);
+                                const isSelected = selectedEmpId === String(emp.id);
+                                if (s.totalIn === 0 && !isSelected) return null;
+                                return (
+                                    <button key={emp.id} onClick={() => setSelectedEmpId(isSelected ? '' : String(emp.id))}
+                                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-300 hover:bg-indigo-50'}`}>
+                                        <span>{emp.name}</span>
+                                        {s.saldo > 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}`}>{formatRupiah(s.saldo)}</span>}
+                                        {s.totalIn > 0 && s.saldo <= 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>Habis</span>}
+                                    </button>
+                                );
+                            })}
+                            {safeEmployees.every(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses).totalIn === 0) && safeEmployees.length > 0 && (
+                                <p className="text-sm text-gray-400 italic">Belum ada karyawan yang memiliki dana operasional. Klik "+ Transfer Dana" untuk mulai.</p>
+                            )}
+                        </div>
+                    </Card>
+
+                    {selectedEmp && stats && (
+                        <>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <Card className="border-l-4 border-l-green-500">
+                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Total Ditransfer</h3>
+                                <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(stats.totalIn)}</p>
+                            </Card>
+                            <Card className="border-l-4 border-l-red-500">
+                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Total Digunakan</h3>
+                                <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(stats.totalUsed)}</p>
+                            </Card>
+                            <Card className={`border-l-4 ${stats.saldo > 0 ? 'border-l-amber-400' : 'border-l-gray-300'}`}>
+                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Sisa di Karyawan</h3>
+                                <p className={`text-2xl font-black mt-2 ${stats.saldo > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{formatRupiah(stats.saldo)}</p>
+                            </Card>
+                        </div>
+                        {stats.totalIn > 0 && (
+                            <div className="bg-white rounded-xl border border-gray-200 p-4">
+                                <div className="flex justify-between text-xs font-bold text-gray-500 mb-2">
+                                    <span>Penggunaan Dana — {selectedEmp.name}</span>
+                                    <span>{Math.min(100, Math.round(stats.totalUsed / stats.totalIn * 100))}% terpakai</span>
+                                </div>
+                                <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                                    <div className="h-3 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all"
+                                        style={{ width: `${Math.min(100, stats.totalIn > 0 ? stats.totalUsed / stats.totalIn * 100 : 0)}%` }}></div>
+                                </div>
+                            </div>
+                        )}
+                        <Card>
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-1 h-4 rounded-full bg-blue-500"></div>
+                                    <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Riwayat Transfer — {selectedEmp.name}</span>
+                                </div>
+                                <button onClick={() => { setEditId(null); setForm(emptyTransferForm); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-100">+ Transfer Baru</button>
+                            </div>
+                            {empDana.length === 0 ? (
+                                <p className="text-sm text-gray-400 italic text-center py-4">Belum ada transfer dana untuk {selectedEmp.name}.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {empDana.map(d => (
+                                        <div key={d.id} className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
+                                            <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-green-700 font-black text-sm flex-shrink-0">↓</div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-bold text-green-800 text-sm">{formatRupiah(d.nominal)}</div>
+                                                <div className="text-xs text-gray-500">{d.tanggal}{d.keterangan ? ` · ${d.keterangan}` : ''}</div>
+                                            </div>
+                                            <div className="flex gap-1 flex-shrink-0">
+                                                <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                <button onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </Card>
+                        {(linkedPN.length > 0 || linkedExp.length > 0) && (
+                            <Card>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className="w-1 h-4 rounded-full bg-red-400"></div>
+                                    <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Penggunaan Dana — {selectedEmp.name}</span>
+                                </div>
+                                <div className="space-y-2">
+                                    {linkedPN.map(n => (
+                                        <div key={n.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+                                            <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-700 font-black text-sm flex-shrink-0">↑</div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-bold text-red-800 text-sm">{formatRupiah(noteTotal(n))}</div>
+                                                <div className="text-xs text-gray-500">Pembelian Bahan · {n.date} · {n.vendor || '-'} · <span className="font-mono text-gray-400 text-[10px]">{n.id}</span></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {linkedExp.map(ex => (
+                                        <div key={ex.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+                                            <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-700 font-black text-sm flex-shrink-0">↑</div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-bold text-red-800 text-sm">{formatRupiah(ex.amount)}</div>
+                                                <div className="text-xs text-gray-500">Biaya · {ex.date} · {ex.category || '-'} · <span className="font-mono text-gray-400 text-[10px]">{ex.id}</span></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        )}
+                        </>
+                    )}
+
+                    {!selectedEmp && (
+                        <div className="text-center py-12 text-gray-400 italic text-sm">
+                            {safeEmployees.some(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses).totalIn > 0)
+                                ? 'Pilih karyawan di atas untuk melihat detail dana operasional.'
+                                : 'Mulai dengan klik "+ Transfer Dana" untuk mencatat transfer dana operasional ke karyawan.'}
+                        </div>
+                    )}
+
+                    {deleteConfirmId && (
+                        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+                                <h3 className="font-black text-gray-800 text-lg mb-2">Hapus Transfer?</h3>
+                                <p className="text-gray-500 text-sm mb-5">Data transfer ini akan dihapus dan saldo karyawan otomatis berkurang.</p>
+                                <div className="flex gap-2 justify-end">
+                                    <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-sm">Batal</button>
+                                    <button onClick={() => handleDelete(deleteConfirmId)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm">Ya, Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes }) => {
             const [biayaSubTab, setBiayaSubTab] = useState('biaya');
             const emptyItem = () => ({ id: genId('BI-'), desc: '', qty: '1', unit: 'pcs', price: '' });
-            const emptyForm = { date: new Date().toISOString().slice(0, 10), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '' };
+            const emptyForm = { date: new Date().toISOString().slice(0, 10), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '', operasionalKaryawanId: '' };
             const emptyPayForm = { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Tunai', note: '' };
             const [form, setForm] = useState(emptyForm);
             const [editId, setEditId] = useState(null);
@@ -5945,6 +6205,20 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <select className="p-2 border rounded" value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
                                 <input className="p-2 border rounded" placeholder="Penerima/pembayar" value={form.party} onChange={e => setForm({ ...form, party: e.target.value })} />
                                 <input className="p-2 border rounded md:col-span-2" placeholder="Keterangan tambahan" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
+                                {form.type === 'Uang Keluar' && (() => {
+                                    const safeEmps = (employees || []).filter(isVisibleRecord);
+                                    const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses).totalIn > 0);
+                                    if (empsWithDana.length === 0) return null;
+                                    return (
+                                        <select className="p-2 border rounded md:col-span-2" value={form.operasionalKaryawanId || ''} onChange={e => setForm({ ...form, operasionalKaryawanId: e.target.value })}>
+                                            <option value="">Sumber Dana: Kas Perusahaan</option>
+                                            {empsWithDana.map(emp => {
+                                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses);
+                                                return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
+                                            })}
+                                        </select>
+                                    );
+                                })()}
                             </div>
                             <div className="border rounded-lg overflow-hidden">
                                 <div className="bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600 flex justify-between items-center border-b">
@@ -6030,7 +6304,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <div className="w-28 text-center hidden lg:block flex-shrink-0">{payStatusBadge(status)}</div>
                                                 <div className="flex gap-1 items-center flex-shrink-0 justify-end">
                                                     <button onClick={() => setExpandedIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))} title="Rincian" className={`p-1.5 rounded-lg border transition-colors ${isExpanded ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100'}`}><IconEye /></button>
-                                                    <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                    <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '', operasionalKaryawanId: item.operasionalKaryawanId || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
                                                     <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
                                                     <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                                 </div>
@@ -6050,7 +6324,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         {payStatusBadge(status)}
                                                         <div className="flex gap-1 mt-0.5">
                                                             <button onClick={() => setExpandedIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))} title="Rincian" className={`p-1.5 rounded-lg border transition-colors ${isExpanded ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100'}`}><IconEye /></button>
-                                                            <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                            <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '', operasionalKaryawanId: item.operasionalKaryawanId || '' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
                                                             <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
                                                             <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                                         </div>
@@ -15714,6 +15988,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [templates, setTemplates] = useState({});
             const [kartuKredit, setKartuKredit] = useState([]);
             const [transaksiKartu, setTransaksiKartu] = useState([]);
+            const [danaOperasional, setDanaOperasional] = useState([]);
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
             const [investorShareToken, setInvestorShareToken] = useState(getInvestorShareTokenFromHash());
@@ -16353,7 +16628,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const applyRemoteDataSnapshotInner = async () => {
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -16375,7 +16650,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreData('absensiEdits', []),
                     fetchStoreData('kartu_kredit', []),
                     fetchStoreData('transaksi_kartu', []),
-                    fetchStoreData('purchaseNotes', [])
+                    fetchStoreData('purchaseNotes', []),
+                    fetchStoreData('danaOperasional', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -16465,6 +16741,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             .map(n => (!n || n.payments !== undefined || n.paymentStatus !== 'Lunas') ? n : normalizeNote(n));
                         safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remotePurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', merged), 0);
+                        return merged;
+                    });
+                }
+                if (Array.isArray(remoteDanaOperasional)) {
+                    setDanaOperasional(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteDanaOperasional);
+                        safeLocalSet('simpati_dana_operasional_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteDanaOperasional)) setTimeout(() => saveToSupabase('danaOperasional', merged), 0);
                         return merged;
                     });
                 }
@@ -16645,6 +16929,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     if (e.key === 'simpati_purchase_notes_sync' && e.newValue) {
                         try { setPurchaseNotes(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
+                    if (e.key === 'simpati_dana_operasional_sync' && e.newValue) {
+                        try { setDanaOperasional(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
                 };
                 window.addEventListener('storage', handleStorageChange);
                 return () => window.removeEventListener('storage', handleStorageChange);
@@ -16660,7 +16947,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
                             );
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes] = await Promise.race([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp] = await Promise.race([
                                 Promise.all([
                                     fetchStoreData('accounts', initialAccounts),
                                     fetchStoreData('employees', initialEmployees),
@@ -16684,7 +16971,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     fetchStoreData('absensiRawLogs', []),
                                     fetchStoreData('kartu_kredit', []),
                                     fetchStoreData('transaksi_kartu', []),
-                                    fetchStoreData('purchaseNotes', [])
+                                    fetchStoreData('purchaseNotes', []),
+                                    fetchStoreData('danaOperasional', [])
                                 ]),
                                 _fetchTimeout
                             ]);
@@ -16742,6 +17030,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 setPurchaseNotes(nextPN);
                                 safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(nextPN));
                                 if (JSON.stringify(nextPN) !== JSON.stringify(remPurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', nextPN), 0);
+                            }
+                            if (Array.isArray(remDanaOp)) {
+                                const localDO = loadLocalData('simpati_dana_operasional_sync', []);
+                                const nextDO = mergeRecordLists(localDO, remDanaOp);
+                                setDanaOperasional(nextDO);
+                                safeLocalSet('simpati_dana_operasional_sync', JSON.stringify(nextDO));
+                                if (JSON.stringify(nextDO) !== JSON.stringify(remDanaOp)) setTimeout(() => saveToSupabase('danaOperasional', nextDO), 0);
                             }
                             setRekapKinerja(nextRekaps);
                             setRiwayatPengiriman(nextRiwayats);
@@ -17150,6 +17445,23 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
+            const updateDanaOperasional = (updater) => {
+                setDanaOperasional(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('danaOperasional', valid);
+                        safeLocalSet('simpati_dana_operasional_sync', JSON.stringify(merged));
+                        saveToSupabase('danaOperasional', merged);
+                        setDanaOperasional(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             const updateInvestors = (updater) => {
                 setInvestors(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -17464,6 +17776,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 { id: 'investor', label: 'Investor', icon: <IconBarChart /> },
                 { id: 'ekspedisi', label: 'Driver / Ekspedisi', icon: <IconTruck /> },
                 { id: 'karyawan', label: 'Data Karyawan', icon: <IconUsers /> },
+                { id: 'dana_operasional', label: 'Dana Operasional', icon: <IconDocument /> },
                 { id: 'pengaturan', label: 'Pengaturan Cetak', icon: <IconSettings /> },
                 { id: 'master_akun', label: 'Master Akun', icon: <IconKey /> },
                 { id: 'label_maker', label: 'Label Maker', icon: <IconLayers /> },
@@ -17565,11 +17878,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'dashboard' && canOpen('dashboard') && <DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} />}
                                 {activeTab === 'antrean' && canOpen('antrean') && <AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />}
                                 {activeTab === 'karyawan' && canOpen('karyawan') && <KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} />}
+                                {activeTab === 'dana_operasional' && canOpen('dana_operasional') && <DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} showToast={showToast} />}
                                 {activeTab === 'input_order' && canOpen('input_order') && <InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} />}
-                                {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} />}
+                                {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} />}
-                                {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} />}
+                                {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} />}
