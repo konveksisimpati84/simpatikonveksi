@@ -7956,7 +7956,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const StableLaporanView = ({ orders = [], employees = [], rekapKinerja = [], setRekapKinerja, invoices = [], templates, showToast }) => {
+        const _StableLaporanView_UNUSED = ({ orders = [], employees = [], rekapKinerja = [], setRekapKinerja, invoices = [], templates, showToast }) => {
             const [activeReportTab, setActiveReportTab] = useState('input');
             const [searchTerm, setSearchTerm] = useState('');
             const [dateFrom, setDateFrom] = useState('');
@@ -10781,6 +10781,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     (item.logIds || []).map(l => ({ orderId: item.orderId, stageId: l.stageId, logId: l.logId }))
                 );
                 
+                const now = new Date().toISOString();
                 setOrders(prevOrders => {
                     const newOrders = [...(prevOrders || [])];
                     logsToUnlock.forEach(target => {
@@ -10789,22 +10790,19 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                             const order = { ...newOrders[orderIndex] };
                             const stageData = { ...(order.progress?.[target.stageId] || { workLogs: [] }) };
                             const workLogs = [...(stageData.workLogs || [])];
-                            
                             const logIndex = workLogs.findIndex(l => String(l.id) === String(target.logId));
                             if (logIndex > -1) {
-                                const now = new Date().toISOString();
                                 workLogs[logIndex] = { ...workLogs[logIndex], isReported: false, isReportedChangedAt: now, _syncUpdatedAt: now };
                             }
-                            
                             stageData.workLogs = workLogs;
                             order.progress = { ...(order.progress || {}), [target.stageId]: stageData };
+                            order._syncUpdatedAt = now;
                             newOrders[orderIndex] = order;
                         }
                     });
                     return newOrders;
                 });
-                
-                const now = new Date().toISOString();
+
                 if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || Array.isArray(rekapToDelete.dailySalaryLogs) || (rekapToDelete.items || []).some(item => item.isManual)) {
                     setEmployees(prev => (prev || []).map(emp => {
                         if (String(emp.id) !== String(rekapToDelete.empId)) return emp;
@@ -10958,7 +10956,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     if (String(emp.id) !== String(empId)) return emp;
                     const nextLogs = [newLog, ...(Array.isArray(emp.dailySalaryLogs) ? emp.dailySalaryLogs : [])];
                     const nextTypes = [...new Set([...getEmployeeSalaryTypes(emp), 'Harian'])];
-                    return { ...emp, dailySalary: (!isLembur && newLog.dailySalary) ? newLog.dailySalary : (emp.dailySalary || 0), salaryTypes: nextTypes, salaryType: nextTypes.length > 1 ? 'Campuran' : nextTypes[0], dailySalaryLogs: nextLogs, _syncUpdatedAt: now };
+                    return { ...emp, salaryTypes: nextTypes, salaryType: nextTypes.length > 1 ? 'Campuran' : nextTypes[0], dailySalaryLogs: nextLogs, _syncUpdatedAt: now };
                 }));
                 setDailyInputForm(prev => ({ ...prev, empId: null, mode: 'harian', workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' }));
                 showToast(isLembur ? 'Lembur berhasil ditambahkan.' : 'Gaji harian berhasil ditambahkan.', 'success');
@@ -11314,10 +11312,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                         return { ...employee, cashAdvances: clearedAdvances, _syncUpdatedAt: now };
                     }));
                 }
-                setRekapKinerja(prev => (prev || []).map(item => String(item.id) === String(rekap.id)
-                    ? { ...item, grossSalary, cashAdvanceDeduction: nextDeduction, cashAdvanceDeductionNote: noteInput || '', netSalary: Math.max(0, grossSalary - nextDeduction), _syncUpdatedAt: now }
-                    : item
-                ));
+                setRekapKinerja(prev => (prev || []).map(item => {
+                    if (String(item.id) !== String(rekap.id)) return item;
+                    const newNetSalary = Math.max(0, grossSalary - nextDeduction);
+                    const alreadyPaid = safeArray(item.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
+                    const newPaymentStatus = alreadyPaid <= 0 ? 'belum' : alreadyPaid >= newNetSalary - 1 ? 'lunas' : 'sebagian';
+                    return { ...item, grossSalary, cashAdvanceDeduction: nextDeduction, cashAdvanceDeductionNote: noteInput || '', netSalary: newNetSalary, paymentStatus: newPaymentStatus, _syncUpdatedAt: now };
+                }));
                 showToast("Rekap diperbarui.", "success");
             };
 
@@ -11360,7 +11361,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
             const modalSelectedItems = modalData ? (modalData.allItems || []).filter(item => modalData.selectedKeys?.has(getRekapItemKey(item))) : [];
             const modalSelectedTotal = modalSelectedItems.reduce((sum, item) => sum + (parseInt(item.qty) || 0), 0);
-            const modalSelectedWage = modalSelectedItems.reduce((sum, item) => sum + (parseInt(item.wageTotal) || 0), 0);
+            const modalSelectedWage = modalSelectedItems.reduce((sum, item) => sum + (Math.round(item.wageTotal) || 0), 0);
             const modalEmployee = modalData ? visibleEmployees.find(emp => String(emp.id) === String(modalData.empId)) : null;
             const modalDailySalaryLogs = getEmployeeDailySalaryLogs(modalEmployee).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
             const modalAllDailyLogs = modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
@@ -11406,9 +11407,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 return String(b.id).localeCompare(String(a.id));
             });
             const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
+            const getRekapNet = (r) => {
+                if (r.netSalary != null) return safeMoney(r.netSalary);
+                return Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
+            };
             const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, count: 0 } : visibleRekaps
                 .filter(r => pinnedRekapIds.has(r.id))
-                .reduce((acc, r) => ({ net: acc.net + safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage), count: acc.count + 1 }), { net: 0, count: 0 });
+                .reduce((acc, r) => ({ net: acc.net + getRekapNet(r), count: acc.count + 1 }), { net: 0, count: 0 });
             const rekapSummary = {
                 employees: new Set(visibleRekaps.map(r => String(r.empId || r.empName))).size,
                 pcs: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.total), 0),
@@ -11417,7 +11422,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 overtime: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.overtimeSalary), 0),
                 commission: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.marketingCommission), 0),
                 kasbon: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.cashAdvanceDeduction), 0),
-                net: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage), 0)
+                net: visibleRekaps.reduce((sum, r) => sum + getRekapNet(r), 0)
             };
 
             const readyToRekapSummary = filteredReportEmployees.reduce((acc, emp) => {
