@@ -10836,6 +10836,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const handleRestoreRekap = () => {
                 const rekap = (rekapKinerja || []).find(r => String(r.id) === String(restoreRekapConfirmId));
                 if (!rekap) return;
+                if (rekap.restoredForEdit) {
+                    setRestoreRekapConfirmId(null);
+                    showToast('Rekap ini sudah dikembalikan ke Input untuk diedit ulang. Rekap ulang dari tab Input Laporan Kinerja.', 'error');
+                    return;
+                }
                 const now = new Date().toISOString();
                 // Re-kunci work logs menjadi isReported: true
                 const logsToRelock = (rekap.items || []).flatMap(item =>
@@ -11393,7 +11398,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 })
                 .sort((a, b) => String(b.id).localeCompare(String(a.id)));
             const deletedRekaps = safeRekapForReport
-                .filter(r => r.isDeleted)
+                .filter(r => r.isDeleted && !r.restoredForEdit)
                 .filter(r => matchesSearch([r.id, r.empName, r.division, r.dateProcessed], searchTerm))
                 .sort((a, b) => String(b.id).localeCompare(String(a.id)));
             const sortedRekaps = [...visibleRekaps].sort((a, b) => {
