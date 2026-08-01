@@ -1566,7 +1566,10 @@
             const [editingDailySalaryId, setEditingDailySalaryId] = useState(null);
 
             const [divisionFilter, setDivisionFilter] = useState('Semua');
+            const [showDeletedEmps, setShowDeletedEmps] = useState(false);
+            const [restoreEmpConfirmId, setRestoreEmpConfirmId] = useState(null);
             const safeEmployees = (employees || []).filter(isVisibleRecord);
+            const deletedEmployees = (employees || []).filter(emp => emp && emp.isDeleted);
             const allDivisions = [...new Set(safeEmployees.flatMap(emp => getEmployeeDivisions(emp)).filter(Boolean))].sort();
             const filteredEmployees = safeEmployees.filter(emp =>
                 (divisionFilter === 'Semua' || getEmployeeDivisions(emp).some(d => d === divisionFilter)) &&
@@ -2051,6 +2054,32 @@
                         </div>
                     )}
 
+                    {/* Data Karyawan Terhapus */}
+                    {deletedEmployees.length > 0 && (
+                        <div className="mt-4">
+                            <button onClick={() => setShowDeletedEmps(v => !v)} className="text-xs font-bold text-gray-400 hover:text-gray-600 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors">
+                                <span>{showDeletedEmps ? '▲' : '▼'}</span>
+                                <span>Data Terhapus ({deletedEmployees.length})</span>
+                            </button>
+                            {showDeletedEmps && (
+                                <div className="mt-2 border border-red-100 rounded-xl overflow-hidden">
+                                    <div className="bg-red-50 px-4 py-2 text-xs font-bold text-red-600 border-b border-red-100">Karyawan yang telah dihapus — bisa dipulihkan</div>
+                                    <div className="divide-y divide-red-50">
+                                        {deletedEmployees.map(emp => (
+                                            <div key={emp.id} className="flex items-center gap-3 px-4 py-3 bg-white">
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="font-semibold text-sm text-gray-500 line-through">{emp.name}</div>
+                                                    <div className="text-xs text-gray-400">{getEmployeeDivisions(emp).join(', ')} · Dihapus {emp.deletedAt ? emp.deletedAt.slice(0, 10) : '-'}</div>
+                                                </div>
+                                                <button onClick={() => setRestoreEmpConfirmId(emp.id)} className="px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors">Pulihkan</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {deleteConfirmId && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                             <div className="bg-white p-6 rounded-xl w-full max-w-sm">
@@ -2058,6 +2087,24 @@
                                 <div className="flex justify-end space-x-2">
                                     <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 bg-gray-200 rounded">Batal</button>
                                     <button onClick={executeDeleteKaryawan} className="px-4 py-2 bg-red-600 text-white rounded">Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {restoreEmpConfirmId && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                            <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                                <h3 className="font-bold text-green-700 mb-1">Pulihkan Karyawan?</h3>
+                                <p className="text-sm text-gray-500 mb-4">Data karyawan akan dipulihkan dan muncul kembali di daftar aktif.</p>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => setRestoreEmpConfirmId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold text-sm">Batal</button>
+                                    <button onClick={() => {
+                                        const now = new Date().toISOString();
+                                        setEmployees(prev => (prev || []).map(emp => String(emp.id) === String(restoreEmpConfirmId) ? { ...emp, isDeleted: false, deletedAt: null, _syncUpdatedAt: now } : emp));
+                                        setRestoreEmpConfirmId(null);
+                                        showToast('Karyawan berhasil dipulihkan.', 'success');
+                                    }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-bold text-sm">Pulihkan</button>
                                 </div>
                             </div>
                         </div>
@@ -16335,15 +16382,24 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const localTime = getRecordSyncTime(localRecord);
                     const remoteTime = getRecordSyncTime(remoteRecord);
                     if (localRecord.isDeleted || remoteRecord.isDeleted) {
-                        const deletedRecord = localRecord.isDeleted && remoteRecord.isDeleted
-                            ? (localTime >= remoteTime ? localRecord : remoteRecord)
-                            : (localRecord.isDeleted ? localRecord : remoteRecord);
-                        return {
-                            ...(localTime >= remoteTime ? remoteRecord : localRecord),
-                            ...deletedRecord,
-                            isDeleted: true,
-                            deletedAt: deletedRecord.deletedAt || deletedRecord._syncUpdatedAt || new Date().toISOString()
-                        };
+                        if (localRecord.isDeleted && remoteRecord.isDeleted) {
+                            // Keduanya deleted: pakai yang terbaru
+                            const winner = localTime >= remoteTime ? localRecord : remoteRecord;
+                            const base   = localTime >= remoteTime ? remoteRecord : localRecord;
+                            return { ...base, ...winner, isDeleted: true, deletedAt: winner.deletedAt || winner._syncUpdatedAt || new Date().toISOString() };
+                        }
+                        // Salah satu deleted, salah satu tidak: last-write-wins berdasarkan timestamp
+                        const deletedRec = localRecord.isDeleted ? localRecord : remoteRecord;
+                        const activeRec  = localRecord.isDeleted ? remoteRecord : localRecord;
+                        const deletedTime = localRecord.isDeleted ? localTime : remoteTime;
+                        const activeTime  = localRecord.isDeleted ? remoteTime : localTime;
+                        if (activeTime >= deletedTime) {
+                            // Record aktif lebih baru → menang (restore/edit mengalahkan penghapusan lama)
+                            return { ...deletedRec, ...activeRec, isDeleted: false };
+                        } else {
+                            // Penghapusan lebih baru → tetap deleted
+                            return { ...activeRec, ...deletedRec, isDeleted: true, deletedAt: deletedRec.deletedAt || deletedRec._syncUpdatedAt || new Date().toISOString() };
+                        }
                     }
                     return localTime >= remoteTime ? { ...remoteRecord, ...localRecord } : { ...localRecord, ...remoteRecord };
                 };
