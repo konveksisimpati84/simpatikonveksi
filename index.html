@@ -678,8 +678,11 @@
         const getInvoiceSizeTotal = (sizeRow) => {
             const subtotal = safeMoney(sizeRow?.qty) * safeMoney(sizeRow?.pricePerPcs);
             const discountPerPcs = safeMoney(sizeRow?.qty) * safeMoney(sizeRow?.discountPerPcs);
-            const discountPercent = subtotal * safeMoney(sizeRow?.discountPercent) / 100;
-            return { subtotal, discount: discountPerPcs + discountPercent, total: Math.max(0, subtotal - discountPerPcs - discountPercent) };
+            // percent applies to after-flat-discount price, then round to avoid floating-point drift
+            const afterFlat = Math.max(0, subtotal - discountPerPcs);
+            const discountPercent = Math.round(afterFlat * safeMoney(sizeRow?.discountPercent) / 100);
+            const total = Math.round(Math.max(0, subtotal - discountPerPcs - discountPercent));
+            return { subtotal, discount: discountPerPcs + discountPercent, total };
         };
 
         const getInvoiceTotals = (invoice) => {
@@ -703,7 +706,7 @@
             const total = getInvoiceTotals(invoice).total;
             const paid = getInvoicePaidTotal(invoice);
             if (paid <= 0) return 'Belum Dibayar';
-            return paid >= total ? 'Lunas' : 'Termin';
+            return paid >= total - 0.01 ? 'Lunas' : 'Termin';
         };
 
         const getInvoiceCommissionTotal = (invoice) => {
@@ -6826,7 +6829,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 if (!customerName) return 0;
                 const client = safeClientRows.filter(isVisibleRecord).find(c => normalizeText(c.name) === normalizeText(customerName));
                 if (!client) return 0;
-                const poolTotal = (client.clientDpPayments || []).filter(isVisibleRecord).filter(dp => !dp.invoiceId).reduce((s, dp) => s + safeMoney(dp.amount), 0);
+                const poolTotal = (client.clientDpPayments || []).filter(isVisibleRecord).reduce((s, dp) => s + safeMoney(dp.amount), 0);
                 const usedByOthers = safeInvoiceRows.filter(isVisibleRecord).filter(inv => normalizeText(inv.customer) === normalizeText(customerName) && (!currentEditId || String(inv.id) !== String(currentEditId))).reduce((s, inv) => s + getInvoiceLinkedDpAmount(inv), 0);
                 return Math.max(0, poolTotal - usedByOthers);
             };
@@ -6885,7 +6888,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 resetForm();
                 showToast(editId ? "Invoice diperbarui." : "Invoice dibuat.", "success");
             };
-            const deleteInvoice = (id) => setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => String(inv.id) === String(id) ? { ...inv, isDeleted: true, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : inv));
+            const deleteInvoice = (id) => setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => String(inv.id) === String(id) ? { ...inv, isDeleted: true, linkedDpAmount: 0, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : inv));
             const saveInvoicePayment = () => {
                 const amt = safeMoney(payForm.amount);
                 if (amt <= 0) return showToast('Isi nominal pembayaran.', 'error');
@@ -9071,7 +9074,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const clientDpRows = (clients || []).filter(isVisibleRecord).flatMap(client => (Array.isArray(client.clientDpPayments) ? client.clientDpPayments : []).filter(isVisibleRecord).map(dp => ({ ...dp, clientName: client.name || '-' }))).filter(dp => {
                 if (!isInPeriod(dp.date)) return false;
-                if (dp.invoiceId) return false;
                 if (!normalizedSearch) return true;
                 return [dp.clientName, dp.date, dp.amount, dp.method, dp.note].join(' ').toLowerCase().includes(normalizedSearch);
             });
@@ -9081,7 +9083,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return [dp.clientName, dp.date, dp.amount, dp.method, dp.note, dp.orderId, dp.invoiceId].join(' ').toLowerCase().includes(normalizedSearch);
             }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
             const totalInvoiceIncome = invoiceRows.reduce((sum, inv) => sum + getInvoicePaid(inv), 0);
-            const totalInvoiceReceivable = invoiceRows.reduce((sum, inv) => sum + Math.max(0, getInvoiceTotal(inv) - getInvoicePaidTotal(inv)), 0);
+            const totalInvoiceReceivable = invoiceRows.reduce((sum, inv) => sum + Math.max(0, getInvoiceTotal(inv) - getInvoiceCashInflow(inv)), 0);
             const totalClientDpIncome = clientDpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalManualIncome = expenseRows.filter(row => row.type === 'Uang Masuk').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
@@ -9095,7 +9097,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             // Kewajiban: Saldo DP Klien (liability - uang muka yang belum dipakai)
             const totalSaldoDpMasukAll = (clients || []).filter(isVisibleRecord)
-                .flatMap(c => (Array.isArray(c.clientDpPayments) ? c.clientDpPayments : []).filter(isVisibleRecord).filter(dp => !dp.invoiceId))
+                .flatMap(c => (Array.isArray(c.clientDpPayments) ? c.clientDpPayments : []).filter(isVisibleRecord))
                 .reduce((sum, dp) => sum + safeMoney(dp.amount), 0);
             const totalSaldoDpDipakaiAll = safeFinanceInvoices.filter(isVisibleRecord)
                 .reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0);
@@ -10826,7 +10828,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     }));
                 }
                 if (Array.isArray(rekapToDelete.marketingInvoiceIds) && setInvoices) {
-                    setInvoices(prev => (prev || []).map(inv => rekapToDelete.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: '', commissionRekapDate: '', _syncUpdatedAt: now } : inv));
+                    setInvoices(prev => (prev || []).map(inv => rekapToDelete.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: null, commissionRekapDate: null, _syncUpdatedAt: now } : inv));
                 }
                 setRekapKinerja(prev => (prev || []).map(r => String(r.id) === String(deleteRekapConfirmId) ? { ...r, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : r));
                 setDeleteRekapConfirmId(null);
@@ -11357,7 +11359,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
                 }));
                 if (Array.isArray(rekap.marketingInvoiceIds) && setInvoices) {
-                    setInvoices(prev => (prev || []).map(inv => rekap.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: '', commissionRekapDate: '', _syncUpdatedAt: now } : inv));
+                    setInvoices(prev => (prev || []).map(inv => rekap.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: null, commissionRekapDate: null, _syncUpdatedAt: now } : inv));
                 }
                 setRekapKinerja(prev => (prev || []).map(item => String(item.id) === String(rekap.id) ? { ...item, isDeleted: true, deletedAt: now, restoredForEdit: true, _syncUpdatedAt: now } : item));
                 setActiveReportTab('input');
@@ -13027,7 +13029,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                     }));
                 }
                 if (Array.isArray(rekapToDelete.marketingInvoiceIds) && setInvoices) {
-                    setInvoices(prev => (prev || []).map(inv => rekapToDelete.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: '', commissionRekapDate: '', _syncUpdatedAt: now } : inv));
+                    setInvoices(prev => (prev || []).map(inv => rekapToDelete.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: null, commissionRekapDate: null, _syncUpdatedAt: now } : inv));
                 }
                 setRekapKinerja(prev => (prev || []).map(r => String(r.id) === String(deleteRekapConfirmId) ? { ...r, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : r));
                 setDeleteRekapConfirmId(null);
