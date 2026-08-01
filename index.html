@@ -7306,8 +7306,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="absolute -top-4 -right-4 w-20 h-20 bg-white/10 rounded-full"></div>
                             <div className="flex items-start justify-between">
                                 <div>
-                                    <p className="text-emerald-100 text-xs font-semibold uppercase tracking-wide">Saldo Klien</p>
-                                    <p className="text-2xl font-black text-white mt-1">{formatRupiah(safeInvoiceRows.filter(isVisibleRecord).reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0))}</p>
+                                    <p className="text-emerald-100 text-xs font-semibold uppercase tracking-wide">DP Pool Terpakai</p>
+                                    <p className="text-2xl font-black text-white mt-1">{formatRupiah(visibleInvoices.reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0))}</p>
                                 </div>
                                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><IconUsers /></div>
                             </div>
