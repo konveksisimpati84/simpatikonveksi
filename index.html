@@ -4727,7 +4727,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const fc = calcNoteForm(noteForm);
                 if (fc.validItems.length === 0) { showToast('Minimal satu item harus diisi.', 'error'); return; }
                 const now = new Date().toISOString();
-                if (fc.total > 0 && fc.cleanPaid > fc.total) { showToast('Jumlah bayar melebihi total nota.', 'error'); return; }
+                if (fc.total > 0 && fc.cleanPaid > fc.total + 0.01) { showToast('Jumlah bayar melebihi total nota.', 'error'); return; }
                 const note = {
                     id: editNoteId || genId('PN-'),
                     vendor,
@@ -4798,7 +4798,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (!targetNote) return;
                 const tot = noteTotal(targetNote);
                 const currentPaid = notePaid(normalizeNote(targetNote));
-                if (tot > 0 && currentPaid + amt > tot) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
+                if (tot > 0 && currentPaid + amt > tot + 0.01) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
                 // Buat payment baru sekali di sini, lalu ambil existingPayments dari state terkini di dalam updater
                 // agar tidak ada stale closure jika sync terjadi antara validasi dan save
                 const newPayment = { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '', operasionalKaryawanId: quickPayForm.operasionalKaryawanId || '' };
