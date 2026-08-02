@@ -5882,7 +5882,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setDanaOperasional(prev => [record, ...safeArray(prev)]);
                 setNolkanForm(emptyNolkanForm);
                 setShowNolkanForm(false);
-                showToast('Saldo berhasil dinol-kan.', 'success');
+                showToast('Penyesuaian dana berhasil dicatat.', 'success');
             };
 
             const empDana = safeDana.filter(d => String(d.karyawanId) === selectedEmpId).sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
@@ -5983,10 +5983,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         <p className={`text-2xl font-black mt-2 ${stats.saldo > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{formatRupiah(stats.saldo)}</p>
                                     </div>
                                     {stats.saldo > 0 && (
-                                        <button onClick={() => { setNolkanForm({ ...emptyNolkanForm, nominal: String(stats.saldo) }); setShowNolkanForm(true); }} className="mt-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold whitespace-nowrap">Nol-kan</button>
+                                        <button onClick={() => { setNolkanForm({ ...emptyNolkanForm, nominal: String(stats.saldo) }); setShowNolkanForm(true); }} className="mt-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold whitespace-nowrap">Penyesuaian Dana</button>
                                     )}
                                 </div>
-                                {stats.totalPenyelesaian > 0 && <p className="text-xs text-gray-400 mt-1">Diselesaikan: {formatRupiah(stats.totalPenyelesaian)}</p>}
+                                {stats.totalPenyelesaian > 0 && <p className="text-xs text-gray-400 mt-1">Penyesuaian: {formatRupiah(stats.totalPenyelesaian)}</p>}
                             </Card>
                         </div>
 
@@ -5994,7 +5994,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
                                     <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-4 rounded-t-2xl">
-                                        <h3 className="font-black text-white text-base">Nol-kan Saldo Dana</h3>
+                                        <h3 className="font-black text-white text-base">Penyesuaian Dana</h3>
                                         <p className="text-amber-100 text-xs mt-0.5">{selectedEmp?.name} — Sisa: {formatRupiah(stats.saldo)}</p>
                                     </div>
                                     <form onSubmit={handleNolkanSaldo} className="p-5 space-y-4">
@@ -6003,7 +6003,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <input type="date" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={nolkanForm.tanggal} onChange={e => setNolkanForm(f => ({ ...f, tanggal: e.target.value }))} required />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">Nominal yang Dinol-kan (Rp)</label>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">Nominal Penyesuaian (Rp)</label>
                                             <input type="number" min="1" max={stats.saldo} className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={nolkanForm.nominal} onChange={e => setNolkanForm(f => ({ ...f, nominal: e.target.value }))} required />
                                             <p className="text-xs text-gray-400 mt-1">Maksimal: {formatRupiah(stats.saldo)}</p>
                                         </div>
@@ -6052,7 +6052,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">
                                                     <span className={`font-bold text-sm ${isPenyelesaian ? 'text-amber-800' : 'text-green-800'}`}>{formatRupiah(d.nominal)}</span>
-                                                    {isPenyelesaian && <span className="text-[10px] font-bold bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Penyelesaian</span>}
+                                                    {isPenyelesaian && <span className="text-[10px] font-bold bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Penyesuaian</span>}
                                                 </div>
                                                 <div className="text-xs text-gray-500">{d.tanggal}{d.keterangan ? ` · ${d.keterangan}` : ''}</div>
                                             </div>
