@@ -439,7 +439,7 @@
             if (!note.payments && note.paymentStatus === 'Dibayar Sebagian') return 'Dibayar Sebagian';
             const paid = notePaid(note), total = noteTotal(note);
             if (paid <= 0) return 'Belum Dibayar';
-            if (total > 0 && paid >= total) return 'Lunas';
+            if (total > 0 && paid >= total - 0.01) return 'Lunas';
             return 'Dibayar Sebagian';
         };
         // Satu-satunya tempat menghitung semua nilai form nota — dipakai display DAN validasi
@@ -451,7 +451,7 @@
             const paid = safeArray(form.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
             const cleanPaid = cleanPayments.reduce((s, p) => s + p.amount, 0);
             const debt = Math.max(0, total - paid);
-            const status = paid <= 0 ? 'Belum Dibayar' : total > 0 && paid >= total ? 'Lunas' : 'Dibayar Sebagian';
+            const status = paid <= 0 ? 'Belum Dibayar' : total > 0 && paid >= total - 0.01 ? 'Lunas' : 'Dibayar Sebagian';
             return { validItems, total, cleanPayments, paid, cleanPaid, debt, status };
         };
 
