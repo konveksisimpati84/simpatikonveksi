@@ -416,16 +416,17 @@
         // 4 fungsi murni — satu-satunya cara menghitung data nota pembelian
         const noteTotal  = (note) => safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
         // Hitung saldo dana operasional karyawan secara dinamis dari data
-        const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses) => {
+        const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses, rekapKinerja = []) => {
             const eid = String(empId);
             const records = safeArray(danaOperasional).filter(d => !d.isDeleted && String(d.karyawanId) === eid);
             // backward-compat: records without type field treated as 'keluar'
-            const totalIn          = records.filter(d => !d.type || d.type === 'keluar').reduce((s, d) => s + safeMoney(d.nominal), 0);
+            const totalIn           = records.filter(d => !d.type || d.type === 'keluar').reduce((s, d) => s + safeMoney(d.nominal), 0);
             const totalPenyelesaian = records.filter(d => d.type === 'penyelesaian').reduce((s, d) => s + safeMoney(d.nominal), 0);
-            const usedPN  = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
-            const usedExp = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
-            const saldo = Math.max(0, totalIn - totalPenyelesaian - usedPN - usedExp);
-            return { totalIn, totalUsed: usedPN + usedExp, totalPenyelesaian, saldo };
+            const usedPN    = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
+            const usedExp   = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
+            const usedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
+            const saldo = Math.max(0, totalIn - totalPenyelesaian - usedPN - usedExp - usedRekap);
+            return { totalIn, totalUsed: usedPN + usedExp + usedRekap, totalPenyelesaian, saldo };
         };
         const notePaid   = (note) => {
             if (!note.payments && note.paymentStatus)
@@ -5814,7 +5815,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, showToast }) => {
+        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], showToast }) => {
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const [selectedEmpId, setSelectedEmpId] = useState('');
             const emptyTransferForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '' };
@@ -5887,7 +5888,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const empDana = safeDana.filter(d => String(d.karyawanId) === selectedEmpId).sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
             const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, notaId: n.id, vendor: n.vendor, notaDate: n.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted).flatMap(ex => safeArray(ex.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, expId: ex.id, category: ex.category, expDate: ex.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-            const stats = selectedEmp ? getDanaSaldoKaryawan(selectedEmp.id, danaOperasional, purchaseNotes, expenses) : null;
+            const linkedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, rekapId: r.id, empName: r.empName, dateProcessed: r.dateProcessed }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const stats = selectedEmp ? getDanaSaldoKaryawan(selectedEmp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja) : null;
 
             return (
                 <div className="space-y-6">
@@ -5945,7 +5947,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         {safeEmployees.length === 0 && <p className="text-sm text-gray-400 italic">Belum ada data karyawan. Tambahkan di menu Data Karyawan.</p>}
                         <div className="flex flex-wrap gap-2">
                             {safeEmployees.map(emp => {
-                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses);
+                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja);
                                 const isSelected = selectedEmpId === String(emp.id);
                                 if (s.totalIn === 0 && !isSelected) return null;
                                 return (
@@ -5957,7 +5959,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </button>
                                 );
                             })}
-                            {safeEmployees.every(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses).totalIn === 0) && safeEmployees.length > 0 && (
+                            {safeEmployees.every(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja).totalIn === 0) && safeEmployees.length > 0 && (
                                 <p className="text-sm text-gray-400 italic">Belum ada karyawan yang memiliki dana operasional. Klik "+ Transfer Dana" untuk mulai.</p>
                             )}
                         </div>
@@ -6064,7 +6066,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 </div>
                             )}
                         </Card>
-                        {(linkedPN.length > 0 || linkedExp.length > 0) && (
+                        {(linkedPN.length > 0 || linkedExp.length > 0 || linkedRekap.length > 0) && (
                             <Card>
                                 <div className="flex items-center gap-2 mb-4">
                                     <div className="w-1 h-4 rounded-full bg-red-400"></div>
@@ -6089,6 +6091,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             </div>
                                         </div>
                                     ))}
+                                    {linkedRekap.map(p => (
+                                        <div key={p.id} className="flex items-center gap-3 px-4 py-3 bg-purple-50 border border-purple-200 rounded-xl">
+                                            <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center text-purple-700 font-black text-sm flex-shrink-0">↑</div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-bold text-purple-800 text-sm">{formatRupiah(p.amount)}</div>
+                                                <div className="text-xs text-gray-500">Bayar Gaji · {p.date} · {p.empName || '-'} · <span className="font-mono text-gray-400 text-[10px]">{p.rekapId}</span></div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </Card>
                         )}
@@ -6097,7 +6108,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                     {!selectedEmp && (
                         <div className="text-center py-12 text-gray-400 italic text-sm">
-                            {safeEmployees.some(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses).totalIn > 0)
+                            {safeEmployees.some(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja).totalIn > 0)
                                 ? 'Pilih karyawan di atas untuk melihat detail dana operasional.'
                                 : 'Mulai dengan klik "+ Transfer Dana" untuk mencatat transfer dana operasional ke karyawan.'}
                         </div>
@@ -10279,7 +10290,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [] }) => {
+        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [] }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
@@ -10290,6 +10301,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [payFormMethod, setPayFormMethod] = useState('Transfer');
             const [payFormDate, setPayFormDate] = useState(new Date().toISOString().split('T')[0]);
             const [payFormNote, setPayFormNote] = useState('');
+            const [payFormOperasionalKaryawanId, setPayFormOperasionalKaryawanId] = useState('');
             const [selectionConfirm, setSelectionConfirm] = useState(null);
             const [selectedItemKeys, setSelectedItemKeys] = useState(new Set());
             const [searchTerm, setSearchTerm] = useState('');
@@ -11304,7 +11316,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const net = safeMoney(rekap.netSalary ?? (safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)));
                 const alreadyPaid = (rekap.payments || []).reduce((s, p) => s + safeMoney(p.amount), 0);
                 if (amount > net - alreadyPaid + 0.01) { showToast('Jumlah melebihi sisa yang harus dibayar.', 'error'); return; }
-                const newPayment = { id: genId('PAY-'), date: payFormDate || new Date().toISOString().split('T')[0], amount, method: payFormMethod || 'Transfer', note: payFormNote || '', createdAt: new Date().toISOString() };
+                const newPayment = { id: genId('PAY-'), date: payFormDate || new Date().toISOString().split('T')[0], amount, method: payFormMethod || 'Transfer', note: payFormNote || '', operasionalKaryawanId: payFormOperasionalKaryawanId || '', createdAt: new Date().toISOString() };
                 setRekapKinerja(prev => (prev || []).map(r => {
                     if (String(r.id) !== String(rekapId)) return r;
                     const updatedPayments = [...(r.payments || []), newPayment];
@@ -11314,6 +11326,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 }));
                 setPayFormAmount('');
                 setPayFormNote('');
+                setPayFormOperasionalKaryawanId('');
                 showToast('Pembayaran berhasil ditambahkan.', 'success');
             };
 
@@ -13004,6 +13017,22 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                                                                 <input type="text" value={payFormNote} onChange={e => setPayFormNote(e.target.value)} placeholder="Misal: Bayar tahap 1" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
                                                             </div>
                                                         </div>
+                                                        {(() => {
+                                                            const empsWithDana = (employees || []).filter(isVisibleRecord).filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja).totalIn > 0);
+                                                            if (empsWithDana.length === 0) return null;
+                                                            return (
+                                                                <div>
+                                                                    <label className="text-xs text-gray-500 mb-1 block">Sumber Dana</label>
+                                                                    <select value={payFormOperasionalKaryawanId} onChange={e => setPayFormOperasionalKaryawanId(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                                                                        <option value="">Kas Perusahaan</option>
+                                                                        {empsWithDana.map(emp => {
+                                                                            const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja);
+                                                                            return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
+                                                                        })}
+                                                                    </select>
+                                                                </div>
+                                                            );
+                                                        })()}
                                                         <button onClick={() => handleAddPayment(rekap.id)} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">+ Simpan Pembayaran</button>
                                                     </div>
                                                 </div>
@@ -18036,11 +18065,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'dashboard' && canOpen('dashboard') && <DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} />}
                                 {activeTab === 'antrean' && canOpen('antrean') && <AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />}
                                 {activeTab === 'karyawan' && canOpen('karyawan') && <KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} />}
-                                {activeTab === 'dana_operasional' && canOpen('dana_operasional') && <DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} showToast={showToast} />}
+                                {activeTab === 'dana_operasional' && canOpen('dana_operasional') && <DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} showToast={showToast} />}
                                 {activeTab === 'input_order' && canOpen('input_order') && <InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} />}
                                 {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} />}
+                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
