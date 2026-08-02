@@ -411,7 +411,7 @@
         const normalizeVendorName = (vendor) => String(vendor || 'Tanpa Vendor').trim() || 'Tanpa Vendor';
         const getMaterialQty = (item) => parseFloat(String(item?.qty ?? 0).replace(',', '.')) || 0;
         const getMaterialUnitPrice = (item) => parseFloat(String(item?.price ?? 0).replace(',', '.')) || 0;
-        const getMaterialLineTotal = (item) => getMaterialQty(item) * getMaterialUnitPrice(item);
+        const getMaterialLineTotal = (item) => Math.round(getMaterialQty(item) * getMaterialUnitPrice(item));
         const getOrderMaterialTotal = (order) => getActiveMaterials(order).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
         // 4 fungsi murni — satu-satunya cara menghitung data nota pembelian
         const noteTotal  = (note) => safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
