@@ -5826,9 +5826,28 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const emptyNolkanForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '' };
             const [showNolkanForm, setShowNolkanForm] = useState(false);
             const [nolkanForm, setNolkanForm] = useState(emptyNolkanForm);
+            const [empSearch, setEmpSearch] = useState('');
+            const [empDropdownOpen, setEmpDropdownOpen] = useState(false);
+            const [empFocusedIdx, setEmpFocusedIdx] = useState(-1);
+            const empRef = React.useRef(null);
+            React.useEffect(() => {
+                const handler = (ev) => { if (empRef.current && !empRef.current.contains(ev.target)) setEmpDropdownOpen(false); };
+                document.addEventListener('mousedown', handler);
+                return () => document.removeEventListener('mousedown', handler);
+            }, []);
 
             const selectedEmp = safeEmployees.find(e => String(e.id) === selectedEmpId);
             const safeDana = safeArray(danaOperasional).filter(isVisibleRecord);
+            const filteredEmps = safeEmployees.filter(e => e.name.toLowerCase().includes(empSearch.toLowerCase()));
+            const handleEmpSelect = (empId) => { setSelectedEmpId(String(empId)); setEmpDropdownOpen(false); setEmpSearch(''); setEmpFocusedIdx(-1); };
+            const handleEmpClear = (ev) => { ev.stopPropagation(); setSelectedEmpId(''); setEmpSearch(''); setEmpFocusedIdx(-1); };
+            const handleEmpKeydown = (ev) => {
+                if (!empDropdownOpen && (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'ArrowDown')) { ev.preventDefault(); setEmpDropdownOpen(true); return; }
+                if (ev.key === 'ArrowDown') { ev.preventDefault(); setEmpFocusedIdx(i => Math.min(i + 1, filteredEmps.length - 1)); }
+                else if (ev.key === 'ArrowUp') { ev.preventDefault(); setEmpFocusedIdx(i => Math.max(i - 1, 0)); }
+                else if (ev.key === 'Enter') { ev.preventDefault(); if (empFocusedIdx >= 0 && filteredEmps[empFocusedIdx]) handleEmpSelect(filteredEmps[empFocusedIdx].id); else if (filteredEmps.length === 1) handleEmpSelect(filteredEmps[0].id); }
+                else if (ev.key === 'Escape') { ev.preventDefault(); setEmpDropdownOpen(false); }
+            };
 
             const handleSave = (e) => {
                 e.preventDefault();
@@ -5911,12 +5930,46 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </div>
                             <form onSubmit={handleSave} className="space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                                    <div>
+                                    <div className="relative" ref={empRef}>
                                         <label className="block text-xs font-bold text-gray-500 mb-1.5">Karyawan</label>
-                                        <select className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={selectedEmpId} onChange={e => setSelectedEmpId(e.target.value)} required>
-                                            <option value="">— Pilih Karyawan —</option>
-                                            {safeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
-                                        </select>
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                className={`w-full p-2.5 pr-8 border rounded-xl text-sm bg-gray-50 outline-none transition-colors ${empDropdownOpen ? 'border-blue-400 ring-2 ring-blue-100' : selectedEmpId ? 'border-blue-300' : ''}`}
+                                                placeholder="— Ketik atau pilih karyawan —"
+                                                value={empDropdownOpen ? empSearch : (selectedEmp ? selectedEmp.name : '')}
+                                                onClick={() => { setEmpDropdownOpen(true); setEmpSearch(''); setEmpFocusedIdx(-1); }}
+                                                onChange={e => { if (empDropdownOpen) { setEmpSearch(e.target.value); setEmpFocusedIdx(-1); } }}
+                                                onKeyDown={handleEmpKeydown}
+                                                autoComplete="off"
+                                                spellCheck={false}
+                                            />
+                                            {selectedEmpId
+                                                ? <button type="button" tabIndex={-1} onClick={handleEmpClear} className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-gray-200 hover:bg-red-100 flex items-center justify-center text-gray-500 hover:text-red-500 text-[10px] font-black">✕</button>
+                                                : <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none select-none text-[10px]">{empDropdownOpen ? '▲' : '▼'}</span>
+                                            }
+                                        </div>
+                                        {empDropdownOpen && (
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-blue-400 rounded-xl shadow-xl z-50 overflow-hidden">
+                                                {filteredEmps.length === 0
+                                                    ? <p className="px-4 py-3 text-sm text-gray-400 italic text-center">Karyawan tidak ditemukan</p>
+                                                    : <>
+                                                        <ul className="max-h-52 overflow-y-auto py-1.5 px-1.5 space-y-0.5">
+                                                            {filteredEmps.map((emp, i) => (
+                                                                <li key={emp.id}
+                                                                    onMouseDown={() => handleEmpSelect(emp.id)}
+                                                                    onMouseEnter={() => setEmpFocusedIdx(i)}
+                                                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${String(emp.id) === selectedEmpId ? 'bg-blue-50 text-blue-800 font-semibold' : i === empFocusedIdx ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'}`}>
+                                                                    <span className="flex-1">{emp.name}</span>
+                                                                    {String(emp.id) === selectedEmpId && <span className="text-blue-500 text-xs font-black">✓</span>}
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                        <p className="px-3 py-1.5 border-t border-gray-100 text-right text-xs text-gray-400 font-semibold">{filteredEmps.length} karyawan</p>
+                                                    </>
+                                                }
+                                            </div>
+                                        )}
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 mb-1.5">Tanggal</label>
