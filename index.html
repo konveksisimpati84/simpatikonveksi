@@ -418,10 +418,14 @@
         // Hitung saldo dana operasional karyawan secara dinamis dari data
         const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses) => {
             const eid = String(empId);
-            const totalIn = safeArray(danaOperasional).filter(d => !d.isDeleted && String(d.karyawanId) === eid).reduce((s, d) => s + safeMoney(d.nominal), 0);
+            const records = safeArray(danaOperasional).filter(d => !d.isDeleted && String(d.karyawanId) === eid);
+            // backward-compat: records without type field treated as 'keluar'
+            const totalIn          = records.filter(d => !d.type || d.type === 'keluar').reduce((s, d) => s + safeMoney(d.nominal), 0);
+            const totalPenyelesaian = records.filter(d => d.type === 'penyelesaian').reduce((s, d) => s + safeMoney(d.nominal), 0);
             const usedPN  = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedExp = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
-            return { totalIn, totalUsed: usedPN + usedExp, saldo: totalIn - usedPN - usedExp };
+            const saldo = Math.max(0, totalIn - totalPenyelesaian - usedPN - usedExp);
+            return { totalIn, totalUsed: usedPN + usedExp, totalPenyelesaian, saldo };
         };
         const notePaid   = (note) => {
             if (!note.payments && note.paymentStatus)
@@ -5818,6 +5822,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [editId, setEditId] = useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [showForm, setShowForm] = useState(false);
+            const emptyNolkanForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '' };
+            const [showNolkanForm, setShowNolkanForm] = useState(false);
+            const [nolkanForm, setNolkanForm] = useState(emptyNolkanForm);
 
             const selectedEmp = safeEmployees.find(e => String(e.id) === selectedEmpId);
             const safeDana = safeArray(danaOperasional).filter(isVisibleRecord);
@@ -5835,6 +5842,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     tanggal: form.tanggal || now.slice(0, 10),
                     nominal,
                     keterangan: form.keterangan || '',
+                    type: 'keluar',
                     _syncUpdatedAt: now,
                 };
                 setDanaOperasional(prev => editId
@@ -5851,6 +5859,29 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setDanaOperasional(prev => safeArray(prev).map(d => String(d.id) === String(id) ? { ...d, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : d));
                 setDeleteConfirmId(null);
                 showToast('Transfer dihapus.', 'success');
+            };
+
+            const handleNolkanSaldo = (e) => {
+                e.preventDefault();
+                const nominal = safeMoney(nolkanForm.nominal);
+                if (nominal <= 0) { showToast('Nominal harus lebih dari 0.', 'error'); return; }
+                if (!nolkanForm.keterangan.trim()) { showToast('Keterangan wajib diisi.', 'error'); return; }
+                if (nominal > (stats?.saldo || 0)) { showToast('Nominal melebihi sisa saldo.', 'error'); return; }
+                const now = new Date().toISOString();
+                const record = {
+                    id: genId('DO-'),
+                    karyawanId: selectedEmpId,
+                    karyawanNama: selectedEmp?.name || '',
+                    tanggal: nolkanForm.tanggal || now.slice(0, 10),
+                    nominal,
+                    keterangan: nolkanForm.keterangan.trim(),
+                    type: 'penyelesaian',
+                    _syncUpdatedAt: now,
+                };
+                setDanaOperasional(prev => [record, ...safeArray(prev)]);
+                setNolkanForm(emptyNolkanForm);
+                setShowNolkanForm(false);
+                showToast('Saldo berhasil dinol-kan.', 'success');
             };
 
             const empDana = safeDana.filter(d => String(d.karyawanId) === selectedEmpId).sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
@@ -5944,10 +5975,49 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(stats.totalUsed)}</p>
                             </Card>
                             <Card className={`border-l-4 ${stats.saldo > 0 ? 'border-l-amber-400' : 'border-l-gray-300'}`}>
-                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Sisa di Karyawan</h3>
-                                <p className={`text-2xl font-black mt-2 ${stats.saldo > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{formatRupiah(stats.saldo)}</p>
+                                <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Sisa di Karyawan</h3>
+                                        <p className={`text-2xl font-black mt-2 ${stats.saldo > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{formatRupiah(stats.saldo)}</p>
+                                    </div>
+                                    {stats.saldo > 0 && (
+                                        <button onClick={() => { setNolkanForm({ ...emptyNolkanForm, nominal: String(stats.saldo) }); setShowNolkanForm(true); }} className="mt-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold whitespace-nowrap">Nol-kan</button>
+                                    )}
+                                </div>
+                                {stats.totalPenyelesaian > 0 && <p className="text-xs text-gray-400 mt-1">Diselesaikan: {formatRupiah(stats.totalPenyelesaian)}</p>}
                             </Card>
                         </div>
+
+                        {showNolkanForm && (
+                            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+                                    <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-4 rounded-t-2xl">
+                                        <h3 className="font-black text-white text-base">Nol-kan Saldo Dana</h3>
+                                        <p className="text-amber-100 text-xs mt-0.5">{selectedEmp?.name} — Sisa: {formatRupiah(stats.saldo)}</p>
+                                    </div>
+                                    <form onSubmit={handleNolkanSaldo} className="p-5 space-y-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">Tanggal</label>
+                                            <input type="date" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={nolkanForm.tanggal} onChange={e => setNolkanForm(f => ({ ...f, tanggal: e.target.value }))} required />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">Nominal yang Dinol-kan (Rp)</label>
+                                            <input type="number" min="1" max={stats.saldo} className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={nolkanForm.nominal} onChange={e => setNolkanForm(f => ({ ...f, nominal: e.target.value }))} required />
+                                            <p className="text-xs text-gray-400 mt-1">Maksimal: {formatRupiah(stats.saldo)}</p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">Keterangan <span className="text-red-500">*</span></label>
+                                            <input type="text" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="Misal: Dana diserahkan ke admin Rudi" value={nolkanForm.keterangan} onChange={e => setNolkanForm(f => ({ ...f, keterangan: e.target.value }))} required />
+                                        </div>
+                                        <div className="flex gap-2 justify-end pt-1">
+                                            <button type="button" onClick={() => { setShowNolkanForm(false); setNolkanForm(emptyNolkanForm); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-sm">Batal</button>
+                                            <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm">Simpan</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+
                         {stats.totalIn > 0 && (
                             <div className="bg-white rounded-xl border border-gray-200 p-4">
                                 <div className="flex justify-between text-xs font-bold text-gray-500 mb-2">
@@ -5972,19 +6042,25 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <p className="text-sm text-gray-400 italic text-center py-4">Belum ada transfer dana untuk {selectedEmp.name}.</p>
                             ) : (
                                 <div className="space-y-2">
-                                    {empDana.map(d => (
-                                        <div key={d.id} className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
-                                            <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-green-700 font-black text-sm flex-shrink-0">↓</div>
+                                    {empDana.map(d => {
+                                        const isPenyelesaian = d.type === 'penyelesaian';
+                                        return (
+                                        <div key={d.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${isPenyelesaian ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${isPenyelesaian ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>{isPenyelesaian ? '✓' : '↓'}</div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-green-800 text-sm">{formatRupiah(d.nominal)}</div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`font-bold text-sm ${isPenyelesaian ? 'text-amber-800' : 'text-green-800'}`}>{formatRupiah(d.nominal)}</span>
+                                                    {isPenyelesaian && <span className="text-[10px] font-bold bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Penyelesaian</span>}
+                                                </div>
                                                 <div className="text-xs text-gray-500">{d.tanggal}{d.keterangan ? ` · ${d.keterangan}` : ''}</div>
                                             </div>
                                             <div className="flex gap-1 flex-shrink-0">
-                                                <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                {!isPenyelesaian && <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
                                                 <button onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                             </div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </Card>
