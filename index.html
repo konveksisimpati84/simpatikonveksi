@@ -4686,6 +4686,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [expandedNotes, setExpandedNotes] = useState({});
             const toggleNote = (id) => setExpandedNotes(p => ({ ...p, [id]: !p[id] }));
 
+            const [checkedNoteIds, setCheckedNoteIds] = useState(new Set());
+            const toggleCheckNote = (id) => setCheckedNoteIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+            const clearChecked = () => setCheckedNoteIds(new Set());
+
             const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', orderId: '' });
             const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
             const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [] };
@@ -4904,15 +4908,23 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     return (
                         <div key={note.id} className="rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all" style={{ border: `1.5px solid ${st.bar}22` }}>
                             {/* Compact header — always visible, clickable to expand */}
-                            <button
-                                type="button"
+                            <div
                                 onClick={() => toggleNote(note.id)}
-                                className="w-full text-left"
+                                className="w-full text-left cursor-pointer select-none"
                                 style={{ background: `linear-gradient(135deg, ${st.bar}18 0%, white 60%)` }}
                             >
                                 <div className="flex items-center gap-0">
                                     {/* Left status stripe */}
                                     <div className="w-1.5 self-stretch shrink-0 rounded-l-2xl" style={{ background: st.bar }}></div>
+                                    {/* Checkbox */}
+                                    <div
+                                        className="flex items-center justify-center self-stretch px-2 shrink-0"
+                                        onClick={e => { e.stopPropagation(); toggleCheckNote(note.id); }}
+                                    >
+                                        <div style={{ width: 18, height: 18, borderRadius: 4, border: checkedNoteIds.has(note.id) ? 'none' : '2px solid #d1d5db', background: checkedNoteIds.has(note.id) ? '#1B4F72' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', transition: 'all 0.15s' }}>
+                                            {checkedNoteIds.has(note.id) && <span style={{ color: 'white', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                                        </div>
+                                    </div>
                                     <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
                                         {/* Status icon */}
                                         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-sm" style={{ background: st.bg, color: st.text }}>
@@ -4945,7 +4957,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         <div className="text-gray-400 text-xs ml-1 shrink-0 w-4">{isExpanded ? '▲' : '▼'}</div>
                                     </div>
                                 </div>
-                            </button>
+                            </div>
 
                             {/* Expanded detail */}
                             {isExpanded && (
@@ -5425,6 +5437,35 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 {notes.map(renderNoteCard)}
                             </div>
                         )}
+
+                        {/* Sticky summary bar for checked notes */}
+                        {checkedNoteIds.size > 0 && (() => {
+                            const checkedArr = allNotes.filter(n => checkedNoteIds.has(n.id));
+                            const checkedTotal = checkedArr.reduce((s, n) => s + noteTotal(n), 0);
+                            const checkedHutang = checkedArr.reduce((s, n) => s + noteDebt(n), 0);
+                            const hasHutang = checkedArr.some(n => noteStatus(n) !== 'Lunas');
+                            return (
+                                <div className="sticky bottom-4 z-50 mt-4">
+                                    <div className="rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-4" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#0D7F78 100%)', color: 'white' }}>
+                                        <div className="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center font-black text-sm" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                                            {checkedNoteIds.size}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-[11px] font-medium opacity-75">{checkedNoteIds.size} nota dipilih</div>
+                                            <div className="font-black text-base leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(checkedTotal)}</div>
+                                            {hasHutang && <div className="text-[11px] opacity-75 mt-0.5">Sisa hutang: <span className="font-bold">{formatRupiah(checkedHutang)}</span></div>}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={clearChecked}
+                                            style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 10, padding: '7px 16px', fontSize: 12, fontWeight: 700, color: 'white', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                        >
+                                            Batal Pilih
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 );
             };
