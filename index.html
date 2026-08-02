@@ -4686,9 +4686,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [expandedNotes, setExpandedNotes] = useState({});
             const toggleNote = (id) => setExpandedNotes(p => ({ ...p, [id]: !p[id] }));
 
+            const [selectionMode, setSelectionMode] = useState(false);
             const [checkedNoteIds, setCheckedNoteIds] = useState(new Set());
             const toggleCheckNote = (id) => setCheckedNoteIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
             const clearChecked = () => setCheckedNoteIds(new Set());
+            const exitSelectionMode = () => { setSelectionMode(false); setCheckedNoteIds(new Set()); };
 
             const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', orderId: '' });
             const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
@@ -4916,15 +4918,17 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <div className="flex items-center gap-0">
                                     {/* Left status stripe */}
                                     <div className="w-1.5 self-stretch shrink-0 rounded-l-2xl" style={{ background: st.bar }}></div>
-                                    {/* Checkbox */}
-                                    <div
-                                        className="flex items-center justify-center self-stretch px-2 shrink-0"
-                                        onClick={e => { e.stopPropagation(); toggleCheckNote(note.id); }}
-                                    >
-                                        <div style={{ width: 18, height: 18, borderRadius: 4, border: checkedNoteIds.has(note.id) ? 'none' : '2px solid #d1d5db', background: checkedNoteIds.has(note.id) ? '#1B4F72' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', transition: 'all 0.15s' }}>
-                                            {checkedNoteIds.has(note.id) && <span style={{ color: 'white', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                                    {/* Checkbox — hanya tampil saat mode seleksi aktif */}
+                                    {selectionMode && (
+                                        <div
+                                            className="flex items-center justify-center self-stretch px-2 shrink-0"
+                                            onClick={e => { e.stopPropagation(); toggleCheckNote(note.id); }}
+                                        >
+                                            <div style={{ width: 18, height: 18, borderRadius: 4, border: checkedNoteIds.has(note.id) ? 'none' : '2px solid #d1d5db', background: checkedNoteIds.has(note.id) ? '#1B4F72' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', transition: 'all 0.15s' }}>
+                                                {checkedNoteIds.has(note.id) && <span style={{ color: 'white', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                     <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
                                         {/* Status icon */}
                                         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-sm" style={{ background: st.bg, color: st.text }}>
@@ -5106,18 +5110,29 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         </div>
 
                         {/* Tombol + Form */}
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center gap-2">
                             <div className="text-sm font-semibold text-gray-500">
                                 {notes.length > 0 ? `${notes.length} nota pembelian` : 'Belum ada nota'}
                                 {(filterStatus !== 'Semua' || noteSearch.trim()) && allNotes.length !== notes.length && <span className="text-xs font-normal text-gray-400 ml-1">(dari {allNotes.length} total)</span>}
                             </div>
-                            <button
-                                onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                                className="flex items-center gap-2 px-5 py-2.5 text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg transition-all"
-                                style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}
-                            >
-                                <span style={{ fontSize: 16 }}>＋</span> Input Pembelian Bahan
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => selectionMode ? exitSelectionMode() : setSelectionMode(true)}
+                                    className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-bold rounded-xl border transition-all"
+                                    style={selectionMode
+                                        ? { background: '#FEE2E2', color: '#991B1B', borderColor: '#FECACA' }
+                                        : { background: '#EFF6FF', color: '#1B4F72', borderColor: '#BFDBFE' }}
+                                >
+                                    {selectionMode ? <>✕ Batal Pilih</> : <>☑ Pilih Nota</>}
+                                </button>
+                                <button
+                                    onClick={() => { setEditNoteId(null); setNoteForm(emptyNoteForm); setNoteFormOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                                    className="flex items-center gap-2 px-5 py-2.5 text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg transition-all"
+                                    style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}
+                                >
+                                    <span style={{ fontSize: 16 }}>＋</span> Input Pembelian Bahan
+                                </button>
+                            </div>
                         </div>
 
                         {noteFormOpen && (() => { const fc = calcNoteForm(noteForm); const _noteFormEl = (
@@ -5458,10 +5473,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         </div>
                                         <button
                                             type="button"
-                                            onClick={clearChecked}
+                                            onClick={exitSelectionMode}
                                             style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 10, padding: '7px 16px', fontSize: 12, fontWeight: 700, color: 'white', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
                                         >
-                                            Batal Pilih
+                                            ✕ Selesai
                                         </button>
                                     </div>
                                 </div>
