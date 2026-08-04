@@ -10765,215 +10765,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 }
             };
 
-            const triggerPrintA4 = (data) => {
-                const formatReceiptMoney = (num) => formatRupiah(num || 0).replace(/\s/g, '');
-                const allInvoicesForPrint = safeInvoicesForReport;
-                const relatedInvoices = allInvoicesForPrint.filter(inv => (data.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
-                const dailyLogs = Array.isArray(data.dailySalaryLogs) ? data.dailySalaryLogs : [];
-                const dailyOnlyLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
-                const overtimeLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
-                const sectionRows = (title, rows, emptyText = 'Tidak ada data.') => `
-                    <div class="section-title">${title}</div>
-                    <div class="section-list">
-                        ${rows.length ? rows.join('') : `<div class="item-row muted"><span>${emptyText}</span><span>-</span></div>`}
-                    </div>
-                `;
-                const marketingRows = relatedInvoices.map(inv => `
-                    <div class="item-row${inv.isDeleted ? ' muted' : ''}">
-                        <span><b>${inv.id || '-'}${inv.isDeleted ? ' (dihapus)' : ''}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small></span>
-                        <span>${formatReceiptMoney(getInvoiceCommissionTotal(inv))}</span>
-                    </div>
-                `);
-                const productionRows = (data.items || []).map(item => `
-                    <div class="item-row">
-                        <span><b>${item.orderId || '-'} - ${item.stageLabel || item.stage || '-'}</b><small>${item.client ? `${item.client} &middot; ` : ''}${item.type || '-'} | ${item.qty || 0} x ${formatReceiptMoney(item.unitPrice || 0)}</small></span>
-                        <span>${formatReceiptMoney(item.wageTotal || 0)}</span>
-                    </div>
-                `);
-                const dailyRows = dailyOnlyLogs.map(log => `
-                    <div class="item-row">
-                        <span><b>${log.date || '-'}</b><small>${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</small></span>
-                        <span>${formatReceiptMoney(getDailySalaryLogTotal(log).daily)}</span>
-                    </div>
-                `);
-                const overtimeRows = overtimeLogs.map(log => `
-                    <div class="item-row">
-                        <span><b>${log.date || '-'}</b><small>${log.note || 'Lembur'} | ${log.overtimeCount || 0} jam</small></span>
-                        <span>${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</span>
-                    </div>
-                `);
-                const productionTableRows = (data.items || []).map((item, i) => `
-                    <tr>
-                        <td class="c">${i + 1}</td>
-                        <td>${item.orderId || '-'} &mdash; ${item.stageLabel || item.stage || '-'}</td>
-                        <td class="muted-cell">${item.client ? item.client + ' &middot; ' : ''}${item.type || '-'} | ${item.qty || 0} pcs &times; ${formatReceiptMoney(item.unitPrice || 0)}</td>
-                        <td class="r">${formatReceiptMoney(item.wageTotal || 0)}</td>
-                    </tr>
-                `).join('');
-                const dailyTableRows = dailyOnlyLogs.map((log, i) => {
-                    const t = getDailySalaryLogTotal(log);
-                    const adjRows = (log.hourAdjDetails?.length > 0 && t.adj !== 0)
-                        ? log.hourAdjDetails.map(d => `<tr style="background:#fafafa"><td class="c" style="color:#9ca3af">↳</td><td style="font-size:10px;color:#6b7280">${d.date}</td><td class="muted-cell" style="font-size:10px">Penyesuaian Jam Kerja | ${d.selisihJam > 0 ? '+' : ''}${d.selisihJam} jam</td><td class="r" style="font-size:10px;color:${d.amount > 0 ? '#15803d' : '#dc2626'};font-weight:700">${d.amount > 0 ? '+' : ''}${formatReceiptMoney(d.amount)}</td></tr>`).join('')
-                        : '';
-                    return `
-                    <tr>
-                        <td class="c">${i + 1}</td>
-                        <td>${log.date || '-'}</td>
-                        <td class="muted-cell">${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</td>
-                        <td class="r">${formatReceiptMoney(t.base)}</td>
-                    </tr>${adjRows}`;
-                }).join('');
-                const overtimeTableRows = overtimeLogs.map((log, i) => `
-                    <tr>
-                        <td class="c">${i + 1}</td>
-                        <td>${log.date || '-'}</td>
-                        <td class="muted-cell">${log.note || 'Lembur'} | ${log.overtimeCount || 0} jam</td>
-                        <td class="r">${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</td>
-                    </tr>
-                `).join('');
-                const marketingTableRows = relatedInvoices.map((inv, i) => `
-                    <tr${inv.isDeleted ? ' style="opacity:.6"' : ''}>
-                        <td class="c">${i + 1}</td>
-                        <td>${inv.id || '-'}${inv.isDeleted ? ' <span style="color:#dc2626;font-size:9px">(dihapus)</span>' : ''}</td>
-                        <td class="muted-cell">${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</td>
-                        <td class="r">${formatReceiptMoney(getInvoiceCommissionTotal(inv))}</td>
-                    </tr>
-                `).join('');
-                const subHeader = (label) => `<tr><td colspan="4" class="sub-header">${label}</td></tr>`;
-                const emptyRow = (label) => `<tr><td colspan="4" class="empty-row">${label}</td></tr>`;
-                const allTableRows = `
-                    ${productionRows.length > 0 ? subHeader('Gaji Produksi') + productionTableRows : ''}
-                    ${dailyRows.length > 0 ? subHeader('Gaji Harian') + dailyTableRows : ''}
-                    ${overtimeRows.length > 0 ? subHeader('Lembur') + overtimeTableRows : ''}
-                    ${marketingRows.length > 0 ? subHeader('Komisi Marketing') + marketingTableRows : ''}
-                    ${safeMoney(data.cashAdvanceDeduction) > 0 ? subHeader('Potongan — Kasbon') + `<tr><td class="c">−</td><td>Bayar kasbon</td><td class="muted-cell">Sisa sesudah: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</td><td class="r" style="color:#dc2626">− ${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</td></tr>` : ''}
-                    ${productionRows.length === 0 && dailyRows.length === 0 && overtimeRows.length === 0 && marketingRows.length === 0 ? emptyRow('Tidak ada rincian gaji.') : ''}
-                `;
-                const printContent = `<!DOCTYPE html><html><head><title>SG - ${data.empName}</title><style>
-@page{size:A4;margin:12mm 14mm}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page{width:100%;min-height:297mm;display:flex;flex-direction:column}
-.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8mm;border-bottom:3px solid #1e3a5f}
-.brand{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
-.brand img{max-height:50px;max-width:140px;object-fit:contain}
-.brand .co-name{font-size:17px;font-weight:900;color:#1e3a5f;line-height:1.1;margin-top:2px}
-.brand .co-sub{font-size:10px;color:#64748b;margin-top:1px}
-.brand .co-contact{font-size:10px;color:#64748b;margin-top:1px}
-.slip-right{text-align:right}
-.slip-right .slip-label{font-size:26px;font-weight:900;color:#1e3a5f;letter-spacing:-1px;line-height:1}
-.slip-right .slip-id{font-size:11px;font-weight:700;color:#3b82f6;margin-top:3px}
-.slip-right .slip-date{font-size:10px;color:#64748b;margin-top:2px}
-.parties{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6mm}
-.party-box{background:#f4f6f8;border:1px solid #9ca3af;border-radius:7px;padding:9px 12px}
-.party-label{font-size:8.5px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-bottom:4px}
-.party-name{font-size:13px;font-weight:900;color:#1e3a5f;line-height:1.2}
-.party-detail{font-size:10px;color:#64748b;margin-top:2px;line-height:1.4}
-.items-section{margin-top:6mm}
-.items-section table{width:100%;border-collapse:collapse}
-.items-section thead th{background:#1e3a5f;color:#fff;padding:7px 8px;font-size:10px;text-align:left;font-weight:700}
-.items-section thead th.r{text-align:right}
-.items-section thead th.c{text-align:center;width:28px}
-.items-section tbody td{padding:6px 8px;font-size:11px;vertical-align:top;border-bottom:1px solid #e2e8f0}
-.items-section tbody td.r{text-align:right;font-weight:700;white-space:nowrap}
-.items-section tbody td.c{text-align:center;color:#64748b}
-.items-section tbody td.muted-cell{font-size:10px;color:#64748b}
-.items-section tbody tr:nth-child(even) td{background:#f8fafc}
-.sub-header td{background:#e8edf4;color:#1e3a5f;font-size:9.5px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;padding:5px 8px}
-.empty-row td{text-align:center;color:#94a3b8;font-style:italic;padding:16px 8px}
-.totals-section{display:grid;grid-template-columns:1fr 0.6fr;gap:14px;margin-top:5mm;page-break-inside:avoid;break-inside:avoid}
-.info-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:10px 12px}
-.info-label{font-size:8.5px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:5px}
-.amounts{background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:10px 12px}
-.amount-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:11px;border-bottom:1px dashed #e2e8f0}
-.amount-row:last-child{border:none}
-.amount-row.total-final{font-size:14px;font-weight:900;color:#1e3a5f;padding-top:7px;border-top:2px solid #1e3a5f;margin-top:3px;border-bottom:none}
-.amount-row .lbl{color:#64748b}
-.amount-row .val{font-weight:700}
-.footer-section{display:flex;justify-content:space-between;margin-top:8mm;padding-top:5mm;border-top:1px solid #9ca3af;page-break-before:avoid;break-before:avoid;page-break-inside:avoid;break-inside:avoid}
-.sign-box{text-align:center;width:180px}
-.sign-title{font-size:10px;font-weight:700;color:#374151;margin-bottom:0}
-.sign-img{max-height:100px;max-width:160px;object-fit:contain;display:block;margin:-12px auto -18px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}
-.sign-space{height:55px}
-.sign-line{border-bottom:1.5px solid #374151;margin-bottom:4px}
-.sign-name{font-size:11px;font-weight:700;color:#1e3a5f;text-decoration:underline;text-underline-offset:3px}
-.sign-sub{font-size:9px;color:#64748b;margin-top:2px}
-.footer-note{text-align:center;font-size:9px;margin-top:8mm;color:#64748b}
-</style></head><body><div class="page">
-<div class="header">
-  <div class="brand">
-    ${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : ''}
-    <div class="co-name">${templates?.companyName || 'SIMPATI KONVEKSI'}</div>
-    ${templates?.companySubtitle ? `<div class="co-sub">${templates.companySubtitle}</div>` : ''}
-    ${templates?.companyContact ? `<div class="co-contact">${templates.companyContact}</div>` : ''}
-  </div>
-  <div class="slip-right">
-    <div class="slip-label">SLIP GAJI</div>
-    <div class="slip-id">${data.id || '-'}</div>
-    <div class="slip-date">Tanggal: ${data.dateProcessed || '-'}</div>
-  </div>
-</div>
-<div class="parties">
-  <div class="party-box">
-    <div class="party-label">Karyawan</div>
-    <div class="party-name">${data.empName || '-'}</div>
-    <div class="party-detail">${data.division || '-'}</div>
-  </div>
-  <div class="party-box">
-    <div class="party-label">Diterbitkan Oleh</div>
-    <div class="party-name">${templates?.companyName || 'Simpati Konveksi'}</div>
-    ${templates?.companyContact ? `<div class="party-detail">${templates.companyContact}</div>` : ''}
-  </div>
-</div>
-<div class="items-section">
-  <table>
-    <thead><tr><th class="c">No.</th><th>Keterangan</th><th>Detail</th><th class="r">Jumlah</th></tr></thead>
-    <tbody>${allTableRows}</tbody>
-  </table>
-</div>
-<div class="totals-section">
-  <div class="info-box">
-    <div class="info-label">Informasi Rekap</div>
-    <div style="font-size:10px;color:#374151;line-height:1.7">
-      <div><span style="color:#64748b">ID Rekap:</span> <b>${data.id || '-'}</b></div>
-      <div><span style="color:#64748b">Tanggal:</span> <b>${data.dateProcessed || '-'}</b></div>
-      ${safeMoney(data.cashAdvanceDeduction) > 0 ? `<div style="margin-top:4px;padding-top:4px;border-top:1px dashed #e2e8f0;color:#dc2626"><span style="color:#64748b">Kasbon dipotong:</span> <b>${formatReceiptMoney(data.cashAdvanceDeduction)}</b></div>` : ''}
-    </div>
-  </div>
-  <div class="amounts">
-    <div class="amount-row"><span class="lbl">Total Pendapatan</span><span class="val">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
-    <div class="amount-row"><span class="lbl">Total Potongan</span><span class="val" style="color:#dc2626">− ${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
-    <div class="amount-row total-final"><span>Total Diterima</span><span style="color:${safeMoney(data.netSalary ?? data.totalWage) > 0 ? '#1e3a5f' : '#dc2626'}">${formatReceiptMoney(data.netSalary ?? data.totalWage ?? 0)}</span></div>
-  </div>
-</div>
-<div class="footer-section">
-  <div class="sign-box">
-    <div class="sign-title">Penerima,</div>
-    <div class="sign-space"></div>
-    <div class="sign-name">${data.empName || ''}</div>
-    <div class="sign-sub">Karyawan</div>
-  </div>
-  <div class="sign-box">
-    <div class="sign-title">Hormat Kami,</div>
-    ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
-    <div class="sign-name">${templates?.companyName || 'Simpati Konveksi'}</div>
-    <div class="sign-sub">Administration</div>
-  </div>
-</div>
-<div class="footer-note">Simpan slip ini sebagai bukti rekap gaji karyawan.</div>
-</div></body></html>`;
-                let printWindow = window.open('', '_blank');
-                if (printWindow) {
-                    printWindow.document.open();
-                    printWindow.document.write(printContent);
-                    printWindow.document.close();
-                    printWindow.focus();
-                    if (printWindow.document.readyState === 'complete') { setTimeout(() => printWindow.print(), 150); }
-                    else { printWindow.onload = () => setTimeout(() => printWindow.print(), 100); }
-                } else {
-                    showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
-                }
-            };
 
             const handleDeleteRekap = () => {
                 const rekapToDelete = (rekapKinerja || []).find(r => String(r.id) === String(deleteRekapConfirmId));
@@ -11413,11 +11204,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const printExistingRekap = (rekap) => {
                 const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                 triggerPrint({ ...rekap, empName: emp?.name || rekap.empName || '-', division: (emp ? getEmployeeDivisions(emp).join(', ') : null) || rekap.division || '-' });
-            };
-
-            const printExistingRekapA4 = (rekap) => {
-                const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
-                triggerPrintA4({ ...rekap, empName: emp?.name || rekap.empName || '-', division: (emp ? getEmployeeDivisions(emp).join(', ') : null) || rekap.division || '-' });
             };
 
             const sendWaRekap = (rekap) => {
@@ -12261,7 +12047,6 @@ ${getRekapShareLink(rekap)}
                                                     <div className="flex justify-center gap-1.5">
                                                         <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg"><IconEye /></button>
                                                         <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-2 rounded-lg"><IconEdit /></button>
-                                                        <button onClick={() => printExistingRekapA4(rekap)} title="Cetak PDF (A4)" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg text-xs font-bold">PDF</button>
                                                         <button onClick={() => printExistingRekap(rekap)} title="Cetak Struk Thermal" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-2 rounded-lg"><IconPrinter /></button>
                                                         <button onClick={() => sendWaRekap(rekap)} title="Kirim Notifikasi WhatsApp" className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 p-2 rounded-lg text-xs font-bold">WA</button>
                                                         <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-2 rounded-lg"><IconTrash /></button>
@@ -12303,7 +12088,6 @@ ${getRekapShareLink(rekap)}
                                             <div className="flex gap-1.5 flex-wrap">
                                                 <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg"><IconEye /></button>
                                                 <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-1.5 rounded-lg"><IconEdit /></button>
-                                                <button onClick={() => printExistingRekapA4(rekap)} title="Cetak PDF (A4)" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg text-xs font-bold">PDF</button>
                                                 <button onClick={() => printExistingRekap(rekap)} title="Cetak Struk Thermal" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-1.5 rounded-lg"><IconPrinter /></button>
                                                 <button onClick={() => sendWaRekap(rekap)} title="Kirim Notifikasi WhatsApp" className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 p-1.5 rounded-lg text-xs font-bold">WA</button>
                                                 <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"><IconTrash /></button>
@@ -13222,7 +13006,6 @@ ${getRekapShareLink(rekap)}
                                         </>)}
                                     </div>
                                     <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 flex-shrink-0 flex-wrap">
-                                        <button onClick={() => { closeModal(); printExistingRekapA4(rekap); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">📄 Cetak PDF</button>
                                         <button onClick={() => { closeModal(); printExistingRekap(rekap); }} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Thermal</button>
                                         <button onClick={() => sendWaRekap(rekap)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">📱 Kirim WA</button>
                                         <button onClick={closeModal} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
