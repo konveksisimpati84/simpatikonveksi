@@ -10642,14 +10642,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 `);
                 const dailyRows = dailyOnlyLogs.map(log => {
                     const t = getDailySalaryLogTotal(log);
-                    const adjLine = (log.hourAdjDetails?.length > 0 && t.adj !== 0)
-                        ? `<div class="item-row" style="font-size:10px;color:#555"><span>Penyesuaian Jam Kerja</span><span style="color:${t.adj > 0 ? '#15803d' : '#dc2626'}">${t.adj > 0 ? '+' : ''}${formatReceiptMoney(t.adj)}</span></div>`
+                    const hasAdj = log.hourAdjDetails?.length > 0 && t.adj !== 0;
+                    const adjRows = hasAdj
+                        ? log.hourAdjDetails.map(d => `<div class="item-row" style="font-size:9.5px;background:#fafafa;padding-left:8px"><span style="color:#6b7280">↳ <b style="color:#374151">${d.date}</b> | ${d.selisihJam > 0 ? '+' : ''}${d.selisihJam} jam</span><span style="color:${d.amount > 0 ? '#15803d' : '#dc2626'};font-weight:700">${d.amount > 0 ? '+' : ''}${formatReceiptMoney(d.amount)}</span></div>`).join('') +
+                          (log.hourAdjDetails.length > 1 ? `<div class="item-row" style="font-size:9.5px;background:#f0fdf4;padding-left:8px"><span style="font-weight:700;color:#374151">Subtotal Penyesuaian</span><span style="color:${t.adj > 0 ? '#15803d' : '#dc2626'};font-weight:700">${t.adj > 0 ? '+' : ''}${formatReceiptMoney(t.adj)}</span></div>` : '')
                         : '';
                     return `
                     <div class="item-row">
                         <span><b>${log.date || '-'}</b><small>${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</small></span>
                         <span>${formatReceiptMoney(t.base)}</span>
-                    </div>${adjLine}`;
+                    </div>${adjRows}`;
                 });
                 const overtimeRows = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => `
                     <div class="item-row">
@@ -14194,9 +14196,27 @@ ${getRekapShareLink(rekap)}
                             {dailyOnlyLogs.length > 0 && (
                                 <>
                                     <SectionTitle title="Gaji Harian" />
-                                    {dailyOnlyLogs.map((log, idx) => (
-                                        <ItemRow key={idx} label={log.date || '-'} sub={`${log.note || 'Gaji harian'} | ${log.workDays || 0} hari`} value={formatReceiptMoney(getDailySalaryLogTotal(log).daily)} />
-                                    ))}
+                                    {dailyOnlyLogs.map((log, idx) => {
+                                        const t = getDailySalaryLogTotal(log);
+                                        const hasAdj = log.hourAdjDetails?.length > 0 && t.adj !== 0;
+                                        return (
+                                            <React.Fragment key={idx}>
+                                                <ItemRow label={log.date || '-'} sub={`${log.note || 'Gaji harian'} | ${log.workDays || 0} hari`} value={formatReceiptMoney(t.base)} />
+                                                {hasAdj && log.hourAdjDetails.map((d, di) => (
+                                                    <div key={di} className="flex justify-between gap-2 py-0.5 border-b border-dashed border-gray-200 pl-2" style={{background:'#fafafa'}}>
+                                                        <span className="text-[9px] text-gray-500">↳ <b className="text-gray-700">{d.date}</b> | {d.selisihJam > 0 ? '+' : ''}{d.selisihJam} jam</span>
+                                                        <span className="text-[9px] font-bold whitespace-nowrap" style={{color: d.amount > 0 ? '#15803d' : '#dc2626'}}>{d.amount > 0 ? '+' : ''}{formatReceiptMoney(d.amount)}</span>
+                                                    </div>
+                                                ))}
+                                                {hasAdj && log.hourAdjDetails.length > 1 && (
+                                                    <div className="flex justify-between gap-2 py-0.5 border-b border-dashed border-gray-300 pl-2" style={{background:'#f0fdf4'}}>
+                                                        <span className="text-[9px] font-bold text-gray-700">Subtotal Penyesuaian</span>
+                                                        <span className="text-[9px] font-bold whitespace-nowrap" style={{color: t.adj > 0 ? '#15803d' : '#dc2626'}}>{t.adj > 0 ? '+' : ''}{formatReceiptMoney(t.adj)}</span>
+                                                    </div>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })}
                                 </>
                             )}
 
