@@ -11441,7 +11441,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 if (commission  > 0) incomeLines.push(`  • Total Komisi Marketing : *${formatRupiah(commission)},-*`);
 
                 const incomeSection = incomeLines.length > 1
-                    ? `\u{1F4B0} *Rincian Pendapatan*\n${incomeLines.join('\n')}\n  • *Total Pendapatan : ${formatRupiah(gross)},-*`
+                    ? `*Rincian Pendapatan*\n${incomeLines.join('\n')}\n  • *Total Pendapatan : ${formatRupiah(gross)},-*`
                     : incomeLines.length === 1
                         ? incomeLines[0]
                         : `  • Total Rincian Produksi : *${formatRupiah(gross)},-*`;
@@ -11450,19 +11450,19 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 const snapshot   = rekap.employeeCashAdvanceSnapshot;
                 const sisaKasbon = snapshot ? Math.max(0, safeMoney(snapshot.remaining) - kasbon) : null;
                 const sisaLabel  = sisaKasbon !== null
-                    ? `\n  • Sisa Kasbon : *${formatRupiah(sisaKasbon)},-*${sisaKasbon === 0 ? ' (lunas) ✅' : ''}`
+                    ? `\n  • Sisa Kasbon : *${formatRupiah(sisaKasbon)},-*${sisaKasbon === 0 ? ' (lunas)' : ''}`
                     : '';
                 const kasbonSection = kasbon > 0
-                    ? `\n✂️ *Potongan Kasbon*\n  • Dipotong : *${formatRupiah(kasbon)},-*${sisaLabel}\n`
+                    ? `\n*Potongan Kasbon*\n  • Dipotong : *${formatRupiah(kasbon)},-*${sisaLabel}\n`
                     : '';
-                const totalLine = `\n• *Total Diterima : ${formatRupiah(net)},-* ✅`;
+                const totalLine = `\n• *Total Diterima : ${formatRupiah(net)},-*`;
 
                 const msg =
-`*Assalamu'alaikum warahmatullahi wabarakatuh* \u{1F64F}
+`*Assalamu'alaikum warahmatullahi wabarakatuh*
 
 Alhamdulillah, kami informasikan rekapitulasi slip gaji atas nama *${nama}* sebagai berikut:
 
-\u{1F4CB} *Slip Gaji*
+*Slip Gaji*
 
 • Nama    : *${nama}*
 • Divisi   : ${divisi}
@@ -11476,9 +11476,9 @@ Mohon konfirmasi apabila perhitungan tersebut sudah sesuai. Jika tidak ada kenda
 Mohon informasinya, dana ingin diterima melalui *TRANSFER* atau *CASH* ya.
 
 Terima kasih atas kerja keras dan dedikasinya selama ini.
-Semoga menjadi rezeki yang halal, berkah, dan membawa kebaikan. Aamiin \u{1F64F}\u{1F33F}
+Semoga menjadi rezeki yang halal, berkah, dan membawa kebaikan. Aamiin.
 
-Wassalamu'alaikum warahmatullahi wabarakatuh \u{1F64F}`;
+Wassalamu'alaikum warahmatullahi wabarakatuh`;
                 const url = phone
                     ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
                     : `https://wa.me/?text=${encodeURIComponent(msg)}`;
