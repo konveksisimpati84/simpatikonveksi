@@ -11421,24 +11421,57 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const sendWaRekap = (rekap) => {
                 const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                 const nama = rekap.empName || emp?.name || '-';
-                const gross = safeMoney(rekap.grossSalary ?? rekap.totalWage);
-                const kasbon = safeMoney(rekap.cashAdvanceDeduction);
-                const net = safeMoney(rekap.netSalary ?? (gross - kasbon));
-                const phone = (emp?.phone || '').replace(/\D/g, '').replace(/^0/, '62');
-                const kasbonLine = kasbon > 0
-                    ? `• Potongan Kasbon: *${formatRupiah(kasbon)}*\n• *Total Diterima: ${formatRupiah(net)}* ✨\n\n`
+                const divisi = String(rekap.division || (emp ? getEmployeeDivisions(emp).join(', ') : '') || '').trim();
+                const gross   = safeMoney(rekap.grossSalary ?? rekap.totalWage);
+                const kasbon  = safeMoney(rekap.cashAdvanceDeduction);
+                const net     = safeMoney(rekap.netSalary ?? (gross - kasbon));
+                const phone   = (emp?.phone || '').replace(/\D/g, '').replace(/^0/, '62');
+
+                // Label sesuai divisi
+                const feeLabel = (() => {
+                    const d = divisi.toLowerCase();
+                    if (!divisi || divisi === '-') return 'Fee Produksi';
+                    if (d.includes('marketing')) return 'Komisi Marketing';
+                    if (d.includes('harian') || d.includes('daily')) return 'Gaji Harian';
+                    return `Fee ${divisi.charAt(0).toUpperCase()}${divisi.slice(1).toLowerCase()}`;
+                })();
+
+                // Rincian komponen pendapatan
+                const prodSalary   = safeMoney(rekap.productionSalary);
+                const dailySal     = safeMoney(rekap.dailySalary);
+                const overtimeSal  = safeMoney(rekap.overtimeSalary);
+                const commission   = safeMoney(rekap.marketingCommission);
+                const incomeLines  = [];
+                if (prodSalary  > 0) incomeLines.push(`  • ${feeLabel}: ${formatRupiah(prodSalary)}`);
+                if (dailySal    > 0) incomeLines.push(`  • Gaji Harian: ${formatRupiah(dailySal)}`);
+                if (overtimeSal > 0) incomeLines.push(`  • Lembur: ${formatRupiah(overtimeSal)}`);
+                if (commission  > 0) incomeLines.push(`  • Komisi Marketing: ${formatRupiah(commission)}`);
+                const incomeSection = incomeLines.length > 1
+                    ? `💰 *Rincian Pendapatan*\n${incomeLines.join('\n')}\n  *Total: ${formatRupiah(gross)}*`
+                    : `💰 *Total ${feeLabel}: ${formatRupiah(gross)}*`;
+
+                // Kasbon & sisa
+                const snapshot   = rekap.employeeCashAdvanceSnapshot;
+                const sisaKasbon = snapshot ? Math.max(0, safeMoney(snapshot.remaining) - kasbon) : null;
+                const kasbonSection = kasbon > 0
+                    ? `\n✂️ *Potongan Kasbon*\n  • Dipotong: ${formatRupiah(kasbon)}${sisaKasbon !== null ? `\n  • Sisa Kasbon: ${formatRupiah(sisaKasbon)}` : ''}\n\n✅ *Total Diterima: ${formatRupiah(net)}*\n`
                     : '';
+
                 const msg =
 `Assalamu'alaikum warahmatullahi wabarakatuh 🙏
 
-Alhamdulillah, kami informasikan bahwa rekapitulasi fee jahit atas nama *${nama}* sebagai berikut:
+Alhamdulillah, kami informasikan rekapitulasi *${feeLabel}* atas nama *${nama}* sebagai berikut:
 
-🧾 *Slip Gaji*
+🧾 *Slip Gaji — ${divisi || 'Produksi'}*
+  • Nama    : *${nama}*
+  • Divisi   : ${divisi || '-'}
+  • Tanggal : ${rekap.dateProcessed || '-'}
 
-• Nama: ${nama}
-• Total Rincian Jahit: *${formatRupiah(gross)},-* 💰
-${kasbonLine}Mohon konfirmasi apabila perhitungan tersebut sudah sesuai. Jika tidak ada kendala, insyaAllah pembayaran akan segera kami proses.
-*Mohon informasinya, dana ingin diterima melalui *TRANSFER* atau *CASH* ya.*
+${incomeSection}
+${kasbonSection}
+Mohon konfirmasi apabila perhitungan tersebut sudah sesuai. Jika tidak ada kendala, insyaAllah pembayaran akan segera kami proses.
+
+Mohon informasinya, dana ingin diterima melalui *TRANSFER* atau *CASH* ya.
 
 Terima kasih atas kerja keras dan dedikasinya selama ini.
 Semoga menjadi rezeki yang halal, berkah, dan membawa kebaikan. Aamiin 🤲🌿
