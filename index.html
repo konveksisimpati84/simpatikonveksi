@@ -12041,7 +12041,7 @@ ${getRekapShareLink(rekap)}
                                         const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                                         const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
-                                        const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
+                                        const netSalary = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, grossSalary - deduction);
                                         const isPinned = pinnedRekapIds.has(rekap.id);
                                         const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
                                         const totalPaidDesktop = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
@@ -12080,7 +12080,7 @@ ${getRekapShareLink(rekap)}
                                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                                     const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                                     const deduction = safeMoney(rekap.cashAdvanceDeduction);
-                                    const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
+                                    const netSalary = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, grossSalary - deduction);
                                     const isPinned = pinnedRekapIds.has(rekap.id);
                                     const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
                                     const totalPaidMobile = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
@@ -12781,7 +12781,7 @@ ${getRekapShareLink(rekap)}
                         if (!rekap) return null;
                         const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
-                        const netSalary = safeMoney(rekap.netSalary ?? (grossSalary - deduction));
+                        const netSalary = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, grossSalary - deduction);
                         const payments = Array.isArray(rekap.payments) ? rekap.payments : [];
                         const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
                         const sisaBayar = Math.max(0, netSalary - totalPaid);
@@ -12828,7 +12828,8 @@ ${getRekapShareLink(rekap)}
                                                 const dailySal = safeMoney(rekap.dailySalary);
                                                 const overtimeSal = safeMoney(rekap.overtimeSalary);
                                                 const mktComm = safeMoney(rekap.marketingCommission);
-                                                const hasMultiple = [prodSalary, dailySal, overtimeSal, mktComm].filter(v => v > 0).length > 1;
+                                                const bonusSal = safeMoney(rekap.bonusSalary);
+                                                const hasMultiple = [prodSalary, dailySal, overtimeSal, mktComm, bonusSal].filter(v => v > 0).length > 1;
                                                 if (!hasMultiple) return null;
                                                 return (
                                                     <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
@@ -12838,6 +12839,7 @@ ${getRekapShareLink(rekap)}
                                                             {dailySal > 0 && <span className="bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1">Harian: <b className="text-indigo-700">{formatRupiah(dailySal)}</b></span>}
                                                             {overtimeSal > 0 && <span className="bg-sky-50 border border-sky-100 rounded-lg px-2 py-1">Lembur: <b className="text-sky-700">{formatRupiah(overtimeSal)}</b></span>}
                                                             {mktComm > 0 && <span className="bg-purple-50 border border-purple-100 rounded-lg px-2 py-1">Komisi: <b className="text-purple-700">{formatRupiah(mktComm)}</b></span>}
+                                                            {bonusSal > 0 && <span className="bg-yellow-50 border border-yellow-200 rounded-lg px-2 py-1">Bonus: <b className="text-yellow-700">{formatRupiah(bonusSal)}</b></span>}
                                                             <span className="text-gray-400">=</span>
                                                             <span className="bg-green-50 border border-green-200 rounded-lg px-2 py-1">Bruto: <b className="text-green-700">{formatRupiah(grossSalary)}</b></span>
                                                         </div>
