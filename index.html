@@ -10728,7 +10728,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <div class="total-box">
                             <div class="total-row"><span>Total Pendapatan</span><span class="font-bold">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
                             <div class="total-row"><span>Total Potongan</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
-                            <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? data.totalWage ?? 0)}</span></div>
+                            <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction)))}</span></div>
                         </div>
 
                         <div class="signature">
@@ -10799,7 +10799,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return newOrders;
                 });
 
-                if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || Array.isArray(rekapToDelete.dailySalaryLogs) || (rekapToDelete.items || []).some(item => item.isManual)) {
+                if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || (rekapToDelete.dailySalaryLogs || []).length > 0 || (rekapToDelete.items || []).some(item => item.isManual)) {
                     setEmployees(prev => (prev || []).map(emp => {
                         if (String(emp.id) !== String(rekapToDelete.empId)) return emp;
                         const nextCashAdvances = (emp.cashAdvances || []).map(item => {
@@ -11222,7 +11222,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const divisi   = String(rekap.division || (emp ? getEmployeeDivisions(emp).join(', ') : '') || '').trim() || '-';
                 const gross    = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                 const kasbon   = safeMoney(rekap.cashAdvanceDeduction);
-                const net      = safeMoney(rekap.netSalary ?? (gross - kasbon));
+                const net      = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, gross - kasbon);
                 const phone    = (emp?.phone || '').replace(/\D/g, '').replace(/^0/, '62');
                 const tanggal  = rekap.dateProcessed || '-';
 
@@ -11293,7 +11293,7 @@ ${getRekapShareLink(rekap)}
                 if (!amount || amount <= 0) { showToast('Jumlah pembayaran tidak valid.', 'error'); return; }
                 const rekap = (rekapKinerja || []).find(r => String(r.id) === String(rekapId));
                 if (!rekap) return;
-                const net = safeMoney(rekap.netSalary ?? (safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)));
+                const net = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
                 const alreadyPaid = (rekap.payments || []).reduce((s, p) => s + safeMoney(p.amount), 0);
                 if (amount > net - alreadyPaid + 0.01) { showToast('Jumlah melebihi sisa yang harus dibayar.', 'error'); return; }
                 const newPayment = { id: genId('PAY-'), date: payFormDate || new Date().toISOString().split('T')[0], amount, method: payFormMethod || 'Transfer', note: payFormNote || '', operasionalKaryawanId: payFormOperasionalKaryawanId || '', createdAt: new Date().toISOString() };
@@ -11313,7 +11313,7 @@ ${getRekapShareLink(rekap)}
             const handleDeletePayment = (rekapId, paymentId) => {
                 setRekapKinerja(prev => (prev || []).map(r => {
                     if (String(r.id) !== String(rekapId)) return r;
-                    const net = safeMoney(r.netSalary ?? (safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction)));
+                    const net = r.netSalary != null ? safeMoney(r.netSalary) : Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
                     const updatedPayments = (r.payments || []).filter(p => String(p.id) !== String(paymentId));
                     const totalPaid = updatedPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
                     const paymentStatus = totalPaid <= 0 ? 'belum' : totalPaid >= net - 1 ? 'lunas' : 'sebagian';
@@ -11393,7 +11393,7 @@ ${getRekapShareLink(rekap)}
                     const newNetSalary = Math.max(0, grossSalary - nextDeduction);
                     const alreadyPaid = safeArray(item.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
                     const newPaymentStatus = alreadyPaid <= 0 ? 'belum' : alreadyPaid >= newNetSalary - 1 ? 'lunas' : 'sebagian';
-                    return { ...item, grossSalary, cashAdvanceDeduction: nextDeduction, cashAdvanceDeductionNote: noteInput || '', netSalary: newNetSalary, paymentStatus: newPaymentStatus, _syncUpdatedAt: now };
+                    return { ...item, cashAdvanceDeduction: nextDeduction, cashAdvanceDeductionNote: noteInput || '', netSalary: newNetSalary, paymentStatus: newPaymentStatus, _syncUpdatedAt: now };
                 }));
                 showToast("Rekap diperbarui.", "success");
             };
@@ -13074,7 +13074,8 @@ ${getRekapShareLink(rekap)}
             const handleDeleteRekap = () => {
                 const rekapToDelete = (rekapKinerja || []).find(r => String(r.id) === String(deleteRekapConfirmId));
                 if (!rekapToDelete) return;
-                const logsToUnlock = (rekapToDelete.items || []).flatMap(item => 
+                const now = new Date().toISOString();
+                const logsToUnlock = (rekapToDelete.items || []).flatMap(item =>
                     (item.logIds || []).map(l => ({ orderId: item.orderId, stageId: l.stageId, logId: l.logId }))
                 );
                 setOrders(prevOrders => {
@@ -13087,19 +13088,17 @@ ${getRekapShareLink(rekap)}
                             const workLogs = [...(stageData.workLogs || [])];
                             const logIndex = workLogs.findIndex(l => String(l.id) === String(target.logId));
                             if (logIndex > -1) {
-                                const now = new Date().toISOString();
                                 workLogs[logIndex] = { ...workLogs[logIndex], isReported: false, isReportedChangedAt: now, _syncUpdatedAt: now };
                             }
                             stageData.workLogs = workLogs;
                             order.progress = { ...(order.progress || {}), [target.stageId]: stageData };
-                            order._syncUpdatedAt = new Date().toISOString();
+                            order._syncUpdatedAt = now;
                             newOrders[orderIndex] = order;
                         }
                     });
                     return newOrders;
                 });
-                const now = new Date().toISOString();
-                if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || Array.isArray(rekapToDelete.dailySalaryLogs) || (rekapToDelete.items || []).some(item => item.isManual)) {
+                if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || (rekapToDelete.dailySalaryLogs || []).length > 0 || (rekapToDelete.items || []).some(item => item.isManual)) {
                     setEmployees(prev => (prev || []).map(emp => {
                         if (String(emp.id) !== String(rekapToDelete.empId)) return emp;
                         const nextCashAdvances = (emp.cashAdvances || []).map(item => {
@@ -14052,7 +14051,7 @@ ${getRekapShareLink(rekap)}
                             <div className="border-t border-b border-dashed border-black py-2 mt-2 text-[11px]">
                                 <div className="flex justify-between gap-2 mt-0.5"><span>Total Pendapatan</span><span className="font-bold">{formatReceiptMoney(rekap.grossSalary || rekap.totalWage || 0)}</span></div>
                                 <div className="flex justify-between gap-2 mt-0.5"><span>Total Potongan</span><span className="font-bold">{formatReceiptMoney(rekap.cashAdvanceDeduction || 0)}</span></div>
-                                <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Total Diterima</span><span>{formatReceiptMoney(rekap.netSalary ?? rekap.totalWage ?? 0)}</span></div>
+                                <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Total Diterima</span><span>{formatReceiptMoney(rekap.netSalary ?? Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)))}</span></div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-2 mt-4 text-center text-[9px]" style={{alignItems:'stretch'}}>
