@@ -10730,6 +10730,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div class="total-row"><span>Total Potongan</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
                             <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction)))}</span></div>
                         </div>
+                        ${(() => {
+                            const payments = Array.isArray(data.payments) ? data.payments.filter(p => safeMoney(p.amount) > 0) : [];
+                            if (payments.length === 0) return '';
+                            const net = data.netSalary != null ? safeMoney(data.netSalary) : Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction));
+                            const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                            const sisa = Math.max(0, net - totalPaid);
+                            const rows = payments.map((p, i) => `<div class="item-row"><span><b>Termin ${i+1}</b><small>${p.date || '-'} · ${p.method || 'Transfer'}${p.note ? ' · ' + p.note : ''}</small></span><span style="color:#15803d">${formatReceiptMoney(p.amount)}</span></div>`).join('');
+                            return `${sectionRows('Riwayat Pembayaran', [rows + `<div class="total-row" style="font-weight:900;margin-top:3px"><span>Sudah Dibayar</span><span style="color:#15803d">${formatReceiptMoney(totalPaid)}</span></div><div class="total-row" style="font-weight:900"><span>Sisa Belum Dibayar</span><span style="color:${sisa > 0 ? '#dc2626' : '#15803d'}">${formatReceiptMoney(sisa)}${sisa === 0 ? ' ✓' : ''}</span></div>`])}`;
+                        })()}
 
                         <div class="signature">
                             <div class="sig-box">
@@ -11256,6 +11265,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     ? `\n► *Potongan Kasbon*\n  • Dipotong : *${formatRupiah(kasbon)},-*${sisaLabel}\n`
                     : '';
                 const totalLine = `\n• *Total Diterima : ${formatRupiah(net)},-* ✔`;
+                const waPayments = Array.isArray(rekap.payments) ? rekap.payments.filter(p => safeMoney(p.amount) > 0) : [];
+                const waPaymentSection = waPayments.length > 0 ? (() => {
+                    const totalPaid = waPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                    const sisa = Math.max(0, net - totalPaid);
+                    const lines = waPayments.map((p, i) => `  • Termin ${i+1} (${p.date || '-'}) : *${formatRupiah(p.amount)},-*`).join('\n');
+                    const sisaLine = sisa > 0
+                        ? `\n  • *Sisa Belum Dibayar : ${formatRupiah(sisa)},-*`
+                        : `\n  • Lunas ✅`;
+                    return `\n\n► *Riwayat Pembayaran*\n${lines}\n  • Total Dibayar : *${formatRupiah(totalPaid)},-*${sisaLine}`;
+                })() : '';
 
                 const msg =
 `*Assalamu'alaikum warahmatullahi wabarakatuh*
@@ -11269,7 +11288,7 @@ Alhamdulillah, kami informasikan rekapitulasi slip gaji atas nama *${nama}* seba
 • Tanggal : ${tanggal}
 
 ${incomeSection}
-${kasbonSection}${totalLine}
+${kasbonSection}${totalLine}${waPaymentSection}
 
 Mohon konfirmasi apabila perhitungan tersebut sudah sesuai. Jika tidak ada kendala, insyaAllah pembayaran akan segera kami proses.
 
@@ -14056,6 +14075,36 @@ ${getRekapShareLink(rekap)}
                                 <div className="flex justify-between gap-2 mt-0.5"><span>Total Potongan</span><span className="font-bold">{formatReceiptMoney(rekap.cashAdvanceDeduction || 0)}</span></div>
                                 <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Total Diterima</span><span>{formatReceiptMoney(rekap.netSalary ?? Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)))}</span></div>
                             </div>
+
+                            {(() => {
+                                const sharePayments = (Array.isArray(rekap.payments) ? rekap.payments : []).filter(p => safeMoney(p.amount) > 0);
+                                if (sharePayments.length === 0) return null;
+                                const shareNet = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
+                                const totalPaid = sharePayments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                                const sisa = Math.max(0, shareNet - totalPaid);
+                                return (
+                                    <div className="mt-3">
+                                        <div className="mt-2 pt-1 pb-0.5 border-t border-b border-dashed border-black text-[10px] font-black uppercase">Riwayat Pembayaran</div>
+                                        {sharePayments.map((p, i) => (
+                                            <div key={i} className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300">
+                                                <span className="text-[9.4px]">
+                                                    <span className="font-bold">Termin {i+1}</span>
+                                                    <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{p.date || '-'} · {p.method || 'Transfer'}{p.note ? ` · ${p.note}` : ''}</small>
+                                                </span>
+                                                <span className="text-right font-bold whitespace-nowrap text-[9.4px] text-green-700">{formatReceiptMoney(p.amount)}</span>
+                                            </div>
+                                        ))}
+                                        <div className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300">
+                                            <span className="text-[9.4px] font-bold">Total Dibayar</span>
+                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px] text-green-700">{formatReceiptMoney(totalPaid)}</span>
+                                        </div>
+                                        <div className="flex justify-between gap-2 py-1 text-[10px] font-black">
+                                            <span>{sisa > 0 ? 'Sisa Belum Dibayar' : 'Status'}</span>
+                                            <span className={sisa > 0 ? 'text-red-600' : 'text-green-700'}>{sisa > 0 ? formatReceiptMoney(sisa) : 'Lunas ✓'}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             <div className="grid grid-cols-2 gap-2 mt-4 text-center text-[9px]" style={{alignItems:'stretch'}}>
                                 <div className="flex flex-col items-center" style={{minHeight:'70px'}}>
