@@ -11292,7 +11292,7 @@ ${getRekapShareLink(rekap)}
                 const amount = parseFloat(String(payFormAmount).replace(/[^0-9]/g, '')) || 0;
                 if (!amount || amount <= 0) { showToast('Jumlah pembayaran tidak valid.', 'error'); return; }
                 const rekap = (rekapKinerja || []).find(r => String(r.id) === String(rekapId));
-                if (!rekap) return;
+                if (!rekap || rekap.isDeleted) return;
                 const net = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
                 const alreadyPaid = (rekap.payments || []).reduce((s, p) => s + safeMoney(p.amount), 0);
                 if (amount > net - alreadyPaid + 0.01) { showToast('Jumlah melebihi sisa yang harus dibayar.', 'error'); return; }
@@ -11313,6 +11313,7 @@ ${getRekapShareLink(rekap)}
             const handleDeletePayment = (rekapId, paymentId) => {
                 setRekapKinerja(prev => (prev || []).map(r => {
                     if (String(r.id) !== String(rekapId)) return r;
+                    if (r.isDeleted) return r;
                     const net = r.netSalary != null ? safeMoney(r.netSalary) : Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
                     const updatedPayments = (r.payments || []).filter(p => String(p.id) !== String(paymentId));
                     const totalPaid = updatedPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
@@ -11473,21 +11474,21 @@ ${getRekapShareLink(rekap)}
                 .filter(r => r.isDeleted && !r.restoredForEdit)
                 .filter(r => matchesSearch([r.id, r.empName, r.division, r.dateProcessed], searchTerm))
                 .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+            const getRekapNet = (r) => {
+                if (r.netSalary != null) return safeMoney(r.netSalary);
+                return Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
+            };
             const sortedRekaps = [...visibleRekaps].sort((a, b) => {
                 const ap = pinnedRekapIds.has(a.id) ? 1 : 0;
                 const bp = pinnedRekapIds.has(b.id) ? 1 : 0;
                 if (ap !== bp) return bp - ap;
-                if (rekapSortBy === 'gaji_desc') return safeMoney(b.netSalary ?? b.grossSalary ?? b.totalWage) - safeMoney(a.netSalary ?? a.grossSalary ?? a.totalWage);
-                if (rekapSortBy === 'gaji_asc') return safeMoney(a.netSalary ?? a.grossSalary ?? a.totalWage) - safeMoney(b.netSalary ?? b.grossSalary ?? b.totalWage);
+                if (rekapSortBy === 'gaji_desc') return getRekapNet(b) - getRekapNet(a);
+                if (rekapSortBy === 'gaji_asc') return getRekapNet(a) - getRekapNet(b);
                 if (rekapSortBy === 'nama') return (a.empName || '').localeCompare(b.empName || '');
                 if (rekapSortBy === 'tanggal') return (b.dateProcessed || '').localeCompare(a.dateProcessed || '');
                 return String(b.id).localeCompare(String(a.id));
             });
             const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
-            const getRekapNet = (r) => {
-                if (r.netSalary != null) return safeMoney(r.netSalary);
-                return Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
-            };
             const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, count: 0 } : visibleRekaps
                 .filter(r => pinnedRekapIds.has(r.id))
                 .reduce((acc, r) => ({ net: acc.net + getRekapNet(r), count: acc.count + 1 }), { net: 0, count: 0 });
@@ -12141,7 +12142,7 @@ ${getRekapShareLink(rekap)}
                                             </thead>
                                             <tbody>
                                                 {deletedRekaps.map(rekap => {
-                                                    const netSalary = safeMoney(rekap.netSalary ?? rekap.totalWage);
+                                                    const netSalary = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
                                                     return (
                                                         <tr key={rekap.id} className="border-t border-gray-100 bg-red-50/40">
                                                             <td className="p-3 text-gray-500 text-xs">{rekap.dateProcessed || '-'}</td>
@@ -12424,7 +12425,7 @@ ${getRekapShareLink(rekap)}
                                             <label className="block text-xs font-bold text-gray-600 mb-1">Input Potongan Kasbon</label>
                                             <input type="number" min="0" className="w-full p-2 border rounded text-sm text-right" value={cashAdvanceDeduction} onChange={e=>setCashAdvanceDeduction(e.target.value)} placeholder="0" disabled={modalCashAdvanceSummary.remaining<=0}/>
                                             <label className="block text-xs font-bold text-gray-600 mb-1 mt-2">Catatan</label>
-                                            <input type="text" className="w-full p-2 border rounded text-sm" value={cashAdvanceDeductionNote} onChange={e=>setCashAdvanceDeductionNote(e.target.value)} placeholder="Catatan potongan kasbon"/>
+                                            <input type="text" className="w-full p-2 border rounded text-sm" value={cashAdvanceDeductionNote} onChange={e=>setCashAdvanceDeductionNote(e.target.value)} placeholder="Catatan potongan kasbon" disabled={modalCashAdvanceSummary.remaining<=0}/>
                                             {modalCashAdvanceSummary.remaining>0 && <div className="text-xs text-gray-500 mt-1">Maks: {formatRupiah(Math.min(modalGrossSalary, modalCashAdvanceSummary.remaining))}</div>}
                                         </div>
                                         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -12784,9 +12785,9 @@ ${getRekapShareLink(rekap)}
                         const payments = Array.isArray(rekap.payments) ? rekap.payments : [];
                         const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
                         const sisaBayar = Math.max(0, netSalary - totalPaid);
-                        const payStatus = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'belum' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary ? 'lunas' : 'sebagian';
+                        const payStatus = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'belum' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary - 1 ? 'lunas' : 'sebagian';
                         const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
-                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); };
+                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); };
                         return (
                             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={closeModal}>
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -13922,7 +13923,7 @@ ${getRekapShareLink(rekap)}
                 );
             }
 
-            const empName = employee?.name || rekap.empName || rekap.empId || '-';
+            const empName = rekap.empName || employee?.name || rekap.empId || '-';
             const division = employee?.division || rekap.division || '-';
             const safeInvs = (invoices || []).filter(isVisibleRecord);
             const relatedInvoices = safeInvs.filter(inv => (rekap.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
