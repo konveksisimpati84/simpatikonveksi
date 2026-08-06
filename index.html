@@ -8531,25 +8531,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (!inv) return 'Belum Dibayar';
                 return getInvoicePaymentStatus(inv);
             };
-            const getTotal = (inv) => {
-                if (inv.invoiceItems && Array.isArray(inv.invoiceItems)) {
-                    return inv.invoiceItems.reduce((sum, item) => {
-                        if (!Array.isArray(item.sizes)) return sum;
-                        return sum + item.sizes.reduce((s2, sz) => {
-                            const qty = parseFloat(sz.qty) || 0;
-                            const price = parseFloat(sz.pricePerPcs) || 0;
-                            const discPcs = parseFloat(sz.discountPerPcs) || 0;
-                            const discPct = parseFloat(sz.discountPercent) || 0;
-                            const sub = qty * price;
-                            const disc = qty * discPcs + sub * discPct / 100;
-                            return s2 + Math.max(0, sub - disc);
-                        }, 0);
-                    }, 0);
-                }
-                const sub = (parseFloat(inv.qty) || 0) * (parseFloat(inv.price) || 0);
-                const disc = (parseFloat(inv.discountPerPcs) || 0) * (parseFloat(inv.qty) || 0) + sub * (parseFloat(inv.discountPercent) || 0) / 100;
-                return Math.max(0, sub - disc);
-            };
+            const getTotal = (inv) => getInvoiceTotals(inv).total;
 
             const filtered = statusFilter === 'Semua' ? invList : invList.filter(inv => getPayStatus(inv) === statusFilter);
             const totalAll = invList.reduce((s, inv) => s + getTotal(inv), 0);
