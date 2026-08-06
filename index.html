@@ -7590,14 +7590,32 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 </div>
                                                 <div className="space-y-2">
                                                     {(item.sizes || []).map(size => (
-                                                        <div key={size.id} className="grid grid-cols-2 md:grid-cols-7 gap-2 items-center">
-                                                            <input className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm" placeholder="Size" value={size.size || ''} onChange={e => patchSize(item.id, size.id, { size: e.target.value })}/>
-                                                            <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="Qty" value={size.qty} onChange={e => patchSize(item.id, size.id, { qty: e.target.value })}/>
-                                                            <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="Harga/pcs" value={size.pricePerPcs} onChange={e => patchSize(item.id, size.id, { pricePerPcs: e.target.value })}/>
-                                                            <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="Diskon/pcs" value={size.discountPerPcs} onChange={e => patchSize(item.id, size.id, { discountPerPcs: e.target.value })}/>
-                                                            <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="Diskon %" value={size.discountPercent} onChange={e => patchSize(item.id, size.id, { discountPercent: e.target.value })}/>
-                                                            <div className="text-right font-black text-blue-700 text-sm">{formatRupiah(getInvoiceSizeTotal(size).total)}</div>
-                                                            {(item.sizes || []).length > 1 && <button type="button" onClick={() => removeSize(item.id, size.id)} className="text-red-500 bg-red-50 p-2 rounded-xl hover:bg-red-100 transition-colors"><IconTrash /></button>}
+                                                        <div key={size.id} className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end">
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Ukuran</span>
+                                                                <input className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm" placeholder="M / L / XL" value={size.size || ''} onChange={e => patchSize(item.id, size.id, { size: e.target.value })}/>
+                                                            </div>
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Jumlah</span>
+                                                                <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.qty} onChange={e => patchSize(item.id, size.id, { qty: e.target.value })}/>
+                                                            </div>
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Harga/pcs</span>
+                                                                <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.pricePerPcs} onChange={e => patchSize(item.id, size.id, { pricePerPcs: e.target.value })}/>
+                                                            </div>
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="text-[9.5px] font-bold text-orange-500 uppercase tracking-wide px-0.5">Diskon Rp</span>
+                                                                <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.discountPerPcs} onChange={e => patchSize(item.id, size.id, { discountPerPcs: e.target.value })}/>
+                                                            </div>
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="text-[9.5px] font-bold text-green-600 uppercase tracking-wide px-0.5">Diskon %</span>
+                                                                <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.discountPercent} onChange={e => patchSize(item.id, size.id, { discountPercent: e.target.value })}/>
+                                                            </div>
+                                                            <div className="flex flex-col gap-0.5 items-end">
+                                                                <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Subtotal</span>
+                                                                <div className="text-right font-black text-blue-700 text-sm py-2">{formatRupiah(getInvoiceSizeTotal(size).total)}</div>
+                                                            </div>
+                                                            {(item.sizes || []).length > 1 && <button type="button" onClick={() => removeSize(item.id, size.id)} className="text-red-500 bg-red-50 p-2 rounded-xl hover:bg-red-100 transition-colors self-end"><IconTrash /></button>}
                                                         </div>
                                                     ))}
                                                 </div>
