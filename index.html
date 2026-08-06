@@ -693,9 +693,15 @@
         const getInvoiceTotals = (invoice) => {
             const rows = getInvoiceItems(invoice).flatMap(item => (Array.isArray(item.sizes) ? item.sizes : []).map(size => getInvoiceSizeTotal(size)));
             const subtotal = rows.reduce((sum, row) => sum + row.subtotal, 0);
-            const discount = rows.reduce((sum, row) => sum + row.discount, 0);
-            const total = rows.reduce((sum, row) => sum + row.total, 0);
-            return { subtotal, discount, total };
+            const lineDiscount = rows.reduce((sum, row) => sum + row.discount, 0);
+            const lineTotal = rows.reduce((sum, row) => sum + row.total, 0);
+            const gdType = invoice?.globalDiscountType || 'Rp';
+            const gdValue = safeMoney(invoice?.globalDiscountValue);
+            const globalDiscount = gdValue <= 0 ? 0 : gdType === '%'
+                ? Math.min(lineTotal, Math.round(lineTotal * gdValue / 100))
+                : Math.min(lineTotal, gdValue);
+            const total = Math.max(0, lineTotal - globalDiscount);
+            return { subtotal, lineDiscount, globalDiscount, discount: lineDiscount + globalDiscount, total };
         };
 
         const getInvoiceDp = (invoice) => invoice?.invoiceDp && typeof invoice.invoiceDp === 'object' ? invoice.invoiceDp : {};
@@ -6999,7 +7005,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 note: '',
                 commissionType: 'Persen',
                 commissionValue: '0',
-                linkedDpAmount: ''
+                linkedDpAmount: '',
+                globalDiscountType: 'Rp',
+                globalDiscountValue: ''
             };
             const [form, setForm] = useState(emptyInvoice);
             const [editId, setEditId] = useState(null);
@@ -7275,7 +7283,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
     <thead><tr><th style="width:30px" class="c">No.</th><th style="width:120px">Jenis Produksi</th><th>Rincian Ukuran</th><th style="width:75px" class="c">Qty Total</th><th style="width:90px" class="r">Harga/Pcs</th><th style="width:110px" class="r">Subtotal</th></tr></thead>
     <tbody>
       ${itemRows || '<tr><td colspan="6" class="c" style="padding:20px;color:#94a3b8">Tidak ada item.</td></tr>'}
-      <tr><td colspan="3" class="r" style="background:#1e3a5f;color:#fff;font-size:11px;font-weight:700;padding:9px 10px">Total Keseluruhan</td><td class="c" style="background:#1e3a5f;color:#fff;font-weight:900;padding:9px 10px">${getInvoicePcsTotal(inv)} pcs</td><td style="background:#1e3a5f"></td><td class="r" style="background:#1e3a5f;color:#fff;font-weight:900;padding:9px 10px">${formatRupiah(totals.total)}</td></tr>
+      <tr><td colspan="3" class="r" style="background:#1e3a5f;color:#fff;font-size:11px;font-weight:700;padding:9px 10px">Total Keseluruhan</td><td class="c" style="background:#1e3a5f;color:#fff;font-weight:900;padding:9px 10px">${getInvoicePcsTotal(inv)} pcs</td><td style="background:#1e3a5f"></td><td class="r" style="background:#1e3a5f;color:#fff;font-weight:900;padding:9px 10px">${formatRupiah(totals.subtotal - totals.lineDiscount)}</td></tr>
     </tbody>
   </table>
 </div>
@@ -7285,8 +7293,9 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
     <div class="note-text">${safe(inv.note || '-')}</div>
   </div>
   <div class="amounts">
-    <div class="amount-row"><span class="label">Subtotal</span><span class="val">${formatRupiah(totals.subtotal)}</span></div>
-    ${totals.discount > 0 ? `<div class="amount-row"><span class="label">Total Diskon</span><span class="val" style="color:#dc2626">- ${formatRupiah(totals.discount)}</span></div>` : ''}
+    <div class="amount-row"><span class="label">Subtotal Produksi</span><span class="val">${formatRupiah(totals.subtotal)}</span></div>
+    ${totals.lineDiscount > 0 ? `<div class="amount-row"><span class="label">Diskon Per Baris</span><span class="val" style="color:#dc2626">- ${formatRupiah(totals.lineDiscount)}</span></div>` : ''}
+    ${totals.globalDiscount > 0 ? `<div class="amount-row"><span class="label">Diskon Global${inv.globalDiscountType === '%' ? ` (${safeMoney(inv.globalDiscountValue)}%)` : ''}</span><span class="val" style="color:#ea580c">- ${formatRupiah(totals.globalDiscount)}</span></div>` : ''}
     <div class="amount-row" style="font-size:13px;font-weight:800;border-top:1px solid #cbd5e1;margin-top:4px;padding-top:8px"><span>Total Invoice</span><span style="color:#1e3a5f">${formatRupiah(totals.total)}</span></div>
     ${paymentDetailRows}
     ${totalPaymentCount > 1 && paid > 0 ? `<div class="amount-row" style="border-top:1px solid #e2e8f0;margin-top:2px;padding-top:5px"><span style="font-weight:700;color:#374151;font-size:11px">Total Terbayar</span><span class="val" style="color:#16a34a;font-weight:800">- ${formatRupiah(paid)}</span></div>` : ''}
@@ -7661,14 +7670,37 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <input list="invoice-note-list" className="w-full p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Catatan invoice" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/>
                                 <datalist id="invoice-note-list">{[...new Set(safeInvoiceRows.filter(isVisibleRecord).map(inv=>String(inv.note||'').trim()).filter(Boolean))].sort().map((n,i)=><option key={i} value={n}/>)}</datalist>
 
+                                {/* Diskon Global Invoice */}
+                                <div className="border border-orange-200 bg-orange-50/60 rounded-xl p-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <div className="w-1 h-4 bg-orange-400 rounded-full"></div>
+                                        <span className="text-xs font-bold text-orange-700 uppercase tracking-wide">Diskon Global Invoice</span>
+                                        <span className="text-[10px] text-orange-400 ml-auto">Berlaku setelah diskon per baris</span>
+                                    </div>
+                                    <div className="flex gap-2 items-center">
+                                        <div className="flex rounded-lg overflow-hidden border border-gray-200 shrink-0">
+                                            <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountType: 'Rp' }))} className={`px-3 py-2 text-sm font-black transition-colors ${(form.globalDiscountType || 'Rp') === 'Rp' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Rp</button>
+                                            <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountType: '%' }))} className={`px-3 py-2 text-sm font-black transition-colors ${form.globalDiscountType === '%' ? 'bg-green-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>%</button>
+                                        </div>
+                                        <input type="number" min="0" max={form.globalDiscountType === '%' ? 100 : undefined} className="flex-1 p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right" placeholder={form.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={form.globalDiscountValue || ''} onChange={e => setForm(f => ({ ...f, globalDiscountValue: e.target.value }))}/>
+                                        {safeMoney(form.globalDiscountValue) > 0 && <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountValue: '' }))} className="text-gray-400 hover:text-red-500 font-black text-lg shrink-0 leading-none">✕</button>}
+                                    </div>
+                                    {safeMoney(form.globalDiscountValue) > 0 && (
+                                        <div className="mt-1.5 text-xs font-bold text-orange-600">Potongan: - {formatRupiah(getInvoiceTotals(form).globalDiscount)}</div>
+                                    )}
+                                </div>
+
                                 {/* Summary bar */}
                                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                    {(() => { const ft = getInvoiceTotals(form); return (
                                     <div className="flex flex-wrap gap-4 text-sm">
-                                        <span className="text-gray-600">Subtotal: <b className="text-gray-800">{formatRupiah(getInvoiceTotals(form).subtotal)}</b></span>
-                                        <span className="text-gray-600">Diskon: <b className="text-red-600">{formatRupiah(getInvoiceTotals(form).discount)}</b></span>
-                                        <span className="text-gray-600">Total: <b className="text-blue-700 text-base">{formatRupiah(getInvoiceTotals(form).total)}</b></span>
+                                        <span className="text-gray-600">Subtotal: <b className="text-gray-800">{formatRupiah(ft.subtotal)}</b></span>
+                                        {ft.lineDiscount > 0 && <span className="text-gray-600">Diskon Baris: <b className="text-red-500">- {formatRupiah(ft.lineDiscount)}</b></span>}
+                                        {ft.globalDiscount > 0 && <span className="text-orange-700">Diskon Global: <b className="text-orange-600">- {formatRupiah(ft.globalDiscount)}</b></span>}
+                                        <span className="text-gray-600">Total: <b className="text-blue-700 text-base">{formatRupiah(ft.total)}</b></span>
                                         <span className="text-gray-600">Status: <b className={`px-2 py-0.5 rounded-full text-xs ${statusClass(getInvoicePaymentStatus(form))}`}>{getInvoicePaymentStatus(form)}</b></span>
                                     </div>
+                                    ); })()}
                                     <div className="flex gap-2">
                                         <button type="button" onClick={resetForm} className="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold text-sm hover:bg-gray-50 transition-colors">Reset</button>
                                         <button className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-bold text-sm shadow-sm transition-all">{editId ? 'Simpan Edit' : 'Buat Invoice'}</button>
@@ -7927,14 +7959,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <div className="rounded-xl border border-gray-100 overflow-hidden">
                                             {totals.subtotal !== totals.total && (
                                                 <div className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
-                                                    <span className="text-sm text-gray-500">Subtotal ({totalPcs} pcs)</span>
+                                                    <span className="text-sm text-gray-500">Subtotal Produksi ({totalPcs} pcs)</span>
                                                     <span className="text-sm font-bold text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totals.subtotal)}</span>
                                                 </div>
                                             )}
-                                            {totals.discount > 0 && (
+                                            {totals.lineDiscount > 0 && (
                                                 <div className="flex justify-between items-center px-4 py-2.5 bg-amber-50 border-b border-amber-100">
-                                                    <span className="text-sm text-amber-700 font-semibold">🏷 Diskon</span>
-                                                    <span className="text-sm font-bold text-amber-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(totals.discount)}</span>
+                                                    <span className="text-sm text-amber-700 font-semibold">🏷 Diskon Per Baris</span>
+                                                    <span className="text-sm font-bold text-amber-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(totals.lineDiscount)}</span>
+                                                </div>
+                                            )}
+                                            {totals.globalDiscount > 0 && (
+                                                <div className="flex justify-between items-center px-4 py-2.5 bg-orange-50 border-b border-orange-100">
+                                                    <span className="text-sm text-orange-700 font-semibold">🎫 Diskon Global{inv.globalDiscountType === '%' ? ` (${safeMoney(inv.globalDiscountValue)}%)` : ''}</span>
+                                                    <span className="text-sm font-bold text-orange-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(totals.globalDiscount)}</span>
                                                 </div>
                                             )}
                                             <div className="flex justify-between items-center px-4 py-3 bg-blue-50 border-b border-blue-100">
