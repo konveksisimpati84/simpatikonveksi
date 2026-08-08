@@ -2746,21 +2746,22 @@
                     </div>
                 `;
 
-                const dlDate = new Date(order.deadline + 'T00:00:00');
-                const dlToday = new Date(); dlToday.setHours(0,0,0,0);
-                const dlDiffDays = Math.round((dlDate - dlToday) / 86400000);
+                const dlHasDeadline = !!order.deadline;
                 const dlMonthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
                 const dlDayNames = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
-                const dlFormatted = order.deadline ? `${dlDate.getDate()} ${dlMonthNames[dlDate.getMonth()]} ${dlDate.getFullYear()}` : '-';
-                const dlDayName = order.deadline ? dlDayNames[dlDate.getDay()] : '';
-                const dlPillNum = dlDiffDays > 0 ? dlDiffDays : dlDiffDays === 0 ? '!' : Math.abs(dlDiffDays);
-                const dlPillLabel = dlDiffDays > 0 ? 'Hari Lagi' : dlDiffDays === 0 ? 'HARI INI' : 'Hari Lewat';
-                const dlPillBg = dlDiffDays <= 3 ? '#991b1b' : dlDiffDays <= 7 ? '#dc2626' : '#15803d';
-                const dlBannerBorder = dlDiffDays <= 3 ? '#991b1b' : dlDiffDays <= 7 ? '#dc2626' : '#16a34a';
-                const dlBannerBg = dlDiffDays <= 3 ? '#fff1f2' : dlDiffDays <= 7 ? '#fef2f2' : '#f0fdf4';
-                const dlDateColor = dlDiffDays <= 7 ? '#7f1d1d' : '#14532d';
-                const dlSubText = dlDiffDays > 0 ? `${dlDayName} · ${dlDiffDays} hari dari tanggal cetak` : dlDiffDays === 0 ? `${dlDayName} · Deadline hari ini!` : `${dlDayName} · Sudah melewati ${Math.abs(dlDiffDays)} hari`;
-                const dlSubColor = dlDiffDays <= 7 ? '#b91c1c' : '#166534';
+                const dlDate = dlHasDeadline ? new Date(order.deadline + 'T00:00:00') : null;
+                const dlToday = new Date(); dlToday.setHours(0,0,0,0);
+                const dlDiffDays = dlHasDeadline ? Math.round((dlDate - dlToday) / 86400000) : null;
+                const dlFormatted = dlHasDeadline ? `${dlDate.getDate()} ${dlMonthNames[dlDate.getMonth()]} ${dlDate.getFullYear()}` : '-';
+                const dlDayName = dlHasDeadline ? dlDayNames[dlDate.getDay()] : '';
+                const dlPillNum = !dlHasDeadline ? '-' : dlDiffDays > 0 ? dlDiffDays : dlDiffDays === 0 ? '!' : Math.abs(dlDiffDays);
+                const dlPillLabel = !dlHasDeadline ? 'Belum Diset' : dlDiffDays > 0 ? 'Hari Lagi' : dlDiffDays === 0 ? 'HARI INI' : 'Hari Lewat';
+                const dlPillBg = !dlHasDeadline ? '#64748b' : dlDiffDays <= 3 ? '#991b1b' : dlDiffDays <= 7 ? '#dc2626' : '#15803d';
+                const dlBannerBorder = !dlHasDeadline ? '#94a3b8' : dlDiffDays <= 3 ? '#991b1b' : dlDiffDays <= 7 ? '#dc2626' : '#16a34a';
+                const dlBannerBg = !dlHasDeadline ? '#f8fafc' : dlDiffDays <= 3 ? '#fff1f2' : dlDiffDays <= 7 ? '#fef2f2' : '#f0fdf4';
+                const dlDateColor = !dlHasDeadline ? '#475569' : dlDiffDays <= 7 ? '#7f1d1d' : '#14532d';
+                const dlSubText = !dlHasDeadline ? 'Deadline belum diisi' : dlDiffDays > 0 ? `${dlDayName} · ${dlDiffDays} hari dari tanggal cetak` : dlDiffDays === 0 ? `${dlDayName} · Deadline hari ini!` : `${dlDayName} · Sudah melewati ${Math.abs(dlDiffDays)} hari`;
+                const dlSubColor = !dlHasDeadline ? '#64748b' : dlDiffDays <= 7 ? '#b91c1c' : '#166534';
 
                 const printContent = `<!DOCTYPE html><html><head><title>SPK Produksi - ${order.id}</title><style>
 @page{size:A4 portrait;margin:8mm}
