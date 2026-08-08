@@ -2746,6 +2746,22 @@
                     </div>
                 `;
 
+                const dlDate = new Date(order.deadline + 'T00:00:00');
+                const dlToday = new Date(); dlToday.setHours(0,0,0,0);
+                const dlDiffDays = Math.round((dlDate - dlToday) / 86400000);
+                const dlMonthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+                const dlDayNames = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+                const dlFormatted = order.deadline ? `${dlDate.getDate()} ${dlMonthNames[dlDate.getMonth()]} ${dlDate.getFullYear()}` : '-';
+                const dlDayName = order.deadline ? dlDayNames[dlDate.getDay()] : '';
+                const dlPillNum = dlDiffDays > 0 ? dlDiffDays : dlDiffDays === 0 ? '!' : Math.abs(dlDiffDays);
+                const dlPillLabel = dlDiffDays > 0 ? 'Hari Lagi' : dlDiffDays === 0 ? 'HARI INI' : 'Hari Lewat';
+                const dlPillBg = dlDiffDays <= 3 ? '#991b1b' : dlDiffDays <= 7 ? '#dc2626' : '#15803d';
+                const dlBannerBorder = dlDiffDays <= 3 ? '#991b1b' : dlDiffDays <= 7 ? '#dc2626' : '#16a34a';
+                const dlBannerBg = dlDiffDays <= 3 ? '#fff1f2' : dlDiffDays <= 7 ? '#fef2f2' : '#f0fdf4';
+                const dlDateColor = dlDiffDays <= 7 ? '#7f1d1d' : '#14532d';
+                const dlSubText = dlDiffDays > 0 ? `${dlDayName} · ${dlDiffDays} hari dari tanggal cetak` : dlDiffDays === 0 ? `${dlDayName} · Deadline hari ini!` : `${dlDayName} · Sudah melewati ${Math.abs(dlDiffDays)} hari`;
+                const dlSubColor = dlDiffDays <= 7 ? '#b91c1c' : '#166534';
+
                 const printContent = `<!DOCTYPE html><html><head><title>SPK Produksi - ${order.id}</title><style>
 @page{size:A4 portrait;margin:8mm}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -2773,6 +2789,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 .sign-title{font-size:10px;font-weight:700;color:#64748b;margin-bottom:36px}
 .sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px;width:150px}
 .sign-name{font-size:11px;font-weight:700;color:#1e3a5f}
+.dl-banner{flex-shrink:0;border-radius:10px;margin-bottom:12px;overflow:hidden}
+.dl-top{padding:5px 14px;display:flex;align-items:center;gap:6px}
+.dl-top-lbl{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#fff}
+.dl-body{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.dl-date{font-size:26px;font-weight:900;letter-spacing:-0.5px;line-height:1}
+.dl-sub{font-size:10px;font-weight:600;margin-top:4px}
+.dl-pill{border-radius:8px;padding:8px 16px;text-align:center;flex-shrink:0}
+.dl-pill-num{font-size:22px;font-weight:900;line-height:1;color:#fff}
+.dl-pill-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#fff;opacity:.9;margin-top:2px}
 </style></head><body>
 <div class="header">
   <div class="brand">
@@ -2789,6 +2814,20 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   </div>
 </div>
 
+<div class="dl-banner" style="border:2px solid ${dlBannerBorder};background:${dlBannerBg}">
+  <div class="dl-top" style="background:${dlBannerBorder}"><span style="font-size:12px">⏰</span><span class="dl-top-lbl">Deadline Produksi — Harus Selesai Sebelum</span></div>
+  <div class="dl-body">
+    <div>
+      <div class="dl-date" style="color:${dlDateColor}">${dlFormatted}</div>
+      <div class="dl-sub" style="color:${dlSubColor}">${dlSubText}</div>
+    </div>
+    <div class="dl-pill" style="background:${dlPillBg}">
+      <div class="dl-pill-num">${dlPillNum}</div>
+      <div class="dl-pill-lbl">${dlPillLabel}</div>
+    </div>
+  </div>
+</div>
+
 <div class="info-grid">
   <div class="info-box">
     <div class="lbl">Klien / Instansi</div>
@@ -2799,7 +2838,6 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <div class="info-box">
     <div class="lbl">Jenis Produksi</div>
     <div class="val">${order.type} <span style="font-size:12px;font-weight:400;color:#64748b">(Total: ${order.total} pcs)</span></div>
-    <div class="val-sm"><span class="lbl">Deadline Produksi</span><br/><strong style="color:#dc2626;font-size:14px">${order.deadline}</strong></div>
   </div>
 </div>
 
