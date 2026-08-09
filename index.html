@@ -8192,24 +8192,38 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const sTotals = getInvoiceTotals(sInv);
                     const sPaid = getInvoicePaidTotal(sInv);
                     const sRemaining = Math.max(0, sTotals.total - sPaid);
-                    const fmtDate = (d) => { if (!d) return '-'; const parts = d.split('-'); return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d; };
                     const sClient = safeClientRows.find(c => !c.isDeleted && normalizeText(c.name) === normalizeText(sInv.customer));
                     const rawPhone = sClient?.phone ? String(sClient.phone).replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
-                    const waMsg = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu ${sInv.customer},*\n\nKami dari *Simpati Konveksi* ingin mengingatkan terkait tagihan invoice berikut:\n\n————————————————\n*DETAIL INVOICE*\n• Total         : ${formatRupiah(sTotals.total)}\n• Terbayar      : ${formatRupiah(sPaid)}\n• *Sisa Tagihan : ${formatRupiah(sRemaining)}*\n————————————————\n\nMohon bantuan Bapak/Ibu untuk dapat segera melakukan pelunasan sesuai perjanjian.\n\n*Pembayaran dari Bapak/Ibu sangat berarti bagi kami*, karena sangat membantu kelancaran operasional perusahaan, kebutuhan produksi, serta *gaji karyawan kami* yang menjadi bagian penting dalam keberlangsungan Simpati Konveksi.\n\nKami sangat berharap Bapak/Ibu dapat membantu memproses pembayaran tersebut. Dukungan dari customer sangat membantu kami untuk terus menjaga kelancaran produksi dan memberikan pelayanan terbaik.\n\nTerima kasih banyak atas perhatian, bantuan, dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*.\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*\n\nDetail Invoice:\n${shareUrl}`;
-                    const waUrl = rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(waMsg)}` : `https://wa.me/?text=${encodeURIComponent(waMsg)}`;
+                    const waTagih = `Assalamu'alaikum warahmatullahi wabarakatuh\n\n*Kepada Bapak/Ibu ${sInv.customer},*\n\nKami dari *Simpati Konveksi* ingin mengingatkan terkait tagihan invoice berikut:\n\n————————————————\n*DETAIL INVOICE*\n• Total         : ${formatRupiah(sTotals.total)}\n• Terbayar      : ${formatRupiah(sPaid)}\n• *Sisa Tagihan : ${formatRupiah(sRemaining)}*\n————————————————\n\nMohon bantuan Bapak/Ibu untuk dapat segera melakukan pelunasan sesuai perjanjian.\n\n*Pembayaran dari Bapak/Ibu sangat berarti bagi kami*, karena sangat membantu kelancaran operasional perusahaan, kebutuhan produksi, serta *gaji karyawan kami* yang menjadi bagian penting dalam keberlangsungan Simpati Konveksi.\n\nKami sangat berharap Bapak/Ibu dapat membantu memproses pembayaran tersebut. Dukungan dari customer sangat membantu kami untuk terus menjaga kelancaran produksi dan memberikan pelayanan terbaik.\n\nTerima kasih banyak atas perhatian, bantuan, dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*.\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*\n\nDetail Invoice:\n${shareUrl}`;
+                    const waDp = `Assalamu'alaikum warahmatullahi wabarakatuh\n\n*Kepada Bapak/Ibu ${sInv.customer},*\n\nAlhamdulillah, terima kasih atas kepercayaan Bapak/Ibu yang telah mempercayakan kebutuhan seragamnya kepada *Simpati Konveksi*.\n\nBerikut detail pesanan Bapak/Ibu:\n\n————————————————\n*DETAIL PESANAN*\n• *Total Pesanan : ${formatRupiah(sTotals.total)}*\n————————————————\n\nMohon bantuan Bapak/Ibu untuk dapat melakukan pembayaran uang muka (DP) guna memulai proses produksi.\n\n*Pembayaran DP sangat kami butuhkan untuk pembelian bahan dan persiapan produksi*, agar pesanan dapat berjalan lancar sesuai rencana.\n\nUntuk konfirmasi nominal DP dan informasi lebih lanjut, silakan hubungi kami langsung.\n\nTerima kasih atas bantuan dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*.\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*\n\nDetail Invoice:\n${shareUrl}`;
+                    const mkUrl = (msg) => rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
                     return (
                         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4" onClick={() => setInvShareModal(null)}>
                             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
-                                <h3 className="font-black text-gray-800 text-lg mb-1">📱 Tagih via WhatsApp</h3>
+                                <h3 className="font-black text-gray-800 text-lg mb-1">📱 WhatsApp Invoice</h3>
                                 <p className="text-sm text-gray-700 font-bold mb-0.5">{sInv.customer}</p>
                                 <p className="text-xs text-gray-400 font-mono mb-4">{sInv.id}</p>
-                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-3">
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-2">
                                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Link Invoice Publik</div>
                                     <div className="text-xs text-gray-600 break-all leading-relaxed">{shareUrl}</div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2 mb-3">
-                                    <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm">📋 Salin Link</button>
-                                    <button onClick={() => window.open(waUrl, 'simpati_wa')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">📱 Kirim WA</button>
+                                <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm mb-4">📋 Salin Link</button>
+                                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Kirim Pesan WhatsApp</div>
+                                <div className="space-y-2 mb-3">
+                                    <button onClick={() => window.open(mkUrl(waTagih), 'simpati_wa')} className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm text-left flex items-center gap-3">
+                                        <span className="text-xl">💬</span>
+                                        <div>
+                                            <div className="font-black text-sm">Tagih Pembayaran</div>
+                                            <div className="text-[11px] opacity-80 font-normal">Pengingat sisa tagihan customer</div>
+                                        </div>
+                                    </button>
+                                    <button onClick={() => window.open(mkUrl(waDp), 'simpati_wa')} className="w-full px-4 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-sm text-left flex items-center gap-3">
+                                        <span className="text-xl">🤝</span>
+                                        <div>
+                                            <div className="font-black text-sm">Minta DP / Uang Muka</div>
+                                            <div className="text-[11px] opacity-80 font-normal">Permintaan pembayaran awal produksi</div>
+                                        </div>
+                                    </button>
                                 </div>
                                 {!rawPhone && <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mb-3">⚠ Nomor WA customer tidak ditemukan di data klien. WA akan terbuka tanpa nomor tujuan.</p>}
                                 <p className="text-xs text-gray-400 bg-yellow-50 border border-yellow-200 rounded p-2 mb-4">⚠️ Siapapun yang punya link ini dapat melihat detail invoice ini.</p>
