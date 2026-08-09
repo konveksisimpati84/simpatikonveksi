@@ -532,6 +532,13 @@
             try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
         };
 
+        const getInvoiceShareFromHash = () => {
+            const hash = window.location.hash || '';
+            const prefix = '#invoice-share=';
+            if (!hash.startsWith(prefix)) return '';
+            try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
+        };
+
         const SearchField = ({ value, onChange, placeholder = "Cari data..." }) => (
             <div className="print:hidden">
                 <label className="block text-xs font-bold text-gray-600 mb-1">Cari</label>
@@ -7060,6 +7067,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [payForm, setPayForm] = useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '', proofImage: '' });
             const [proofViewImg, setProofViewImg] = useState(null);
             const [mktShareModal, setMktShareModal] = useState(null);
+            const [invShareModal, setInvShareModal] = useState(null);
             const [activeInvoiceTab, setActiveInvoiceTab] = useState('invoice');
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
@@ -7198,6 +7206,18 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const emp = (employees || []).find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(empName).toLowerCase().trim());
                 if (!emp || !setEmployees) return;
                 setEmployees(prev => (Array.isArray(prev) ? prev : []).map(e => String(e.id) === String(emp.id) ? { ...e, marketingShareToken: null, _syncUpdatedAt: new Date().toISOString() } : e));
+            };
+            const getOrCreateInvShareToken = (invId) => {
+                const inv = safeInvoiceRows.find(i => !i.isDeleted && String(i.id) === String(invId));
+                if (!inv) return null;
+                if (inv.invoiceShareToken) return inv.invoiceShareToken;
+                const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + Date.now().toString(36);
+                if (setInvoices) setInvoices(prev => (Array.isArray(prev) ? prev : []).map(i => String(i.id) === String(invId) ? { ...i, invoiceShareToken: token, _syncUpdatedAt: new Date().toISOString() } : i));
+                return token;
+            };
+            const revokeInvShareToken = (invId) => {
+                if (!setInvoices) return;
+                setInvoices(prev => (Array.isArray(prev) ? prev : []).map(i => String(i.id) === String(invId) ? { ...i, invoiceShareToken: null, _syncUpdatedAt: new Date().toISOString() } : i));
             };
             const printInvoice = (inv) => {
                 const safe = (value) => String(value ?? '-').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -8136,6 +8156,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {/* Footer */}
                                 <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 shrink-0 flex-wrap">
                                     {status === 'Lunas' && <button onClick={() => { setDetailInvId(null); printKwitansiPelunasan(inv); }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">🧾 Kwitansi Pelunasan</button>}
+                                    {remaining > 0 && <button onClick={() => { const token = getOrCreateInvShareToken(inv.id); if (token) { setInvShareModal({ inv, token }); setDetailInvId(null); } }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">📱 Tagih via WA</button>}
                                     <button onClick={() => { setDetailInvId(null); printInvoice(inv); }} className="px-4 py-2 text-white rounded-xl font-bold text-sm flex items-center gap-2" style={{ background: 'linear-gradient(135deg,#1B4F72,#1a6a7a)' }}><IconPrinter /> Cetak Invoice</button>
                                     <button onClick={() => setDetailInvId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
                                 </div>
@@ -8164,7 +8185,235 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                     );
                 })()}
+                {invShareModal && (() => {
+                    const { inv: sInv, token } = invShareModal;
+                    const shareUrl = `${window.location.origin}${window.location.pathname}#invoice-share=${encodeURIComponent(token)}`;
+                    const sTotals = getInvoiceTotals(sInv);
+                    const sPaid = getInvoicePaidTotal(sInv);
+                    const sRemaining = Math.max(0, sTotals.total - sPaid);
+                    const fmtDate = (d) => { if (!d) return '-'; const parts = d.split('-'); return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d; };
+                    const sClient = safeClientRows.find(c => !c.isDeleted && normalizeText(c.name) === normalizeText(sInv.customer));
+                    const rawPhone = sClient?.phone ? String(sClient.phone).replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
+                    const waMsg = `Assalamu'alaikum Bapak/Ibu ${sInv.customer} 🙏\n\nKami dari *Simpati Konveksi* ingin mengingatkan terkait tagihan invoice.\n\n🧾 *No. Invoice:* ${sInv.id}\n📋 *Total Tagihan:* ${formatRupiah(sTotals.total)}\n💰 *Sudah Dibayar:* ${formatRupiah(sPaid)}\n💳 *Sisa Tagihan:* ${formatRupiah(sRemaining)}\n📅 *Tgl. Invoice:* ${fmtDate(sInv.date)}\n\nMohon bantuan Bapak/Ibu untuk dapat segera melakukan pelunasan sesuai perjanjian.\n\n🙏 *Pembayaran dari Bapak/Ibu sangat berarti bagi kami*, karena sangat membantu kelancaran operasional perusahaan, kebutuhan produksi, serta *gaji karyawan kami* yang menjadi bagian penting dalam keberlangsungan Simpati Konveksi.\n\nKami sangat berharap Bapak/Ibu dapat membantu memproses pembayaran tersebut. Dukungan dan pembayaran dari customer sangat membantu kami untuk terus menjaga kelancaran produksi dan memberikan pelayanan terbaik.\n\nTerima kasih banyak atas perhatian, bantuan, dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*. 🙏\n\n*Simpati Konveksi*\nWassalamu'alaikum warahmatullahi wabarakatuh\n\n🔗 Detail Invoice: ${shareUrl}`;
+                    const waUrl = rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(waMsg)}` : `https://wa.me/?text=${encodeURIComponent(waMsg)}`;
+                    return (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4" onClick={() => setInvShareModal(null)}>
+                            <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-black text-gray-800 text-lg mb-1">📱 Tagih via WhatsApp</h3>
+                                <p className="text-sm text-gray-700 font-bold mb-0.5">{sInv.customer}</p>
+                                <p className="text-xs text-gray-400 font-mono mb-4">{sInv.id}</p>
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-3">
+                                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Link Invoice Publik</div>
+                                    <div className="text-xs text-gray-600 break-all leading-relaxed">{shareUrl}</div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                    <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm">📋 Salin Link</button>
+                                    <button onClick={() => window.open(waUrl, 'simpati_wa')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">📱 Kirim WA</button>
+                                </div>
+                                {!rawPhone && <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mb-3">⚠ Nomor WA customer tidak ditemukan di data klien. WA akan terbuka tanpa nomor tujuan.</p>}
+                                <p className="text-xs text-gray-400 bg-yellow-50 border border-yellow-200 rounded p-2 mb-4">⚠️ Siapapun yang punya link ini dapat melihat detail invoice ini.</p>
+                                <div className="flex justify-between items-center">
+                                    <button onClick={() => { revokeInvShareToken(sInv.id); setInvShareModal(null); showToast('Akses link dicabut', 'success'); }} className="text-xs text-red-500 hover:text-red-700 font-medium">Cabut Akses Link</button>
+                                    <button onClick={() => setInvShareModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Tutup</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
                 </>
+            );
+        };
+
+        const InvoicePublicView = ({ token }) => {
+            const [inv, setInv] = React.useState(null);
+            const [loading, setLoading] = React.useState(true);
+            const [error, setError] = React.useState('');
+            const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
+            const fmtDate = (d) => { if (!d) return '-'; const parts = d.split('-'); return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d; };
+            React.useEffect(() => {
+                (async () => {
+                    setLoading(true);
+                    try {
+                        if (!supabaseClient) { setError('Koneksi database tidak tersedia.'); setLoading(false); return; }
+                        const { data, error: err } = await supabaseClient.from('app_data').select('data').eq('id', 'invoices').single();
+                        if (err) throw err;
+                        const all = Array.isArray(data?.data) ? data.data : [];
+                        const found = all.find(i => !i.isDeleted && i.invoiceShareToken === token);
+                        if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
+                        setInv(found);
+                    } catch(e) {
+                        setError('Gagal memuat data. Silakan refresh halaman.');
+                    }
+                    setLoading(false);
+                })();
+            }, [token]);
+            if (loading) return (
+                <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-slate-100">
+                    <div className="text-center">
+                        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="text-gray-600 font-medium">Memuat invoice...</p>
+                    </div>
+                </div>
+            );
+            if (error) return (
+                <div className="flex items-center justify-center min-h-screen bg-gray-50">
+                    <div className="text-center bg-white rounded-xl p-8 shadow max-w-sm">
+                        <div className="text-5xl mb-4">⚠️</div>
+                        <p className="text-gray-700 font-bold">{error}</p>
+                    </div>
+                </div>
+            );
+            if (!inv) return null;
+            const totals = getInvoiceTotals(inv);
+            const paid = getInvoicePaidTotal(inv);
+            const remaining = Math.max(0, totals.total - paid);
+            const pct = totals.total > 0 ? Math.min(100, Math.round(paid / totals.total * 100)) : 0;
+            const status = getInvoicePaymentStatus(inv);
+            const statusColor = status === 'Lunas'
+                ? { bar: '#22C55E', bg: '#DCFCE7', text: '#166534', label: '✓ LUNAS' }
+                : status === 'Termin'
+                ? { bar: '#F59E0B', bg: '#FEF3C7', text: '#92400E', label: '◑ TERMIN' }
+                : { bar: '#EF4444', bg: '#FEE2E2', text: '#991B1B', label: '✗ BELUM BAYAR' };
+            const invItems = getInvoiceItems(inv);
+            const totalPcs = getInvoicePcsTotal(inv);
+            const dpAmt = getInvoiceDpAmount(inv);
+            const linkedDp = getInvoiceLinkedDpAmount(inv);
+            const termins = getInvoicePayments(inv);
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50 py-6 px-4">
+                    <div className="max-w-lg mx-auto">
+                        <div className="text-center mb-5">
+                            <div className="inline-flex items-center gap-2 bg-white rounded-2xl px-5 py-3 shadow-sm border border-blue-100">
+                                <span className="text-2xl">🧵</span>
+                                <span className="font-black text-gray-800 text-lg">Simpati Konveksi</span>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-2">Halaman Tagihan Invoice</p>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+                            <div className="px-5 py-4" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a6a7a 100%)' }}>
+                                <div className="font-black text-white text-xl leading-tight">{inv.customer}</div>
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                    <span className="font-mono text-blue-200 text-xs font-semibold">{inv.id}</span>
+                                    <span className="text-white/40 text-xs">·</span>
+                                    <span className="text-white/70 text-xs">Tgl: {fmtDate(inv.date)}</span>
+                                </div>
+                                <span className="inline-block mt-2 text-[11px] font-black px-2.5 py-0.5 rounded-full" style={{ background: statusColor.bg, color: statusColor.text }}>{statusColor.label}</span>
+                            </div>
+                            <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-[11px] font-bold text-gray-500">Progress Pembayaran</span>
+                                    <span className="text-[11px] font-black" style={{ color: statusColor.text }}>{pct}% terbayar</span>
+                                </div>
+                                <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: statusColor.bar }}></div>
+                                </div>
+                                <div className="flex justify-between mt-1">
+                                    <span className="text-[10px] text-green-600 font-bold">Terbayar: {fmtRp(paid)}</span>
+                                    {remaining > 0 && <span className="text-[10px] text-red-500 font-bold">Sisa: {fmtRp(remaining)}</span>}
+                                </div>
+                            </div>
+                            <div className="p-5 space-y-5">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2.5">
+                                        <div className="w-1 h-4 rounded-full bg-blue-500"></div>
+                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Ringkasan Tagihan</span>
+                                    </div>
+                                    <div className="rounded-xl border border-gray-100 overflow-hidden">
+                                        {totals.subtotal !== totals.total && (
+                                            <div className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
+                                                <span className="text-sm text-gray-500">Subtotal ({totalPcs} pcs)</span>
+                                                <span className="text-sm font-bold text-gray-700">{fmtRp(totals.subtotal)}</span>
+                                            </div>
+                                        )}
+                                        {totals.discount > 0 && (
+                                            <div className="flex justify-between items-center px-4 py-2.5 bg-amber-50 border-b border-amber-100">
+                                                <span className="text-sm text-amber-700 font-semibold">🏷 Diskon</span>
+                                                <span className="text-sm font-bold text-amber-700">- {fmtRp(totals.discount)}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between items-center px-4 py-3 bg-blue-50 border-b border-blue-100">
+                                            <span className="text-sm font-black text-blue-800">Total Invoice</span>
+                                            <span className="text-base font-black text-blue-900">{fmtRp(totals.total)}</span>
+                                        </div>
+                                        {dpAmt > 0 && (
+                                            <div className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
+                                                <span className="text-sm text-gray-500">DP / Uang Muka</span>
+                                                <span className="text-sm font-bold text-green-700">- {fmtRp(dpAmt)}</span>
+                                            </div>
+                                        )}
+                                        {linkedDp > 0 && (
+                                            <div className="flex justify-between items-center px-4 py-2.5 bg-emerald-50 border-b border-emerald-100">
+                                                <span className="text-sm text-emerald-700 font-semibold">💳 Saldo Dipakai</span>
+                                                <span className="text-sm font-bold text-emerald-700">- {fmtRp(linkedDp)}</span>
+                                            </div>
+                                        )}
+                                        {termins.map((pay, pi) => (
+                                            <div key={pay.id || pi} className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
+                                                <div>
+                                                    <span className="text-sm text-gray-500">Termin {pi + 1}</span>
+                                                    <span className="text-[10px] text-gray-400 ml-2">{fmtDate(pay.date)} · {pay.method || 'Transfer'}</span>
+                                                </div>
+                                                <span className="text-sm font-bold text-green-700">- {fmtRp(safeMoney(pay.amount))}</span>
+                                            </div>
+                                        ))}
+                                        <div className={`flex justify-between items-center px-4 py-3 ${remaining > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                                            <span className={`text-sm font-black ${remaining > 0 ? 'text-red-700' : 'text-green-700'}`}>{remaining > 0 ? '⚠ Sisa Tagihan' : '✓ Lunas'}</span>
+                                            <span className={`text-base font-black ${remaining > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmtRp(remaining)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2.5">
+                                        <div className="w-1 h-4 rounded-full bg-teal-500"></div>
+                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Rincian Produksi</span>
+                                        <span className="text-[10px] text-gray-400 font-bold">{totalPcs} pcs</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {invItems.map((item, i) => {
+                                            const itemSizes = (item.sizes || []).filter(s => s.qty > 0 || s.size);
+                                            const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
+                                            const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
+                                            return (
+                                                <div key={i} className="rounded-xl border border-gray-100 overflow-hidden">
+                                                    <div className="flex items-center justify-between px-3 py-2 bg-blue-50 border-b border-blue-100">
+                                                        <span className="font-black text-blue-800 text-sm">{item.productionType || '-'}</span>
+                                                        <div className="text-right">
+                                                            <span className="text-xs font-black text-blue-700">{fmtRp(itemTotal)}</span>
+                                                            <span className="text-[10px] text-blue-400 ml-1">({itemPcs} pcs)</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="px-3 py-2 flex flex-wrap gap-1.5">
+                                                        {itemSizes.map((s, si) => {
+                                                            const st = getInvoiceSizeTotal(s);
+                                                            return (
+                                                                <div key={si} className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-center min-w-[56px]">
+                                                                    <div className="text-[10px] font-black text-gray-700">{s.size || '-'}</div>
+                                                                    <div className="text-[10px] text-gray-500">{safeMoney(s.qty)} pcs</div>
+                                                                    <div className="text-[10px] font-bold text-blue-700">{fmtRp(st.total)}</div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                                {inv.note && (
+                                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                                        <div className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Catatan</div>
+                                        <div className="text-sm text-gray-700 italic">"{inv.note}"</div>
+                                    </div>
+                                )}
+                                <div className="text-center pt-2 border-t border-gray-100">
+                                    <div className="text-xs text-gray-400">Dokumen ini diterbitkan oleh</div>
+                                    <div className="font-black text-gray-700 text-sm mt-0.5">🧵 Simpati Konveksi</div>
+                                    <div className="text-[10px] text-gray-400 mt-1">Informasi lebih lanjut silakan hubungi tim kami</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             );
         };
 
@@ -16311,6 +16560,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
             const [investorShareToken, setInvestorShareToken] = useState(getInvestorShareTokenFromHash());
             const [marketingShareToken] = useState(getMarketingShareTokenFromHash());
+            const [invoiceShareToken] = useState(getInvoiceShareFromHash());
             const [driverConfirmId] = useState(getDriverConfirmFromHash());
             const [driverRekapGajiShareId] = useState(getDriverRekapGajiFromHash());
             
@@ -18048,6 +18298,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return (
                     <>
                         <MarketingPublicView token={marketingShareToken} />
+                        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    </>
+                );
+            }
+
+            if (invoiceShareToken) {
+                return (
+                    <>
+                        <InvoicePublicView token={invoiceShareToken} />
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     </>
                 );
