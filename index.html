@@ -8314,20 +8314,44 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 <span className="inline-block mt-2 text-[11px] font-black px-2.5 py-0.5 rounded-full" style={{ background: statusColor.bg, color: statusColor.text }}>{statusColor.label}</span>
                             </div>
-                            <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
-                                <div className="flex items-center justify-between mb-1.5">
-                                    <span className="text-[11px] font-bold text-gray-500">Progress Pembayaran</span>
-                                    <span className="text-[11px] font-black" style={{ color: statusColor.text }}>{pct}% terbayar</span>
-                                </div>
-                                <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                                    <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: statusColor.bar }}></div>
-                                </div>
-                                <div className="flex justify-between mt-1">
-                                    <span className="text-[10px] text-green-600 font-bold">Terbayar: {fmtRp(paid)}</span>
-                                    {remaining > 0 && <span className="text-[10px] text-red-500 font-bold">Sisa: {fmtRp(remaining)}</span>}
-                                </div>
-                            </div>
                             <div className="p-5 space-y-5">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2.5">
+                                        <div className="w-1 h-4 rounded-full bg-teal-500"></div>
+                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Rincian Produksi</span>
+                                        <span className="text-[10px] text-gray-400 font-bold">{totalPcs} pcs</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {invItems.map((item, i) => {
+                                            const itemSizes = (item.sizes || []).filter(s => s.qty > 0 || s.size);
+                                            const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
+                                            const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
+                                            return (
+                                                <div key={i} className="rounded-xl border border-gray-100 overflow-hidden">
+                                                    <div className="flex items-center justify-between px-3 py-2 bg-blue-50 border-b border-blue-100">
+                                                        <span className="font-black text-blue-800 text-sm">{item.productionType || '-'}</span>
+                                                        <div className="text-right">
+                                                            <span className="text-xs font-black text-blue-700">{fmtRp(itemTotal)}</span>
+                                                            <span className="text-[10px] text-blue-400 ml-1">({itemPcs} pcs)</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="px-3 py-2 flex flex-wrap gap-1.5">
+                                                        {itemSizes.map((s, si) => {
+                                                            const st = getInvoiceSizeTotal(s);
+                                                            return (
+                                                                <div key={si} className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-center min-w-[56px]">
+                                                                    <div className="text-[10px] font-black text-gray-700">{s.size || '-'}</div>
+                                                                    <div className="text-[10px] text-gray-500">{safeMoney(s.qty)} pcs</div>
+                                                                    <div className="text-[10px] font-bold text-blue-700">{fmtRp(st.total)}</div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
                                 <div>
                                     <div className="flex items-center gap-2 mb-2.5">
                                         <div className="w-1 h-4 rounded-full bg-blue-500"></div>
@@ -8379,39 +8403,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2 mb-2.5">
-                                        <div className="w-1 h-4 rounded-full bg-teal-500"></div>
-                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Rincian Produksi</span>
-                                        <span className="text-[10px] text-gray-400 font-bold">{totalPcs} pcs</span>
+                                        <div className="w-1 h-4 rounded-full bg-green-500"></div>
+                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Progress Pembayaran</span>
                                     </div>
-                                    <div className="space-y-2">
-                                        {invItems.map((item, i) => {
-                                            const itemSizes = (item.sizes || []).filter(s => s.qty > 0 || s.size);
-                                            const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
-                                            const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
-                                            return (
-                                                <div key={i} className="rounded-xl border border-gray-100 overflow-hidden">
-                                                    <div className="flex items-center justify-between px-3 py-2 bg-blue-50 border-b border-blue-100">
-                                                        <span className="font-black text-blue-800 text-sm">{item.productionType || '-'}</span>
-                                                        <div className="text-right">
-                                                            <span className="text-xs font-black text-blue-700">{fmtRp(itemTotal)}</span>
-                                                            <span className="text-[10px] text-blue-400 ml-1">({itemPcs} pcs)</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="px-3 py-2 flex flex-wrap gap-1.5">
-                                                        {itemSizes.map((s, si) => {
-                                                            const st = getInvoiceSizeTotal(s);
-                                                            return (
-                                                                <div key={si} className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-center min-w-[56px]">
-                                                                    <div className="text-[10px] font-black text-gray-700">{s.size || '-'}</div>
-                                                                    <div className="text-[10px] text-gray-500">{safeMoney(s.qty)} pcs</div>
-                                                                    <div className="text-[10px] font-bold text-blue-700">{fmtRp(st.total)}</div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
+                                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-[11px] font-bold text-gray-500">{pct}% terbayar</span>
+                                            <span className="text-[11px] font-black" style={{ color: statusColor.text }}>{statusColor.label}</span>
+                                        </div>
+                                        <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                                            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: statusColor.bar }}></div>
+                                        </div>
+                                        <div className="flex justify-between mt-1.5">
+                                            <span className="text-[10px] text-green-600 font-bold">Terbayar: {fmtRp(paid)}</span>
+                                            {remaining > 0 && <span className="text-[10px] text-red-500 font-bold">Sisa: {fmtRp(remaining)}</span>}
+                                        </div>
                                     </div>
                                 </div>
                                 {inv.note && (
