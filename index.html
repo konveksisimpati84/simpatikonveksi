@@ -7059,6 +7059,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [editId, setEditId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [statusFilter, setStatusFilter] = useState('Semua');
+            const [invSortBy, setInvSortBy] = useState('terbaru');
             const [expandedIds, setExpandedIds] = useState({});
             const [deleteInvConfirmId, setDeleteInvConfirmId] = useState(null);
             const [payInvId, setPayInvId] = useState(null);
@@ -7090,7 +7091,13 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const visibleInvoices = safeInvoiceRows.filter(isVisibleRecord).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.address, inv.marketing, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)], searchTerm);
-            }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+            }).sort((a, b) => {
+                if (invSortBy === 'terlama')       return (a.date || '').localeCompare(b.date || '');
+                if (invSortBy === 'terbesar')      return getInvoiceTotals(b).total - getInvoiceTotals(a).total;
+                if (invSortBy === 'terkecil')      return getInvoiceTotals(a).total - getInvoiceTotals(b).total;
+                if (invSortBy === 'sisa_terbesar') return Math.max(0, getInvoiceTotals(b).total - getInvoicePaidTotal(b)) - Math.max(0, getInvoiceTotals(a).total - getInvoicePaidTotal(a));
+                return new Date(b.date || 0) - new Date(a.date || 0);
+            });
             const { page: invPage, setPage: setInvPage, totalPages: invTotalPages, paged: pagedInvoices, total: invTotal } = usePagination(visibleInvoices, 20);
             const totalInvoice = visibleInvoices.reduce((sum, inv) => sum + getInvoiceTotals(inv).total, 0);
             const totalPaid = visibleInvoices.reduce((sum, inv) => sum + getInvoicePaidTotal(inv), 0);
@@ -7782,8 +7789,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                             <div className="flex flex-col md:flex-row gap-2 md:items-center">
                                 <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari customer, marketing, jenis, status..." />
-                                <select className="p-2.5 border border-slate-600 bg-slate-700 text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                                <select className="p-2.5 border border-slate-600 bg-slate-700 text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setInvPage(1); }}>
                                     <option>Semua</option><option>Belum Dibayar</option><option>Termin</option><option>Lunas</option>
+                                </select>
+                                <select className="p-2.5 border border-blue-500 bg-slate-700 text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent font-semibold" value={invSortBy} onChange={e => { setInvSortBy(e.target.value); setInvPage(1); }}>
+                                    <option value="terbaru">⬇ Terbaru</option>
+                                    <option value="terlama">⬆ Terlama</option>
+                                    <option value="terbesar">↓ Nominal Terbesar</option>
+                                    <option value="terkecil">↑ Nominal Terkecil</option>
+                                    <option value="sisa_terbesar">↓ Sisa Tagihan Terbesar</option>
                                 </select>
                             </div>
                         </div>
