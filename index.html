@@ -411,10 +411,26 @@
         const normalizeVendorName = (vendor) => String(vendor || 'Tanpa Vendor').trim() || 'Tanpa Vendor';
         const getMaterialQty = (item) => parseFloat(String(item?.qty ?? 0).replace(',', '.')) || 0;
         const getMaterialUnitPrice = (item) => parseFloat(String(item?.price ?? 0).replace(',', '.')) || 0;
-        const getMaterialLineTotal = (item) => Math.round(getMaterialQty(item) * getMaterialUnitPrice(item));
+        const getMaterialLineSubtotal = (item) => Math.round(getMaterialQty(item) * getMaterialUnitPrice(item));
+        const getMaterialLineTotal = (item) => {
+            const sub = getMaterialLineSubtotal(item);
+            const discRp = safeMoney(item?.discountRp);
+            const discPct = safeMoney(item?.discountPct);
+            const afterFlat = Math.max(0, sub - discRp);
+            return Math.max(0, Math.round(afterFlat * (1 - discPct / 100)));
+        };
         const getOrderMaterialTotal = (order) => getActiveMaterials(order).reduce((sum, item) => sum + getMaterialLineTotal(item), 0);
         // 4 fungsi murni — satu-satunya cara menghitung data nota pembelian
-        const noteTotal  = (note) => safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+        const getNoteGlobalDiscount = (note, itemsTotal) => {
+            const gdType = note?.globalDiscountType || 'Rp';
+            const gdValue = safeMoney(note?.globalDiscountValue);
+            if (gdValue <= 0) return 0;
+            return gdType === '%' ? Math.round(itemsTotal * gdValue / 100) : gdValue;
+        };
+        const noteTotal  = (note) => {
+            const itemsTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+            return Math.max(0, itemsTotal - getNoteGlobalDiscount(note, itemsTotal));
+        };
         // Hitung saldo dana operasional karyawan secara dinamis dari data
         const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses, rekapKinerja = []) => {
             const eid = String(empId);
@@ -445,14 +461,16 @@
         // Satu-satunya tempat menghitung semua nilai form nota — dipakai display DAN validasi
         const calcNoteForm = (form) => {
             const validItems = safeArray(form.items).filter(it => String(it.name || '').trim());
-            const total = validItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+            const itemsTotal = validItems.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+            const globalDiscount = getNoteGlobalDiscount(form, itemsTotal);
+            const total = Math.max(0, itemsTotal - globalDiscount);
             const cleanPayments = safeArray(form.payments).filter(p => parseFloat(p.amount) > 0)
                 .map(p => ({ ...p, amount: parseFloat(p.amount) || 0 }));
             const paid = safeArray(form.payments).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
             const cleanPaid = cleanPayments.reduce((s, p) => s + p.amount, 0);
             const debt = Math.max(0, total - paid);
             const status = paid <= 0 ? 'Belum Dibayar' : total > 0 && paid >= total - 0.01 ? 'Lunas' : 'Dibayar Sebagian';
-            return { validItems, total, cleanPayments, paid, cleanPaid, debt, status };
+            return { validItems, total, itemsTotal, globalDiscount, cleanPayments, paid, cleanPaid, debt, status };
         };
 
         // Normalisasi legacy paymentStatus ke payments[] — dipakai di edit handler dan saveQuickPay
@@ -4744,9 +4762,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const clearChecked = () => setCheckedNoteIds(new Set());
             const exitSelectionMode = () => { setSelectionMode(false); setCheckedNoteIds(new Set()); };
 
-            const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', orderId: '' });
+            const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', discountRp: '', discountPct: '', orderId: '' });
             const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
-            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [] };
+            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [], globalDiscountType: 'Rp', globalDiscountValue: '' };
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
@@ -4793,11 +4811,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
                     payments: fc.cleanPayments,
+                    globalDiscountType: noteForm.globalDiscountType || 'Rp',
+                    globalDiscountValue: safeMoney(noteForm.globalDiscountValue),
                     items: fc.validItems.map(it => ({
                         ...it,
                         id: it.id || genId('NI-'),
                         qty: it.qty ?? '',
                         price: it.price ?? '',
+                        discountRp: safeMoney(it.discountRp),
+                        discountPct: safeMoney(it.discountPct),
                         code: String(it.code || '').trim(),
                         orderId: String(it.orderId || '').trim(),
                     })),
@@ -5061,11 +5083,29 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <span className="text-xs font-bold text-gray-700 shrink-0" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</span>
+                                                        <div className="text-right shrink-0">
+                                                            {getMaterialLineSubtotal(it) !== getMaterialLineTotal(it) && (
+                                                                <div className="text-[10px] text-gray-300 line-through" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineSubtotal(it))}</div>
+                                                            )}
+                                                            <span className="text-xs font-bold text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</span>
+                                                        </div>
                                                     </div>
                                                 );
                                             })}
                                         </div>
+
+                                        {/* Diskon global nota — tampil jika ada */}
+                                        {(() => {
+                                            const noteItemsTotal = safeArray(note.items).reduce((s, it) => s + getMaterialLineTotal(it), 0);
+                                            const gd = getNoteGlobalDiscount(note, noteItemsTotal);
+                                            if (gd <= 0) return null;
+                                            return (
+                                                <div className="flex items-center justify-between px-3 py-1.5 bg-orange-50 border border-orange-200 rounded-xl text-xs">
+                                                    <span className="text-orange-700 font-semibold">Diskon Global{note.globalDiscountType === '%' ? ` (${note.globalDiscountValue}%)` : ''}</span>
+                                                    <span className="font-black text-orange-600" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(gd)}</span>
+                                                </div>
+                                            );
+                                        })()}
 
                                         {/* Quick pay form */}
                                         {isQuickPayOpen && (
@@ -5118,9 +5158,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             )}
                                             <button onClick={() => {
                                                 setEditNoteId(note.id);
-                                                const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it })) : [emptyItem()];
+                                                const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it, discountRp: String(it.discountRp || ''), discountPct: String(it.discountPct || '') })) : [emptyItem()];
                                                 const payments = safeArray(normalizeNote(note).payments);
-                                                setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments });
+                                                setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments, globalDiscountType: note.globalDiscountType || 'Rp', globalDiscountValue: String(note.globalDiscountValue || '') });
                                                 setOrderComboState({});
                                                 setNoteFormOpen(true);
                                             }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
@@ -5265,11 +5305,19 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             </div>
                                                         </div>
                                                         <div className="grid grid-cols-12 gap-2 items-end">
-                                                            <div className="col-span-4">
+                                                            <div className="col-span-3">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Harga Satuan (Rp)</label>
                                                                 <input type="number" min="0" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-right focus:ring-1 focus:ring-blue-400" placeholder="0" value={it.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
                                                             </div>
-                                                            <div className="col-span-8">
+                                                            <div className="col-span-2">
+                                                                <label className="block text-[10px] font-bold text-orange-400 mb-1 uppercase tracking-wide">Diskon (Rp)</label>
+                                                                <input type="number" min="0" className="w-full px-3 py-2 text-sm border border-orange-200 rounded-lg bg-orange-50 text-right focus:ring-1 focus:ring-orange-400" placeholder="0" value={it.discountRp} onChange={e => updateItem(idx, 'discountRp', e.target.value)} />
+                                                            </div>
+                                                            <div className="col-span-2">
+                                                                <label className="block text-[10px] font-bold text-green-600 mb-1 uppercase tracking-wide">Diskon (%)</label>
+                                                                <input type="number" min="0" max="100" className="w-full px-3 py-2 text-sm border border-green-200 rounded-lg bg-green-50 text-right focus:ring-1 focus:ring-green-400" placeholder="0" value={it.discountPct} onChange={e => updateItem(idx, 'discountPct', e.target.value)} />
+                                                            </div>
+                                                            <div className="col-span-5">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Untuk Order <span className="normal-case font-normal text-gray-300">(opsional)</span></label>
                                                                 {/* Combobox searchable */}
                                                                 <div className="relative">
@@ -5328,7 +5376,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             <div>
                                                                 {it.orderId && (() => { const o = allOrderOptions.find(x => String(x.id) === it.orderId) || safeOrders.find(x => String(x.id) === it.orderId); return o ? <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full border border-indigo-200">📋 {o.id} · {o.client}</span> : null; })()}
                                                             </div>
-                                                            <div className="text-xs text-gray-400">Subtotal: <span className="font-black text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</span></div>
+                                                            <div className="text-xs text-gray-400 text-right">
+                                                                {getMaterialLineSubtotal(it) !== getMaterialLineTotal(it) && (
+                                                                    <span className="line-through text-gray-300 mr-1" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineSubtotal(it))}</span>
+                                                                )}
+                                                                <span className="font-black text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getMaterialLineTotal(it))}</span>
+                                                                {getMaterialLineSubtotal(it) !== getMaterialLineTotal(it) && (
+                                                                    <span className="ml-1 text-[10px] text-orange-500 font-bold">(-{formatRupiah(getMaterialLineSubtotal(it) - getMaterialLineTotal(it))})</span>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -5346,6 +5402,26 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Catatan</span>
                                         </div>
                                         <input type="text" className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-400" placeholder="Catatan nota (opsional)" value={noteForm.note} onChange={e => setNoteForm(f => ({ ...f, note: e.target.value }))} />
+                                    </div>
+
+                                    {/* Diskon Global Nota */}
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <div className="w-1 h-4 rounded-full bg-orange-400"></div>
+                                            <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Diskon Global Nota</span>
+                                            <span className="text-[10px] text-gray-400 font-normal normal-case">(opsional — berlaku setelah diskon per item)</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex rounded-xl overflow-hidden border border-gray-200 shrink-0">
+                                                <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountType: 'Rp' }))} className={`px-3 py-2.5 text-sm font-black transition-colors ${(noteForm.globalDiscountType || 'Rp') === 'Rp' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Rp</button>
+                                                <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountType: '%' }))} className={`px-3 py-2.5 text-sm font-black transition-colors ${noteForm.globalDiscountType === '%' ? 'bg-green-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>%</button>
+                                            </div>
+                                            <input type="number" min="0" max={noteForm.globalDiscountType === '%' ? 100 : undefined} className="flex-1 px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-orange-400 focus:border-orange-400 text-right" placeholder={noteForm.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={noteForm.globalDiscountValue || ''} onChange={e => setNoteForm(f => ({ ...f, globalDiscountValue: e.target.value }))} />
+                                            {safeMoney(noteForm.globalDiscountValue) > 0 && <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountValue: '' }))} className="text-gray-400 hover:text-red-500 font-black text-lg shrink-0 leading-none">✕</button>}
+                                        </div>
+                                        {safeMoney(noteForm.globalDiscountValue) > 0 && (
+                                            <div className="mt-1.5 text-xs font-bold text-orange-600">Potongan: - {formatRupiah(fc.globalDiscount)}</div>
+                                        )}
                                     </div>
 
                                     {/* Pembayaran Termin */}
@@ -5403,7 +5479,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     <div className="flex flex-col sm:flex-row justify-between items-center gap-3 rounded-2xl p-4" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a7a8a 100%)' }}>
                                         <div>
                                             <div className="text-white/70 text-xs font-bold uppercase tracking-wide">Total Nota</div>
+                                            {fc.itemsTotal !== fc.total && (
+                                                <div className="text-white/40 text-sm line-through leading-none mb-0.5" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(fc.itemsTotal)}</div>
+                                            )}
                                             <div className="text-white text-2xl font-black leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(fc.total)}</div>
+                                            {fc.globalDiscount > 0 && (
+                                                <div className="text-orange-200 text-xs font-bold mt-0.5">Diskon Global: - {formatRupiah(fc.globalDiscount)}</div>
+                                            )}
                                         </div>
                                         <div className="flex gap-2 w-full sm:w-auto">
                                             <button onClick={() => { setNoteFormOpen(false); setEditNoteId(null); }} className="flex-1 sm:flex-none px-5 py-2.5 bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl font-bold text-sm transition-colors">Batal</button>
