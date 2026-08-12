@@ -557,6 +557,13 @@
             try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
         };
 
+        const getPromosiShareFromHash = () => {
+            const hash = window.location.hash || '';
+            const prefix = '#promosi-share=';
+            if (!hash.startsWith(prefix)) return '';
+            try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
+        };
+
         const SearchField = ({ value, onChange, placeholder = "Cari data..." }) => (
             <div className="print:hidden">
                 <label className="block text-xs font-bold text-gray-600 mb-1">Cari</label>
@@ -7120,7 +7127,356 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             );
         };
 
-        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates }) => {
+        const calcBagiHasil = (bhp, invoiceList) => {
+            const invs = safeArray(bhp.invoiceIds).map(id => (invoiceList || []).find(inv => isVisibleRecord(inv) && String(inv.id) === String(id))).filter(Boolean);
+            const totalNilai = invs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+            const type = bhp.bagiHasilType || 'Rp';
+            const value = safeMoney(bhp.bagiHasilValue);
+            const nominal = type === '%' ? Math.round(totalNilai * value / 100) : value;
+            return { invs, totalNilai, nominal };
+        };
+        const getBhpPaid = (bhp) => safeArray(bhp.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
+        const getBhpStatus = (bhp, nominal) => {
+            const paid = getBhpPaid(bhp);
+            if (paid <= 0) return 'Belum Dibayar';
+            if (paid >= nominal - 0.01) return 'Sudah Dibayar';
+            return 'Dibayar Sebagian';
+        };
+
+        const BagiHasilPromosiTab = ({ bagiHasilPromosi, updateBagiHasilPromosi, invoices, showToast }) => {
+            const emptyBhpForm = { nama: '', tanggal: new Date().toISOString().slice(0,10), invoiceIds: [], bagiHasilType: '%', bagiHasilValue: '', note: '', payments: [] };
+            const [form, setForm] = React.useState(emptyBhpForm);
+            const [editId, setEditId] = React.useState(null);
+            const [invSearch, setInvSearch] = React.useState('');
+            const [showInvDropdown, setShowInvDropdown] = React.useState(false);
+            const [detailId, setDetailId] = React.useState(null);
+            const [payForm, setPayForm] = React.useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
+            const [shareModal, setShareModal] = React.useState(null);
+            const [deleteConfirmId, setDeleteConfirmId] = React.useState(null);
+
+            const safeInvoices = (Array.isArray(invoices) ? invoices : []).filter(isVisibleRecord);
+            const safeBhp = (Array.isArray(bagiHasilPromosi) ? bagiHasilPromosi : []).filter(isVisibleRecord);
+
+            const filteredInvOptions = safeInvoices.filter(inv => {
+                const q = invSearch.trim().toLowerCase();
+                if (!q) return true;
+                return [inv.id, inv.customer, inv.date].join(' ').toLowerCase().includes(q);
+            }).slice(0, 20);
+
+            const selectedInvs = form.invoiceIds.map(id => safeInvoices.find(inv => String(inv.id) === String(id))).filter(Boolean);
+            const previewTotalNilai = selectedInvs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+            const previewNominal = (() => {
+                const v = safeMoney(form.bagiHasilValue);
+                if (v <= 0) return 0;
+                return form.bagiHasilType === '%' ? Math.round(previewTotalNilai * v / 100) : v;
+            })();
+
+            const addInvoice = (inv) => {
+                if (form.invoiceIds.includes(String(inv.id))) return;
+                setForm(prev => ({ ...prev, invoiceIds: [...prev.invoiceIds, String(inv.id)] }));
+                setInvSearch('');
+                setShowInvDropdown(false);
+            };
+            const removeInvoice = (id) => setForm(prev => ({ ...prev, invoiceIds: prev.invoiceIds.filter(i => i !== String(id)) }));
+
+            const saveBhp = (e) => {
+                e.preventDefault();
+                if (!String(form.nama || '').trim()) return showToast('Nama pihak ketiga wajib diisi.', 'error');
+                if (form.invoiceIds.length === 0) return showToast('Pilih minimal 1 invoice.', 'error');
+                if (!safeMoney(form.bagiHasilValue)) return showToast('Nominal bagi hasil wajib diisi.', 'error');
+                const now = new Date().toISOString();
+                const shareToken = editId ? (safeBhp.find(b => b.id === editId)?.shareToken || genId('BHS-')) : genId('BHS-');
+                const row = {
+                    id: editId || genId('BHP-'),
+                    nama: String(form.nama).trim(),
+                    tanggal: form.tanggal || now.slice(0,10),
+                    invoiceIds: form.invoiceIds,
+                    bagiHasilType: form.bagiHasilType || '%',
+                    bagiHasilValue: safeMoney(form.bagiHasilValue),
+                    note: String(form.note || '').trim(),
+                    payments: form.payments || [],
+                    shareToken,
+                    _syncUpdatedAt: now,
+                };
+                updateBagiHasilPromosi(prev => {
+                    const list = Array.isArray(prev) ? prev : [];
+                    return editId ? list.map(b => String(b.id) === String(editId) ? row : b) : [row, ...list];
+                });
+                showToast(editId ? 'Bagi Hasil diperbarui.' : 'Bagi Hasil disimpan.', 'success');
+                setForm(emptyBhpForm);
+                setEditId(null);
+            };
+
+            const startEdit = (bhp) => {
+                setForm({ nama: bhp.nama || '', tanggal: bhp.tanggal || new Date().toISOString().slice(0,10), invoiceIds: safeArray(bhp.invoiceIds).map(String), bagiHasilType: bhp.bagiHasilType || '%', bagiHasilValue: String(bhp.bagiHasilValue || ''), note: bhp.note || '', payments: safeArray(bhp.payments) });
+                setEditId(bhp.id);
+                setDetailId(null);
+            };
+
+            const deleteBhp = (id) => {
+                updateBagiHasilPromosi(prev => (Array.isArray(prev) ? prev : []).map(b => String(b.id) === String(id) ? { ...b, isDeleted: true, _syncUpdatedAt: new Date().toISOString() } : b));
+                showToast('Data dihapus.', 'success');
+                setDeleteConfirmId(null);
+                if (detailId === id) setDetailId(null);
+            };
+
+            const addPayment = (bhpId) => {
+                const amt = safeMoney(payForm.amount);
+                if (!amt) return showToast('Nominal pembayaran wajib diisi.', 'error');
+                const now = new Date().toISOString();
+                const pay = { id: genId('BHPP-'), date: payForm.date || now.slice(0,10), amount: amt, method: payForm.method || 'Transfer', note: payForm.note || '', _syncUpdatedAt: now };
+                updateBagiHasilPromosi(prev => (Array.isArray(prev) ? prev : []).map(b => String(b.id) === String(bhpId) ? { ...b, payments: [...safeArray(b.payments), pay], _syncUpdatedAt: now } : b));
+                setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
+                showToast('Pembayaran dicatat.', 'success');
+            };
+
+            const removePayment = (bhpId, payId) => {
+                const now = new Date().toISOString();
+                updateBagiHasilPromosi(prev => (Array.isArray(prev) ? prev : []).map(b => String(b.id) === String(bhpId) ? { ...b, payments: safeArray(b.payments).filter(p => p.id !== payId), _syncUpdatedAt: now } : b));
+                showToast('Pembayaran dihapus.', 'success');
+            };
+
+            const getShareUrl = (token) => `${window.location.origin}${window.location.pathname}#promosi-share=${encodeURIComponent(token)}`;
+
+            const openShareModal = (bhp) => {
+                const { invs, totalNilai, nominal } = calcBagiHasil(bhp, safeInvoices);
+                const status = getBhpStatus(bhp, nominal);
+                const paid = getBhpPaid(bhp);
+                const url = getShareUrl(bhp.shareToken);
+                const invLines = invs.map(inv => `- ${inv.id} (${inv.customer || '-'}): ${formatRupiah(getInvoiceTotals(inv).total)}`).join('\n');
+                const waText = `*Simpati Konveksi*\nInformasi Bagi Hasil Promosi\n\nKepada: ${bhp.nama}\nTanggal: ${bhp.tanggal || '-'}\n\nRincian Invoice:\n${invLines}\nTotal Nilai   : ${formatRupiah(totalNilai)}\nBagi Hasil    : ${bhp.bagiHasilType === '%' ? `${bhp.bagiHasilValue}%` : ''} = ${formatRupiah(nominal)}\nSudah Dibayar : ${formatRupiah(paid)}\nStatus        : ${status}\n\nDetail lengkap dapat dilihat di:\n${url}\n\nTerima kasih atas kerja sama dalam promosi pesanan.`;
+                setShareModal({ bhp, url, waText });
+            };
+
+            const detailBhp = detailId ? safeBhp.find(b => b.id === detailId) : null;
+            const detailCalc = detailBhp ? calcBagiHasil(detailBhp, safeInvoices) : null;
+
+            return (
+                <div className="space-y-6">
+                    {/* Form */}
+                    <div className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden">
+                        <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-6 py-4 flex items-center gap-3">
+                            <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><IconPlusCircle /></div>
+                            <div>
+                                <h3 className="text-white font-black text-base">{editId ? 'Edit Bagi Hasil Promosi' : 'Tambah Bagi Hasil Promosi'}</h3>
+                                <p className="text-teal-100 text-xs">{editId ? `Mengedit ID: ${editId}` : 'Input komisi pihak ketiga yang membantu promosi'}</p>
+                            </div>
+                        </div>
+                        <div className="p-6">
+                            <form onSubmit={saveBhp} className="space-y-5">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Nama Pihak Ketiga</label>
+                                        <input type="text" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" placeholder="Nama promotor / referral" value={form.nama} onChange={e => setForm(prev => ({ ...prev, nama: e.target.value }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal</label>
+                                        <input type="date" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" value={form.tanggal} onChange={e => setForm(prev => ({ ...prev, tanggal: e.target.value }))} />
+                                    </div>
+                                </div>
+
+                                {/* Invoice selector */}
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Invoice yang Terkait</label>
+                                    <div className="relative">
+                                        <input type="text" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" placeholder="Cari invoice (ID / customer)..." value={invSearch} onChange={e => { setInvSearch(e.target.value); setShowInvDropdown(true); }} onFocus={() => setShowInvDropdown(true)} />
+                                        {showInvDropdown && filteredInvOptions.length > 0 && (
+                                            <div className="absolute top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
+                                                {filteredInvOptions.map(inv => {
+                                                    const already = form.invoiceIds.includes(String(inv.id));
+                                                    return (
+                                                        <button key={inv.id} type="button" onClick={() => addInvoice(inv)} className={`w-full text-left px-4 py-2.5 text-sm hover:bg-teal-50 border-b border-gray-50 last:border-b-0 flex items-center justify-between gap-2 ${already ? 'opacity-40 cursor-not-allowed' : ''}`} disabled={already}>
+                                                            <div>
+                                                                <span className="font-mono text-xs text-teal-700 font-bold">{inv.id}</span>
+                                                                <span className="text-gray-500 ml-2">{inv.customer}</span>
+                                                            </div>
+                                                            <span className="font-bold text-gray-700 shrink-0">{formatRupiah(getInvoiceTotals(inv).total)}</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        {showInvDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowInvDropdown(false)} />}
+                                    </div>
+                                    {selectedInvs.length > 0 && (
+                                        <div className="mt-2 space-y-1.5">
+                                            {selectedInvs.map(inv => (
+                                                <div key={inv.id} className="flex items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2 text-sm">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <span className="font-mono text-teal-700 font-bold text-xs shrink-0">{inv.id}</span>
+                                                        <span className="text-gray-600 truncate">{inv.customer}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <span className="font-bold text-gray-800">{formatRupiah(getInvoiceTotals(inv).total)}</span>
+                                                        <button type="button" onClick={() => removeInvoice(inv.id)} className="text-red-400 hover:text-red-600 font-bold text-lg leading-none">×</button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            <div className="text-xs text-gray-500 text-right">Total Nilai: <span className="font-black text-gray-700">{formatRupiah(previewTotalNilai)}</span></div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Bagi Hasil */}
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Bagi Hasil</label>
+                                    <div className="flex gap-2 items-center">
+                                        <div className="flex rounded-xl overflow-hidden border border-gray-200 shrink-0">
+                                            <button type="button" onClick={() => setForm(prev => ({ ...prev, bagiHasilType: '%' }))} className={`px-3 py-2 text-sm font-bold transition-colors ${form.bagiHasilType === '%' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>%</button>
+                                            <button type="button" onClick={() => setForm(prev => ({ ...prev, bagiHasilType: 'Rp' }))} className={`px-3 py-2 text-sm font-bold transition-colors ${form.bagiHasilType === 'Rp' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Rp</button>
+                                        </div>
+                                        <input type="number" min="0" step="any" className="flex-1 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" placeholder={form.bagiHasilType === '%' ? 'Masukkan persen (misal: 5)' : 'Masukkan nominal Rupiah'} value={form.bagiHasilValue} onChange={e => setForm(prev => ({ ...prev, bagiHasilValue: e.target.value }))} />
+                                    </div>
+                                    {previewNominal > 0 && (
+                                        <div className="mt-1.5 text-xs text-teal-700 font-bold">Nominal bagi hasil: {formatRupiah(previewNominal)}{form.bagiHasilType === '%' ? ` (${form.bagiHasilValue}% dari ${formatRupiah(previewTotalNilai)})` : ''}</div>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Catatan (opsional)</label>
+                                    <input type="text" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" placeholder="Catatan tambahan" value={form.note} onChange={e => setForm(prev => ({ ...prev, note: e.target.value }))} />
+                                </div>
+
+                                <div className="flex gap-2 justify-end">
+                                    {editId && <button type="button" onClick={() => { setForm(emptyBhpForm); setEditId(null); }} className="px-4 py-2 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl">Batal</button>}
+                                    <button type="submit" className="px-5 py-2 text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl">{editId ? 'Simpan Perubahan' : 'Simpan Bagi Hasil'}</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    {/* List */}
+                    <div className="space-y-3">
+                        {safeBhp.length === 0 && <div className="text-center py-10 text-gray-400 italic bg-white rounded-2xl border border-dashed border-gray-200">Belum ada data bagi hasil promosi.</div>}
+                        {safeBhp.sort((a, b) => new Date(b.tanggal || 0) - new Date(a.tanggal || 0)).map(bhp => {
+                            const { invs, totalNilai, nominal } = calcBagiHasil(bhp, safeInvoices);
+                            const paid = getBhpPaid(bhp);
+                            const sisa = Math.max(0, nominal - paid);
+                            const status = getBhpStatus(bhp, nominal);
+                            return (
+                                <div key={bhp.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                                    <div className="flex items-start gap-3 p-4">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                                                <span className="font-black text-gray-900">{bhp.nama || '-'}</span>
+                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${status === 'Sudah Dibayar' ? 'bg-green-100 text-green-700' : status === 'Dibayar Sebagian' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{status}</span>
+                                            </div>
+                                            <div className="text-xs text-gray-500 mb-1">{bhp.tanggal || '-'} · {invs.length} invoice · {bhp.bagiHasilType === '%' ? `${bhp.bagiHasilValue}%` : ''}</div>
+                                            <div className="flex gap-4 flex-wrap">
+                                                <div><div className="text-[10px] text-gray-400">Total Nilai</div><div className="font-bold text-sm text-gray-800">{formatRupiah(totalNilai)}</div></div>
+                                                <div><div className="text-[10px] text-gray-400">Bagi Hasil</div><div className="font-bold text-sm text-teal-700">{formatRupiah(nominal)}</div></div>
+                                                {paid > 0 && <div><div className="text-[10px] text-gray-400">Dibayar</div><div className="font-bold text-sm text-green-700">{formatRupiah(paid)}</div></div>}
+                                                {sisa > 0 && <div><div className="text-[10px] text-gray-400">Sisa</div><div className="font-bold text-sm text-red-600">{formatRupiah(sisa)}</div></div>}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col gap-1 shrink-0">
+                                            <button onClick={() => setDetailId(prev => prev === bhp.id ? null : bhp.id)} className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg hover:bg-blue-100">Rincian</button>
+                                            <button onClick={() => openShareModal(bhp)} className="text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-lg hover:bg-teal-100">WA Share</button>
+                                            <button onClick={() => startEdit(bhp)} className="text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg hover:bg-purple-100">Edit</button>
+                                            <button onClick={() => setDeleteConfirmId(bhp.id)} className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-2.5 py-1 rounded-lg hover:bg-red-100">Hapus</button>
+                                        </div>
+                                    </div>
+
+                                    {detailId === bhp.id && (
+                                        <div className="border-t border-gray-100 bg-gray-50 p-4 space-y-4">
+                                            {/* Invoice list */}
+                                            <div>
+                                                <div className="text-xs font-black text-gray-500 uppercase tracking-wide mb-2">Invoice Terkait</div>
+                                                <div className="space-y-1.5">
+                                                    {invs.map(inv => (
+                                                        <div key={inv.id} className="flex items-center justify-between text-sm">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-mono text-teal-700 font-bold text-xs">{inv.id}</span>
+                                                                <span className="text-gray-600">{inv.customer}</span>
+                                                            </div>
+                                                            <span className="font-bold text-gray-800">{formatRupiah(getInvoiceTotals(inv).total)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Payments */}
+                                            <div>
+                                                <div className="text-xs font-black text-gray-500 uppercase tracking-wide mb-2">Riwayat Pembayaran</div>
+                                                {safeArray(bhp.payments).length === 0 && <div className="text-xs text-gray-400 italic">Belum ada pembayaran.</div>}
+                                                <div className="space-y-1.5 mb-3">
+                                                    {safeArray(bhp.payments).map(p => (
+                                                        <div key={p.id} className="flex items-center gap-2 bg-white border border-gray-100 rounded-lg px-3 py-2 text-xs">
+                                                            <span className="text-gray-400 w-20 shrink-0">{p.date}</span>
+                                                            <span className="text-gray-500 shrink-0">{p.method || '-'}</span>
+                                                            <span className="font-bold text-green-700 flex-1">{formatRupiah(p.amount)}</span>
+                                                            <span className="text-gray-400 truncate">{p.note}</span>
+                                                            <button onClick={() => removePayment(bhp.id, p.id)} className="text-red-400 hover:text-red-600 font-bold shrink-0">×</button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {sisa > 0 && (
+                                                    <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
+                                                        <div className="text-xs font-bold text-gray-600">Catat Pembayaran</div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <input type="date" className="p-2 text-xs border border-gray-200 rounded-lg" value={payForm.date} onChange={e => setPayForm(prev => ({ ...prev, date: e.target.value }))} />
+                                                            <select className="p-2 text-xs border border-gray-200 rounded-lg" value={payForm.method} onChange={e => setPayForm(prev => ({ ...prev, method: e.target.value }))}>
+                                                                <option>Transfer</option><option>Tunai</option><option>QRIS</option>
+                                                            </select>
+                                                            <input type="number" min="0" className="p-2 text-xs border border-gray-200 rounded-lg" placeholder={`Nominal (sisa ${formatRupiah(sisa)})`} value={payForm.amount} onChange={e => setPayForm(prev => ({ ...prev, amount: e.target.value }))} />
+                                                            <input type="text" className="p-2 text-xs border border-gray-200 rounded-lg" placeholder="Catatan" value={payForm.note} onChange={e => setPayForm(prev => ({ ...prev, note: e.target.value }))} />
+                                                        </div>
+                                                        <button onClick={() => addPayment(bhp.id)} className="w-full py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-lg">Catat Pembayaran</button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Share Modal */}
+                    {shareModal && (
+                        <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4" onClick={() => setShareModal(null)}>
+                            <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-black text-gray-800">Share WA – Bagi Hasil Promosi</h3>
+                                    <button onClick={() => setShareModal(null)} className="text-gray-400 hover:text-gray-700 text-xl font-bold">✕</button>
+                                </div>
+                                <div className="mb-3">
+                                    <div className="text-xs font-bold text-gray-500 mb-1">Link Halaman</div>
+                                    <div className="flex gap-2">
+                                        <input readOnly value={shareModal.url} className="flex-1 text-xs p-2 border border-gray-200 rounded-lg bg-gray-50 font-mono" onClick={e => e.target.select()} />
+                                        <button onClick={() => { navigator.clipboard?.writeText(shareModal.url); showToast('Link disalin', 'success'); }} className="px-3 py-2 text-xs font-bold bg-teal-600 text-white rounded-lg">Salin</button>
+                                    </div>
+                                </div>
+                                <div className="mb-4">
+                                    <div className="text-xs font-bold text-gray-500 mb-1">Pesan WA</div>
+                                    <textarea readOnly rows={10} value={shareModal.waText} className="w-full text-xs p-3 border border-gray-200 rounded-lg bg-gray-50 font-mono resize-none" onClick={e => e.target.select()} />
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => { navigator.clipboard?.writeText(shareModal.waText); showToast('Pesan disalin', 'success'); }} className="flex-1 py-2.5 text-sm font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl">Salin Pesan</button>
+                                    <a href={`https://wa.me/?text=${encodeURIComponent(shareModal.waText)}`} target="_blank" rel="noopener noreferrer" className="flex-1 py-2.5 text-sm font-bold bg-green-500 hover:bg-green-600 text-white rounded-xl text-center">Buka WhatsApp</a>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Delete Confirm */}
+                    {deleteConfirmId && (
+                        <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4" onClick={() => setDeleteConfirmId(null)}>
+                            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-black text-gray-800 mb-2">Hapus Data?</h3>
+                                <p className="text-sm text-gray-500 mb-4">Data bagi hasil ini akan dihapus dan tidak dapat dikembalikan.</p>
+                                <div className="flex gap-2 justify-end">
+                                    <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 text-sm font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl">Batal</button>
+                                    <button onClick={() => deleteBhp(deleteConfirmId)} className="px-4 py-2 text-sm font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl">Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi }) => {
             const newSize = () => ({ id: `SIZE-${Date.now()}-${Math.random()}`, size: '', qty: '', pricePerPcs: '', discountPerPcs: '', discountPercent: '' });
             const newItem = () => ({ id: `ITEM-${Date.now()}-${Math.random()}`, productionType: '', sizes: [newSize()] });
             const emptyInvoice = {
@@ -7695,6 +8051,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
                         <button onClick={() => setActiveInvoiceTab('invoice')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'invoice' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Daftar Invoice</button>
                         <button onClick={() => setActiveInvoiceTab('marketing')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'marketing' ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Laporan Marketing</button>
+                        <button onClick={() => setActiveInvoiceTab('bagi_hasil')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeInvoiceTab === 'bagi_hasil' ? 'bg-white text-teal-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>Bagi Hasil Promosi</button>
                     </div>
 
                     {activeInvoiceTab === 'invoice' && <>
@@ -7958,8 +8315,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </div>
                     </>
                     }
-                    {activeInvoiceTab === 'marketing' && 
+                    {activeInvoiceTab === 'marketing' &&
                     <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Marketing</h3><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-right">Total Komisi</th><th className="p-3 text-center">Share Link</th></tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td><td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td></tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div><div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)}</div></div>{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
+                    }
+                    {activeInvoiceTab === 'bagi_hasil' &&
+                    <BagiHasilPromosiTab bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} />
                     }
                 </div>
                 {proofViewImg && (
@@ -8532,6 +8892,144 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <div className="text-xs text-gray-400">Dokumen ini diterbitkan oleh</div>
                                     <div className="font-black text-gray-700 text-sm mt-0.5">🧵 Simpati Konveksi</div>
                                     <div className="text-[10px] text-gray-400 mt-1">Informasi lebih lanjut silakan hubungi tim kami</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PromosiPublicView = ({ token }) => {
+            const [data, setData] = React.useState(null);
+            const [loading, setLoading] = React.useState(true);
+            const [error, setError] = React.useState('');
+            const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
+            const fmtDate = (d) => { if (!d) return '-'; const parts = d.split('-'); return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d; };
+            React.useEffect(() => {
+                (async () => {
+                    setLoading(true);
+                    try {
+                        if (!supabaseClient) { setError('Koneksi database tidak tersedia.'); setLoading(false); return; }
+                        const [bhpRes, invRes] = await Promise.all([
+                            supabaseClient.from('app_data').select('data').eq('id', 'bagiHasilPromosi').single(),
+                            supabaseClient.from('app_data').select('data').eq('id', 'invoices').single(),
+                        ]);
+                        const allBhp = Array.isArray(bhpRes.data?.data) ? bhpRes.data.data : [];
+                        const allInv = Array.isArray(invRes.data?.data) ? invRes.data.data : [];
+                        const found = allBhp.find(b => !b.isDeleted && b.shareToken === token);
+                        if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
+                        const invs = safeArray(found.invoiceIds).map(id => allInv.find(inv => !inv.isDeleted && String(inv.id) === String(id))).filter(Boolean);
+                        const totalNilai = invs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+                        const type = found.bagiHasilType || 'Rp';
+                        const value = safeMoney(found.bagiHasilValue);
+                        const nominal = type === '%' ? Math.round(totalNilai * value / 100) : value;
+                        const paid = safeArray(found.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
+                        const sisa = Math.max(0, nominal - paid);
+                        const status = paid <= 0 ? 'Belum Dibayar' : sisa < 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian';
+                        setData({ bhp: found, invs, totalNilai, nominal, paid, sisa, status });
+                    } catch(e) {
+                        setError('Gagal memuat data. Silakan refresh halaman.');
+                    }
+                    setLoading(false);
+                })();
+            }, [token]);
+            if (loading) return (
+                <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-teal-50 to-cyan-100">
+                    <div className="text-center">
+                        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="text-gray-600 font-medium">Memuat data...</p>
+                    </div>
+                </div>
+            );
+            if (error) return (
+                <div className="flex items-center justify-center min-h-screen bg-gray-50">
+                    <div className="text-center bg-white rounded-xl p-8 shadow max-w-sm">
+                        <div className="text-5xl mb-4">!</div>
+                        <p className="text-gray-700 font-bold">{error}</p>
+                    </div>
+                </div>
+            );
+            if (!data) return null;
+            const { bhp, invs, totalNilai, nominal, paid, sisa, status } = data;
+            const pct = nominal > 0 ? Math.min(100, Math.round(paid / nominal * 100)) : 0;
+            const statusStyle = status === 'Sudah Dibayar' ? { bar: '#22C55E', bg: '#DCFCE7', text: '#166534', label: 'SUDAH DIBAYAR' } : status === 'Dibayar Sebagian' ? { bar: '#F59E0B', bg: '#FEF3C7', text: '#92400E', label: 'DIBAYAR SEBAGIAN' } : { bar: '#EF4444', bg: '#FEE2E2', text: '#991B1B', label: 'BELUM DIBAYAR' };
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-slate-100 to-teal-50 py-6 px-4">
+                    <div className="max-w-lg mx-auto">
+                        <div className="text-center mb-5">
+                            <div className="inline-flex items-center gap-2 bg-white rounded-2xl px-5 py-3 shadow-sm border border-teal-100">
+                                <span className="font-black text-gray-800 text-lg">Simpati Konveksi</span>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-2">Bagi Hasil Promosi</p>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+                            <div className="px-5 py-4" style={{ background: 'linear-gradient(135deg,#0f766e 0%,#0891b2 100%)' }}>
+                                <div className="font-black text-white text-xl">{bhp.nama || '-'}</div>
+                                <div className="text-teal-200 text-xs mt-1">Tgl: {fmtDate(bhp.tanggal)}</div>
+                                <span className="inline-block mt-2 text-[11px] font-black px-2.5 py-0.5 rounded-full" style={{ background: statusStyle.bg, color: statusStyle.text }}>{statusStyle.label}</span>
+                            </div>
+                            <div className="p-5 space-y-5">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2.5">
+                                        <div className="w-1 h-4 rounded-full bg-teal-500"></div>
+                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Invoice Terkait</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {invs.map(inv => (
+                                            <div key={inv.id} className="rounded-xl border border-gray-100 px-3 py-2.5 flex items-center justify-between gap-2">
+                                                <div>
+                                                    <div className="font-mono text-xs text-teal-700 font-bold">{inv.id}</div>
+                                                    <div className="text-sm text-gray-700">{inv.customer || '-'}</div>
+                                                </div>
+                                                <div className="font-black text-sm text-gray-800">{fmtRp(getInvoiceTotals(inv).total)}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="rounded-xl border border-teal-100 overflow-hidden">
+                                    <div className="flex justify-between px-4 py-2.5 border-b border-gray-50">
+                                        <span className="text-sm text-gray-500">Total Nilai Invoice</span>
+                                        <span className="text-sm font-bold text-gray-800">{fmtRp(totalNilai)}</span>
+                                    </div>
+                                    <div className="flex justify-between px-4 py-3 bg-teal-50">
+                                        <span className="text-sm font-black text-teal-800">Bagi Hasil {bhp.bagiHasilType === '%' ? `(${bhp.bagiHasilValue}%)` : ''}</span>
+                                        <span className="text-base font-black text-teal-900">{fmtRp(nominal)}</span>
+                                    </div>
+                                    {safeArray(bhp.payments).map((p, pi) => (
+                                        <div key={p.id || pi} className="flex justify-between px-4 py-2.5 border-t border-gray-50">
+                                            <div>
+                                                <span className="text-sm text-gray-500">Pembayaran {pi + 1}</span>
+                                                <span className="text-[10px] text-gray-400 ml-2">{fmtDate(p.date)} · {p.method || '-'}</span>
+                                            </div>
+                                            <span className="text-sm font-bold text-green-700">- {fmtRp(safeMoney(p.amount))}</span>
+                                        </div>
+                                    ))}
+                                    {sisa > 0 && (
+                                        <div className="flex justify-between px-4 py-3 bg-red-50 border-t border-red-100">
+                                            <span className="text-sm font-black text-red-700">Sisa Tagihan</span>
+                                            <span className="text-base font-black text-red-600">{fmtRp(sisa)}</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <span className="text-[11px] font-bold text-gray-500">{pct}% terbayar</span>
+                                        <span className="text-[11px] font-black" style={{ color: statusStyle.text }}>{statusStyle.label}</span>
+                                    </div>
+                                    <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: statusStyle.bar }}></div>
+                                    </div>
+                                </div>
+                                {bhp.note && (
+                                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                                        <div className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Catatan</div>
+                                        <div className="text-sm text-gray-700 italic">"{bhp.note}"</div>
+                                    </div>
+                                )}
+                                <div className="text-center pt-2 border-t border-gray-100">
+                                    <div className="font-black text-gray-700 text-sm">Simpati Konveksi</div>
+                                    <div className="text-[10px] text-gray-400 mt-1">Terima kasih atas kerja sama dalam promosi pesanan.</div>
                                 </div>
                             </div>
                         </div>
@@ -9584,7 +10082,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [] }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [] }) => {
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
@@ -9749,8 +10247,22 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 .reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0);
             const sisaSaldoDpKewajiban = Math.max(0, totalSaldoDpMasukAll - totalSaldoDpDipakaiAll);
 
+            // Bagi Hasil Promosi — dibayarkan kepada pihak ketiga (basis kas)
+            const safeBagiHasilPromosi = safeArray(bagiHasilPromosi).filter(isVisibleRecord).filter(b => {
+                const tgl = b.tanggal || '';
+                return isInPeriod(tgl);
+            });
+            const totalBagiHasilPromosiPaid = safeBagiHasilPromosi.reduce((s, b) => s + safeArray(b.payments).reduce((ps, p) => ps + safeMoney(p.amount), 0), 0);
+            const totalBagiHasilPromosiNominal = safeBagiHasilPromosi.reduce((s, b) => {
+                const invs = safeArray(b.invoiceIds).map(id => safeFinanceInvoices.find(inv => isVisibleRecord(inv) && String(inv.id) === String(id))).filter(Boolean);
+                const totalNilai = invs.reduce((ns, inv) => ns + getInvoiceTotals(inv).total, 0);
+                const type = b.bagiHasilType || 'Rp';
+                const value = safeMoney(b.bagiHasilValue);
+                return s + (type === '%' ? Math.round(totalNilai * value / 100) : value);
+            }, 0);
+
             // Beban (basis kas: hanya material yang sudah dibayar)
-            const totalBeban = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission;
+            const totalBeban = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
             // Buku Kas = kas yang benar-benar keluar; komisi belum direkap bukan kas keluar
             const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense;
             const labaBersih = totalPendapatan - totalBeban;
@@ -10217,6 +10729,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalMarketingCommission)}</p>
                                         <p className="text-xs text-gray-500 mt-1">Dihitung dari invoice</p>
                                     </Card>
+                                    {totalBagiHasilPromosiNominal > 0 && (
+                                    <Card className="border-l-4 border-l-teal-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Bagi Hasil Promosi</h3>
+                                        <p className="text-2xl font-black text-teal-700 mt-2">{formatRupiah(totalBagiHasilPromosiPaid)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Dibayar · Total kewajiban {formatRupiah(totalBagiHasilPromosiNominal)}</p>
+                                    </Card>
+                                    )}
                                     <Card className="border-l-4 border-l-red-700 bg-red-100">
                                         <h3 className="text-xs font-black text-red-800">TOTAL BEBAN</h3>
                                         <p className="text-2xl font-black text-red-800 mt-2">{formatRupiah(totalBeban)}</p>
@@ -10293,6 +10812,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="flex justify-between px-3 py-1"><span>Kasbon Diberikan</span><span className="font-bold">{formatRupiah(totalCashAdvanceGiven)}</span></div>
                                 <div className="flex justify-between px-3 py-1"><span>Biaya Operasional</span><span className="font-bold">{formatRupiah(totalOperationalExpense)}</span></div>
                                 <div className="flex justify-between px-3 py-1"><span>Komisi Marketing</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>
+                                {totalBagiHasilPromosiPaid > 0 && <div className="flex justify-between px-3 py-1"><span>Bagi Hasil Promosi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilPromosiPaid)}</span></div>}
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-red-800 bg-red-50 rounded"><span>TOTAL BEBAN</span><span>{formatRupiah(totalBeban)}</span></div>
                                 <div className="py-1"></div>
                                 <div className={`flex justify-between px-3 py-2 border-t-4 border-double border-gray-600 font-black text-lg rounded ${labaBersih >= 0 ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'}`}><span>LABA BERSIH</span><span>{formatRupiah(labaBersih)}</span></div>
@@ -16667,6 +17187,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [purchaseNotes, setPurchaseNotes] = useState([]);
             const [investors, setInvestors] = useState([]);
             const [investorBagiHasil, setInvestorBagiHasil] = useState([]);
+            const [bagiHasilPromosi, setBagiHasilPromosi] = useState([]);
             const [drivers, setDrivers] = useState([]);
             const [driverTarifs, setDriverTarifs] = useState([]);
             const [driverTransactions, setDriverTransactions] = useState([]);
@@ -16684,6 +17205,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [investorShareToken, setInvestorShareToken] = useState(getInvestorShareTokenFromHash());
             const [marketingShareToken] = useState(getMarketingShareTokenFromHash());
             const [invoiceShareToken] = useState(getInvoiceShareFromHash());
+            const [promosiShareToken] = useState(getPromosiShareFromHash());
             const [driverConfirmId] = useState(getDriverConfirmFromHash());
             const [driverRekapGajiShareId] = useState(getDriverRekapGajiFromHash());
             
@@ -17328,7 +17850,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const applyRemoteDataSnapshotInner = async () => {
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi] = await Promise.all([
                     fetchStoreData('accounts', initialAccounts),
                     fetchStoreData('employees', initialEmployees),
                     fetchStoreData('orders', initialOrders),
@@ -17351,7 +17873,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreData('kartu_kredit', []),
                     fetchStoreData('transaksi_kartu', []),
                     fetchStoreData('purchaseNotes', []),
-                    fetchStoreData('danaOperasional', [])
+                    fetchStoreData('danaOperasional', []),
+                    fetchStoreData('bagiHasilPromosi', [])
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -17465,6 +17988,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const merged = mergeRecordLists(prev || [], remoteInvestorBagiHasil);
                         safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteInvestorBagiHasil)) setTimeout(() => saveToSupabase('investorBagiHasil', merged), 0);
+                        return merged;
+                    });
+                }
+                if (Array.isArray(remoteBagiHasilPromosi)) {
+                    setBagiHasilPromosi(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteBagiHasilPromosi);
+                        safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', merged), 0);
                         return merged;
                     });
                 }
@@ -17608,6 +18139,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     if (e.key === 'simpati_investor_bagi_hasil_sync' && e.newValue) {
                         try { setInvestorBagiHasil(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
+                    if (e.key === 'simpati_bagi_hasil_promosi_sync' && e.newValue) {
+                        try { setBagiHasilPromosi(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
                     if (e.key === 'simpati_drivers_sync' && e.newValue) {
                         try { setDrivers(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
@@ -17647,7 +18181,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
                             );
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp] = await Promise.race([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi] = await Promise.race([
                                 Promise.all([
                                     fetchStoreData('accounts', initialAccounts),
                                     fetchStoreData('employees', initialEmployees),
@@ -17672,7 +18206,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     fetchStoreData('kartu_kredit', []),
                                     fetchStoreData('transaksi_kartu', []),
                                     fetchStoreData('purchaseNotes', []),
-                                    fetchStoreData('danaOperasional', [])
+                                    fetchStoreData('danaOperasional', []),
+                                    fetchStoreData('bagiHasilPromosi', [])
                                 ]),
                                 _fetchTimeout
                             ]);
@@ -17751,6 +18286,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 const next = mergeRecordLists(loadLocalData('simpati_investor_bagi_hasil_sync', []), remInvestorBH);
                                 setInvestorBagiHasil(next); safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(next));
                                 if (JSON.stringify(next) !== JSON.stringify(remInvestorBH)) setTimeout(() => saveToSupabase('investorBagiHasil', next), 0);
+                            }
+                            if (Array.isArray(remBagiHasilPromosi)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_bagi_hasil_promosi_sync', []), remBagiHasilPromosi);
+                                setBagiHasilPromosi(next); safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', next), 0);
                             }
                             if (Array.isArray(remDrivers)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_drivers_sync', []), remDrivers);
@@ -17833,6 +18373,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setManualPurchases(loadLocalData('simpati_manual_purchases_sync', []));
                     setInvestors(loadLocalData('simpati_investors_sync', []));
                     setInvestorBagiHasil(loadLocalData('simpati_investor_bagi_hasil_sync', []));
+                    setBagiHasilPromosi(loadLocalData('simpati_bagi_hasil_promosi_sync', []));
                     setDrivers(loadLocalData('simpati_drivers_sync', []));
                     setDriverTarifs(loadLocalData('simpati_driver_tarifs_sync', []));
                     setDriverTransactions(loadLocalData('simpati_driver_trx_sync', []));
@@ -18196,6 +18737,23 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
+            const updateBagiHasilPromosi = (updater) => {
+                setBagiHasilPromosi(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('bagiHasilPromosi', valid);
+                        safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(merged));
+                        saveToSupabase('bagiHasilPromosi', merged);
+                        setBagiHasilPromosi(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             const updateDrivers = (updater) => {
                 setDrivers(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -18435,6 +18993,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 );
             }
 
+            if (promosiShareToken) {
+                return (
+                    <>
+                        <PromosiPublicView token={promosiShareToken} />
+                        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    </>
+                );
+            }
+
             if (!authUser) {
                 return (
                     <>
@@ -18593,9 +19160,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} />}
-                                {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
+                                {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} />}
+                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} />}
