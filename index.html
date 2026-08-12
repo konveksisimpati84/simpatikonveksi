@@ -7243,8 +7243,48 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const status = getBhpStatus(bhp, nominal);
                 const paid = getBhpPaid(bhp);
                 const url = getShareUrl(bhp.shareToken);
-                const invLines = invs.map(inv => `- ${inv.id} (${inv.customer || '-'}): ${formatRupiah(getInvoiceTotals(inv).total)}`).join('\n');
-                const waText = `*Simpati Konveksi*\nInformasi Bagi Hasil Promosi\n\nKepada: ${bhp.nama}\nTanggal: ${bhp.tanggal || '-'}\n\nRincian Invoice:\n${invLines}\nTotal Nilai   : ${formatRupiah(totalNilai)}\nBagi Hasil    : ${bhp.bagiHasilType === '%' ? `${bhp.bagiHasilValue}%` : ''} = ${formatRupiah(nominal)}\nSudah Dibayar : ${formatRupiah(paid)}\nStatus        : ${status}\n\nDetail lengkap dapat dilihat di:\n${url}\n\nTerima kasih atas kerja sama dalam promosi pesanan.`;
+                const fmtDate = (d) => { if (!d) return '-'; const p = d.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d; };
+                const invLines = invs.map((inv, i) => `  ${i + 1}. ${inv.customer || '-'}\n     No. Invoice : ${inv.id}\n     Nilai       : ${formatRupiah(getInvoiceTotals(inv).total)}`).join('\n');
+                const nilaiLabel = bhp.bagiHasilType === '%' ? `${bhp.bagiHasilValue}% x ${formatRupiah(totalNilai)}` : `Nominal Tetap`;
+                const waText = [
+                    `Assalamu'alaikum warahmatullahi wabarakatuh`,
+                    ``,
+                    `Kepada Bapak/Ibu`,
+                    `*${bhp.nama},*`,
+                    ``,
+                    `Alhamdulillah, kami mengucapkan terima kasih yang sebesar-besarnya`,
+                    `karena Bapak/Ibu telah membantu mempromosikan dan merekomendasikan`,
+                    `*Simpati Konveksi* kepada orang-orang di sekitar Bapak/Ibu.`,
+                    ``,
+                    `Berkat rekomendasi Bapak/Ibu, customer berikut telah mempercayakan`,
+                    `kebutuhan seragamnya kepada kami.`,
+                    ``,
+                    `--------------------------------------------`,
+                    `*BAGI HASIL PROMOSI*`,
+                    `Tanggal : ${fmtDate(bhp.tanggal)}`,
+                    ``,
+                    `Rincian Pesanan:`,
+                    invLines,
+                    ``,
+                    `Total Nilai Pesanan : *${formatRupiah(totalNilai)}*`,
+                    `Dasar Perhitungan   : ${nilaiLabel}`,
+                    `*Bagi Hasil         : ${formatRupiah(nominal)}*`,
+                    `Status              : ${status}`,
+                    `--------------------------------------------`,
+                    ``,
+                    `Bagi hasil ini akan kami proses setelah pembayaran`,
+                    `dari customer diterima.`,
+                    ``,
+                    `Detail lengkap dapat dilihat di link berikut:`,
+                    url,
+                    ``,
+                    `Sekali lagi, terima kasih atas kepercayaan dan dukungan`,
+                    `Bapak/Ibu kepada *Simpati Konveksi*. Semoga kerja sama`,
+                    `kita bisa terus berlanjut dan membawa manfaat bagi kita semua.`,
+                    ``,
+                    `*Simpati Konveksi*`,
+                    `Wassalamu'alaikum warahmatullahi wabarakatuh`,
+                ].join('\n');
                 setShareModal({ bhp, url, waText });
             };
 
@@ -8934,103 +8974,209 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setLoading(false);
                 })();
             }, [token]);
+
             if (loading) return (
-                <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-teal-50 to-cyan-100">
-                    <div className="text-center">
-                        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                        <p className="text-gray-600 font-medium">Memuat data...</p>
+                <div style={{ minHeight:'100vh', background:'linear-gradient(135deg,#0f766e 0%,#0e7490 50%,#1e40af 100%)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <div style={{ textAlign:'center' }}>
+                        <div style={{ width:48, height:48, border:'4px solid rgba(255,255,255,0.3)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.9s linear infinite', margin:'0 auto 16px' }}></div>
+                        <p style={{ color:'rgba(255,255,255,0.8)', fontWeight:600, fontSize:14 }}>Memuat data...</p>
+                        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
                     </div>
                 </div>
             );
             if (error) return (
-                <div className="flex items-center justify-center min-h-screen bg-gray-50">
-                    <div className="text-center bg-white rounded-xl p-8 shadow max-w-sm">
-                        <div className="text-5xl mb-4">!</div>
-                        <p className="text-gray-700 font-bold">{error}</p>
+                <div style={{ minHeight:'100vh', background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+                    <div style={{ textAlign:'center', background:'#fff', borderRadius:20, padding:40, boxShadow:'0 4px 24px rgba(0,0,0,0.08)', maxWidth:360, width:'100%' }}>
+                        <div style={{ width:56, height:56, background:'#FEE2E2', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', fontSize:24, color:'#DC2626' }}>!</div>
+                        <p style={{ color:'#374151', fontWeight:700, fontSize:15 }}>{error}</p>
+                        <p style={{ color:'#9CA3AF', fontSize:13, marginTop:8 }}>Silakan hubungi Simpati Konveksi untuk informasi lebih lanjut.</p>
                     </div>
                 </div>
             );
             if (!data) return null;
+
             const { bhp, invs, totalNilai, nominal, paid, sisa, status } = data;
             const pct = nominal > 0 ? Math.min(100, Math.round(paid / nominal * 100)) : 0;
-            const statusStyle = status === 'Sudah Dibayar' ? { bar: '#22C55E', bg: '#DCFCE7', text: '#166534', label: 'SUDAH DIBAYAR' } : status === 'Dibayar Sebagian' ? { bar: '#F59E0B', bg: '#FEF3C7', text: '#92400E', label: 'DIBAYAR SEBAGIAN' } : { bar: '#EF4444', bg: '#FEE2E2', text: '#991B1B', label: 'BELUM DIBAYAR' };
+            const isDone = status === 'Sudah Dibayar';
+            const isPartial = status === 'Dibayar Sebagian';
+            const statusCfg = isDone
+                ? { bar:'#10B981', pill:'#D1FAE5', pillText:'#065F46', label:'Sudah Dibayar', dot:'#10B981' }
+                : isPartial
+                ? { bar:'#F59E0B', pill:'#FEF3C7', pillText:'#78350F', label:'Dibayar Sebagian', dot:'#F59E0B' }
+                : { bar:'#EF4444', pill:'#FEE2E2', pillText:'#7F1D1D', label:'Belum Dibayar', dot:'#EF4444' };
+
+            const css = `
+                *{box-sizing:border-box;margin:0;padding:0}
+                body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+                .page{min-height:100vh;background:linear-gradient(160deg,#0f766e 0%,#0e7490 40%,#1e3a8a 100%);padding:0 0 48px}
+                .hero{padding:32px 20px 48px;text-align:center;position:relative}
+                .brand{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);border-radius:999px;padding:6px 16px;margin-bottom:20px;backdrop-filter:blur(8px)}
+                .brand-dot{width:8px;height:8px;border-radius:50%;background:#34D399}
+                .brand-name{color:#fff;font-size:13px;font-weight:700;letter-spacing:0.5px}
+                .hero-sub{color:rgba(255,255,255,0.65);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;margin-bottom:10px}
+                .hero-name{color:#fff;font-size:26px;font-weight:900;line-height:1.2;margin-bottom:12px}
+                .hero-date{color:rgba(255,255,255,0.6);font-size:12px;margin-bottom:16px}
+                .status-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:0.5px;border:1.5px solid rgba(255,255,255,0.3)}
+                .card-wrap{padding:0 16px;margin-top:-24px;max-width:480px;margin-left:auto;margin-right:auto}
+                .card{background:#fff;border-radius:20px;box-shadow:0 8px 40px rgba(0,0,0,0.14);overflow:hidden;margin-bottom:16px}
+                .card-header{padding:14px 20px;border-bottom:1px solid #F3F4F6;display:flex;align-items:center;gap:8px}
+                .card-header-dot{width:4px;height:18px;border-radius:2px}
+                .card-header-label{font-size:10px;font-weight:800;color:#6B7280;text-transform:uppercase;letter-spacing:1px}
+                .inv-row{display:flex;align-items:center;padding:12px 20px;border-bottom:1px solid #F9FAFB;gap:12px}
+                .inv-num{width:22px;height:22px;border-radius:50%;background:#F0FDFA;border:1.5px solid #99F6E4;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#0F766E;flex-shrink:0}
+                .inv-info{flex:1;min-width:0}
+                .inv-id{font-size:10px;font-weight:700;color:#0F766E;font-family:monospace;margin-bottom:1px}
+                .inv-customer{font-size:13px;font-weight:700;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                .inv-val{font-size:13px;font-weight:800;color:#1F2937;flex-shrink:0}
+                .summary-hero{padding:20px;background:linear-gradient(135deg,#F0FDFA,#E0F2FE);text-align:center}
+                .summary-label{font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+                .summary-total{font-size:13px;color:#374151;margin-bottom:16px}
+                .summary-nominal-label{font-size:11px;font-weight:700;color:#0F766E;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+                .summary-nominal{font-size:32px;font-weight:900;color:#0F766E;line-height:1}
+                .summary-basis{font-size:11px;color:#6B7280;margin-top:4px}
+                .divider{height:1px;background:#F3F4F6;margin:0 20px}
+                .pay-row{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;gap:8px}
+                .pay-label{font-size:12px;color:#6B7280}
+                .pay-meta{font-size:10px;color:#9CA3AF;margin-top:1px}
+                .pay-amount{font-size:13px;font-weight:700;color:#10B981}
+                .sisa-row{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#FEF2F2}
+                .sisa-label{font-size:12px;font-weight:700;color:#DC2626}
+                .sisa-val{font-size:14px;font-weight:900;color:#DC2626}
+                .progress-wrap{padding:16px 20px}
+                .progress-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+                .progress-pct{font-size:12px;font-weight:700;color:#374151}
+                .progress-bar-bg{height:10px;background:#E5E7EB;border-radius:999px;overflow:hidden}
+                .progress-bar-fill{height:100%;border-radius:999px;transition:width 0.8s ease}
+                .progress-detail{display:flex;justify-content:space-between;margin-top:6px}
+                .progress-detail span{font-size:10px;font-weight:600;color:#9CA3AF}
+                .note-wrap{padding:14px 20px;background:#FAFAFA}
+                .note-label{font-size:10px;font-weight:800;color:#9CA3AF;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+                .note-text{font-size:13px;color:#4B5563;font-style:italic}
+                .footer{text-align:center;padding:24px 20px 0;color:rgba(255,255,255,0.55);font-size:11px}
+                .footer strong{color:rgba(255,255,255,0.85);font-weight:800;display:block;font-size:13px;margin-bottom:4px}
+                .thankyou{max-width:480px;margin:0 auto 0;padding:0 16px}
+                .thankyou-card{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:16px;padding:16px 20px;backdrop-filter:blur(8px);text-align:center}
+                .thankyou-text{color:rgba(255,255,255,0.85);font-size:13px;line-height:1.6}
+            `;
+
             return (
-                <div className="min-h-screen bg-gradient-to-br from-slate-100 to-teal-50 py-6 px-4">
-                    <div className="max-w-lg mx-auto">
-                        <div className="text-center mb-5">
-                            <div className="inline-flex items-center gap-2 bg-white rounded-2xl px-5 py-3 shadow-sm border border-teal-100">
-                                <span className="font-black text-gray-800 text-lg">Simpati Konveksi</span>
+                <div>
+                    <style>{css}</style>
+                    <div className="page">
+                        {/* Hero */}
+                        <div className="hero">
+                            <div className="brand">
+                                <div className="brand-dot"></div>
+                                <span className="brand-name">SIMPATI KONVEKSI</span>
                             </div>
-                            <p className="text-xs text-gray-400 mt-2">Bagi Hasil Promosi</p>
+                            <div className="hero-sub">Bagi Hasil Promosi</div>
+                            <div className="hero-name">{bhp.nama || '-'}</div>
+                            <div className="hero-date">Tanggal: {fmtDate(bhp.tanggal)}</div>
+                            <div className="status-pill" style={{ background: statusCfg.pill, color: statusCfg.pillText, borderColor: statusCfg.dot + '55' }}>
+                                <span style={{ width:7, height:7, borderRadius:'50%', background:statusCfg.dot, display:'inline-block', flexShrink:0 }}></span>
+                                {statusCfg.label}
+                            </div>
                         </div>
-                        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-                            <div className="px-5 py-4" style={{ background: 'linear-gradient(135deg,#0f766e 0%,#0891b2 100%)' }}>
-                                <div className="font-black text-white text-xl">{bhp.nama || '-'}</div>
-                                <div className="text-teal-200 text-xs mt-1">Tgl: {fmtDate(bhp.tanggal)}</div>
-                                <span className="inline-block mt-2 text-[11px] font-black px-2.5 py-0.5 rounded-full" style={{ background: statusStyle.bg, color: statusStyle.text }}>{statusStyle.label}</span>
+
+                        <div className="card-wrap">
+                            {/* Invoice List */}
+                            <div className="card">
+                                <div className="card-header">
+                                    <div className="card-header-dot" style={{ background:'#0F766E' }}></div>
+                                    <span className="card-header-label">Rincian Pesanan ({invs.length} Invoice)</span>
+                                </div>
+                                {invs.map((inv, i) => {
+                                    const tot = getInvoiceTotals(inv).total;
+                                    return (
+                                        <div key={inv.id} className="inv-row">
+                                            <div className="inv-num">{i + 1}</div>
+                                            <div className="inv-info">
+                                                <div className="inv-id">{inv.id}</div>
+                                                <div className="inv-customer">{inv.customer || '-'}</div>
+                                            </div>
+                                            <div className="inv-val">{fmtRp(tot)}</div>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                            <div className="p-5 space-y-5">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-2.5">
-                                        <div className="w-1 h-4 rounded-full bg-teal-500"></div>
-                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Invoice Terkait</span>
+
+                            {/* Summary & Payments */}
+                            <div className="card">
+                                <div className="summary-hero">
+                                    <div className="summary-label">Total Nilai Semua Pesanan</div>
+                                    <div className="summary-total">{fmtRp(totalNilai)}</div>
+                                    <div className="summary-nominal-label">Bagi Hasil Anda{bhp.bagiHasilType === '%' ? ` (${bhp.bagiHasilValue}%)` : ''}</div>
+                                    <div className="summary-nominal">{fmtRp(nominal)}</div>
+                                    {bhp.bagiHasilType === '%' && <div className="summary-basis">{bhp.bagiHasilValue}% dari {fmtRp(totalNilai)}</div>}
+                                </div>
+
+                                {/* Progress */}
+                                <div className="progress-wrap">
+                                    <div className="progress-top">
+                                        <span className="progress-pct">Progress Pembayaran</span>
+                                        <span className="progress-pct" style={{ color: statusCfg.dot }}>{pct}%</span>
                                     </div>
-                                    <div className="space-y-2">
-                                        {invs.map(inv => (
-                                            <div key={inv.id} className="rounded-xl border border-gray-100 px-3 py-2.5 flex items-center justify-between gap-2">
+                                    <div className="progress-bar-bg">
+                                        <div className="progress-bar-fill" style={{ width:`${pct}%`, background:`linear-gradient(90deg,${statusCfg.dot},${statusCfg.dot}cc)` }}></div>
+                                    </div>
+                                    <div className="progress-detail">
+                                        <span>Terbayar: {fmtRp(paid)}</span>
+                                        {sisa > 0 && <span style={{ color:'#EF4444' }}>Sisa: {fmtRp(sisa)}</span>}
+                                    </div>
+                                </div>
+
+                                {/* Payment history */}
+                                {safeArray(bhp.payments).length > 0 && (
+                                    <>
+                                        <div className="divider"></div>
+                                        <div className="card-header" style={{ paddingTop:12, paddingBottom:12 }}>
+                                            <div className="card-header-dot" style={{ background:'#10B981' }}></div>
+                                            <span className="card-header-label">Riwayat Pembayaran</span>
+                                        </div>
+                                        {safeArray(bhp.payments).map((p, pi) => (
+                                            <div key={p.id || pi} className="pay-row">
                                                 <div>
-                                                    <div className="font-mono text-xs text-teal-700 font-bold">{inv.id}</div>
-                                                    <div className="text-sm text-gray-700">{inv.customer || '-'}</div>
+                                                    <div className="pay-label">Pembayaran ke-{pi + 1}</div>
+                                                    <div className="pay-meta">{fmtDate(p.date)} · {p.method || '-'}{p.note ? ` · ${p.note}` : ''}</div>
                                                 </div>
-                                                <div className="font-black text-sm text-gray-800">{fmtRp(getInvoiceTotals(inv).total)}</div>
+                                                <div className="pay-amount">+ {fmtRp(safeMoney(p.amount))}</div>
                                             </div>
                                         ))}
-                                    </div>
-                                </div>
-                                <div className="rounded-xl border border-teal-100 overflow-hidden">
-                                    <div className="flex justify-between px-4 py-2.5 border-b border-gray-50">
-                                        <span className="text-sm text-gray-500">Total Nilai Invoice</span>
-                                        <span className="text-sm font-bold text-gray-800">{fmtRp(totalNilai)}</span>
-                                    </div>
-                                    <div className="flex justify-between px-4 py-3 bg-teal-50">
-                                        <span className="text-sm font-black text-teal-800">Bagi Hasil {bhp.bagiHasilType === '%' ? `(${bhp.bagiHasilValue}%)` : ''}</span>
-                                        <span className="text-base font-black text-teal-900">{fmtRp(nominal)}</span>
-                                    </div>
-                                    {safeArray(bhp.payments).map((p, pi) => (
-                                        <div key={p.id || pi} className="flex justify-between px-4 py-2.5 border-t border-gray-50">
-                                            <div>
-                                                <span className="text-sm text-gray-500">Pembayaran {pi + 1}</span>
-                                                <span className="text-[10px] text-gray-400 ml-2">{fmtDate(p.date)} · {p.method || '-'}</span>
-                                            </div>
-                                            <span className="text-sm font-bold text-green-700">- {fmtRp(safeMoney(p.amount))}</span>
-                                        </div>
-                                    ))}
-                                    {sisa > 0 && (
-                                        <div className="flex justify-between px-4 py-3 bg-red-50 border-t border-red-100">
-                                            <span className="text-sm font-black text-red-700">Sisa Tagihan</span>
-                                            <span className="text-base font-black text-red-600">{fmtRp(sisa)}</span>
-                                        </div>
-                                    )}
-                                </div>
-                                <div>
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-[11px] font-bold text-gray-500">{pct}% terbayar</span>
-                                        <span className="text-[11px] font-black" style={{ color: statusStyle.text }}>{statusStyle.label}</span>
-                                    </div>
-                                    <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: statusStyle.bar }}></div>
-                                    </div>
-                                </div>
-                                {bhp.note && (
-                                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                                        <div className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Catatan</div>
-                                        <div className="text-sm text-gray-700 italic">"{bhp.note}"</div>
+                                    </>
+                                )}
+
+                                {sisa > 0 && (
+                                    <div className="sisa-row">
+                                        <div className="sisa-label">Sisa yang Belum Dibayar</div>
+                                        <div className="sisa-val">{fmtRp(sisa)}</div>
                                     </div>
                                 )}
-                                <div className="text-center pt-2 border-t border-gray-100">
-                                    <div className="font-black text-gray-700 text-sm">Simpati Konveksi</div>
-                                    <div className="text-[10px] text-gray-400 mt-1">Terima kasih atas kerja sama dalam promosi pesanan.</div>
+
+                                {bhp.note && (
+                                    <>
+                                        <div className="divider"></div>
+                                        <div className="note-wrap">
+                                            <div className="note-label">Catatan</div>
+                                            <div className="note-text">"{bhp.note}"</div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Thank you */}
+                            <div className="thankyou">
+                                <div className="thankyou-card">
+                                    <div className="thankyou-text">
+                                        Terima kasih atas kepercayaan dan dukungan Bapak/Ibu.<br />
+                                        Semoga kerja sama kita bisa terus berlanjut<br />
+                                        dan membawa manfaat bagi kita semua.
+                                    </div>
                                 </div>
+                            </div>
+
+                            <div className="footer">
+                                <strong>Simpati Konveksi</strong>
+                                Dokumen ini diterbitkan secara otomatis oleh sistem kami
                             </div>
                         </div>
                     </div>
