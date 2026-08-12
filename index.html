@@ -7241,11 +7241,31 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const openShareModal = (bhp) => {
                 const { invs, totalNilai, nominal } = calcBagiHasil(bhp, safeInvoices);
                 const status = getBhpStatus(bhp, nominal);
-                const paid = getBhpPaid(bhp);
                 const url = getShareUrl(bhp.shareToken);
-                const fmtDate = (d) => { if (!d) return '-'; const p = d.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d; };
-                const invLines = invs.map((inv, i) => `  ${i + 1}. ${inv.customer || '-'}\n     No. Invoice : ${inv.id}\n     Nilai       : ${formatRupiah(getInvoiceTotals(inv).total)}`).join('\n');
-                const nilaiLabel = bhp.bagiHasilType === '%' ? `${bhp.bagiHasilValue}% x ${formatRupiah(totalNilai)}` : `Nominal Tetap`;
+                const sep = `————————————————`;
+                const isSingle = invs.length <= 1;
+                const singleCustomer = invs[0] ? (invs[0].customer || '-') : '-';
+                const customerPara = isSingle
+                    ? `Berkat rekomendasi Bapak/Ibu, *${singleCustomer}* telah mempercayakan\nkebutuhan seragamnya kepada kami.`
+                    : `Berkat rekomendasi Bapak/Ibu, beberapa customer berikut telah\nmempercayakan kebutuhan seragamnya kepada kami.`;
+                const seragamPara = isSingle
+                    ? `Sebagai bentuk terima kasih dan apresiasi kami, kami dengan senang\nhati berbagi hasil atas pesanan tersebut kepada Bapak/Ibu.`
+                    : `Sebagai bentuk terima kasih dan apresiasi kami, kami dengan senang\nhati berbagi hasil atas pesanan-pesanan tersebut kepada Bapak/Ibu.`;
+                const blockLines = isSingle
+                    ? [
+                        `• Customer      : ${singleCustomer}`,
+                        `• Nilai Pesanan  : ${formatRupiah(totalNilai)}`,
+                        `• Bagi Hasil     : *${formatRupiah(nominal)}*`,
+                        `• Status         : ${status}`,
+                      ]
+                    : [
+                        `Rincian Pesanan:`,
+                        ...invs.map(inv => `• ${inv.customer || '-'}\n  Nilai : ${formatRupiah(getInvoiceTotals(inv).total)}`),
+                        ``,
+                        `• Total Pesanan  : ${formatRupiah(totalNilai)}`,
+                        `• Bagi Hasil     : *${formatRupiah(nominal)}*`,
+                        `• Status         : ${status}`,
+                      ];
                 const waText = [
                     `Assalamu'alaikum warahmatullahi wabarakatuh`,
                     ``,
@@ -7256,27 +7276,20 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                     `karena Bapak/Ibu telah membantu mempromosikan dan merekomendasikan`,
                     `*Simpati Konveksi* kepada orang-orang di sekitar Bapak/Ibu.`,
                     ``,
-                    `Berkat rekomendasi Bapak/Ibu, customer berikut telah mempercayakan`,
-                    `kebutuhan seragamnya kepada kami.`,
+                    customerPara,
                     ``,
-                    `--------------------------------------------`,
+                    seragamPara,
+                    ``,
+                    sep,
                     `*BAGI HASIL PROMOSI*`,
-                    `Tanggal : ${fmtDate(bhp.tanggal)}`,
+                    ...blockLines,
+                    sep,
                     ``,
-                    `Rincian Pesanan:`,
-                    invLines,
-                    ``,
-                    `Total Nilai Pesanan : *${formatRupiah(totalNilai)}*`,
-                    `Dasar Perhitungan   : ${nilaiLabel}`,
-                    `*Bagi Hasil         : ${formatRupiah(nominal)}*`,
-                    `Status              : ${status}`,
-                    `--------------------------------------------`,
+                    `Detail lengkap dapat dilihat di:`,
+                    url,
                     ``,
                     `Bagi hasil ini akan kami proses setelah pembayaran`,
                     `dari customer diterima.`,
-                    ``,
-                    `Detail lengkap dapat dilihat di link berikut:`,
-                    url,
                     ``,
                     `Sekali lagi, terima kasih atas kepercayaan dan dukungan`,
                     `Bapak/Ibu kepada *Simpati Konveksi*. Semoga kerja sama`,
