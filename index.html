@@ -10421,7 +10421,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             }, 0);
 
             // Beban (basis kas: hanya material yang sudah dibayar)
-            const totalBeban = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
+            // Komisi marketing tidak dihitung terpisah — sudah termasuk dalam totalWage (Gaji Bersih Produksi)
+            const totalBeban = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
             // Buku Kas = kas yang benar-benar keluar; komisi belum direkap bukan kas keluar
             const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense;
             const labaBersih = totalPendapatan - totalBeban;
@@ -10624,8 +10625,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr><td>&nbsp;&nbsp;Gaji Bersih Produksi</td><td class="text-right">${formatRupiah(totalWage)}</td></tr>
                                 <tr><td>&nbsp;&nbsp;Kasbon Diberikan</td><td class="text-right">${formatRupiah(totalCashAdvanceGiven)}</td></tr>
                                 <tr><td>&nbsp;&nbsp;Biaya Operasional</td><td class="text-right">${formatRupiah(totalOperationalExpense)}</td></tr>
-                                <tr><td>&nbsp;&nbsp;Komisi Marketing</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>
                                 <tr class="total-row"><td>TOTAL BEBAN</td><td class="text-right">${formatRupiah(totalBeban)}</td></tr>
+                                <tr><td colspan="2">&nbsp;</td></tr>
+                                <tr style="color:#6b7280;font-size:11px;"><td>&nbsp;&nbsp;*) Komisi Marketing (sudah termasuk dalam Gaji Bersih)</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
                             </tbody>
@@ -10883,11 +10885,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalOperationalExpense)}</p>
                                         <p className="text-xs text-gray-500 mt-1">Dari menu Biaya (uang keluar)</p>
                                     </Card>
-                                    <Card className="border-l-4 border-l-purple-500">
-                                        <h3 className="text-xs font-bold text-gray-500">Komisi Marketing</h3>
-                                        <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalMarketingCommission)}</p>
-                                        <p className="text-xs text-gray-500 mt-1">Dihitung dari invoice</p>
+                                    {totalMarketingCommission > 0 && (
+                                    <Card className="border-l-4 border-l-gray-300 bg-gray-50">
+                                        <h3 className="text-xs font-bold text-gray-400">Komisi Marketing (Info)</h3>
+                                        <p className="text-2xl font-black text-gray-400 mt-2">{formatRupiah(totalMarketingCommission)}</p>
+                                        <p className="text-xs text-gray-400 mt-1">Sudah termasuk dalam Gaji Bersih Produksi</p>
                                     </Card>
+                                    )}
                                     {totalBagiHasilPromosiNominal > 0 && (
                                     <Card className="border-l-4 border-l-teal-500">
                                         <h3 className="text-xs font-bold text-gray-500">Bagi Hasil Promosi</h3>
@@ -10970,7 +10974,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="flex justify-between px-3 py-1"><span>Gaji Bersih Produksi</span><span className="font-bold">{formatRupiah(totalWage)}</span></div>
                                 <div className="flex justify-between px-3 py-1"><span>Kasbon Diberikan</span><span className="font-bold">{formatRupiah(totalCashAdvanceGiven)}</span></div>
                                 <div className="flex justify-between px-3 py-1"><span>Biaya Operasional</span><span className="font-bold">{formatRupiah(totalOperationalExpense)}</span></div>
-                                <div className="flex justify-between px-3 py-1"><span>Komisi Marketing</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>
                                 {totalBagiHasilPromosiPaid > 0 && <div className="flex justify-between px-3 py-1"><span>Bagi Hasil Promosi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilPromosiPaid)}</span></div>}
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-red-800 bg-red-50 rounded"><span>TOTAL BEBAN</span><span>{formatRupiah(totalBeban)}</span></div>
                                 <div className="py-1"></div>
@@ -10981,6 +10984,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="space-y-1 font-mono text-sm max-w-2xl">
                                 <div className="flex justify-between px-3 py-1 bg-yellow-50 rounded"><span className="text-gray-600">Piutang Invoice (belum dibayar)</span><span className="font-bold text-yellow-700">{formatRupiah(totalPiutangInvoice)}</span></div>
                                 <div className="flex justify-between px-3 py-1 bg-orange-50 rounded"><span className="text-gray-600">Saldo DP Customer (kewajiban)</span><span className="font-bold text-orange-700">{formatRupiah(sisaSaldoDpKewajiban)}</span></div>
+                                {totalMarketingCommission > 0 && <div className="flex justify-between px-3 py-1 bg-purple-50 rounded"><span className="text-gray-600">Komisi Marketing (sudah termasuk Gaji Bersih)</span><span className="font-bold text-purple-600">{formatRupiah(totalMarketingCommission)}</span></div>}
                             </div>
                         </Card>
                     )}
