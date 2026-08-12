@@ -7137,6 +7137,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
         };
         const getBhpPaid = (bhp) => safeArray(bhp.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
         const getBhpStatus = (bhp, nominal) => {
+            if (nominal <= 0) return 'Belum Dibayar';
             const paid = getBhpPaid(bhp);
             if (paid <= 0) return 'Belum Dibayar';
             if (paid >= nominal - 0.01) return 'Sudah Dibayar';
@@ -9012,6 +9013,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             supabaseClient.from('app_data').select('data').eq('id', 'bagiHasilPromosi').single(),
                             supabaseClient.from('app_data').select('data').eq('id', 'invoices').single(),
                         ]);
+                        if (bhpRes.error && bhpRes.error.code !== 'PGRST116') { setError('Gagal memuat data. Silakan coba lagi.'); setLoading(false); return; }
+                        if (invRes.error && invRes.error.code !== 'PGRST116') { setError('Gagal memuat data invoice. Silakan coba lagi.'); setLoading(false); return; }
                         const allBhp = Array.isArray(bhpRes.data?.data) ? bhpRes.data.data : [];
                         const allInv = Array.isArray(invRes.data?.data) ? invRes.data.data : [];
                         const found = allBhp.find(b => !b.isDeleted && b.shareToken === token);
