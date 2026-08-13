@@ -8270,6 +8270,50 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                 </div>
 
+                                {/* Riwayat Pembayaran (hanya tampil saat edit) */}
+                                {editId && (() => {
+                                    const existingPays = getInvoicePayments(form);
+                                    const dpAmt = getInvoiceDpAmount(form);
+                                    if (existingPays.length === 0 && dpAmt <= 0) return null;
+                                    return (
+                                        <div className="border border-green-200 bg-green-50/50 rounded-xl p-4">
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <div className="w-1 h-5 bg-green-500 rounded-full"></div>
+                                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Riwayat Pembayaran</span>
+                                                <span className="ml-auto text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">{existingPays.length + (dpAmt > 0 ? 1 : 0)} entri</span>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {dpAmt > 0 && (
+                                                    <div className="flex items-center gap-3 bg-white border border-green-100 rounded-xl px-3 py-2.5">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="text-xs font-black text-green-700">{formatRupiah(dpAmt)}</span>
+                                                                <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">{form.invoiceDp?.method || 'Transfer'}</span>
+                                                                <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">DP Awal</span>
+                                                            </div>
+                                                            <div className="text-[10px] text-gray-400 mt-0.5">{form.invoiceDp?.date || form.date || '-'}</div>
+                                                        </div>
+                                                        <span className="text-[10px] text-gray-400 italic">Edit di field atas</span>
+                                                    </div>
+                                                )}
+                                                {existingPays.map(pay => (
+                                                    <div key={pay.id} className="flex items-center gap-3 bg-white border border-green-100 rounded-xl px-3 py-2.5">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="text-xs font-black text-green-700">{formatRupiah(safeMoney(pay.amount))}</span>
+                                                                <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">{pay.method || 'Transfer'}</span>
+                                                                {pay.note && <span className="text-[10px] text-gray-500 truncate max-w-[120px]">{pay.note}</span>}
+                                                            </div>
+                                                            <div className="text-[10px] text-gray-400 mt-0.5">{pay.date || '-'} · {pay.id}</div>
+                                                        </div>
+                                                        <button type="button" onClick={() => { if (window.confirm(`Hapus pembayaran ${formatRupiah(safeMoney(pay.amount))} (${pay.date})?\n\nStatus invoice akan otomatis diperbarui.`)) deleteInvoicePayment(editId, pay.id); }} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors flex-shrink-0" title="Hapus pembayaran ini"><IconTrash /></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
                                 <input list="invoice-note-list" className="w-full p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Catatan invoice" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/>
                                 <datalist id="invoice-note-list">{[...new Set(safeInvoiceRows.filter(isVisibleRecord).map(inv=>String(inv.note||'').trim()).filter(Boolean))].sort().map((n,i)=><option key={i} value={n}/>)}</datalist>
 
