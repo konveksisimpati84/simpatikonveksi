@@ -1826,7 +1826,7 @@
                                       </select>
                                       <input type="number" min="0" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={newEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={newEmp.commissionValue || ''} onChange={e => setNewEmp({ ...newEmp, commissionValue: e.target.value })}/>
                                     </div>
-                                    <p className="text-xs text-purple-600 mt-2">{newEmp.commissionType === 'Nominal' ? 'Komisi tetap per invoice yang ditangani' : 'Persentase dari nilai invoice yang ditangani'}</p>
+                                    <p className="text-xs text-purple-600 mt-2">{newEmp.commissionType === 'Nominal' ? 'Komisi tetap per pcs (jumlah pcs × nilai komisi)' : 'Persentase dari nilai total invoice yang ditangani'}</p>
                                   </div>
                                 )}
                                 <div className="md:col-span-2 flex justify-end"><button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded">Simpan Data</button></div>
@@ -2093,7 +2093,7 @@
                                           </select>
                                           <input type="number" min="0" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={editEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={editEmp.commissionValue || ''} onChange={e => setEditEmp({ ...editEmp, commissionValue: e.target.value })}/>
                                         </div>
-                                        <p className="text-xs text-purple-600 mt-2">{editEmp.commissionType === 'Nominal' ? 'Komisi tetap per invoice yang ditangani' : 'Persentase dari nilai invoice yang ditangani'}</p>
+                                        <p className="text-xs text-purple-600 mt-2">{editEmp.commissionType === 'Nominal' ? 'Komisi tetap per pcs (jumlah pcs × nilai komisi)' : 'Persentase dari nilai total invoice yang ditangani'}</p>
                                       </div>
                                     )}
                                     <div className="flex justify-end space-x-3 pt-4 border-t">
@@ -7673,13 +7673,20 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 e.preventDefault();
                 const cleanedItems = getInvoiceItems(form).map(item => ({ ...item, sizes: (item.sizes || []).map(size => ({ ...size, qty: safeMoney(size.qty), pricePerPcs: safeMoney(size.pricePerPcs), discountPerPcs: safeMoney(size.discountPerPcs), discountPercent: safeMoney(size.discountPercent) })).filter(size => size.qty > 0 || size.size || size.pricePerPcs > 0) })).filter(item => item.productionType || item.sizes.length > 0);
                 if (!form.customer || cleanedItems.length === 0) return showToast("Nama customer dan item invoice wajib diisi.", "error");
+                // A4: Cek size tanpa label ukuran tapi ada qty
+                const sizeWithoutLabel = cleanedItems.some(item => (item.sizes || []).some(size => size.qty > 0 && !size.size));
+                if (sizeWithoutLabel) return showToast("Ada size dengan jumlah tapi tanpa keterangan ukuran. Isi label ukuran (misal: M, L, XL) atau hapus baris tersebut.", "error");
                 const now = new Date().toISOString();
                 const cleanedTotal = getInvoiceTotals({ ...form, invoiceItems: cleanedItems }).total;
+                // A3: Invoice total tidak boleh Rp 0
+                if (cleanedTotal <= 0) return showToast("Total invoice tidak boleh Rp 0. Periksa harga dan jumlah item.", "error");
                 // Auto-calculate commission from employee settings (only for new invoices; editing preserves existing rates)
                 const marketingEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.marketing));
                 const empCommType = form.commissionType || marketingEmp?.commissionType || 'Persen';
                 const empCommValue = form.commissionValue != null && form.commissionValue !== '' ? safeMoney(form.commissionValue) : safeMoney(marketingEmp?.commissionValue || 0);
-                const row = { ...form, id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeMoney(form.invoiceDp?.amount) }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), _syncUpdatedAt: now };
+                // A1 & A2: Cap invoiceDp.amount antara 0 dan cleanedTotal
+                const safeDpAmount = Math.max(0, Math.min(safeMoney(form.invoiceDp?.amount), cleanedTotal));
+                const row = { ...form, id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 setInvoices(prev => {
                     const list = Array.isArray(prev) ? prev : [];
@@ -8187,7 +8194,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <datalist id="client-list-invoice">{safeClientRows.filter(isVisibleRecord).map(client => <option key={client.id} value={client.name}/>)}</datalist>
                                         <input list="client-address-list" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/>
                                         <datalist id="client-address-list">{clientAddressSuggestions.map((a,i)=><option key={i} value={a}/>)}</datalist>
-                                        <input list="marketing-list-enhanced" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Marketing" value={form.marketing} onChange={e => { const mName = e.target.value; const mEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(mName)); setForm({ ...form, marketing: mName, ...(mEmp && safeMoney(mEmp.commissionValue) > 0 ? { commissionType: mEmp.commissionType || 'Persen', commissionValue: String(safeMoney(mEmp.commissionValue)) } : {}) }); }}/>
+                                        <input list="marketing-list-enhanced" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Marketing" value={form.marketing} onChange={e => { const mName = e.target.value; const mEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(mName)); setForm({ ...form, marketing: mName, ...(mEmp ? { commissionType: mEmp.commissionType || 'Persen', commissionValue: String(safeMoney(mEmp.commissionValue)) } : {}) }); }}/>
                                         <datalist id="marketing-list-enhanced">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist>
                                     </div>
                                 </div>
@@ -8270,7 +8277,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Pembayaran Invoice (Tunai / Transfer Langsung)</span>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                        <input type="number" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right" placeholder="Nominal Pembayaran" value={form.invoiceDp?.amount || ''} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), amount: e.target.value } })}/>
+                                        <input type="number" min="0" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right" placeholder="Nominal Pembayaran" value={form.invoiceDp?.amount || ''} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), amount: e.target.value } })}/>
                                         <input type="date" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" value={form.invoiceDp?.date || form.date} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), date: e.target.value } })}/>
                                         <select className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" value={form.invoiceDp?.method || 'Transfer'} onChange={e => setForm({ ...form, invoiceDp: { ...(form.invoiceDp || {}), method: e.target.value } })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select>
                                     </div>
