@@ -736,7 +736,13 @@
             return { subtotal, lineDiscount, globalDiscount, discount: lineDiscount + globalDiscount, total };
         };
 
-        const getInvoiceDp = (invoice) => invoice?.invoiceDp && typeof invoice.invoiceDp === 'object' ? invoice.invoiceDp : {};
+        const getInvoiceDp = (invoice) => {
+            if (!invoice?.invoiceDp) return {};
+            // Legacy: invoiceDp tersimpan sebagai angka (bukan objek)
+            if (typeof invoice.invoiceDp === 'number') return { amount: invoice.invoiceDp };
+            if (typeof invoice.invoiceDp === 'object') return invoice.invoiceDp;
+            return {};
+        };
         const getInvoiceDpAmount = (invoice) => safeMoney(getInvoiceDp(invoice).amount);
         const getInvoicePayments = (invoice) => { const arr = Array.isArray(invoice?.payments) ? invoice.payments : (Array.isArray(invoice?.invoicePayments) ? invoice.invoicePayments : []); return arr.filter(p => !p.isDeleted); };
         const getInvoiceLinkedDpAmount = (invoice) => safeMoney(invoice?.linkedDpAmount);
@@ -7611,7 +7617,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
             const marketingEmployees = safeEmployeeRows.filter(isVisibleRecord).filter(emp => getEmployeeDivisions(emp).includes('Marketing') || emp.salaryType === 'Marketing' || getEmployeeSalaryTypes(emp).includes('Marketing'));
             const _defaultProdTypes = ['Kaos', 'Kemeja', 'Jaket', 'Wearpack', 'Wangki / Polo Shirt', 'Celana', 'Topi'];
-            const uniqueInvoiceTypes = [...new Set([..._defaultProdTypes, ...safeInvoiceRows.flatMap(inv => getInvoiceItems(inv).map(item => item.productionType)).filter(Boolean)])].sort();
+            const uniqueInvoiceTypes = [...new Set([..._defaultProdTypes, ...safeInvoiceRows.filter(isVisibleRecord).flatMap(inv => getInvoiceItems(inv).map(item => item.productionType)).filter(Boolean)])].sort();
             const clientAddressSuggestions = [...new Set(safeClientRows.filter(isVisibleRecord).map(c => String(c.address || '').trim()).filter(Boolean))].sort();
             // Hitung saldo DP tersedia dari pool klien (exclude DP yg punya invoiceId lama, exclude invoice yg sedang diedit)
             const getFormAvailableDp = (customerName, currentEditId) => {
@@ -10462,7 +10468,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const getInvoiceCommission = (inv) => {
                 const total = getInvoiceTotal(inv);
                 if (total <= 0) return 0;
-                const paidRatio = Math.min(1, getInvoicePaidTotal(inv) / total);
+                // Gunakan getInvoiceCashInflow (bukan getInvoicePaidTotal) agar tidak
+                // menghitung linkedDpAmount sebagai cash masuk — linkedDp sudah tercatat
+                // terpisah di totalClientDpIncome, sehingga tidak double-count pendapatan
+                const paidRatio = Math.min(1, getInvoiceCashInflow(inv) / total);
                 return getInvoiceCommissionTotal(inv) * paidRatio;
             };
 
