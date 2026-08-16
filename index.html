@@ -443,11 +443,14 @@
             const usedPN    = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedExp   = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
-            const saldo = Math.max(0, totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap);
+            const rawBalance = totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap;
+            const saldo = Math.max(0, rawBalance);
             // hutang = talangan yg belum dioffset oleh kontribusi bersih perusahaan (totalIn - penyelesaian)
             // menggunakan (totalIn - totalPenyelesaian) agar karyawan lama dengan history besar tetap benar
             const hutang = Math.max(0, totalTalangan - Math.max(0, totalIn - totalPenyelesaian));
-            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap, totalPenyelesaian, saldo, hutang };
+            // defisit = pool negatif: total terpakai melebihi total pool (totalIn + talangan - penyelesaian)
+            const defisit = Math.max(0, -rawBalance);
+            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap, totalPenyelesaian, saldo, hutang, defisit };
         };
         const notePaid   = (note) => {
             if (!note.payments && note.paymentStatus)
@@ -5156,15 +5159,24 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     const safeEmps = (employees || []).filter(isVisibleRecord);
                                                     const empsWithDana = safeEmps.filter(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []); return s.totalIn > 0 || s.totalTalangan > 0; });
                                                     if (empsWithDana.length === 0) return null;
-                                                    return (
-                                                        <select className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-emerald-400" value={quickPayForm.operasionalKaryawanId || ''} onChange={e => setQuickPayForm(f => ({ ...f, operasionalKaryawanId: e.target.value }))}>
+                                                    const qpEmpId = quickPayForm.operasionalKaryawanId || '';
+                                                    const qpAmt = safeMoney(quickPayForm.amount);
+                                                    const qpSaldo = qpEmpId ? (() => { const s = getDanaSaldoKaryawan(qpEmpId, danaOperasional, purchaseNotes, expenses || []); return s.saldo; })() : null;
+                                                    const qpOverdraft = qpEmpId && qpAmt > 0 && qpSaldo !== null && qpAmt > qpSaldo;
+                                                    return (<>
+                                                        <select className={`w-full px-2 py-1.5 text-xs border rounded-lg bg-white focus:ring-1 focus:ring-emerald-400 ${qpOverdraft ? 'border-orange-400' : 'border-gray-200'}`} value={qpEmpId} onChange={e => setQuickPayForm(f => ({ ...f, operasionalKaryawanId: e.target.value }))}>
                                                             <option value="">Sumber Dana: Kas Perusahaan</option>
                                                             {empsWithDana.map(emp => {
                                                                 const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
                                                                 return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
                                                             })}
                                                         </select>
-                                                    );
+                                                        {qpOverdraft && (
+                                                            <div className="text-[10px] text-orange-600 font-bold bg-orange-50 border border-orange-200 rounded-lg px-2 py-1.5">
+                                                                ⚠ Nominal melebihi saldo ({formatRupiah(qpSaldo)}). Kekurangan {formatRupiah(qpAmt - qpSaldo)} akan jadi defisit — tetap bisa disimpan.
+                                                            </div>
+                                                        )}
+                                                    </>);
                                                 })()}
                                                 <div className="flex gap-2">
                                                     <button onClick={() => saveQuickPay(note.id)} className="flex-1 py-1.5 text-xs font-black text-white rounded-lg" style={{ background: 'linear-gradient(135deg,#059669,#0D7F78)' }}>Simpan Pembayaran</button>
@@ -5471,18 +5483,30 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         </select>
                                                         <button type="button" onClick={() => setNoteForm(f => ({ ...f, payments: f.payments.filter((_, i) => i !== pi) }))} className="text-red-400 hover:text-red-600 text-sm font-black w-6 h-6 flex items-center justify-center shrink-0">✕</button>
                                                         </div>
-                                                        {empsWithDana.length > 0 && (
-                                                            <select className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:ring-1 focus:ring-emerald-400" value={p.operasionalKaryawanId || ''} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, operasionalKaryawanId: e.target.value } : x) }))}>
-                                                                <option value="">Sumber Dana: Kas Perusahaan</option>
-                                                                {empsWithDana.map(emp => {
-                                                                    const base = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
-                                                                    // Kurangi payment lain di form yang sama agar hint saldo akurat
-                                                                    const uncommitted = safeArray(noteForm.payments).filter((x, xi) => xi !== pi && String(x.operasionalKaryawanId || '') === String(emp.id)).reduce((s, x) => s + safeMoney(x.amount), 0);
-                                                                    const displaySaldo = Math.max(0, base.saldo - uncommitted);
-                                                                    return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(displaySaldo)})</option>;
-                                                                })}
-                                                            </select>
-                                                        )}
+                                                        {empsWithDana.length > 0 && (() => {
+                                                            const rowEmpId = p.operasionalKaryawanId || '';
+                                                            const rowAmt = safeMoney(p.amount);
+                                                            const rowBase = rowEmpId ? getDanaSaldoKaryawan(rowEmpId, danaOperasional, purchaseNotes, expenses || []) : null;
+                                                            const uncommitted = rowEmpId ? safeArray(noteForm.payments).filter((x, xi) => xi !== pi && String(x.operasionalKaryawanId || '') === rowEmpId).reduce((s, x) => s + safeMoney(x.amount), 0) : 0;
+                                                            const rowSaldo = rowBase ? Math.max(0, rowBase.saldo - uncommitted) : null;
+                                                            const rowOverdraft = rowEmpId && rowAmt > 0 && rowSaldo !== null && rowAmt > rowSaldo;
+                                                            return (<>
+                                                                <select className={`w-full text-xs border rounded-lg px-2 py-1.5 bg-white focus:ring-1 focus:ring-emerald-400 ${rowOverdraft ? 'border-orange-400' : 'border-gray-200'}`} value={rowEmpId} onChange={e => setNoteForm(f => ({ ...f, payments: f.payments.map((x, i) => i === pi ? { ...x, operasionalKaryawanId: e.target.value } : x) }))}>
+                                                                    <option value="">Sumber Dana: Kas Perusahaan</option>
+                                                                    {empsWithDana.map(emp => {
+                                                                        const base = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []);
+                                                                        const unc = safeArray(noteForm.payments).filter((x, xi) => xi !== pi && String(x.operasionalKaryawanId || '') === String(emp.id)).reduce((s, x) => s + safeMoney(x.amount), 0);
+                                                                        const displaySaldo = Math.max(0, base.saldo - unc);
+                                                                        return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(displaySaldo)})</option>;
+                                                                    })}
+                                                                </select>
+                                                                {rowOverdraft && (
+                                                                    <div className="text-[10px] text-orange-600 font-bold bg-orange-50 border border-orange-200 rounded-lg px-2 py-1.5">
+                                                                        ⚠ Melebihi saldo ({formatRupiah(rowSaldo)}). Kekurangan {formatRupiah(rowAmt - rowSaldo)} akan jadi defisit — tetap bisa disimpan.
+                                                                    </div>
+                                                                )}
+                                                            </>);
+                                                        })()}
                                                     </div>
                                                     );
                                                 })}
@@ -6242,14 +6266,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             {safeEmployees.map(emp => {
                                 const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja);
                                 const isSelected = selectedEmpId === String(emp.id);
-                                if (s.totalIn === 0 && s.totalTalangan === 0 && !isSelected) return null;
+                                if (s.totalIn === 0 && s.totalTalangan === 0 && s.defisit === 0 && !isSelected) return null;
                                 return (
                                     <button key={emp.id} onClick={() => setSelectedEmpId(isSelected ? '' : String(emp.id))}
-                                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-300 hover:bg-indigo-50'}`}>
+                                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : s.defisit > 0 ? 'bg-orange-50 border-orange-300 text-gray-700 hover:border-orange-400' : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-300 hover:bg-indigo-50'}`}>
                                         <span>{emp.name}</span>
-                                        {s.saldo > 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}`}>{formatRupiah(s.saldo)}</span>}
-                                        {s.hutang > 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600'}`}>Hutang {formatRupiah(s.hutang)}</span>}
-                                        {(s.totalIn > 0 || s.totalTalangan > 0) && s.saldo <= 0 && s.hutang <= 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>Habis</span>}
+                                        {s.defisit > 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-orange-100 text-orange-700'}`}>Defisit {formatRupiah(s.defisit)}</span>}
+                                        {s.saldo > 0 && s.defisit <= 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}`}>{formatRupiah(s.saldo)}</span>}
+                                        {s.hutang > 0 && s.defisit <= 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600'}`}>Hutang {formatRupiah(s.hutang)}</span>}
+                                        {(s.totalIn > 0 || s.totalTalangan > 0) && s.saldo <= 0 && s.hutang <= 0 && s.defisit <= 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>Habis</span>}
                                     </button>
                                 );
                             })}
@@ -6261,6 +6286,28 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                     {selectedEmp && stats && (
                         <>
+                        {stats.defisit > 0 && (
+                            <div className="bg-orange-50 border border-orange-300 rounded-xl px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 font-black text-base flex-shrink-0">⚠</div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-bold text-orange-800 text-sm">Defisit — Pengeluaran Melebihi Dana Masuk</div>
+                                        <div className="text-orange-600 text-xs mt-0.5">Total terpakai melebihi pool dana {selectedEmp.name}. Catat <b>Talangan</b> untuk menutup selisih ini.</div>
+                                    </div>
+                                    <div className="font-black text-orange-700 text-lg whitespace-nowrap flex-shrink-0">{formatRupiah(stats.defisit)}</div>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setForm({ tanggal: new Date().toISOString().slice(0, 10), nominal: String(stats.defisit), keterangan: 'Talangan — menutup defisit pengeluaran', type: 'talangan' });
+                                        setEditId(null);
+                                        setShowForm(true);
+                                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                                    }}
+                                    className="mt-3 w-full py-2 text-xs font-black text-orange-700 bg-orange-100 hover:bg-orange-200 border border-orange-300 rounded-lg transition-colors">
+                                    + Catat Talangan {formatRupiah(stats.defisit)}
+                                </button>
+                            </div>
+                        )}
                         {stats.hutang > 0 && (
                             <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
                                 <div className="w-9 h-9 bg-red-100 rounded-full flex items-center justify-center text-red-600 font-black text-base flex-shrink-0">!</div>
@@ -6281,15 +6328,17 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Total Digunakan</h3>
                                 <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(stats.totalUsed)}</p>
                             </Card>
-                            <Card className={`border-l-4 ${stats.hutang > 0 ? 'border-l-red-400' : stats.saldo > 0 ? 'border-l-amber-400' : 'border-l-gray-300'}`}>
+                            <Card className={`border-l-4 ${stats.defisit > 0 ? 'border-l-orange-400' : stats.hutang > 0 ? 'border-l-red-400' : stats.saldo > 0 ? 'border-l-amber-400' : 'border-l-gray-300'}`}>
                                 <div className="flex items-start justify-between gap-2">
                                     <div>
-                                        {stats.hutang > 0
+                                        {stats.defisit > 0
+                                            ? <><h3 className="text-xs font-bold text-orange-500 uppercase tracking-wide">Defisit</h3><p className="text-2xl font-black text-orange-600 mt-2">{formatRupiah(stats.defisit)}</p></>
+                                            : stats.hutang > 0
                                             ? <><h3 className="text-xs font-bold text-red-500 uppercase tracking-wide">Hutang ke Karyawan</h3><p className="text-2xl font-black text-red-600 mt-2">{formatRupiah(stats.hutang)}</p></>
                                             : <><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Sisa di Karyawan</h3><p className={`text-2xl font-black mt-2 ${stats.saldo > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{formatRupiah(stats.saldo)}</p></>
                                         }
                                     </div>
-                                    {stats.saldo > 0 && stats.hutang <= 0 && (
+                                    {stats.saldo > 0 && stats.hutang <= 0 && stats.defisit <= 0 && (
                                         <button onClick={() => { setNolkanForm({ ...emptyNolkanForm, nominal: String(stats.saldo) }); setShowNolkanForm(true); }} className="mt-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold whitespace-nowrap">Penyesuaian Dana</button>
                                     )}
                                 </div>
@@ -6327,19 +6376,25 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </div>
                         )}
 
-                        {(stats.totalIn > 0 || stats.totalTalangan > 0) && (
+                        {(stats.totalIn > 0 || stats.totalTalangan > 0 || stats.defisit > 0) && (
                             <div className="bg-white rounded-xl border border-gray-200 p-4">
                                 {(() => {
-                                    const totalPool = stats.totalIn + stats.totalTalangan;
-                                    const pct = totalPool > 0 ? Math.min(100, Math.round(stats.totalUsed / totalPool * 100)) : 0;
+                                    const totalPool = stats.totalIn + stats.totalTalangan - stats.totalPenyelesaian;
+                                    const isDefisit = stats.defisit > 0;
+                                    const pctNormal = totalPool > 0 ? Math.min(100, Math.round(stats.totalUsed / totalPool * 100)) : 0;
+                                    const overflowPct = isDefisit && totalPool > 0 ? Math.round((stats.totalUsed - totalPool) / totalPool * 100) : 0;
+                                    const normalBarPct = isDefisit ? 100 : pctNormal;
                                     return <>
                                         <div className="flex justify-between text-xs font-bold text-gray-500 mb-2">
                                             <span>Penggunaan Dana — {selectedEmp.name}</span>
-                                            <span>{pct}% terpakai</span>
+                                            <span className={isDefisit ? 'text-orange-600' : ''}>{isDefisit ? `Defisit ${overflowPct + 100}%` : `${pctNormal}% terpakai`}</span>
                                         </div>
-                                        <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                                            <div className="h-3 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all" style={{ width: `${pct}%` }}></div>
+                                        <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden relative">
+                                            <div className={`h-3 rounded-full transition-all ${isDefisit ? 'bg-gradient-to-r from-blue-500 to-orange-500' : 'bg-gradient-to-r from-blue-500 to-indigo-600'}`} style={{ width: `${normalBarPct}%` }}></div>
                                         </div>
+                                        {isDefisit && (
+                                            <div className="mt-1.5 text-xs text-orange-600 font-bold">Dana terpakai melebihi pool sebesar {formatRupiah(stats.defisit)}</div>
+                                        )}
                                     </>;
                                 })()}
                             </div>
@@ -6840,15 +6895,24 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                                 const safeEmps = (employees || []).filter(isVisibleRecord);
                                                                                 const empsWithDana = safeEmps.filter(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses); return s.totalIn > 0 || s.totalTalangan > 0; });
                                                                                 if (empsWithDana.length === 0) return null;
-                                                                                return (
-                                                                                    <select className="p-1.5 border rounded text-xs md:col-span-4" value={pf.operasionalKaryawanId || ''} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), operasionalKaryawanId: e.target.value } }))}>
+                                                                                const expEmpId = pf.operasionalKaryawanId || '';
+                                                                                const expAmt = safeMoney(pf.amount);
+                                                                                const expSaldo = expEmpId ? (() => { const s = getDanaSaldoKaryawan(expEmpId, danaOperasional, purchaseNotes || [], expenses); return s.saldo; })() : null;
+                                                                                const expOverdraft = expEmpId && expAmt > 0 && expSaldo !== null && expAmt > expSaldo;
+                                                                                return (<>
+                                                                                    <select className={`p-1.5 border rounded text-xs md:col-span-4 ${expOverdraft ? 'border-orange-400' : ''}`} value={expEmpId} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), operasionalKaryawanId: e.target.value } }))}>
                                                                                         <option value="">Sumber Dana: Kas Perusahaan</option>
                                                                                         {empsWithDana.map(emp => {
                                                                                             const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses);
                                                                                             return <option key={emp.id} value={emp.id}>Dana Operasional — {emp.name} (sisa {formatRupiah(Math.max(0, s.saldo))})</option>;
                                                                                         })}
                                                                                     </select>
-                                                                                );
+                                                                                    {expOverdraft && (
+                                                                                        <div className="text-[10px] text-orange-600 font-bold bg-orange-50 border border-orange-200 rounded px-2 py-1.5 md:col-span-4">
+                                                                                            ⚠ Melebihi saldo ({formatRupiah(expSaldo)}). Kekurangan {formatRupiah(expAmt - expSaldo)} akan jadi defisit — tetap bisa disimpan.
+                                                                                        </div>
+                                                                                    )}
+                                                                                </>);
                                                                             })()}
                                                                         </div>
                                                                         <div className="flex justify-end mt-2">
