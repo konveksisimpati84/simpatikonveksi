@@ -437,12 +437,16 @@
             const records = safeArray(danaOperasional).filter(d => !d.isDeleted && String(d.karyawanId) === eid);
             // backward-compat: records without type field treated as 'keluar'
             const totalIn           = records.filter(d => !d.type || d.type === 'keluar').reduce((s, d) => s + safeMoney(d.nominal), 0);
+            // talangan: karyawan menalangi pengeluaran perusahaan dengan dana pribadi — menambah pool
+            const totalTalangan     = records.filter(d => d.type === 'talangan').reduce((s, d) => s + safeMoney(d.nominal), 0);
             const totalPenyelesaian = records.filter(d => d.type === 'penyelesaian').reduce((s, d) => s + safeMoney(d.nominal), 0);
             const usedPN    = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedExp   = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
-            const saldo = Math.max(0, totalIn - totalPenyelesaian - usedPN - usedExp - usedRekap);
-            return { totalIn, totalUsed: usedPN + usedExp + usedRekap, totalPenyelesaian, saldo };
+            const saldo = Math.max(0, totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap);
+            // hutang = berapa yang belum diganti perusahaan ke karyawan
+            const hutang = Math.max(0, totalTalangan - totalIn);
+            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap, totalPenyelesaian, saldo, hutang };
         };
         const notePaid   = (note) => {
             if (!note.payments && note.paymentStatus)
@@ -5149,7 +5153,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 </div>
                                                 {(() => {
                                                     const safeEmps = (employees || []).filter(isVisibleRecord);
-                                                    const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []).totalIn > 0);
+                                                    const empsWithDana = safeEmps.filter(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []); return s.totalIn > 0 || s.totalTalangan > 0; });
                                                     if (empsWithDana.length === 0) return null;
                                                     return (
                                                         <select className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-emerald-400" value={quickPayForm.operasionalKaryawanId || ''} onChange={e => setQuickPayForm(f => ({ ...f, operasionalKaryawanId: e.target.value }))}>
@@ -5454,7 +5458,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <div className="space-y-2 mb-3">
                                                 {safeArray(noteForm.payments).map((p, pi) => {
                                                     const safeEmps = (employees || []).filter(isVisibleRecord);
-                                                    const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []).totalIn > 0);
+                                                    const empsWithDana = safeEmps.filter(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses || []); return s.totalIn > 0 || s.totalTalangan > 0; });
                                                     return (
                                                     <div key={p.id} className="flex flex-col gap-1.5 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
                                                         <div className="flex items-center gap-2">
@@ -6026,7 +6030,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], showToast }) => {
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const [selectedEmpId, setSelectedEmpId] = useState('');
-            const emptyTransferForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '' };
+            const emptyTransferForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '', type: 'keluar' };
             const [form, setForm] = useState(emptyTransferForm);
             const [editId, setEditId] = useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -6063,6 +6067,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (!selectedEmpId) { showToast('Pilih karyawan terlebih dahulu.', 'error'); return; }
                 if (nominal <= 0) { showToast('Nominal harus lebih dari 0.', 'error'); return; }
                 const now = new Date().toISOString();
+                const isTalangan = form.type === 'talangan';
                 const record = {
                     id: editId || genId('DO-'),
                     karyawanId: selectedEmpId,
@@ -6070,7 +6075,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     tanggal: form.tanggal || now.slice(0, 10),
                     nominal,
                     keterangan: form.keterangan || '',
-                    type: 'keluar',
+                    type: isTalangan ? 'talangan' : 'keluar',
                     _syncUpdatedAt: now,
                 };
                 setDanaOperasional(prev => editId
@@ -6079,7 +6084,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setForm(emptyTransferForm);
                 setEditId(null);
                 setShowForm(false);
-                showToast(editId ? 'Transfer diperbarui.' : 'Transfer dana dicatat.', 'success');
+                showToast(editId ? 'Data diperbarui.' : (isTalangan ? 'Talangan karyawan dicatat.' : 'Transfer dana dicatat.'), 'success');
             };
 
             const handleDelete = (id) => {
@@ -6133,10 +6138,34 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     {showForm && (
                         <Card>
                             <div className="flex items-center gap-2 mb-4">
-                                <div className="w-1 h-4 rounded-full bg-blue-500"></div>
-                                <span className="text-xs font-black text-gray-500 tracking-widest uppercase">{editId ? 'Edit Transfer Dana' : 'Transfer Dana Baru'}</span>
+                                <div className={`w-1 h-4 rounded-full ${form.type === 'talangan' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+                                <span className="text-xs font-black text-gray-500 tracking-widest uppercase">
+                                    {editId ? 'Edit Catatan Dana' : (form.type === 'talangan' ? 'Catat Talangan Karyawan' : 'Transfer Dana Baru')}
+                                </span>
                             </div>
                             <form onSubmit={handleSave} className="space-y-4">
+                                {!editId && (
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-2">Tipe Transaksi</label>
+                                        <div className="flex gap-2 flex-wrap">
+                                            <button type="button"
+                                                onClick={() => setForm(f => ({ ...f, type: 'keluar' }))}
+                                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 text-sm font-bold transition-all ${form.type !== 'talangan' ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                                                <span>💰</span> Transfer Masuk <span className="text-xs font-normal opacity-70">(Dana dari perusahaan)</span>
+                                            </button>
+                                            <button type="button"
+                                                onClick={() => setForm(f => ({ ...f, type: 'talangan' }))}
+                                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 text-sm font-bold transition-all ${form.type === 'talangan' ? 'bg-red-50 border-red-400 text-red-700' : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                                                <span>🔴</span> Talangan <span className="text-xs font-normal opacity-70">(Karyawan pakai dana pribadi)</span>
+                                            </button>
+                                        </div>
+                                        {form.type === 'talangan' && (
+                                            <div className="mt-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 leading-relaxed">
+                                                <b>Talangan</b> — Karyawan sudah mengeluarkan uang pribadi untuk keperluan perusahaan. Catat di sini agar hutang perusahaan ke karyawan terlacak. Lunasi dengan menambah <b>Transfer Masuk</b> saat dana perusahaan cair.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                                     <div className="relative" ref={empRef}>
                                         <label className="block text-xs font-bold text-gray-500 mb-1.5">Karyawan</label>
@@ -6185,16 +6214,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 mb-1.5">Nominal (Rp)</label>
-                                        <input type="number" min="1" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="0" value={form.nominal} onChange={e => setForm(f => ({ ...f, nominal: e.target.value }))} required />
+                                        <input type="number" min="1" className={`w-full p-2.5 border rounded-xl text-sm bg-gray-50 ${form.type === 'talangan' ? 'border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100' : ''}`} placeholder="0" value={form.nominal} onChange={e => setForm(f => ({ ...f, nominal: e.target.value }))} required />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 mb-1.5">Keterangan</label>
-                                        <input type="text" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="Misal: Belanja bahan Juli" value={form.keterangan} onChange={e => setForm(f => ({ ...f, keterangan: e.target.value }))} />
+                                        <input type="text" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder={form.type === 'talangan' ? 'Misal: Beli benang & kain' : 'Misal: Belanja bahan Juli'} value={form.keterangan} onChange={e => setForm(f => ({ ...f, keterangan: e.target.value }))} />
                                     </div>
                                 </div>
                                 <div className="flex gap-2 justify-end">
                                     <button type="button" onClick={() => { setShowForm(false); setForm(emptyTransferForm); setEditId(null); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-sm">Batal</button>
-                                    <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">{editId ? 'Simpan Perubahan' : 'Simpan Transfer'}</button>
+                                    <button type="submit" className={`px-4 py-2 text-white rounded-xl font-bold text-sm ${form.type === 'talangan' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                                        {editId ? 'Simpan Perubahan' : (form.type === 'talangan' ? 'Simpan Talangan' : 'Simpan Transfer')}
+                                    </button>
                                 </div>
                             </form>
                         </Card>
@@ -6210,17 +6241,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             {safeEmployees.map(emp => {
                                 const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja);
                                 const isSelected = selectedEmpId === String(emp.id);
-                                if (s.totalIn === 0 && !isSelected) return null;
+                                if (s.totalIn === 0 && s.totalTalangan === 0 && !isSelected) return null;
                                 return (
                                     <button key={emp.id} onClick={() => setSelectedEmpId(isSelected ? '' : String(emp.id))}
                                         className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-300 hover:bg-indigo-50'}`}>
                                         <span>{emp.name}</span>
                                         {s.saldo > 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}`}>{formatRupiah(s.saldo)}</span>}
-                                        {s.totalIn > 0 && s.saldo <= 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>Habis</span>}
+                                        {s.hutang > 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600'}`}>Hutang {formatRupiah(s.hutang)}</span>}
+                                        {(s.totalIn > 0 || s.totalTalangan > 0) && s.saldo <= 0 && s.hutang <= 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>Habis</span>}
                                     </button>
                                 );
                             })}
-                            {safeEmployees.every(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja).totalIn === 0) && safeEmployees.length > 0 && (
+                            {safeEmployees.every(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja); return s.totalIn === 0 && s.totalTalangan === 0; }) && safeEmployees.length > 0 && (
                                 <p className="text-sm text-gray-400 italic">Belum ada karyawan yang memiliki dana operasional. Klik "+ Transfer Dana" untuk mulai.</p>
                             )}
                         </div>
@@ -6228,22 +6260,35 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                     {selectedEmp && stats && (
                         <>
+                        {stats.hutang > 0 && (
+                            <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                                <div className="w-9 h-9 bg-red-100 rounded-full flex items-center justify-center text-red-600 font-black text-base flex-shrink-0">!</div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-bold text-red-800 text-sm">Hutang Perusahaan ke {selectedEmp.name}</div>
+                                    <div className="text-red-600 text-xs mt-0.5">Perusahaan belum mengganti talangan. Tambah <b>Transfer Masuk</b> saat dana cair untuk melunasi.</div>
+                                </div>
+                                <div className="font-black text-red-700 text-lg whitespace-nowrap flex-shrink-0">{formatRupiah(stats.hutang)}</div>
+                            </div>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <Card className="border-l-4 border-l-green-500">
                                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Total Ditransfer</h3>
                                 <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(stats.totalIn)}</p>
+                                {stats.totalTalangan > 0 && <p className="text-xs text-red-500 mt-1">+ Talangan: {formatRupiah(stats.totalTalangan)}</p>}
                             </Card>
                             <Card className="border-l-4 border-l-red-500">
                                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Total Digunakan</h3>
                                 <p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(stats.totalUsed)}</p>
                             </Card>
-                            <Card className={`border-l-4 ${stats.saldo > 0 ? 'border-l-amber-400' : 'border-l-gray-300'}`}>
+                            <Card className={`border-l-4 ${stats.hutang > 0 ? 'border-l-red-400' : stats.saldo > 0 ? 'border-l-amber-400' : 'border-l-gray-300'}`}>
                                 <div className="flex items-start justify-between gap-2">
                                     <div>
-                                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Sisa di Karyawan</h3>
-                                        <p className={`text-2xl font-black mt-2 ${stats.saldo > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{formatRupiah(stats.saldo)}</p>
+                                        {stats.hutang > 0
+                                            ? <><h3 className="text-xs font-bold text-red-500 uppercase tracking-wide">Hutang ke Karyawan</h3><p className="text-2xl font-black text-red-600 mt-2">{formatRupiah(stats.hutang)}</p></>
+                                            : <><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Sisa di Karyawan</h3><p className={`text-2xl font-black mt-2 ${stats.saldo > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{formatRupiah(stats.saldo)}</p></>
+                                        }
                                     </div>
-                                    {stats.saldo > 0 && (
+                                    {stats.saldo > 0 && stats.hutang <= 0 && (
                                         <button onClick={() => { setNolkanForm({ ...emptyNolkanForm, nominal: String(stats.saldo) }); setShowNolkanForm(true); }} className="mt-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold whitespace-nowrap">Penyesuaian Dana</button>
                                     )}
                                 </div>
@@ -6281,16 +6326,21 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </div>
                         )}
 
-                        {stats.totalIn > 0 && (
+                        {(stats.totalIn > 0 || stats.totalTalangan > 0) && (
                             <div className="bg-white rounded-xl border border-gray-200 p-4">
-                                <div className="flex justify-between text-xs font-bold text-gray-500 mb-2">
-                                    <span>Penggunaan Dana — {selectedEmp.name}</span>
-                                    <span>{Math.min(100, Math.round(stats.totalUsed / stats.totalIn * 100))}% terpakai</span>
-                                </div>
-                                <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                                    <div className="h-3 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all"
-                                        style={{ width: `${Math.min(100, stats.totalIn > 0 ? stats.totalUsed / stats.totalIn * 100 : 0)}%` }}></div>
-                                </div>
+                                {(() => {
+                                    const totalPool = stats.totalIn + stats.totalTalangan;
+                                    const pct = totalPool > 0 ? Math.min(100, Math.round(stats.totalUsed / totalPool * 100)) : 0;
+                                    return <>
+                                        <div className="flex justify-between text-xs font-bold text-gray-500 mb-2">
+                                            <span>Penggunaan Dana — {selectedEmp.name}</span>
+                                            <span>{pct}% terpakai</span>
+                                        </div>
+                                        <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                                            <div className="h-3 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all" style={{ width: `${pct}%` }}></div>
+                                        </div>
+                                    </>;
+                                })()}
                             </div>
                         )}
                         <Card>
@@ -6307,18 +6357,24 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <div className="space-y-2">
                                     {empDana.map(d => {
                                         const isPenyelesaian = d.type === 'penyelesaian';
+                                        const isTalangan = d.type === 'talangan';
+                                        const bgBorder = isPenyelesaian ? 'bg-amber-50 border-amber-200' : isTalangan ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200';
+                                        const iconCls = isPenyelesaian ? 'bg-amber-100 text-amber-700' : isTalangan ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
+                                        const iconChar = isPenyelesaian ? '✓' : isTalangan ? '↑' : '↓';
+                                        const amtCls = isPenyelesaian ? 'text-amber-800' : isTalangan ? 'text-red-800' : 'text-green-800';
                                         return (
-                                        <div key={d.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${isPenyelesaian ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${isPenyelesaian ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>{isPenyelesaian ? '✓' : '↓'}</div>
+                                        <div key={d.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${bgBorder}`}>
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${iconCls}`}>{iconChar}</div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`font-bold text-sm ${isPenyelesaian ? 'text-amber-800' : 'text-green-800'}`}>{formatRupiah(d.nominal)}</span>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className={`font-bold text-sm ${amtCls}`}>{formatRupiah(d.nominal)}</span>
                                                     {isPenyelesaian && <span className="text-[10px] font-bold bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Penyesuaian</span>}
+                                                    {isTalangan && <span className="text-[10px] font-bold bg-red-200 text-red-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Talangan</span>}
                                                 </div>
                                                 <div className="text-xs text-gray-500">{d.tanggal}{d.keterangan ? ` · ${d.keterangan}` : ''}</div>
                                             </div>
                                             <div className="flex gap-1 flex-shrink-0">
-                                                {!isPenyelesaian && <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
+                                                {!isPenyelesaian && <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
                                                 <button onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                             </div>
                                         </div>
@@ -6369,7 +6425,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                     {!selectedEmp && (
                         <div className="text-center py-12 text-gray-400 italic text-sm">
-                            {safeEmployees.some(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja).totalIn > 0)
+                            {safeEmployees.some(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja); return s.totalIn > 0 || s.totalTalangan > 0; })
                                 ? 'Pilih karyawan di atas untuk melihat detail dana operasional.'
                                 : 'Mulai dengan klik "+ Transfer Dana" untuk mencatat transfer dana operasional ke karyawan.'}
                         </div>
@@ -6779,7 +6835,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                             <input className="p-1.5 border rounded text-xs" placeholder="Keterangan" value={pf.note} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), note: e.target.value } }))} />
                                                                             {(() => {
                                                                                 const safeEmps = (employees || []).filter(isVisibleRecord);
-                                                                                const empsWithDana = safeEmps.filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses).totalIn > 0);
+                                                                                const empsWithDana = safeEmps.filter(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses); return s.totalIn > 0 || s.totalTalangan > 0; });
                                                                                 if (empsWithDana.length === 0) return null;
                                                                                 return (
                                                                                     <select className="p-1.5 border rounded text-xs md:col-span-4" value={pf.operasionalKaryawanId || ''} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), operasionalKaryawanId: e.target.value } }))}>
@@ -14507,7 +14563,7 @@ ${getRekapShareLink(rekap)}
                                                             </div>
                                                         </div>
                                                         {(() => {
-                                                            const empsWithDana = (employees || []).filter(isVisibleRecord).filter(emp => getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja).totalIn > 0);
+                                                            const empsWithDana = (employees || []).filter(isVisibleRecord).filter(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja); return s.totalIn > 0 || s.totalTalangan > 0; });
                                                             if (empsWithDana.length === 0) return null;
                                                             return (
                                                                 <div>
