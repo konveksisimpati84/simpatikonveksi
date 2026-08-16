@@ -6278,7 +6278,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </button>
                                 );
                             })}
-                            {safeEmployees.every(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja); return s.totalIn === 0 && s.totalTalangan === 0; }) && safeEmployees.length > 0 && (
+                            {safeEmployees.every(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja); return s.totalIn === 0 && s.totalTalangan === 0 && s.defisit === 0; }) && safeEmployees.length > 0 && (
                                 <p className="text-sm text-gray-400 italic">Belum ada karyawan yang memiliki dana operasional. Klik "+ Transfer Dana" untuk mulai.</p>
                             )}
                         </div>
