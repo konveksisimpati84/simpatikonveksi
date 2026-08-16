@@ -444,8 +444,9 @@
             const usedExp   = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const saldo = Math.max(0, totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap);
-            // hutang = berapa yang belum diganti perusahaan ke karyawan
-            const hutang = Math.max(0, totalTalangan - totalIn);
+            // hutang = talangan yg belum dioffset oleh kontribusi bersih perusahaan (totalIn - penyelesaian)
+            // menggunakan (totalIn - totalPenyelesaian) agar karyawan lama dengan history besar tetap benar
+            const hutang = Math.max(0, totalTalangan - Math.max(0, totalIn - totalPenyelesaian));
             return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap, totalPenyelesaian, saldo, hutang };
         };
         const notePaid   = (note) => {
@@ -6347,7 +6348,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-2">
                                     <div className="w-1 h-4 rounded-full bg-blue-500"></div>
-                                    <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Riwayat Transfer — {selectedEmp.name}</span>
+                                    <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Riwayat Dana Operasional — {selectedEmp.name}</span>
                                 </div>
                                 <button onClick={() => { setEditId(null); setForm(emptyTransferForm); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-100">+ Transfer Baru</button>
                             </div>
@@ -6434,8 +6435,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     {deleteConfirmId && (
                         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
-                                <h3 className="font-black text-gray-800 text-lg mb-2">Hapus Transfer?</h3>
-                                <p className="text-gray-500 text-sm mb-5">Data transfer ini akan dihapus dan saldo karyawan otomatis berkurang.</p>
+                                <h3 className="font-black text-gray-800 text-lg mb-2">Hapus Catatan?</h3>
+                                <p className="text-gray-500 text-sm mb-5">
+                                    {(() => { const rec = empDana.find(d => String(d.id) === String(deleteConfirmId)); return rec?.type === 'talangan' ? 'Catatan talangan ini akan dihapus dan hutang perusahaan ke karyawan otomatis berkurang.' : 'Data ini akan dihapus dan saldo karyawan otomatis berubah.'; })()}
+                                </p>
                                 <div className="flex gap-2 justify-end">
                                     <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-sm">Batal</button>
                                     <button onClick={() => handleDelete(deleteConfirmId)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm">Ya, Hapus</button>
