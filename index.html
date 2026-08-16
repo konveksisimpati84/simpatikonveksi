@@ -6115,8 +6115,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const handleDelete = (id) => {
                 const now = new Date().toISOString();
                 setDanaOperasional(prev => safeArray(prev).map(d => String(d.id) === String(id) ? { ...d, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : d));
+                const deletedRec = safeArray(danaOperasional).find(d => String(d.id) === String(id));
                 setDeleteConfirmId(null);
-                showToast('Transfer dihapus.', 'success');
+                showToast(deletedRec?.type === 'talangan' ? 'Talangan dihapus.' : 'Transfer dihapus.', 'success');
             };
 
             const handleNolkanSaldo = (e) => {
@@ -6382,7 +6383,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     const totalPool = stats.totalIn + stats.totalTalangan - stats.totalPenyelesaian;
                                     const isDefisit = stats.defisit > 0;
                                     const pctNormal = totalPool > 0 ? Math.min(100, Math.round(stats.totalUsed / totalPool * 100)) : 0;
-                                    const overflowPct = isDefisit && totalPool > 0 ? Math.round((stats.totalUsed - totalPool) / totalPool * 100) : 0;
+                                    const overflowPct = isDefisit && totalPool > 0 ? Math.round((stats.totalUsed - totalPool) / totalPool * 100) : isDefisit ? 100 : 0;
                                     const normalBarPct = isDefisit ? 100 : pctNormal;
                                     return <>
                                         <div className="flex justify-between text-xs font-bold text-gray-500 mb-2">
@@ -6481,7 +6482,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                     {!selectedEmp && (
                         <div className="text-center py-12 text-gray-400 italic text-sm">
-                            {safeEmployees.some(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja); return s.totalIn > 0 || s.totalTalangan > 0; })
+                            {safeEmployees.some(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja); return s.totalIn > 0 || s.totalTalangan > 0 || s.defisit > 0; })
                                 ? 'Pilih karyawan di atas untuk melihat detail dana operasional.'
                                 : 'Mulai dengan klik "+ Transfer Dana" untuk mencatat transfer dana operasional ke karyawan.'}
                         </div>
