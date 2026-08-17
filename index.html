@@ -10699,20 +10699,52 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const orderCostMap = new Map();
             // Hanya isPayment (bukan hutang) agar konsisten dengan totalMaterialPaid di totalBeban
+            // Alokasi proporsional: biaya nota dibagi ke tiap order berdasarkan porsi item masing-masing
             materialRows.filter(r => r.isPayment).forEach(row => {
-                const key = String(row.orderId || row.id);
-                const existing = orderCostMap.get(key) || {
-                    orderId: row.orderId || row.id,
-                    client: row.client,
-                    type: row.type,
-                    totalPcs: row.totalPcs,
-                    materialCost: 0,
-                    wageCost: 0,
-                    date: row.date
-                };
-                existing.materialCost += row.total;
-                if (!existing.date || new Date(row.date || 0) > new Date(existing.date || 0)) existing.date = row.date;
-                orderCostMap.set(key, existing);
+                const items = safeArray(row.materials).filter(it => it && (it.name || it.qty));
+                const itemSubtotal = items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+
+                if (items.length === 0 || itemSubtotal <= 0) {
+                    // Fallback: nota tanpa item, pakai ID nota
+                    const key = String(row.id);
+                    const existing = orderCostMap.get(key) || { orderId: row.id, client: row.client, type: 'Nota Pembelian', totalPcs: 0, materialCost: 0, wageCost: 0, date: row.date };
+                    existing.materialCost += row.total;
+                    if (!existing.date || new Date(row.date || 0) > new Date(existing.date || 0)) existing.date = row.date;
+                    orderCostMap.set(key, existing);
+                    return;
+                }
+
+                // Kelompokkan item per orderId; item tanpa order masuk '__unlinked__'
+                const groups = {};
+                items.forEach(it => {
+                    const gKey = it.orderId ? String(it.orderId) : '__unlinked__';
+                    groups[gKey] = (groups[gKey] || 0) + getMaterialLineTotal(it);
+                });
+
+                // Distribusikan jumlah dibayar secara proporsional ke tiap order
+                const groupEntries = Object.entries(groups);
+                let distributed = 0;
+                groupEntries.forEach(([gKey, groupTotal], i) => {
+                    const isLast = i === groupEntries.length - 1;
+                    // Koreksi rounding: baris terakhir ambil sisa agar total tetap sama persis
+                    const allocated = isLast ? row.total - distributed : Math.round(row.total * groupTotal / itemSubtotal);
+                    distributed += allocated;
+
+                    const mapKey = gKey === '__unlinked__' ? `nota-${row.id}` : gKey;
+                    const linkedOrder = gKey !== '__unlinked__' ? safeArray(orders).find(o => String(o.id) === gKey) : null;
+                    const existing = orderCostMap.get(mapKey) || {
+                        orderId: gKey === '__unlinked__' ? row.id : gKey,
+                        client: linkedOrder?.client || (gKey === '__unlinked__' ? row.client : '-'),
+                        type: linkedOrder?.type || (gKey === '__unlinked__' ? 'Nota Pembelian' : '-'),
+                        totalPcs: 0,
+                        materialCost: 0,
+                        wageCost: 0,
+                        date: row.date
+                    };
+                    existing.materialCost += allocated;
+                    if (!existing.date || new Date(row.date || 0) > new Date(existing.date || 0)) existing.date = row.date;
+                    orderCostMap.set(mapKey, existing);
+                });
             });
             wageRows.forEach(row => {
                 (row.items || []).forEach(item => {
