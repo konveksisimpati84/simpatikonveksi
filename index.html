@@ -10880,6 +10880,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr><td>&nbsp;&nbsp;Kasbon Diberikan</td><td class="text-right">${formatRupiah(totalCashAdvanceGiven)}</td></tr>
                                 <tr><td>&nbsp;&nbsp;Biaya Operasional</td><td class="text-right">${formatRupiah(totalOperationalExpense)}</td></tr>
                                 ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Marketing (belum direkap)</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
+                                ${totalBagiHasilPromosiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Promosi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilPromosiPaid)}</td></tr>` : ''}
                                 <tr class="total-row"><td>TOTAL BEBAN</td><td class="text-right">${formatRupiah(totalBeban)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
