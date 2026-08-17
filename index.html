@@ -6723,46 +6723,132 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         <Card className="border-l-4 border-l-red-500"><h3 className="text-sm font-bold text-gray-500">Kas Keluar</h3><p className="text-2xl font-black text-red-700 mt-2">{formatRupiah(totalOut)}</p></Card>
                         <Card className="border-l-4 border-l-blue-500"><h3 className="text-sm font-bold text-gray-500">Saldo</h3><p className="text-2xl font-black text-blue-700 mt-2">{formatRupiah(totalIn - totalOut)}</p></Card>
                     </div>
-                    <Card>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                <input type="date" className="p-2 border rounded" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required />
-                                <select className="p-2 border rounded" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}><option>Uang Masuk</option><option>Uang Keluar</option></select>
-                                <input className="p-2 border rounded md:col-span-2" placeholder="Kategori / Judul transaksi (misal: Bayar Listrik)" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} required />
-                                <select className="p-2 border rounded" value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
-                                <input className="p-2 border rounded" placeholder="Penerima/pembayar" value={form.party} onChange={e => setForm({ ...form, party: e.target.value })} />
-                                <input className="p-2 border rounded md:col-span-2" placeholder="Keterangan tambahan" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
-                            </div>
-                            <div className="border rounded-lg overflow-hidden">
-                                <div className="bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600 flex justify-between items-center border-b">
-                                    <span>Rincian Item</span>
-                                    <button type="button" onClick={addItem} className="text-blue-600 hover:text-blue-800 font-bold">+ Tambah Item</button>
+                    {(() => {
+                        const isKeluar = form.type === 'Uang Keluar';
+                        const partyOptions = [...new Set(allExpenses.map(e => e.party).filter(Boolean))].sort();
+                        const categoryChips = isKeluar
+                            ? ['Listrik','Air','Sewa Tempat','ATK','Makan & Minum','BBM','Telepon','Internet','Pengiriman','Lainnya']
+                            : ['Penjualan','Piutang Cair','Modal Masuk','Refund','Lainnya'];
+                        const accentBg  = isKeluar ? 'bg-red-600'   : 'bg-green-600';
+                        const accentBdr = isKeluar ? 'border-red-200' : 'border-green-200';
+                        const accentTxt = isKeluar ? 'text-red-700'  : 'text-green-700';
+                        const accentLight = isKeluar ? 'bg-red-50'   : 'bg-green-50';
+                        return (
+                        <div className={`rounded-2xl border-2 ${accentBdr} overflow-hidden shadow-sm`}>
+                            {/* Form header */}
+                            <div className={`${accentLight} border-b ${accentBdr} px-5 py-3 flex items-center justify-between gap-3`}>
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-8 h-8 rounded-full ${accentBg} flex items-center justify-center text-white font-black text-sm flex-shrink-0`}>
+                                        {isKeluar ? '↑' : '↓'}
+                                    </div>
+                                    <div>
+                                        <div className={`font-black text-sm ${accentTxt}`}>{editId ? 'Edit Transaksi' : 'Catat Transaksi Baru'}</div>
+                                        <div className="text-xs text-gray-400">{editId ? 'Ubah data transaksi yang sudah tersimpan' : 'Isi detail transaksi lalu klik Simpan'}</div>
+                                    </div>
                                 </div>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-gray-50 border-b"><tr><th className="p-2 text-left">Uraian</th><th className="p-2 text-center w-20">Qty</th><th className="p-2 text-center w-24">Satuan</th><th className="p-2 text-right w-36">Harga/Unit</th><th className="p-2 text-right w-36">Subtotal</th><th className="p-2 w-8"></th></tr></thead>
-                                        <tbody>
-                                            {form.items.map((it, idx) => (
-                                                <tr key={it.id} className="border-t">
-                                                    <td className="p-1"><input className="w-full p-1.5 border rounded text-sm" placeholder="Uraian item" value={it.desc} onChange={e => updateItem(idx, 'desc', e.target.value)} /></td>
-                                                    <td className="p-1"><input type="number" min="0" className="w-full p-1.5 border rounded text-sm text-center" value={it.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} /></td>
-                                                    <td className="p-1"><input className="w-full p-1.5 border rounded text-sm text-center" placeholder="pcs" value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)} /></td>
-                                                    <td className="p-1"><input type="number" min="0" className="w-full p-1.5 border rounded text-sm text-right" placeholder="0" value={it.price} onChange={e => updateItem(idx, 'price', e.target.value)} /></td>
-                                                    <td className="p-2 text-right font-bold text-gray-700">{formatRupiah(safeMoney(it.qty) * safeMoney(it.price))}</td>
-                                                    <td className="p-1 text-center"><button type="button" onClick={() => removeItem(idx)} disabled={form.items.length <= 1} className="text-red-400 hover:text-red-600 font-bold disabled:opacity-30">✕</button></td>
+                                {/* Toggle Keluar / Masuk */}
+                                <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1 shadow-sm flex-shrink-0">
+                                    {['Uang Keluar','Uang Masuk'].map(t => (
+                                        <button key={t} type="button"
+                                            onClick={() => setForm(f => ({ ...f, type: t }))}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${form.type === t ? (t === 'Uang Keluar' ? 'bg-red-600 text-white shadow' : 'bg-green-600 text-white shadow') : 'text-gray-400 hover:bg-gray-100'}`}>
+                                            {t === 'Uang Keluar' ? '↑ Keluar' : '↓ Masuk'}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <form onSubmit={handleSubmit} className="p-5 space-y-5 bg-white">
+                                {/* Row 1: Tanggal + Metode */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div className="col-span-1">
+                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Tanggal</label>
+                                        <input type="date" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none transition" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required />
+                                    </div>
+                                    <div className="col-span-1">
+                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Metode Bayar</label>
+                                        <select className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white transition" value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}>
+                                            <option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Debit</option><option>Lainnya</option>
+                                        </select>
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">{isKeluar ? 'Kepada (Penerima)' : 'Dari (Pembayar)'} <span className="normal-case font-normal text-gray-300">· opsional</span></label>
+                                        <datalist id="biaya-party-list">{partyOptions.map(p => <option key={p} value={p} />)}</datalist>
+                                        <input list="biaya-party-list" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none transition" placeholder={isKeluar ? 'Cth: PLN, Toko Bangunan Maju...' : 'Cth: Nama pelanggan, mitra...'} value={form.party} onChange={e => setForm({ ...form, party: e.target.value })} />
+                                    </div>
+                                </div>
+
+                                {/* Row 2: Judul + chips */}
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Judul Transaksi <span className="text-red-400">*</span></label>
+                                    <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none transition" placeholder="Cth: Bayar Listrik, Beli ATK, Terima Pembayaran..." value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} required />
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                        {categoryChips.map(chip => (
+                                            <button key={chip} type="button"
+                                                onClick={() => setForm(f => ({ ...f, category: f.category === chip ? '' : chip }))}
+                                                className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-all ${form.category === chip ? `${accentBg} text-white border-transparent` : `bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700`}`}>
+                                                {chip}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Row 3: Catatan */}
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Catatan <span className="normal-case font-normal text-gray-300">· opsional</span></label>
+                                    <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none transition" placeholder="Detail tambahan, nomor referensi, dsb..." value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
+                                </div>
+
+                                {/* Rincian Item */}
+                                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                                    <div className="bg-gray-50 px-4 py-2.5 flex justify-between items-center border-b border-gray-200">
+                                        <span className="text-xs font-black text-gray-600 uppercase tracking-wide">Rincian Item</span>
+                                        <button type="button" onClick={addItem} className="text-xs font-black text-blue-600 hover:text-blue-800 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">+ Tambah Item</button>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-gray-50 border-b border-gray-200">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide">Uraian</th>
+                                                    <th className="px-2 py-2 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide w-16">Qty</th>
+                                                    <th className="px-2 py-2 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wide w-20">Satuan</th>
+                                                    <th className="px-2 py-2 text-right text-[10px] font-bold text-gray-400 uppercase tracking-wide w-32">Harga/Unit</th>
+                                                    <th className="px-3 py-2 text-right text-[10px] font-bold text-gray-400 uppercase tracking-wide w-32">Subtotal</th>
+                                                    <th className="w-8"></th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                        <tfoot><tr className="bg-gray-50 border-t"><td colSpan="4" className="p-2 text-right font-bold text-gray-700">Total</td><td className="p-2 text-right font-black text-blue-700">{formatRupiah(formTotal)}</td><td></td></tr></tfoot>
-                                    </table>
+                                            </thead>
+                                            <tbody>
+                                                {form.items.map((it, idx) => (
+                                                    <tr key={it.id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
+                                                        <td className="px-2 py-1.5"><input className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-300 outline-none" placeholder="Uraian item" value={it.desc} onChange={e => updateItem(idx, 'desc', e.target.value)} /></td>
+                                                        <td className="px-1 py-1.5"><input type="number" min="0" className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center focus:ring-1 focus:ring-blue-300 outline-none" value={it.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} /></td>
+                                                        <td className="px-1 py-1.5"><input className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center focus:ring-1 focus:ring-blue-300 outline-none" placeholder="pcs" value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)} /></td>
+                                                        <td className="px-1 py-1.5"><input type="number" min="0" className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-right focus:ring-1 focus:ring-blue-300 outline-none" placeholder="0" value={it.price} onChange={e => updateItem(idx, 'price', e.target.value)} /></td>
+                                                        <td className="px-3 py-1.5 text-right font-bold text-gray-700 font-variant-numeric tabular-nums">{formatRupiah(safeMoney(it.qty) * safeMoney(it.price))}</td>
+                                                        <td className="px-1 py-1.5 text-center"><button type="button" onClick={() => removeItem(idx)} disabled={form.items.length <= 1} className="text-red-300 hover:text-red-500 font-black text-base leading-none disabled:opacity-20 transition-colors">✕</button></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="border-t-2 border-gray-200 bg-gray-50">
+                                                    <td colSpan="4" className="px-3 py-2.5 text-right text-xs font-bold text-gray-500 uppercase tracking-wide">Total</td>
+                                                    <td className={`px-3 py-2.5 text-right font-black text-base ${accentTxt}`}>{formatRupiah(formTotal)}</td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="flex justify-end gap-2">
-                                <button type="button" onClick={() => { setForm(emptyForm); setEditId(null); }} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button>
-                                <button className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editId ? 'Simpan Edit' : 'Simpan Bukti Transaksi'}</button>
-                            </div>
-                        </form>
-                    </Card>
+
+                                {/* Actions */}
+                                <div className="flex justify-end gap-2 pt-1">
+                                    <button type="button" onClick={() => { setForm(emptyForm); setEditId(null); }} className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-sm transition-colors">Reset</button>
+                                    <button className={`px-6 py-2.5 ${accentBg} hover:opacity-90 text-white rounded-xl font-black text-sm shadow-md transition-opacity`}>{editId ? 'Simpan Perubahan' : `Simpan ${isKeluar ? 'Pengeluaran' : 'Pemasukan'}`}</button>
+                                </div>
+                            </form>
+                        </div>
+                        );
+                    })()}
                     <Card>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
                             <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari tanggal, jenis, kategori, keterangan..." />
