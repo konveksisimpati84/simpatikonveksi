@@ -11139,6 +11139,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalOperationalExpense)}</p>
                                         <p className="text-xs text-gray-500 mt-1">Dari menu Biaya (uang keluar)</p>
                                     </Card>
+                                    {totalMarketingCommission > 0 && (
+                                    <Card className="border-l-4 border-l-purple-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Komisi Marketing (belum direkap)</h3>
+                                        <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalMarketingCommission)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Kewajiban komisi — belum dibayar via rekap kinerja</p>
+                                    </Card>
+                                    )}
                                     {totalBagiHasilPromosiNominal > 0 && (
                                     <Card className="border-l-4 border-l-teal-500">
                                         <h3 className="text-xs font-bold text-gray-500">Bagi Hasil Promosi</h3>
