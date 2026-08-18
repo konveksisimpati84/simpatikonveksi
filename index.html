@@ -10704,6 +10704,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         grossSalary: safeMoney(rekap.grossSalary ?? rekap.totalWage),
                         cashAdvanceDeduction: safeMoney(rekap.cashAdvanceDeduction),
                         netSalary: safeMoney(rekap.netSalary ?? rekap.totalWage),
+                        commissionSalary: safeMoney(rekap.marketingCommission || 0),
                         items: rekap.items || []
                     };
                 });
@@ -10745,6 +10746,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalMaterial = materialRows.reduce((sum, row) => sum + row.total, 0);
             const totalMaterialPaid = materialRows.filter(r => !r.isHutang).reduce((sum, r) => sum + r.total, 0);
             const totalWage = wageRows.reduce((sum, row) => sum + row.netSalary, 0);
+            // Pisahkan komponen gaji: produksi (HPP) vs komisi yang sudah dibayar (Beban Usaha)
+            const totalCommissionWage = wageRows.reduce((sum, row) => sum + row.commissionSalary, 0);
+            const totalProductionWage = totalWage - totalCommissionWage;
             const totalGrossWage = wageRows.reduce((sum, row) => sum + row.grossSalary, 0);
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
             const totalCashAdvanceGiven = cashAdvanceRows.reduce((sum, row) => sum + row.amount, 0);
@@ -10763,9 +10767,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             });
             const getInvoiceTotal = (inv) => getInvoiceTotals(inv).total;
             const getInvoicePaid = (inv) => getInvoiceCashInflow(inv);
-            // Komisi dihitung proporsional dengan yang sudah dibayar, bukan total invoice
-            // agar konsisten dengan pendapatan yang juga hanya menghitung pembayaran masuk
-            // Komisi dihitung akrual penuh: berdasarkan total invoice, bukan proporsional yang sudah dibayar
+            // Komisi dihitung akrual penuh: total invoice (bukan proporsional yang sudah dibayar)
             const getInvoiceCommission = (inv) => getInvoiceCommissionTotal(inv);
 
             const clientDpRows = (clients || []).filter(isVisibleRecord).flatMap(client => (Array.isArray(client.clientDpPayments) ? client.clientDpPayments : []).filter(isVisibleRecord).map(dp => ({ ...dp, clientName: client.name || '-' }))).filter(dp => {
@@ -10818,9 +10820,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
             // Piutang kasbon all-time (neraca) — kasbon yang belum terpotong dari rekap manapun
             const totalKasbonOutstanding = allCashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
-            const totalHPP = totalMaterialPaid + totalWage;
+            // HPP = bahan baku + upah produksi murni (komisi TIDAK masuk HPP)
+            const totalHPP = totalMaterialPaid + totalProductionWage;
             const labaKotor = totalPendapatan - totalHPP;
-            const totalBebanUsaha = totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
+            // Beban Usaha = operasional + komisi dibayar (via rekap) + komisi belum dibayar + bagi hasil
+            const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid;
             const labaBersih = totalPendapatan - totalBeban; // = labaKotor - totalBebanUsaha
 
             // Piutang (for balance sheet)
@@ -10987,7 +10991,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <div class="summary">
                             <div class="box"><span>Pembelian Bahan (dibayar)</span><strong>${formatRupiah(totalMaterialPaid)}</strong></div>
                             <div class="box"><span>Hutang Bahan</span><strong>${formatRupiah(totalMaterial - totalMaterialPaid)}</strong></div>
-                            <div class="box"><span>Gaji Bersih Produksi</span><strong>${formatRupiah(totalWage)}</strong></div>
+                            <div class="box"><span>Upah Produksi (netto)</span><strong>${formatRupiah(totalProductionWage)}</strong></div>
+                            <div class="box"><span>Komisi Dibayar (via rekap)</span><strong>${formatRupiah(totalCommissionWage)}</strong></div>
                             <div class="box"><span>Total Pengeluaran</span><strong>${formatRupiah(totalBeban)}</strong></div>
                             <div class="box"><span>Kasbon Diberikan</span><strong>${formatRupiah(totalCashAdvanceGiven)}</strong></div>
                             <div class="box"><span>Kasbon Dipotong</span><strong>${formatRupiah(totalCashAdvanceDeductionInPeriod)}</strong></div>
@@ -11060,14 +11065,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr class="section-header"><td colspan="2">HARGA POKOK PRODUKSI (HPP)</td></tr>
                                 <tr><td>&nbsp;&nbsp;Pembelian Bahan (dibayar)</td><td class="text-right">${formatRupiah(totalMaterialPaid)}</td></tr>
                                 ${totalMaterial - totalMaterialPaid > 0 ? `<tr><td>&nbsp;&nbsp;&nbsp;&nbsp;↳ Hutang Bahan (belum dibayar)</td><td class="text-right" style="color:#dc2626">(${formatRupiah(totalMaterial - totalMaterialPaid)})</td></tr>` : ''}
-                                <tr><td>&nbsp;&nbsp;Gaji Bersih Produksi</td><td class="text-right">${formatRupiah(totalWage)}</td></tr>
+                                <tr><td>&nbsp;&nbsp;Upah Produksi (netto, di luar komisi)</td><td class="text-right">${formatRupiah(totalProductionWage)}</td></tr>
                                 <tr class="total-row"><td>TOTAL HPP</td><td class="text-right">${formatRupiah(totalHPP)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row" style="background:#e0f2fe"><td>LABA KOTOR</td><td class="text-right">${formatRupiah(labaKotor)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="section-header"><td colspan="2">BEBAN USAHA</td></tr>
                                 <tr><td>&nbsp;&nbsp;Biaya Operasional</td><td class="text-right">${formatRupiah(totalOperationalExpense)}</td></tr>
-                                ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Marketing</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
+                                ${totalCommissionWage > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Dibayar (via rekap kinerja)</td><td class="text-right">${formatRupiah(totalCommissionWage)}</td></tr>` : ''}
+                                ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Belum Dibayar (akrual)</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
                                 ${totalBagiHasilPromosiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Promosi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilPromosiPaid)}</td></tr>` : ''}
                                 <tr class="total-row"><td>TOTAL BEBAN USAHA</td><td class="text-right">${formatRupiah(totalBebanUsaha)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
@@ -11330,9 +11336,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-xs text-gray-500 mt-1">{new Set(materialRows.filter(r => r.isPayment).map(r => r.orderId || r.id)).size} transaksi{totalMaterial - totalMaterialPaid > 0 ? ` · hutang ${formatRupiah(totalMaterial - totalMaterialPaid)}` : ''}</p>
                                     </Card>
                                     <Card className="border-l-4 border-l-rose-500">
-                                        <h3 className="text-xs font-bold text-gray-500">Gaji Bersih Produksi</h3>
-                                        <p className="text-2xl font-black text-rose-700 mt-2">{formatRupiah(totalWage)}</p>
-                                        <p className="text-xs text-gray-500 mt-1">{wageRows.length} rekap kinerja</p>
+                                        <h3 className="text-xs font-bold text-gray-500">Upah Produksi (netto)</h3>
+                                        <p className="text-2xl font-black text-rose-700 mt-2">{formatRupiah(totalProductionWage)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">{wageRows.length} rekap · di luar komisi</p>
                                     </Card>
                                     <Card className="border-l-4 border-l-red-700 bg-red-100">
                                         <h3 className="text-xs font-black text-red-800">TOTAL HPP</h3>
@@ -11359,11 +11365,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalOperationalExpense)}</p>
                                         <p className="text-xs text-gray-500 mt-1">Dari menu Biaya (uang keluar)</p>
                                     </Card>
+                                    {totalCommissionWage > 0 && (
+                                    <Card className="border-l-4 border-l-violet-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Komisi Dibayar (via rekap)</h3>
+                                        <p className="text-2xl font-black text-violet-700 mt-2">{formatRupiah(totalCommissionWage)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Komisi sudah cair lewat rekap kinerja</p>
+                                    </Card>
+                                    )}
                                     {totalMarketingCommission > 0 && (
                                     <Card className="border-l-4 border-l-purple-500">
-                                        <h3 className="text-xs font-bold text-gray-500">Komisi Marketing</h3>
+                                        <h3 className="text-xs font-bold text-gray-500">Komisi Belum Dibayar</h3>
                                         <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalMarketingCommission)}</p>
-                                        <p className="text-xs text-gray-500 mt-1">Kewajiban komisi — belum dibayar via rekap kinerja</p>
+                                        <p className="text-xs text-gray-500 mt-1">Kewajiban komisi — belum direkap</p>
                                     </Card>
                                     )}
                                     {totalBagiHasilPromosiPaid > 0 && (
@@ -11459,14 +11472,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">HARGA POKOK PRODUKSI (HPP)</div>
                                 <div className="flex justify-between px-3 py-1"><span>Pembelian Bahan (dibayar)</span><span className="font-bold">{formatRupiah(totalMaterialPaid)}</span></div>
                                 {totalMaterial - totalMaterialPaid > 0 && <div className="flex justify-between px-3 py-1 text-red-600"><span className="pl-4 text-xs">↳ Hutang Bahan (belum dibayar)</span><span className="font-bold text-xs">({formatRupiah(totalMaterial - totalMaterialPaid)})</span></div>}
-                                <div className="flex justify-between px-3 py-1"><span>Gaji Bersih Produksi</span><span className="font-bold">{formatRupiah(totalWage)}</span></div>
+                                <div className="flex justify-between px-3 py-1"><span>Upah Produksi (netto, di luar komisi)</span><span className="font-bold">{formatRupiah(totalProductionWage)}</span></div>
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-red-800 bg-red-50 rounded"><span>TOTAL HPP</span><span>{formatRupiah(totalHPP)}</span></div>
                                 <div className="py-1"></div>
                                 <div className={`flex justify-between px-3 py-2 font-black rounded ${labaKotor >= 0 ? 'bg-sky-50 text-sky-800' : 'bg-red-50 text-red-800'}`}><span>LABA KOTOR</span><span>{formatRupiah(labaKotor)}</span></div>
                                 <div className="py-1"></div>
                                 <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">BEBAN USAHA</div>
                                 <div className="flex justify-between px-3 py-1"><span>Biaya Operasional</span><span className="font-bold">{formatRupiah(totalOperationalExpense)}</span></div>
-                                {totalMarketingCommission > 0 && <div className="flex justify-between px-3 py-1 text-purple-700"><span>Komisi Marketing</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>}
+                                {totalCommissionWage > 0 && <div className="flex justify-between px-3 py-1 text-violet-700"><span>Komisi Dibayar (via rekap kinerja)</span><span className="font-bold">{formatRupiah(totalCommissionWage)}</span></div>}
+                                {totalMarketingCommission > 0 && <div className="flex justify-between px-3 py-1 text-purple-700"><span>Komisi Belum Dibayar (akrual)</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>}
                                 {totalBagiHasilPromosiPaid > 0 && <div className="flex justify-between px-3 py-1"><span>Bagi Hasil Promosi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilPromosiPaid)}</span></div>}
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-orange-800 bg-orange-50 rounded"><span>TOTAL BEBAN USAHA</span><span>{formatRupiah(totalBebanUsaha)}</span></div>
                                 <div className="py-1"></div>
