@@ -10793,12 +10793,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return s + (type === '%' ? Math.round(totalNilai * value / 100) : value);
             }, 0);
 
-            // Beban (basis kas: hanya material yang sudah dibayar)
-            // totalMarketingCommission = hanya komisi belum direkap (yang sudah direkap sudah masuk totalWage)
-            // Tetap masuk totalBeban agar tidak ada expense yang tidak tercatat
-            const totalBeban = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
-            // Buku Kas = kas yang benar-benar keluar; komisi belum direkap bukan kas keluar
+            // Beban L/R (basis kas): kasbon TIDAK masuk beban — kasbon = piutang karyawan, bukan biaya.
+            // netSalary di rekap kinerja sudah netto (gross - kasbon), sehingga kasbon sudah
+            // terefleksi secara implisit di totalWage tanpa perlu dicatat dua kali.
+            const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
+            // Buku Kas = arus kas keluar nyata (termasuk kasbon, karena kas memang keluar)
             const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
+            // Piutang kasbon all-time (neraca) — kasbon yang belum terpotong dari rekap manapun
+            const totalKasbonOutstanding = allCashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
             const labaBersih = totalPendapatan - totalBeban;
 
             // Piutang (for balance sheet)
@@ -11039,7 +11041,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr><td>&nbsp;&nbsp;Pembelian Bahan (dibayar)</td><td class="text-right">${formatRupiah(totalMaterialPaid)}</td></tr>
                                 ${totalMaterial - totalMaterialPaid > 0 ? `<tr><td>&nbsp;&nbsp;&nbsp;&nbsp;↳ Hutang Bahan (belum dibayar)</td><td class="text-right" style="color:#dc2626">(${formatRupiah(totalMaterial - totalMaterialPaid)})</td></tr>` : ''}
                                 <tr><td>&nbsp;&nbsp;Gaji Bersih Produksi</td><td class="text-right">${formatRupiah(totalWage)}</td></tr>
-                                <tr><td>&nbsp;&nbsp;Kasbon Diberikan</td><td class="text-right">${formatRupiah(totalCashAdvanceGiven)}</td></tr>
                                 <tr><td>&nbsp;&nbsp;Biaya Operasional</td><td class="text-right">${formatRupiah(totalOperationalExpense)}</td></tr>
                                 ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Marketing (belum direkap)</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
                                 ${totalBagiHasilPromosiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Promosi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilPromosiPaid)}</td></tr>` : ''}
@@ -11048,6 +11049,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
                             </tbody>
                         </table>
+                        ${(totalPiutangInvoice > 0 || totalKasbonOutstanding > 0) ? `
+                        <table>
+                            <thead><tr><th>Posisi Keuangan (Akumulatif)</th><th class="text-right">Jumlah (Rp)</th></tr></thead>
+                            <tbody>
+                                <tr class="section-header"><td colspan="2">ASET</td></tr>
+                                ${totalPiutangInvoice > 0 ? `<tr><td>&nbsp;&nbsp;Piutang Invoice (belum dibayar)</td><td class="text-right">${formatRupiah(totalPiutangInvoice)}</td></tr>` : ''}
+                                ${totalKasbonOutstanding > 0 ? `<tr><td>&nbsp;&nbsp;Piutang Kasbon Karyawan (belum terpotong)</td><td class="text-right">${formatRupiah(totalKasbonOutstanding)}</td></tr>` : ''}
+                            </tbody>
+                        </table>` : ''}
                         <div class="footer">Dicetak pada: ${printedDate}</div>
                     </body>
                     </html>
@@ -11298,11 +11308,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-2xl font-black text-rose-700 mt-2">{formatRupiah(totalWage)}</p>
                                         <p className="text-xs text-gray-500 mt-1">{wageRows.length} rekap kinerja</p>
                                     </Card>
-                                    <Card className="border-l-4 border-l-orange-500">
-                                        <h3 className="text-xs font-bold text-gray-500">Kasbon Diberikan</h3>
-                                        <p className="text-2xl font-black text-orange-700 mt-2">{formatRupiah(totalCashAdvanceGiven)}</p>
-                                        <p className="text-xs text-gray-500 mt-1">Uang keluar kasbon karyawan</p>
-                                    </Card>
                                     <Card className="border-l-4 border-l-slate-500">
                                         <h3 className="text-xs font-bold text-gray-500">Biaya Operasional</h3>
                                         <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalOperationalExpense)}</p>
@@ -11349,6 +11354,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <span className="text-gray-700">Piutang Invoice (belum dibayar)</span>
                                             <span className="font-black text-blue-700">{formatRupiah(totalPiutangInvoice)}</span>
                                         </div>
+                                        {totalKasbonOutstanding > 0 && (
+                                        <div className="flex justify-between border-b border-blue-100 pb-2">
+                                            <span className="text-gray-700">Piutang Kasbon Karyawan (belum terpotong)</span>
+                                            <span className="font-black text-blue-700">{formatRupiah(totalKasbonOutstanding)}</span>
+                                        </div>
+                                        )}
                                         <p className="text-xs text-blue-600 italic">Kas tidak dihitung otomatis — perlu rekonsiliasi manual.</p>
                                     </div>
                                 </div>
