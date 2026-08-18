@@ -6277,33 +6277,41 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     )}
 
                     <Card>
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                                <div className="w-1 h-4 rounded-full bg-emerald-500"></div>
-                                <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Daftarkan Karyawan</span>
-                            </div>
-                            <span className="text-[10px] text-gray-400">Karyawan terdaftar muncul di sumber dana Pembelian Bahan, Biaya &amp; Rekap Kinerja</span>
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="w-1 h-4 rounded-full bg-emerald-500"></div>
+                            <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Karyawan Dana Operasional</span>
                         </div>
                         {safeEmployees.length === 0 && <p className="text-sm text-gray-400 italic">Belum ada data karyawan.</p>}
-                        <div className="flex flex-col gap-1.5">
-                            {safeEmployees.map(emp => {
-                                const aktif = isAktifDana(emp.id, danaOperasional);
+                        <div className="flex flex-wrap gap-2 items-center">
+                            {safeEmployees.filter(emp => isAktifDana(emp.id, danaOperasional)).map(emp => {
                                 const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja);
                                 return (
-                                    <div key={emp.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all cursor-pointer ${aktif ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-200 hover:border-gray-300'}`} onClick={() => handleToggleAktif(emp.id)}>
-                                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${aktif ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 bg-white'}`}>
-                                            {aktif && <span className="text-white text-[10px] font-black">✓</span>}
-                                        </div>
-                                        <span className="text-sm font-semibold text-gray-700 flex-1">{emp.name}</span>
-                                        {aktif && s.defisit > 0 && <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Dana Sendiri {formatRupiah(s.defisit)}</span>}
-                                        {aktif && s.saldo > 0 && <span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Saldo {formatRupiah(s.saldo)}</span>}
-                                        {aktif && s.defisit <= 0 && s.saldo <= 0 && s.totalIn === 0 && <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Belum ada dana</span>}
-                                        {aktif && s.defisit <= 0 && s.saldo <= 0 && s.totalIn > 0 && <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Pool habis</span>}
-                                        {!aktif && <span className="text-[10px] text-gray-400">Belum terdaftar</span>}
-                                    </div>
+                                    <span key={emp.id} className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
+                                        {emp.name}
+                                        {s.defisit > 0 && <span className="text-[10px] font-bold text-blue-600 bg-blue-200 px-1.5 py-0.5 rounded-full">Dana Sendiri</span>}
+                                        {s.saldo > 0 && <span className="text-[10px] font-bold text-green-700 bg-green-200 px-1.5 py-0.5 rounded-full">{formatRupiah(s.saldo)}</span>}
+                                        <button type="button" onClick={() => handleToggleAktif(emp.id)} className="w-4 h-4 rounded-full bg-blue-200 hover:bg-red-200 text-blue-700 hover:text-red-700 flex items-center justify-center font-black text-[10px] transition-colors ml-0.5">×</button>
+                                    </span>
                                 );
                             })}
+                            {(() => {
+                                const unregistered = safeEmployees.filter(emp => !isAktifDana(emp.id, danaOperasional));
+                                if (unregistered.length === 0) return null;
+                                return (
+                                    <select className="text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-3 py-1 cursor-pointer hover:bg-blue-100 transition-colors appearance-none" value="" onChange={e => { if (e.target.value) handleToggleAktif(e.target.value); }}>
+                                        <option value="">+ Tambah Karyawan</option>
+                                        {unregistered.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                                    </select>
+                                );
+                            })()}
+                            {safeEmployees.length > 0 && safeEmployees.every(emp => isAktifDana(emp.id, danaOperasional)) && (
+                                <span className="text-xs text-gray-400 italic">Semua karyawan sudah terdaftar.</span>
+                            )}
+                            {safeEmployees.length > 0 && safeEmployees.every(emp => !isAktifDana(emp.id, danaOperasional)) && (
+                                <p className="text-xs text-gray-400 italic w-full">Belum ada karyawan terdaftar. Klik "+ Tambah Karyawan" untuk mendaftarkan.</p>
+                            )}
                         </div>
+                        <p className="text-[10px] text-gray-400 mt-2">Karyawan terdaftar muncul sebagai pilihan sumber dana di Pembelian Bahan, Biaya &amp; Rekap Kinerja.</p>
                     </Card>
 
                     <Card>
