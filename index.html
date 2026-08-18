@@ -7509,28 +7509,36 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const sep = `————————————————`;
                 const isSingle = invs.length <= 1;
                 const singleCustomer = invs[0] ? (invs[0].customer || '-') : '-';
-                const openingPara = isSingle
-                    ? `Alhamdulillah, kami mengucapkan terima kasih yang sebesar-besarnya karena Bapak/Ibu telah membantu mempromosikan dan merekomendasikan *Simpati Konveksi*. Berkat rekomendasi Bapak/Ibu, *${singleCustomer}* telah mempercayakan kebutuhan seragamnya kepada kami, dan kami dengan senang hati berbagi hasil atas pesanan tersebut.`
-                    : `Alhamdulillah, kami mengucapkan terima kasih yang sebesar-besarnya karena Bapak/Ibu telah membantu mempromosikan dan merekomendasikan *Simpati Konveksi*. Berkat rekomendasi Bapak/Ibu, beberapa customer telah mempercayakan kebutuhan seragamnya kepada kami, dan kami dengan senang hati berbagi hasil atas pesanan-pesanan tersebut.`;
+                const customerPara = isSingle
+                    ? `Berkat rekomendasi Bapak/Ibu, *${singleCustomer}* telah mempercayakan kebutuhan seragamnya kepada kami.`
+                    : `Berkat rekomendasi Bapak/Ibu, beberapa customer berikut telah mempercayakan kebutuhan seragamnya kepada kami.`;
+                const seragamPara = isSingle
+                    ? `Sebagai bentuk terima kasih dan apresiasi kami, kami dengan senang hati berbagi hasil atas pesanan tersebut kepada Bapak/Ibu.`
+                    : `Sebagai bentuk terima kasih dan apresiasi kami, kami dengan senang hati berbagi hasil atas pesanan-pesanan tersebut kepada Bapak/Ibu.`;
                 const blockLines = isSingle
                     ? [
-                        `• Customer       : ${singleCustomer}`,
+                        `• Customer      : ${singleCustomer}`,
                         `• Nilai Pesanan  : ${formatRupiah(totalNilai)}`,
-                        `• Bagi Hasil      : *${formatRupiah(nominal)}*`,
+                        `• Bagi Hasil     : *${formatRupiah(nominal)}*`,
                       ]
                     : [
                         `Rincian Pesanan:`,
                         ...invs.map(inv => `• ${inv.customer || '-'}\n  Nilai : ${formatRupiah(getInvoiceTotals(inv).total)}`),
                         ``,
                         `• Total Pesanan  : ${formatRupiah(totalNilai)}`,
-                        `• Bagi Hasil      : *${formatRupiah(nominal)}*`,
+                        `• Bagi Hasil     : *${formatRupiah(nominal)}*`,
                       ];
                 const waText = [
-                    `Assalamu'alaikum warahmatullahi wabarakatuh`,
+                    `*Assalamu'alaikum warahmatullahi wabarakatuh*`,
                     ``,
-                    `Kepada Bapak/Ibu *${bhp.nama}*,`,
+                    `Kepada Bapak/Ibu`,
+                    `*${bhp.nama},*`,
                     ``,
-                    openingPara,
+                    `Alhamdulillah, kami mengucapkan terima kasih yang sebesar-besarnya karena Bapak/Ibu telah membantu mempromosikan dan merekomendasikan *Simpati Konveksi* kepada orang-orang di sekitar Bapak/Ibu.`,
+                    ``,
+                    customerPara,
+                    ``,
+                    seragamPara,
                     ``,
                     sep,
                     `*BAGI HASIL PROMOSI*`,
@@ -7543,7 +7551,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                     `Sekali lagi, terima kasih atas kepercayaan dan dukungan Bapak/Ibu kepada *Simpati Konveksi*. Semoga kerja sama kita bisa terus berlanjut dan membawa manfaat bagi kita semua.`,
                     ``,
                     `*Simpati Konveksi*`,
-                    `Wassalamu'alaikum warahmatullahi wabarakatuh`,
+                    `*Wassalamu'alaikum warahmatullahi wabarakatuh*`,
                 ].join('\n');
                 setShareModal({ bhp, url, waText });
             };
