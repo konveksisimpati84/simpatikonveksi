@@ -6158,7 +6158,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             return (
                 <div className="space-y-6">
-                    <>
                     <div className="flex items-center justify-between flex-wrap gap-2">
                         <div>
                             <h2 className="text-2xl font-bold text-gray-800">Dana Operasional Karyawan</h2>
@@ -6362,13 +6361,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     return <>
                                         <div className="flex justify-between text-xs font-bold text-gray-500 mb-2">
                                             <span>Penggunaan Dana — {selectedEmp.name}</span>
-                                            <span className={isDefisit ? 'text-orange-600' : ''}>{isDefisit ? `Defisit ${overflowPct + 100}%` : `${pctNormal}% terpakai`}</span>
+                                            <span className={isDefisit ? 'text-blue-600' : ''}>{isDefisit ? `Dana Sendiri ${overflowPct + 100}%` : `${pctNormal}% terpakai`}</span>
                                         </div>
                                         <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden relative">
-                                            <div className={`h-3 rounded-full transition-all ${isDefisit ? 'bg-gradient-to-r from-blue-500 to-orange-500' : 'bg-gradient-to-r from-blue-500 to-indigo-600'}`} style={{ width: `${normalBarPct}%` }}></div>
+                                            <div className={`h-3 rounded-full transition-all ${isDefisit ? 'bg-gradient-to-r from-blue-400 to-blue-600' : 'bg-gradient-to-r from-blue-500 to-indigo-600'}`} style={{ width: `${normalBarPct}%` }}></div>
                                         </div>
                                         {isDefisit && (
-                                            <div className="mt-1.5 text-xs text-orange-600 font-bold">Dana terpakai melebihi pool sebesar {formatRupiah(stats.defisit)}</div>
+                                            <div className="mt-1.5 text-xs text-blue-600 font-bold">Karyawan mengeluarkan dana pribadi sebesar {formatRupiah(stats.defisit)}</div>
                                         )}
                                     </>;
                                 })()}
