@@ -4973,7 +4973,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         if (!aLegacy && bLegacy) return -1;
                         return noteDebt(b) - noteDebt(a);
                     }
-                    return (b.date || '').localeCompare(a.date || ''); // default: terbaru
+                    // default: terbaru — tiebreaker _syncUpdatedAt agar record baru selalu di atas
+                    const dateDiff = (b.date || '').localeCompare(a.date || '');
+                    if (dateDiff !== 0) return dateDiff;
+                    return (b._syncUpdatedAt || '').localeCompare(a._syncUpdatedAt || '');
                 });
                 const useGrouped = sortBy === 'terbaru' || sortBy === 'terlama';
                 // Stat cards selalu dari allNotes (global) agar tetap informatif saat filter aktif
@@ -7150,7 +7153,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const visibleInvoices = (invoices || []).filter(isVisibleRecord).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note], searchTerm);
-            }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+            }).sort((a, b) => {
+                const dateDiff = new Date(b.date || 0) - new Date(a.date || 0);
+                if (dateDiff !== 0) return dateDiff;
+                return (b._syncUpdatedAt || '').localeCompare(a._syncUpdatedAt || '');
+            });
             const totalInvoice = visibleInvoices.reduce((sum, inv) => sum + invoiceTotal(inv).total, 0);
             const totalPaid = visibleInvoices.reduce((sum, inv) => sum + paidTotal(inv), 0);
             const totalRemaining = Math.max(0, totalInvoice - totalPaid);
