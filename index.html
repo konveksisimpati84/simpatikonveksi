@@ -7088,7 +7088,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 return { subtotal, discount, total: Math.max(0, subtotal - discount) };
             };
             const paidTotal = (inv) => (Array.isArray(inv.payments) ? inv.payments : []).reduce((sum, pay) => sum + safeMoney(pay.amount), 0);
-            const commissionTotal = (inv) => (inv.commissionType === 'Rupiah' || inv.commissionType === 'Nominal') ? safeMoney(inv.qty) * safeMoney(inv.commissionValue) : invoiceTotal(inv).total * safeMoney(inv.commissionValue) / 100;
+            const commissionTotal = (inv) => getInvoiceCommissionTotal(inv);
             const visibleInvoices = (invoices || []).filter(isVisibleRecord).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note], searchTerm);
@@ -9020,7 +9020,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <div className="text-sm font-bold text-purple-800">{inv.marketing || '-'}</div>
                                                 {inv.commissionValue > 0 && (
                                                     <div className="text-[10px] text-purple-400 mt-0.5">
-                                                        {inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${inv.commissionValue}% dari total`}
+                                                        {inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${inv.commissionValue}% dari nilai produksi`}
                                                     </div>
                                                 )}
                                             </div>
@@ -9761,6 +9761,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 // TODO: koneksi data ini perlu disempurnakan agar potongan kasbon massal bisa mengubah cashAdvances utama tanpa risiko pada data lama.
                 const row = { id: `RKP-BULK-${Date.now()}`, type: 'bulk_salary_recap', periodStart: dateFrom || '', periodEnd: dateTo || '', periodLabel: `${dateFrom || 'Awal'} s/d ${dateTo || 'Sekarang'}`, employees: rows, productionSalary: totals.production, dailySalary: totals.daily, overtimeSalary: totals.overtime, marketingCommission: totals.commission, grossSalary: totals.gross, cashAdvanceDeduction: totals.kasbon, netSalary: totals.net, totalWage: totals.net, payments: [], paymentStatus: 'belum', createdAt: now, dateProcessed: now.slice(0, 10), _syncUpdatedAt: now };
                 setRekapKinerja(prev => [row, ...safeArray(prev)]);
+                // Tandai commissionRekapId pada invoice marketing yang masuk rekap ini,
+                // agar tidak terhitung dobel di rekap berikutnya
+                const bulkRekapId = row.id;
+                const bulkRekapDate = row.dateProcessed;
+                const marketingEmpNames = new Set(
+                    employeeRows
+                        .filter(r => r.summary.commission > 0)
+                        .map(r => normalizeText(r.emp.name))
+                );
+                if (marketingEmpNames.size > 0 && setInvoices) {
+                    setInvoices(prev => (prev || []).map(inv => {
+                        if (!inv.commissionRekapId && inRange(inv.date) && marketingEmpNames.has(normalizeText(inv.marketing))) {
+                            return { ...inv, commissionRekapId: bulkRekapId, commissionRekapDate: bulkRekapDate };
+                        }
+                        return inv;
+                    }));
+                }
                 setShowBulkModal(false);
                 setActiveReportTab('rekap');
                 showToast('Rekap gaji tersimpan.', 'success');
@@ -10741,15 +10758,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const getInvoicePaid = (inv) => getInvoiceCashInflow(inv);
             // Komisi dihitung proporsional dengan yang sudah dibayar, bukan total invoice
             // agar konsisten dengan pendapatan yang juga hanya menghitung pembayaran masuk
-            const getInvoiceCommission = (inv) => {
-                const total = getInvoiceTotal(inv);
-                if (total <= 0) return 0;
-                // Gunakan getInvoiceCashInflow (bukan getInvoicePaidTotal) agar tidak
-                // menghitung linkedDpAmount sebagai cash masuk — linkedDp sudah tercatat
-                // terpisah di totalClientDpIncome, sehingga tidak double-count pendapatan
-                const paidRatio = Math.min(1, getInvoiceCashInflow(inv) / total);
-                return getInvoiceCommissionTotal(inv) * paidRatio;
-            };
+            // Komisi dihitung akrual penuh: berdasarkan total invoice, bukan proporsional yang sudah dibayar
+            const getInvoiceCommission = (inv) => getInvoiceCommissionTotal(inv);
 
             const clientDpRows = (clients || []).filter(isVisibleRecord).flatMap(client => (Array.isArray(client.clientDpPayments) ? client.clientDpPayments : []).filter(isVisibleRecord).map(dp => ({ ...dp, clientName: client.name || '-' }))).filter(dp => {
                 if (!isInPeriod(dp.date)) return false;
