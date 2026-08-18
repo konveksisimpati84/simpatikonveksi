@@ -6591,7 +6591,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (typeFilter !== 'Semua' && item.type !== typeFilter) return false;
                 if (payStatusFilter !== 'Semua' && getExpenseStatus(item) !== payStatusFilter) return false;
                 return matchesSearch([item.date, item.type, item.category, item.amount, item.method, item.party, item.note, ...(item.items || []).map(it => it.desc), ...(item.items || []).map(it => it.unit)], searchTerm);
-            }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+            }).sort((a, b) => {
+                const dateDiff = new Date(b.date || 0) - new Date(a.date || 0);
+                if (dateDiff !== 0) return dateDiff;
+                return (b._syncUpdatedAt || '').localeCompare(a._syncUpdatedAt || '');
+            });
             const totalIn = visibleExpenses.filter(item => item.type === 'Uang Masuk').reduce((sum, item) => sum + safeMoney(item.amount), 0);
             const totalOut = visibleExpenses.filter(item => item.type === 'Uang Keluar').reduce((sum, item) => sum + safeMoney(item.amount), 0);
 
