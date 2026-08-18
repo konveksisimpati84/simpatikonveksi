@@ -10811,7 +10811,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
             // Piutang kasbon all-time (neraca) — kasbon yang belum terpotong dari rekap manapun
             const totalKasbonOutstanding = allCashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
-            const labaBersih = totalPendapatan - totalBeban;
+            const totalHPP = totalMaterialPaid + totalWage;
+            const labaKotor = totalPendapatan - totalHPP;
+            const totalBebanUsaha = totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
+            const labaBersih = totalPendapatan - totalBeban; // = labaKotor - totalBebanUsaha
 
             // Piutang (for balance sheet)
             const totalPiutangInvoice = safeFinanceInvoices.filter(isVisibleRecord)
@@ -11047,14 +11050,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr><td>&nbsp;&nbsp;Pemasukan Lain</td><td class="text-right">${formatRupiah(totalManualIncome)}</td></tr>
                                 <tr class="total-row"><td>TOTAL PENDAPATAN</td><td class="text-right">${formatRupiah(totalPendapatan)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
-                                <tr class="section-header"><td colspan="2">BEBAN OPERASIONAL</td></tr>
+                                <tr class="section-header"><td colspan="2">HARGA POKOK PRODUKSI (HPP)</td></tr>
                                 <tr><td>&nbsp;&nbsp;Pembelian Bahan (dibayar)</td><td class="text-right">${formatRupiah(totalMaterialPaid)}</td></tr>
                                 ${totalMaterial - totalMaterialPaid > 0 ? `<tr><td>&nbsp;&nbsp;&nbsp;&nbsp;↳ Hutang Bahan (belum dibayar)</td><td class="text-right" style="color:#dc2626">(${formatRupiah(totalMaterial - totalMaterialPaid)})</td></tr>` : ''}
                                 <tr><td>&nbsp;&nbsp;Gaji Bersih Produksi</td><td class="text-right">${formatRupiah(totalWage)}</td></tr>
+                                <tr class="total-row"><td>TOTAL HPP</td><td class="text-right">${formatRupiah(totalHPP)}</td></tr>
+                                <tr><td colspan="2">&nbsp;</td></tr>
+                                <tr class="laba-row" style="background:#e0f2fe"><td>LABA KOTOR</td><td class="text-right">${formatRupiah(labaKotor)}</td></tr>
+                                <tr><td colspan="2">&nbsp;</td></tr>
+                                <tr class="section-header"><td colspan="2">BEBAN USAHA</td></tr>
                                 <tr><td>&nbsp;&nbsp;Biaya Operasional</td><td class="text-right">${formatRupiah(totalOperationalExpense)}</td></tr>
-                                ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Marketing (belum direkap)</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
+                                ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Marketing</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
                                 ${totalBagiHasilPromosiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Promosi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilPromosiPaid)}</td></tr>` : ''}
-                                <tr class="total-row"><td>TOTAL BEBAN</td><td class="text-right">${formatRupiah(totalBeban)}</td></tr>
+                                <tr class="total-row"><td>TOTAL BEBAN USAHA</td><td class="text-right">${formatRupiah(totalBebanUsaha)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
                             </tbody>
@@ -11304,9 +11312,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                             </div>
 
-                            {/* BEBAN */}
+                            {/* HPP */}
                             <div className="bg-red-50 border border-red-200 rounded-xl p-5">
-                                <h3 className="text-base font-black text-red-800 mb-3 uppercase tracking-wide">Beban Operasional</h3>
+                                <h3 className="text-base font-black text-red-800 mb-1 uppercase tracking-wide">Harga Pokok Produksi (HPP)</h3>
+                                <p className="text-xs text-red-700 mb-3">Biaya langsung produksi: bahan baku + upah karyawan</p>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <Card className="border-l-4 border-l-red-500">
                                         <h3 className="text-xs font-bold text-gray-500">Pembelian Bahan (dibayar)</h3>
@@ -11318,6 +11327,26 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-2xl font-black text-rose-700 mt-2">{formatRupiah(totalWage)}</p>
                                         <p className="text-xs text-gray-500 mt-1">{wageRows.length} rekap kinerja</p>
                                     </Card>
+                                    <Card className="border-l-4 border-l-red-700 bg-red-100">
+                                        <h3 className="text-xs font-black text-red-800">TOTAL HPP</h3>
+                                        <p className="text-2xl font-black text-red-800 mt-2">{formatRupiah(totalHPP)}</p>
+                                        <p className="text-xs text-red-700 mt-1">Bahan + upah produksi</p>
+                                    </Card>
+                                </div>
+                            </div>
+
+                            {/* LABA KOTOR */}
+                            <div className={`rounded-xl p-5 border-2 ${labaKotor >= 0 ? 'bg-sky-50 border-sky-300' : 'bg-red-50 border-red-300'}`}>
+                                <h3 className={`text-sm font-black uppercase tracking-wide mb-1 ${labaKotor >= 0 ? 'text-sky-800' : 'text-red-800'}`}>Laba Kotor (Gross Profit)</h3>
+                                <p className={`text-3xl font-black mt-1 ${labaKotor >= 0 ? 'text-sky-700' : 'text-red-700'}`}>{formatRupiah(labaKotor)}</p>
+                                <p className={`text-xs mt-2 ${labaKotor >= 0 ? 'text-sky-600' : 'text-red-600'}`}>Total Pendapatan ({formatRupiah(totalPendapatan)}) dikurangi HPP ({formatRupiah(totalHPP)})</p>
+                            </div>
+
+                            {/* BEBAN USAHA */}
+                            <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
+                                <h3 className="text-base font-black text-orange-800 mb-1 uppercase tracking-wide">Beban Usaha</h3>
+                                <p className="text-xs text-orange-700 mb-3">Biaya penjualan dan operasional: di luar biaya produksi langsung</p>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <Card className="border-l-4 border-l-slate-500">
                                         <h3 className="text-xs font-bold text-gray-500">Biaya Operasional</h3>
                                         <p className="text-2xl font-black text-slate-700 mt-2">{formatRupiah(totalOperationalExpense)}</p>
@@ -11325,7 +11354,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </Card>
                                     {totalMarketingCommission > 0 && (
                                     <Card className="border-l-4 border-l-purple-500">
-                                        <h3 className="text-xs font-bold text-gray-500">Komisi Marketing (belum direkap)</h3>
+                                        <h3 className="text-xs font-bold text-gray-500">Komisi Marketing</h3>
                                         <p className="text-2xl font-black text-purple-700 mt-2">{formatRupiah(totalMarketingCommission)}</p>
                                         <p className="text-xs text-gray-500 mt-1">Kewajiban komisi — belum dibayar via rekap kinerja</p>
                                     </Card>
@@ -11337,10 +11366,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-xs text-gray-500 mt-1">Dibayar · Total kewajiban {formatRupiah(totalBagiHasilPromosiNominal)}</p>
                                     </Card>
                                     )}
-                                    <Card className="border-l-4 border-l-red-700 bg-red-100">
-                                        <h3 className="text-xs font-black text-red-800">TOTAL BEBAN</h3>
-                                        <p className="text-2xl font-black text-red-800 mt-2">{formatRupiah(totalBeban)}</p>
-                                        <p className="text-xs text-red-700 mt-1">Semua beban operasional</p>
+                                    <Card className="border-l-4 border-l-orange-700 bg-orange-100">
+                                        <h3 className="text-xs font-black text-orange-800">TOTAL BEBAN USAHA</h3>
+                                        <p className="text-2xl font-black text-orange-800 mt-2">{formatRupiah(totalBebanUsaha)}</p>
+                                        <p className="text-xs text-orange-700 mt-1">Operasional + komisi + bagi hasil</p>
                                     </Card>
                                 </div>
                             </div>
@@ -11349,7 +11378,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className={`rounded-xl p-6 border-2 ${labaBersih >= 0 ? 'bg-blue-50 border-blue-300' : 'bg-red-50 border-red-300'}`}>
                                 <h3 className={`text-base font-black uppercase tracking-wide mb-1 ${labaBersih >= 0 ? 'text-blue-800' : 'text-red-800'}`}>Laba Bersih</h3>
                                 <p className={`text-4xl font-black mt-1 ${labaBersih >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{formatRupiah(labaBersih)}</p>
-                                <p className={`text-sm mt-2 ${labaBersih >= 0 ? 'text-blue-600' : 'text-red-600'}`}>Total Pendapatan ({formatRupiah(totalPendapatan)}) dikurangi Total Beban ({formatRupiah(totalBeban)})</p>
+                                <p className={`text-sm mt-2 ${labaBersih >= 0 ? 'text-blue-600' : 'text-red-600'}`}>Laba Kotor ({formatRupiah(labaKotor)}) dikurangi Beban Usaha ({formatRupiah(totalBebanUsaha)})</p>
                             </div>
 
                             {/* POSISI KEUANGAN */}
@@ -11392,10 +11421,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <h3 className="text-lg font-bold text-gray-800 mb-4">Grafik Pendapatan vs Beban</h3>
                                 {[
                                     { label: 'Total Pendapatan', value: totalPendapatan, color: 'bg-green-600' },
-                                    { label: 'Total Beban', value: totalBeban, color: 'bg-red-600' },
+                                    { label: 'HPP (Bahan + Upah)', value: totalHPP, color: 'bg-red-500' },
+                                    { label: 'Laba Kotor', value: Math.max(0, labaKotor), color: 'bg-sky-500' },
+                                    { label: 'Beban Usaha', value: totalBebanUsaha, color: 'bg-orange-500' },
                                     { label: 'Laba Bersih', value: Math.max(0, labaBersih), color: 'bg-blue-600' }
                                 ].map(row => {
-                                    const maxVal = Math.max(totalPendapatan, totalBeban, Math.abs(labaBersih), 1);
+                                    const maxVal = Math.max(totalPendapatan, totalHPP, totalBebanUsaha, Math.abs(labaBersih), 1);
                                     const width = Math.max(4, Math.round((row.value / maxVal) * 100));
                                     return (
                                         <div key={row.label} className="mb-3">
@@ -11418,15 +11449,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="flex justify-between px-3 py-1"><span>Pemasukan Lain</span><span className="font-bold">{formatRupiah(totalManualIncome)}</span></div>
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-green-800 bg-green-50 rounded"><span>TOTAL PENDAPATAN</span><span>{formatRupiah(totalPendapatan)}</span></div>
                                 <div className="py-1"></div>
-                                <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">BEBAN OPERASIONAL</div>
+                                <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">HARGA POKOK PRODUKSI (HPP)</div>
                                 <div className="flex justify-between px-3 py-1"><span>Pembelian Bahan (dibayar)</span><span className="font-bold">{formatRupiah(totalMaterialPaid)}</span></div>
                                 {totalMaterial - totalMaterialPaid > 0 && <div className="flex justify-between px-3 py-1 text-red-600"><span className="pl-4 text-xs">↳ Hutang Bahan (belum dibayar)</span><span className="font-bold text-xs">({formatRupiah(totalMaterial - totalMaterialPaid)})</span></div>}
                                 <div className="flex justify-between px-3 py-1"><span>Gaji Bersih Produksi</span><span className="font-bold">{formatRupiah(totalWage)}</span></div>
-                                <div className="flex justify-between px-3 py-1"><span>Kasbon Diberikan</span><span className="font-bold">{formatRupiah(totalCashAdvanceGiven)}</span></div>
+                                <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-red-800 bg-red-50 rounded"><span>TOTAL HPP</span><span>{formatRupiah(totalHPP)}</span></div>
+                                <div className="py-1"></div>
+                                <div className={`flex justify-between px-3 py-2 font-black rounded ${labaKotor >= 0 ? 'bg-sky-50 text-sky-800' : 'bg-red-50 text-red-800'}`}><span>LABA KOTOR</span><span>{formatRupiah(labaKotor)}</span></div>
+                                <div className="py-1"></div>
+                                <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">BEBAN USAHA</div>
                                 <div className="flex justify-between px-3 py-1"><span>Biaya Operasional</span><span className="font-bold">{formatRupiah(totalOperationalExpense)}</span></div>
-                                {totalMarketingCommission > 0 && <div className="flex justify-between px-3 py-1 text-purple-700"><span>Komisi Marketing (belum direkap)</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>}
+                                {totalMarketingCommission > 0 && <div className="flex justify-between px-3 py-1 text-purple-700"><span>Komisi Marketing</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>}
                                 {totalBagiHasilPromosiPaid > 0 && <div className="flex justify-between px-3 py-1"><span>Bagi Hasil Promosi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilPromosiPaid)}</span></div>}
-                                <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-red-800 bg-red-50 rounded"><span>TOTAL BEBAN</span><span>{formatRupiah(totalBeban)}</span></div>
+                                <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-orange-800 bg-orange-50 rounded"><span>TOTAL BEBAN USAHA</span><span>{formatRupiah(totalBebanUsaha)}</span></div>
                                 <div className="py-1"></div>
                                 <div className={`flex justify-between px-3 py-2 border-t-4 border-double border-gray-600 font-black text-lg rounded ${labaBersih >= 0 ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'}`}><span>LABA BERSIH</span><span>{formatRupiah(labaBersih)}</span></div>
                             </div>
