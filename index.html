@@ -6509,7 +6509,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes }) => {
             const [biayaSubTab, setBiayaSubTab] = useState('biaya');
             const emptyItem = () => ({ id: genId('BI-'), desc: '', qty: '1', unit: 'pcs', price: '' });
-            const emptyForm = { date: new Date().toISOString().slice(0, 10), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '' };
+            const emptyForm = { date: new Date().toISOString().slice(0, 10), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '', discountType: 'Rp', discountValue: '' };
             const emptyPayForm = { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Tunai', note: '', operasionalKaryawanId: '' };
             const [form, setForm] = useState(emptyForm);
             const [editId, setEditId] = useState(null);
@@ -6617,13 +6617,14 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 <div class="items-section">
   <table>
     <thead><tr><th style="width:30px" class="c">No.</th><th>Uraian</th><th style="width:55px" class="c">Qty</th><th style="width:55px" class="c">Satuan</th><th style="width:100px" class="r">Harga</th><th style="width:110px" class="r">Subtotal</th></tr></thead>
-    <tbody>${itemRows}<tr><td colspan="4" class="r" style="background:${ac};color:#fff;font-size:11px;font-weight:700;padding:9px 10px">Total</td><td style="background:${ac}"></td><td class="r" style="background:${ac};color:#fff;font-weight:900;padding:9px 10px">${formatRupiah(total)}</td></tr></tbody>
+    <tbody>${itemRows}<tr><td colspan="4" class="r" style="background:#475569;color:#fff;font-size:11px;font-weight:700;padding:9px 10px">Subtotal</td><td style="background:#475569"></td><td class="r" style="background:#475569;color:#fff;font-weight:900;padding:9px 10px">${formatRupiah(safeMoney(item.grossAmount)||total)}</td></tr>${(safeMoney(item.discountAmount)>0)?`<tr><td colspan="4" class="r" style="background:#f97316;color:#fff;font-size:11px;font-weight:700;padding:9px 10px">Diskon</td><td style="background:#f97316"></td><td class="r" style="background:#f97316;color:#fff;font-weight:900;padding:9px 10px">− ${formatRupiah(item.discountAmount)}</td></tr>`:''}<tr><td colspan="4" class="r" style="background:${ac};color:#fff;font-size:11px;font-weight:700;padding:9px 10px">Total Nett</td><td style="background:${ac}"></td><td class="r" style="background:${ac};color:#fff;font-weight:900;padding:9px 10px">${formatRupiah(total)}</td></tr></tbody>
   </table>
 </div>
 <div class="totals-section">
   <div class="note-box"><div class="note-label">Keterangan</div><div class="note-text">${safe(item.note||'-')}</div>${item.method?`<div class="note-text" style="margin-top:6px;color:#64748b;font-size:11px">Metode: ${safe(item.method)}</div>`:''}</div>
   <div class="amounts">
-    <div class="amount-row" style="font-size:13px;font-weight:800"><span>Total</span><span style="color:${ac}">${formatRupiah(total)}</span></div>
+    ${(safeMoney(item.discountAmount)>0)?`<div class="amount-row"><span class="label">Subtotal</span><span>${formatRupiah(safeMoney(item.grossAmount)||total)}</span></div><div class="amount-row"><span class="label">Diskon</span><span style="color:#f97316">− ${formatRupiah(item.discountAmount)}</span></div>`:''}
+    <div class="amount-row" style="font-size:13px;font-weight:800"><span>Total Nett</span><span style="color:${ac}">${formatRupiah(total)}</span></div>
     ${isKeluar&&paid>0?payRows:''}
     ${isKeluar?`<div class="amount-row total-final"><span>${remaining<=0?'Status':'Sisa'}</span><span style="color:${statusColor}">${remaining<=0?'LUNAS':formatRupiah(remaining)}</span></div>`:''}
   </div>
@@ -6652,14 +6653,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const handleSubmit = (e) => {
                 e.preventDefault();
                 const items = form.items || [];
-                const amount = calcFormTotal(items);
-                if (amount <= 0) return showToast("Total nominal harus lebih dari 0. Isi qty dan harga setiap item.", "error");
+                const gross = calcFormTotal(items);
+                const discountAmt = form.discountType === '%'
+                    ? Math.round(gross * safeMoney(form.discountValue) / 100)
+                    : safeMoney(form.discountValue);
+                const amount = Math.max(0, gross - discountAmt);
+                if (gross <= 0) return showToast("Total nominal harus lebih dari 0. Isi qty dan harga setiap item.", "error");
                 const now = new Date().toISOString();
                 const existing = editId ? (expenses || []).find(i => String(i.id) === String(editId)) : null;
                 const payments = existing?.payments || [];
                 const paid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
                 const paymentStatus = form.type === 'Uang Masuk' ? 'Lunas' : (paid <= 0 ? 'Belum Dibayar' : paid >= amount ? 'Lunas' : 'Dibayar Sebagian');
-                const row = { ...form, amount, items, id: editId || genId('EXP-'), payments, paymentStatus, _syncUpdatedAt: now };
+                const row = { ...form, amount, grossAmount: gross, discountAmount: discountAmt, items, id: editId || genId('EXP-'), payments, paymentStatus, _syncUpdatedAt: now };
                 setExpenses(prev => editId ? (prev || []).map(item => String(item.id) === String(editId) ? row : item) : [row, ...(prev || [])]);
                 setForm(emptyForm); setEditId(null);
                 showToast(editId ? "Data biaya diperbarui." : "Data biaya ditambahkan.", "success");
@@ -6704,7 +6709,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 showToast('Pembayaran dihapus.', 'success');
             };
 
-            const formTotal = calcFormTotal(form.items);
+            const formGross = calcFormTotal(form.items);
+            const formDiscountAmt = form.discountType === '%'
+                ? Math.round(formGross * safeMoney(form.discountValue) / 100)
+                : safeMoney(form.discountValue);
+            const formTotal = Math.max(0, formGross - formDiscountAmt);
 
             return (
                 <>
@@ -6837,6 +6846,34 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 </tr>
                                             </tfoot>
                                         </table>
+                                    </div>
+                                </div>
+
+                                {/* Diskon (Opsi A — global) */}
+                                <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-3">
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wide flex-shrink-0">Diskon</span>
+                                        <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
+                                            {['Rp','%'].map(t => (
+                                                <button key={t} type="button"
+                                                    onClick={() => setForm(f => ({ ...f, discountType: t, discountValue: '' }))}
+                                                    className={`px-3 py-1 rounded-md text-xs font-black transition-all ${form.discountType === t ? 'bg-gray-700 text-white shadow-sm' : 'text-gray-400 hover:bg-gray-100'}`}>{t}</button>
+                                            ))}
+                                        </div>
+                                        <input type="number" min="0" className="w-36 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-right focus:ring-1 focus:ring-blue-300 outline-none bg-white"
+                                            placeholder={form.discountType === '%' ? 'Cth: 10' : 'Cth: 50000'}
+                                            value={form.discountValue}
+                                            onChange={e => setForm(f => ({ ...f, discountValue: e.target.value }))} />
+                                        {formDiscountAmt > 0 && (
+                                            <span className="text-xs text-orange-600 font-bold">− {formatRupiah(formDiscountAmt)}</span>
+                                        )}
+                                        <div className="ml-auto text-right flex-shrink-0">
+                                            {formDiscountAmt > 0 && (
+                                                <div className="text-[11px] text-gray-400 line-through">{formatRupiah(formGross)}</div>
+                                            )}
+                                            <div className={`text-base font-black ${accentTxt}`}>{formatRupiah(formTotal)}</div>
+                                            <div className="text-[10px] text-gray-400 uppercase tracking-wide">Total Nett</div>
+                                        </div>
                                     </div>
                                 </div>
 
