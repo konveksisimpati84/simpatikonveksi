@@ -7394,10 +7394,11 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
         const calcBagiHasil = (bhp, invoiceList) => {
             const invs = safeArray(bhp.invoiceIds).map(id => (invoiceList || []).find(inv => isVisibleRecord(inv) && String(inv.id) === String(id))).filter(Boolean);
             const totalNilai = invs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+            const totalPcs = invs.reduce((s, inv) => s + getInvoicePcsTotal(inv), 0);
             const type = bhp.bagiHasilType || 'Rp';
             const value = safeMoney(bhp.bagiHasilValue);
-            const nominal = type === '%' ? Math.round(totalNilai * value / 100) : value;
-            return { invs, totalNilai, nominal };
+            const nominal = type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value;
+            return { invs, totalNilai, totalPcs, nominal };
         };
         const getBhpPaid = (bhp) => safeArray(bhp.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
         const getBhpStatus = (bhp, nominal) => {
@@ -7430,10 +7431,13 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
 
             const selectedInvs = form.invoiceIds.map(id => safeInvoices.find(inv => String(inv.id) === String(id))).filter(Boolean);
             const previewTotalNilai = selectedInvs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+            const previewTotalPcs = selectedInvs.reduce((s, inv) => s + getInvoicePcsTotal(inv), 0);
             const previewNominal = (() => {
                 const v = safeMoney(form.bagiHasilValue);
                 if (v <= 0) return 0;
-                return form.bagiHasilType === '%' ? Math.round(previewTotalNilai * v / 100) : v;
+                if (form.bagiHasilType === '%') return Math.round(previewTotalNilai * v / 100);
+                if (form.bagiHasilType === 'Rp/pcs') return Math.round(previewTotalPcs * v);
+                return v;
             })();
 
             const addInvoice = (inv) => {
@@ -7504,10 +7508,11 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const getShareUrl = (token) => `${window.location.origin}${window.location.pathname}#promosi-share=${encodeURIComponent(token)}`;
 
             const openShareModal = (bhp) => {
-                const { invs, totalNilai, nominal } = calcBagiHasil(bhp, safeInvoices);
+                const { invs, totalNilai, totalPcs, nominal } = calcBagiHasil(bhp, safeInvoices);
                 const url = getShareUrl(bhp.shareToken);
                 const sep = `————————————————`;
                 const isSingle = invs.length <= 1;
+                const isPcs = bhp.bagiHasilType === 'Rp/pcs';
                 const singleCustomer = invs[0] ? (invs[0].customer || '-') : '-';
                 const customerPara = isSingle
                     ? `Berkat rekomendasi Bapak/Ibu, *${singleCustomer}* telah mempercayakan kebutuhan seragamnya kepada kami.`
@@ -7519,14 +7524,16 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                     ? [
                         `• Customer      : ${singleCustomer}`,
                         `• Nilai Pesanan  : ${formatRupiah(totalNilai)}`,
-                        `• Bagi Hasil     : *${formatRupiah(nominal)}*`,
+                        ...(isPcs ? [`• Total Pcs       : ${totalPcs} pcs`] : []),
+                        `• Bagi Hasil     : *${formatRupiah(nominal)}*${isPcs ? ` (${formatRupiah(bhp.bagiHasilValue)}/pcs)` : ''}`,
                       ]
                     : [
                         `Rincian Pesanan:`,
-                        ...invs.map(inv => `• ${inv.customer || '-'}\n  Nilai : ${formatRupiah(getInvoiceTotals(inv).total)}`),
+                        ...invs.map(inv => `• ${inv.customer || '-'}\n  Nilai : ${formatRupiah(getInvoiceTotals(inv).total)}${isPcs ? `  |  ${getInvoicePcsTotal(inv)} pcs` : ''}`),
                         ``,
                         `• Total Pesanan  : ${formatRupiah(totalNilai)}`,
-                        `• Bagi Hasil     : *${formatRupiah(nominal)}*`,
+                        ...(isPcs ? [`• Total Pcs       : ${totalPcs} pcs`] : []),
+                        `• Bagi Hasil     : *${formatRupiah(nominal)}*${isPcs ? ` (${formatRupiah(bhp.bagiHasilValue)}/pcs)` : ''}`,
                       ];
                 const waText = [
                     `*Assalamu'alaikum warahmatullahi wabarakatuh*`,
@@ -7632,11 +7639,16 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                         <div className="flex rounded-xl overflow-hidden border border-gray-200 shrink-0">
                                             <button type="button" onClick={() => setForm(prev => ({ ...prev, bagiHasilType: '%' }))} className={`px-3 py-2 text-sm font-bold transition-colors ${form.bagiHasilType === '%' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>%</button>
                                             <button type="button" onClick={() => setForm(prev => ({ ...prev, bagiHasilType: 'Rp' }))} className={`px-3 py-2 text-sm font-bold transition-colors ${form.bagiHasilType === 'Rp' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Rp</button>
+                                            <button type="button" onClick={() => setForm(prev => ({ ...prev, bagiHasilType: 'Rp/pcs' }))} className={`px-3 py-2 text-sm font-bold transition-colors ${form.bagiHasilType === 'Rp/pcs' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Rp/pcs</button>
                                         </div>
-                                        <input type="number" min="0" step="any" className="flex-1 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" placeholder={form.bagiHasilType === '%' ? 'Masukkan persen (misal: 5)' : 'Masukkan nominal Rupiah'} value={form.bagiHasilValue} onChange={e => setForm(prev => ({ ...prev, bagiHasilValue: e.target.value }))} />
+                                        <input type="number" min="0" step="any" className="flex-1 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" placeholder={form.bagiHasilType === '%' ? 'Persen (misal: 5)' : form.bagiHasilType === 'Rp/pcs' ? 'Nominal per pcs (misal: 2000)' : 'Nominal Rupiah'} value={form.bagiHasilValue} onChange={e => setForm(prev => ({ ...prev, bagiHasilValue: e.target.value }))} />
                                     </div>
                                     {previewNominal > 0 && (
-                                        <div className="mt-1.5 text-xs text-teal-700 font-bold">Nominal bagi hasil: {formatRupiah(previewNominal)}{form.bagiHasilType === '%' ? ` (${form.bagiHasilValue}% dari ${formatRupiah(previewTotalNilai)})` : ''}</div>
+                                        <div className="mt-1.5 text-xs text-teal-700 font-bold">
+                                            Nominal bagi hasil: {formatRupiah(previewNominal)}
+                                            {form.bagiHasilType === '%' && ` (${form.bagiHasilValue}% dari ${formatRupiah(previewTotalNilai)})`}
+                                            {form.bagiHasilType === 'Rp/pcs' && ` (${previewTotalPcs} pcs × ${formatRupiah(safeMoney(form.bagiHasilValue))})`}
+                                        </div>
                                     )}
                                 </div>
 
@@ -7686,7 +7698,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                     <span className="font-black text-gray-900 text-base leading-tight">{bhp.nama || '-'}</span>
                                                     <span className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ background: statusColor.bg, color: statusColor.text }}>{status}</span>
                                                 </div>
-                                                <div className="text-xs text-gray-400 mt-0.5">{bhp.tanggal || '-'} · {invs.length} invoice{bhp.bagiHasilType === '%' ? ` · ${bhp.bagiHasilValue}%` : ' · Nominal tetap'}</div>
+                                                <div className="text-xs text-gray-400 mt-0.5">{bhp.tanggal || '-'} · {invs.length} invoice{bhp.bagiHasilType === '%' ? ` · ${bhp.bagiHasilValue}%` : bhp.bagiHasilType === 'Rp/pcs' ? ` · ${formatRupiah(bhp.bagiHasilValue)}/pcs` : ' · Nominal tetap'}</div>
                                                 {/* Stats */}
                                                 <div className="flex gap-5 flex-wrap mt-2.5">
                                                     <div><div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide">Total Nilai</div><div className="font-bold text-sm text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totalNilai)}</div></div>
@@ -9344,13 +9356,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
                         const invs = safeArray(found.invoiceIds).map(id => allInv.find(inv => !inv.isDeleted && String(inv.id) === String(id))).filter(Boolean);
                         const totalNilai = invs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+                        const totalPcs = invs.reduce((s, inv) => s + getInvoicePcsTotal(inv), 0);
                         const type = found.bagiHasilType || 'Rp';
                         const value = safeMoney(found.bagiHasilValue);
-                        const nominal = type === '%' ? Math.round(totalNilai * value / 100) : value;
+                        const nominal = type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value;
                         const paid = safeArray(found.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
                         const sisa = Math.max(0, nominal - paid);
                         const status = nominal <= 0 ? 'Belum Dibayar' : paid <= 0 ? 'Belum Dibayar' : sisa < 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian';
-                        setData({ bhp: found, invs, totalNilai, nominal, paid, sisa, status });
+                        setData({ bhp: found, invs, totalNilai, totalPcs, nominal, paid, sisa, status });
                     } catch(e) {
                         setError('Gagal memuat data. Silakan refresh halaman.');
                     }
@@ -9378,7 +9391,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
             if (!data) return null;
 
-            const { bhp, invs, totalNilai, nominal, paid, sisa, status } = data;
+            const { bhp, invs, totalNilai, totalPcs, nominal, paid, sisa, status } = data;
             const pct = nominal > 0 ? Math.min(100, Math.round(paid / nominal * 100)) : 0;
             const isDone = status === 'Sudah Dibayar';
             const isPartial = status === 'Dibayar Sebagian';
@@ -9488,9 +9501,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="summary-hero">
                                     <div className="summary-label">Total Nilai Semua Pesanan</div>
                                     <div className="summary-total">{fmtRp(totalNilai)}</div>
-                                    <div className="summary-nominal-label">Bagi Hasil Anda{bhp.bagiHasilType === '%' ? ` (${bhp.bagiHasilValue}%)` : ''}</div>
+                                    <div className="summary-nominal-label">Bagi Hasil Anda{bhp.bagiHasilType === '%' ? ` (${bhp.bagiHasilValue}%)` : bhp.bagiHasilType === 'Rp/pcs' ? ` (${fmtRp(bhp.bagiHasilValue)}/pcs)` : ''}</div>
                                     <div className="summary-nominal">{fmtRp(nominal)}</div>
                                     {bhp.bagiHasilType === '%' && <div className="summary-basis">{bhp.bagiHasilValue}% dari {fmtRp(totalNilai)}</div>}
+                                    {bhp.bagiHasilType === 'Rp/pcs' && <div className="summary-basis">{totalPcs} pcs × {fmtRp(bhp.bagiHasilValue)}/pcs</div>}
                                 </div>
 
                                 {/* Progress */}
@@ -10797,9 +10811,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalBagiHasilPromosiNominal = safeBagiHasilPromosi.reduce((s, b) => {
                 const invs = safeArray(b.invoiceIds).map(id => safeFinanceInvoices.find(inv => isVisibleRecord(inv) && String(inv.id) === String(id))).filter(Boolean);
                 const totalNilai = invs.reduce((ns, inv) => ns + getInvoiceTotals(inv).total, 0);
+                const totalPcs = invs.reduce((ns, inv) => ns + getInvoicePcsTotal(inv), 0);
                 const type = b.bagiHasilType || 'Rp';
                 const value = safeMoney(b.bagiHasilValue);
-                return s + (type === '%' ? Math.round(totalNilai * value / 100) : value);
+                return s + (type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value);
             }, 0);
 
             // Beban L/R (basis kas): kasbon TIDAK masuk beban — kasbon = piutang karyawan, bukan biaya.
