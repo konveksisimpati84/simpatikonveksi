@@ -670,7 +670,7 @@
             const subtotal = safeMoney(sizeRow?.qty) * safeMoney(sizeRow?.pricePerPcs);
             const discountPerPcs = safeMoney(sizeRow?.qty) * safeMoney(sizeRow?.discountPerPcs);
             const discountPercent = subtotal * safeMoney(sizeRow?.discountPercent) / 100;
-            return { subtotal, discount: discountPerPcs + discountPercent, total: Math.max(0, subtotal - discountPerPcs - discountPercent) };
+            return { subtotal, discount: discountPerPcs + discountPercent, total: Math.round(Math.max(0, subtotal - discountPerPcs - discountPercent)) };
         };
 
         const getInvoiceTotals = (invoice) => {
@@ -693,6 +693,7 @@
         const getInvoicePaymentStatus = (invoice) => {
             const total = getInvoiceTotals(invoice).total;
             const paid = getInvoicePaidTotal(invoice);
+            if (total <= 0) return 'Lunas';
             if (paid <= 0) return 'Belum Dibayar';
             return paid >= total ? 'Lunas' : 'Termin';
         };
@@ -3962,7 +3963,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
             });
             const filteredRiwayatPengiriman = [...(riwayatPengiriman || []).filter(isVisibleRecord), ...archivedAsSJ]
                 .reverse()
-                .filter(riwayat => matchesSearch([riwayat.id, riwayat.date, riwayat.client, riwayat.total, riwayat.items], searchTerm));
+                .filter(riwayat => matchesSearch([riwayat.id, riwayat.date, riwayat.client, riwayat.total, ...(riwayat.items || []).map(item => `${item.orderId || ''} ${item.type || ''} ${item.details || ''}`)], searchTerm));
 
             const printSuratJalan = (client, items, sjId, dateStr) => {
                 const formattedDate = new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -4507,13 +4508,16 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                         { id: `PAY-${Date.now()}-${order.id}`, date: payDate, amount: applied, method, note, vendor: normalizeVendorName(vendorName), batchDateKey, createdAt: now }
                     ];
                     const checkOrder = { ...order, materialPayments: nextPayments };
+                    const allSettled = areAllOrderMaterialsSettled(checkOrder);
+                    const anyPurchased = Object.values(checkOrder.materialPurchasedVendors || {}).some(Boolean) || Object.values(checkOrder.materialPurchasedBatches || {}).some(Boolean);
                     return {
                         ...order,
                         materialPayments: nextPayments,
-                        materialStatus: areAllOrderMaterialsSettled(checkOrder) ? 'Selesai' : 'Dibeli Sebagian',
+                        materialStatus: allSettled ? 'Selesai' : (anyPurchased ? 'Dibeli Sebagian' : (order.materialStatus === 'Belum' ? 'Direkap' : (order.materialStatus || 'Direkap'))),
+                        materialPurchasedAt: allSettled ? now : order.materialPurchasedAt,
                         materialLastActionAt: now,
-                        materialLastAction: 'Tambah Pembayaran Termin Vendor',
-                        status: getOrderStatusAfterMaterialPurchase(order)
+                        materialLastAction: allSettled ? 'Pembayaran Lunas' : 'Tambah Pembayaran Termin Vendor',
+                        status: allSettled ? getOrderStatusAfterMaterialPurchase(order) : order.status
                     };
                 }));
                 setPaymentInputs(prev => ({ ...prev, [key]: { amount: '', note: '', date: '', method: 'Transfer' } }));
@@ -5833,13 +5837,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const addItem = () => setForm(prev => ({ ...prev, items: [...prev.items, emptyItem()] }));
             const removeItem = (idx) => { if (form.items.length <= 1) return; setForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) })); };
 
-            const visibleExpenses = (expenses || []).filter(isVisibleRecord).filter(item => {
-                if (typeFilter !== 'Semua' && item.type !== typeFilter) return false;
+            const allFilteredExpenses = (expenses || []).filter(isVisibleRecord).filter(item => {
                 if (payStatusFilter !== 'Semua' && getExpenseStatus(item) !== payStatusFilter) return false;
                 return matchesSearch([item.date, item.type, item.category, item.amount, item.method, item.party, item.note, ...(item.items || []).map(it => it.desc), ...(item.items || []).map(it => it.unit)], searchTerm);
             }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-            const totalIn = visibleExpenses.filter(item => item.type === 'Uang Masuk').reduce((sum, item) => sum + safeMoney(item.amount), 0);
-            const totalOut = visibleExpenses.filter(item => item.type === 'Uang Keluar').reduce((sum, item) => sum + safeMoney(item.amount), 0);
+            const visibleExpenses = typeFilter === 'Semua' ? allFilteredExpenses : allFilteredExpenses.filter(item => item.type === typeFilter);
+            const totalIn = allFilteredExpenses.filter(item => item.type === 'Uang Masuk').reduce((sum, item) => sum + safeMoney(item.amount), 0);
+            const totalOut = allFilteredExpenses.filter(item => item.type === 'Uang Keluar').reduce((sum, item) => sum + safeMoney(item.amount), 0);
 
             const printReceipt = (item) => {
                 const safe = (value) => String(value ?? '-').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -6319,7 +6323,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
             const visibleClients = safeClients.filter(isVisibleRecord).filter(client => matchesSearch([client.name, client.address, client.phone, client.pic, client.note], searchTerm));
             const { page: clientPage, setPage: setClientPage, totalPages: clientTotalPages, paged: pagedClients, total: clientTotal } = usePagination(visibleClients, 15);
             const getClientDpRows = (client) => Array.isArray(client?.clientDpPayments) ? client.clientDpPayments.filter(isVisibleRecord) : [];
-            const getClientInvoices = (client) => safeInvoices.filter(isVisibleRecord).filter(inv => normalizeText(inv.customer) === normalizeText(client?.name));
+            const getClientInvoices = (client) => safeInvoices.filter(isVisibleRecord).filter(inv => normalizeText(inv.customer || inv.clientName || inv.client) === normalizeText(client?.name));
             const getClientSummary = (client) => {
                 const dpRows = getClientDpRows(client);
                 const dp = dpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
@@ -7505,9 +7509,25 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (!setRekapKinerja) return showToast('Penyimpanan rekap belum tersedia.', 'error');
                 const now = new Date().toISOString();
                 const rows = employeeRows.map(row => ({ empId: row.emp.id, name: row.emp.name || '-', division: getEmployeeDivisions(row.emp).join(', ') || '-', salaryTypes: getSalaryTypesText(row.emp), production: row.summary.production, commission: row.summary.commission, daily: row.summary.daily, overtime: row.summary.overtime, gross: row.summary.gross, deduction: row.summary.deduction, net: row.summary.net, kasbonRemaining: row.summary.kasbon }));
-                // TODO: koneksi data ini perlu disempurnakan agar potongan kasbon massal bisa mengubah cashAdvances utama tanpa risiko pada data lama.
                 const row = { id: `RKP-BULK-${Date.now()}`, type: 'bulk_salary_recap', periodStart: dateFrom || '', periodEnd: dateTo || '', periodLabel: `${dateFrom || 'Awal'} s/d ${dateTo || 'Sekarang'}`, employees: rows, productionSalary: totals.production, dailySalary: totals.daily, overtimeSalary: totals.overtime, marketingCommission: totals.commission, grossSalary: totals.gross, cashAdvanceDeduction: totals.kasbon, netSalary: totals.net, totalWage: totals.net, payments: [], paymentStatus: 'belum', createdAt: now, dateProcessed: now.slice(0, 10), _syncUpdatedAt: now };
                 setRekapKinerja(prev => [row, ...safeArray(prev)]);
+                // Update deductedAmount pada cashAdvances tiap karyawan yang ada potongan
+                if (setEmployees) {
+                    setEmployees(prev => safeArray(prev).map(emp => {
+                        const empRow = employeeRows.find(r => String(r.emp.id) === String(emp.id));
+                        if (!empRow || empRow.summary.deduction <= 0) return emp;
+                        let remaining = empRow.summary.deduction;
+                        const updatedCashAdvances = safeArray(emp.cashAdvances).map(ca => {
+                            if (remaining <= 0 || ca.isDeleted) return ca;
+                            const caRem = getCashAdvanceRemaining(ca);
+                            if (caRem <= 0) return ca;
+                            const applied = Math.min(caRem, remaining);
+                            remaining -= applied;
+                            return { ...ca, deductedAmount: (parseFloat(ca.deductedAmount) || 0) + applied, _syncUpdatedAt: now };
+                        });
+                        return { ...emp, cashAdvances: updatedCashAdvances, _syncUpdatedAt: now };
+                    }));
+                }
                 setShowBulkModal(false);
                 setActiveReportTab('rekap');
                 showToast('Rekap gaji tersimpan.', 'success');
@@ -11749,8 +11769,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div className="text-center text-sm text-gray-500 italic py-4 bg-gray-50 rounded-lg">Tidak ada data absensi ditemukan untuk periode ini.</div>
                                         ) : (() => {
                                             const eligibleRows = genPreview.filter(r => !r.alreadyRekaped);
-                                            const allChecked = eligibleRows.length > 0 && eligibleRows.every(r => genSelectedIds.has(r.emp.id));
-                                            const noneChecked = eligibleRows.every(r => !genSelectedIds.has(r.emp.id));
+                                            const filteredEligible = genSearchTerm.trim() ? eligibleRows.filter(r => String(r.emp.name || '').toLowerCase().includes(genSearchTerm.trim().toLowerCase())) : eligibleRows;
+                                            const allChecked = filteredEligible.length > 0 && filteredEligible.every(r => genSelectedIds.has(r.emp.id));
+                                            const noneChecked = filteredEligible.every(r => !genSelectedIds.has(r.emp.id));
                                             const selectedRows = genPreview.filter(r => genSelectedIds.has(r.emp.id));
                                             const totalEstGaji = selectedRows.reduce((s, r) => s + r.totalGaji, 0);
                                             const alreadyCount = genPreview.filter(r => r.alreadyRekaped).length;
@@ -11762,7 +11783,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                             {alreadyCount > 0 && <span className="ml-2 text-orange-600 normal-case font-semibold">({alreadyCount} sudah direkap)</span>}
                                                         </div>
                                                         <div className="flex gap-2">
-                                                            <button onClick={() => setGenSelectedIds(new Set(eligibleRows.map(r => r.emp.id)))} disabled={eligibleRows.length === 0} className={`text-xs px-2 py-1 rounded font-bold border transition-colors disabled:opacity-40 ${allChecked ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Pilih Semua</button>
+                                                            <button onClick={() => setGenSelectedIds(new Set(filteredEligible.map(r => r.emp.id)))} disabled={filteredEligible.length === 0} className={`text-xs px-2 py-1 rounded font-bold border transition-colors disabled:opacity-40 ${allChecked ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Pilih Semua</button>
                                                             <button onClick={() => setGenSelectedIds(new Set())} className={`text-xs px-2 py-1 rounded font-bold border transition-colors ${noneChecked ? 'bg-red-100 text-red-700 border-red-300' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>Batal Semua</button>
                                                         </div>
                                                     </div>
@@ -17020,10 +17041,10 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 const rawLemburMasuk = lemburMasukZone.length > 0 ? lemburMasukZone[0].jam : null;
                 const rawLemburPulang = lemburPulangZone.length > 0 ? lemburPulangZone[lemburPulangZone.length - 1].jam : null;
 
-                const jamMasuk = override?.jamMasuk || rawMasuk;
-                const jamPulang = override?.jamPulang || rawPulang;
-                const jamLemburMasuk = override?.jamLemburMasuk || rawLemburMasuk;
-                const jamLemburPulang = override?.jamLemburPulang || rawLemburPulang;
+                const jamMasuk = (override && 'jamMasuk' in override) ? override.jamMasuk : rawMasuk;
+                const jamPulang = (override && 'jamPulang' in override) ? override.jamPulang : rawPulang;
+                const jamLemburMasuk = (override && 'jamLemburMasuk' in override) ? override.jamLemburMasuk : rawLemburMasuk;
+                const jamLemburPulang = (override && 'jamLemburPulang' in override) ? override.jamLemburPulang : rawLemburPulang;
 
                 const mMasuk = timeToMinutes(jamMasuk);
                 const mTelat = timeToMinutes(jamTelatEff);
@@ -17076,7 +17097,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 return rows.filter(r => !filterEmp || r.nama.toLowerCase().includes(filterEmp.toLowerCase()) || r.pin.includes(filterEmp));
             };
 
-            const dailyRows = React.useMemo(() => buildDailySummary(rawLogs, selectedDate), [rawLogs, selectedDate, absensiEdits, employees, filterEmp]);
+            const dailyRows = React.useMemo(() => buildDailySummary(rawLogs, selectedDate), [rawLogs, selectedDate, absensiEdits, employees, filterEmp, templates]);
 
             const printSertifikatAbsensi = (emp, bulan, tmpl) => {
                 const safe = (v) => String(v ?? '-').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
