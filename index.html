@@ -8936,6 +8936,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 { id: 'buku-kas', label: 'Buku Kas' },
                 { id: 'detail', label: 'Detail' },
                 { id: 'komisi-marketing', label: 'Komisi Marketing' },
+                { id: 'bagi-hasil', label: 'Bagi Hasil' },
             ];
 
             return (
@@ -9086,90 +9087,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </Card>
                                 </div>
                             </div>
-
-                            {/* HONOR MANAJEMEN */}
-                            <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-5">
-                                <div className="flex justify-between items-center mb-4">
-                                    <div>
-                                        <h3 className="text-base font-black text-amber-800 uppercase tracking-wide">Honor Manajemen</h3>
-                                        <p className="text-xs text-amber-600 mt-0.5">Basis: total nilai invoice bulan ini ({formatRupiah(honorBasisTotal)})</p>
-                                    </div>
-                                    <button onClick={() => { setShowHonorSettings(true); setHonorForm({ name: '', role: '', percentage: '' }); setEditHonorId(null); }} className="text-xs font-bold bg-amber-600 text-white px-3 py-1.5 rounded-lg">+ Kelola Penerima</button>
-                                </div>
-                                {honorRecipients.length === 0 ? (
-                                    <div className="text-center py-6 text-amber-500 text-sm italic">Belum ada penerima. Klik "Kelola Penerima" untuk menambahkan.</div>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {honorRecipients.map(r => {
-                                            const amount = Math.round(honorBasisTotal * (safeMoney(r.percentage) / 100));
-                                            return (
-                                                <div key={r.id} className="flex items-center justify-between bg-white border border-amber-200 rounded-lg px-4 py-3">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></div>
-                                                        <div>
-                                                            <div className="font-bold text-gray-800 text-sm">{r.name}</div>
-                                                            <div className="text-xs text-gray-500">{r.role} · {r.percentage}% dari total invoice</div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="text-right">
-                                                            <div className="font-black text-amber-700 text-base">{formatRupiah(amount)}</div>
-                                                            <div className="text-xs text-gray-400">{r.percentage}% × {formatRupiah(honorBasisTotal)}</div>
-                                                        </div>
-                                                        <div className="flex gap-1">
-                                                            <button onClick={() => { setEditHonorId(r.id); setHonorForm({ name: r.name, role: r.role, percentage: r.percentage }); setShowHonorSettings(true); }} className="text-blue-600 bg-blue-50 p-1.5 rounded"><IconEdit /></button>
-                                                            <button onClick={() => { if(window.confirm(`Hapus honor ${r.name}?`)) setTemplates(prev => ({ ...prev, managementHonorRecipients: (prev.managementHonorRecipients||[]).filter(x => x.id !== r.id) })); }} className="text-red-500 bg-red-50 p-1.5 rounded"><IconTrash /></button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                        <div className="flex justify-between items-center bg-amber-100 border border-amber-300 rounded-lg px-4 py-3 mt-2">
-                                            <span className="font-black text-amber-800 text-sm uppercase tracking-wide">Total Honor Manajemen</span>
-                                            <span className="font-black text-amber-800 text-xl">{formatRupiah(totalHonorManajemen)}</span>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Modal Kelola Penerima Honor */}
-                            {showHonorSettings && (
-                                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4">
-                                    <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-                                        <h3 className="font-black text-gray-800 text-lg mb-4">{editHonorId ? 'Edit Penerima Honor' : 'Tambah Penerima Honor'}</h3>
-                                        <div className="space-y-3">
-                                            <div>
-                                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nama</label>
-                                                <input className="w-full mt-1 p-2.5 border rounded-lg text-sm" placeholder="Contoh: Budi Santoso" value={honorForm.name} onChange={e => setHonorForm(prev => ({ ...prev, name: e.target.value }))} />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Jabatan</label>
-                                                <input className="w-full mt-1 p-2.5 border rounded-lg text-sm" placeholder="Contoh: Direktur Utama, Komisaris, Manager" value={honorForm.role} onChange={e => setHonorForm(prev => ({ ...prev, role: e.target.value }))} />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Persentase dari Total Invoice (%)</label>
-                                                <input type="number" min="0" max="100" step="0.1" className="w-full mt-1 p-2.5 border rounded-lg text-sm text-right" placeholder="Contoh: 3" value={honorForm.percentage} onChange={e => setHonorForm(prev => ({ ...prev, percentage: e.target.value }))} />
-                                                {honorForm.percentage && honorBasisTotal > 0 && <p className="text-xs text-amber-600 mt-1">= {formatRupiah(Math.round(honorBasisTotal * (safeMoney(honorForm.percentage) / 100)))} untuk periode ini</p>}
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-end gap-2 mt-5">
-                                            <button onClick={() => { setShowHonorSettings(false); setEditHonorId(null); setHonorForm({ name: '', role: '', percentage: '' }); }} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-bold">Batal</button>
-                                            <button onClick={() => {
-                                                if (!honorForm.name.trim()) return showToast('Nama harus diisi.', 'error');
-                                                if (!honorForm.percentage || safeMoney(honorForm.percentage) <= 0) return showToast('Persentase harus lebih dari 0.', 'error');
-                                                const now = new Date().toISOString();
-                                                setTemplates(prev => {
-                                                    const list = Array.isArray(prev.managementHonorRecipients) ? prev.managementHonorRecipients : [];
-                                                    if (editHonorId) return { ...prev, managementHonorRecipients: list.map(r => r.id === editHonorId ? { ...r, name: honorForm.name.trim(), role: honorForm.role.trim(), percentage: honorForm.percentage } : r) };
-                                                    return { ...prev, managementHonorRecipients: [...list, { id: `HON-${now}`, name: honorForm.name.trim(), role: honorForm.role.trim(), percentage: honorForm.percentage }] };
-                                                });
-                                                setShowHonorSettings(false); setEditHonorId(null); setHonorForm({ name: '', role: '', percentage: '' });
-                                                showToast(editHonorId ? 'Penerima diperbarui.' : 'Penerima ditambahkan.', 'success');
-                                            }} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold">{editHonorId ? 'Simpan' : 'Tambah'}</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
 
                             {/* LABA BERSIH */}
                             <div className={`rounded-xl p-6 border-2 ${labaBersih >= 0 ? 'bg-blue-50 border-blue-300' : 'bg-red-50 border-red-300'}`}>
@@ -9807,6 +9724,97 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         );
                     })()}
+
+                    {/* Tab: Bagi Hasil */}
+                    {activeFinanceTab === 'bagi-hasil' && (
+                        <div className="space-y-4">
+                            <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-5">
+                                <div className="flex justify-between items-center mb-4">
+                                    <div>
+                                        <h3 className="text-base font-black text-amber-800 uppercase tracking-wide">Honor Manajemen</h3>
+                                        <p className="text-xs text-amber-600 mt-0.5">Basis: total nilai invoice {period ? `periode ${period}` : 'semua periode'} · {formatRupiah(honorBasisTotal)}</p>
+                                    </div>
+                                    <button onClick={() => { setShowHonorSettings(true); setHonorForm({ name: '', role: '', percentage: '' }); setEditHonorId(null); }} className="text-xs font-bold bg-amber-600 text-white px-3 py-1.5 rounded-lg">+ Tambah Penerima</button>
+                                </div>
+                                {honorRecipients.length === 0 ? (
+                                    <div className="text-center py-8 text-amber-500 text-sm italic">Belum ada penerima honor. Klik "+ Tambah Penerima" untuk menambahkan.</div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {honorRecipients.map(r => {
+                                            const amount = Math.round(honorBasisTotal * (safeMoney(r.percentage) / 100));
+                                            return (
+                                                <div key={r.id} className="flex items-center justify-between bg-white border border-amber-200 rounded-lg px-4 py-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></div>
+                                                        <div>
+                                                            <div className="font-bold text-gray-800 text-sm">{r.name}</div>
+                                                            <div className="text-xs text-gray-500">{r.role} · {r.percentage}% dari total invoice</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="text-right">
+                                                            <div className="font-black text-amber-700 text-base">{formatRupiah(amount)}</div>
+                                                            <div className="text-xs text-gray-400">{r.percentage}% × {formatRupiah(honorBasisTotal)}</div>
+                                                        </div>
+                                                        <div className="flex gap-1">
+                                                            <button onClick={() => { setEditHonorId(r.id); setHonorForm({ name: r.name, role: r.role, percentage: r.percentage }); setShowHonorSettings(true); }} className="text-blue-600 bg-blue-50 p-1.5 rounded"><IconEdit /></button>
+                                                            <button onClick={() => { if(window.confirm(`Hapus honor ${r.name}?`)) setTemplates(prev => ({ ...prev, managementHonorRecipients: (prev.managementHonorRecipients||[]).filter(x => x.id !== r.id) })); }} className="text-red-500 bg-red-50 p-1.5 rounded"><IconTrash /></button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        <div className="flex justify-between items-center bg-amber-100 border border-amber-300 rounded-lg px-4 py-3 mt-2">
+                                            <span className="font-black text-amber-800 text-sm uppercase tracking-wide">Total Honor Manajemen</span>
+                                            <span className="font-black text-amber-800 text-xl">{formatRupiah(totalHonorManajemen)}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
+                                <span className="font-bold">Catatan:</span> Honor masuk ke total beban dan mengurangi laba bersih di tab Dashboard. Pengaturan penerima tersimpan permanen dan berlaku untuk semua periode.
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Modal Kelola Penerima Honor */}
+                    {showHonorSettings && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4">
+                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+                                <h3 className="font-black text-gray-800 text-lg mb-4">{editHonorId ? 'Edit Penerima Honor' : 'Tambah Penerima Honor'}</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Nama</label>
+                                        <input className="w-full mt-1 p-2.5 border rounded-lg text-sm" placeholder="Contoh: Budi Santoso" value={honorForm.name} onChange={e => setHonorForm(prev => ({ ...prev, name: e.target.value }))} />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Jabatan</label>
+                                        <input className="w-full mt-1 p-2.5 border rounded-lg text-sm" placeholder="Contoh: Direktur Utama, Komisaris, Manager" value={honorForm.role} onChange={e => setHonorForm(prev => ({ ...prev, role: e.target.value }))} />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Persentase dari Total Invoice (%)</label>
+                                        <input type="number" min="0" max="100" step="0.1" className="w-full mt-1 p-2.5 border rounded-lg text-sm text-right" placeholder="Contoh: 3" value={honorForm.percentage} onChange={e => setHonorForm(prev => ({ ...prev, percentage: e.target.value }))} />
+                                        {honorForm.percentage && honorBasisTotal > 0 && <p className="text-xs text-amber-600 mt-1">= {formatRupiah(Math.round(honorBasisTotal * (safeMoney(honorForm.percentage) / 100)))} untuk periode ini</p>}
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-2 mt-5">
+                                    <button onClick={() => { setShowHonorSettings(false); setEditHonorId(null); setHonorForm({ name: '', role: '', percentage: '' }); }} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-bold">Batal</button>
+                                    <button onClick={() => {
+                                        if (!honorForm.name.trim()) return showToast('Nama harus diisi.', 'error');
+                                        if (!honorForm.percentage || safeMoney(honorForm.percentage) <= 0) return showToast('Persentase harus lebih dari 0.', 'error');
+                                        const now = new Date().toISOString();
+                                        setTemplates(prev => {
+                                            const list = Array.isArray(prev.managementHonorRecipients) ? prev.managementHonorRecipients : [];
+                                            if (editHonorId) return { ...prev, managementHonorRecipients: list.map(r => r.id === editHonorId ? { ...r, name: honorForm.name.trim(), role: honorForm.role.trim(), percentage: honorForm.percentage } : r) };
+                                            return { ...prev, managementHonorRecipients: [...list, { id: `HON-${now}`, name: honorForm.name.trim(), role: honorForm.role.trim(), percentage: honorForm.percentage }] };
+                                        });
+                                        setShowHonorSettings(false); setEditHonorId(null); setHonorForm({ name: '', role: '', percentage: '' });
+                                        showToast(editHonorId ? 'Penerima diperbarui.' : 'Penerima ditambahkan.', 'success');
+                                    }} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold">{editHonorId ? 'Simpan' : 'Tambah'}</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
