@@ -699,7 +699,8 @@
 
         const getInvoiceCommissionTotal = (invoice) => {
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
-            if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
+            if (type.includes('pcs')) return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
+            if (type === 'rupiah' || type === 'nominal') return safeMoney(invoice?.commissionValue);
             return getInvoiceTotals(invoice).total * safeMoney(invoice?.commissionValue) / 100;
         };
 
@@ -8371,7 +8372,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, manualPurchases = [] }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, manualPurchases = [], investorBagiHasil = [] }) => {
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
@@ -8516,7 +8517,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return [row.empName, row.division, row.date, row.amount, row.deducted, row.remaining, row.status, row.note].join(' ').toLowerCase().includes(normalizedSearch);
             });
 
-            const totalMaterial = materialRows.reduce((sum, row) => sum + row.total, 0);
+            const totalMaterial = safeOrders
+                .filter(order => getActiveMaterials(order).length > 0)
+                .filter(order => {
+                    const hasPayments = Object.values(order.materialPayments || {}).flat().length > 0;
+                    return hasPayments || order.materialStatus === 'Selesai';
+                })
+                .filter(order => isInPeriod(getMaterialDate(order)))
+                .reduce((sum, order) => sum + getFinanceOrderMaterialTotal(order), 0)
+                + safeArray(manualPurchases).filter(isVisibleRecord)
+                    .filter(mp => isInPeriod(mp.purchaseDate || new Date().toISOString().slice(0, 10)))
+                    .reduce((sum, mp) => sum + getMaterialLineTotal(mp), 0);
             const totalWage = wageRows.reduce((sum, row) => sum + row.netSalary, 0);
             const totalGrossWage = wageRows.reduce((sum, row) => sum + row.grossSalary, 0);
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
@@ -8577,6 +8588,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 .reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0);
             const sisaSaldoDpKewajiban = Math.max(0, totalSaldoDpMasukAll - totalSaldoDpDipakaiAll);
 
+            // Bagi Hasil Investor
+            const totalInvestorBagiHasil = safeArray(investorBagiHasil).filter(isVisibleRecord)
+                .filter(r => isInPeriod(r.tanggal))
+                .reduce((sum, r) => sum + (parseFloat(r.totalBagiHasil) || 0), 0);
+
             // Honor Manajemen
             const honorRecipients = Array.isArray(templates?.managementHonorRecipients) ? templates.managementHonorRecipients : [];
             const honorBasisTotal = invoiceRows.reduce((sum, inv) => sum + getInvoiceTotals(inv).total, 0);
@@ -8588,7 +8604,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalHonorManajemen = honorRecipients.reduce((sum, r) => sum + calcHonorAmount(r), 0);
 
             // Beban
-            const totalBeban = totalMaterial + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission + totalHonorManajemen;
+            const totalBeban = totalMaterial + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalMarketingCommission + totalHonorManajemen + totalInvestorBagiHasil;
             const labaBersih = totalPendapatan - totalBeban;
             const labaKotor = totalPendapatan - totalMaterial;
 
@@ -8796,6 +8812,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr><td>&nbsp;&nbsp;Kasbon Diberikan</td><td class="text-right">${formatRupiah(totalCashAdvanceGiven)}</td></tr>
                                 <tr><td>&nbsp;&nbsp;Biaya Operasional</td><td class="text-right">${formatRupiah(totalOperationalExpense)}</td></tr>
                                 <tr><td>&nbsp;&nbsp;Komisi Marketing</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>
+                                ${totalHonorManajemen > 0 ? `<tr><td>&nbsp;&nbsp;Honor Manajemen</td><td class="text-right">${formatRupiah(totalHonorManajemen)}</td></tr>` : ''}
+                                ${totalInvestorBagiHasil > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Investor</td><td class="text-right">${formatRupiah(totalInvestorBagiHasil)}</td></tr>` : ''}
                                 <tr class="total-row"><td>TOTAL BEBAN</td><td class="text-right">${formatRupiah(totalBeban)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
@@ -9140,6 +9158,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="flex justify-between px-3 py-1"><span>Kasbon Diberikan</span><span className="font-bold">{formatRupiah(totalCashAdvanceGiven)}</span></div>
                                 <div className="flex justify-between px-3 py-1"><span>Biaya Operasional</span><span className="font-bold">{formatRupiah(totalOperationalExpense)}</span></div>
                                 <div className="flex justify-between px-3 py-1"><span>Komisi Marketing</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>
+                                {totalHonorManajemen > 0 && <div className="flex justify-between px-3 py-1"><span>Honor Manajemen</span><span className="font-bold">{formatRupiah(totalHonorManajemen)}</span></div>}
+                                {totalInvestorBagiHasil > 0 && <div className="flex justify-between px-3 py-1"><span>Bagi Hasil Investor</span><span className="font-bold">{formatRupiah(totalInvestorBagiHasil)}</span></div>}
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-red-800 bg-red-50 rounded"><span>TOTAL BEBAN</span><span>{formatRupiah(totalBeban)}</span></div>
                                 <div className="py-1"></div>
                                 <div className={`flex justify-between px-3 py-2 border-t-4 border-double border-gray-600 font-black text-lg rounded ${labaBersih >= 0 ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'}`}><span>LABA BERSIH</span><span>{formatRupiah(labaBersih)}</span></div>
@@ -16867,7 +16887,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} manualPurchases={manualPurchases} />}
+                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} manualPurchases={manualPurchases} investorBagiHasil={investorBagiHasil} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} />}
