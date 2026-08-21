@@ -677,7 +677,7 @@
             const rows = getInvoiceItems(invoice).flatMap(item => (Array.isArray(item.sizes) ? item.sizes : []).map(size => getInvoiceSizeTotal(size)));
             const subtotal = Math.round(rows.reduce((sum, row) => sum + row.subtotal, 0));
             const discount = Math.round(rows.reduce((sum, row) => sum + row.discount, 0));
-            const total = rows.reduce((sum, row) => sum + row.total, 0);
+            const total = Math.round(Math.max(0, subtotal - discount));
             return { subtotal, discount, total };
         };
 
@@ -985,7 +985,7 @@
                             marketing: editOrder.marketing,
                             processFlow: { ...getDefaultOrderProcessFlow(), ...(editOrder.processFlow || {}) },
                             productionPrices: { ...getDefaultProductionPrices(), ...(editOrder.productionPrices || {}) },
-                            materialStatus: editOrder.materialStatus || ((editOrder.processFlow || {}).materials === false ? 'Tidak Perlu' : o.materialStatus),
+                            materialStatus: (editOrder.processFlow || {}).materials === false ? 'Tidak Perlu' : (editOrder.materialStatus || o.materialStatus),
                             revisiItems: editOrder.revisiItems || []
                         };
                     }
@@ -3659,7 +3659,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 
                 setRiwayatPengiriman(prev => [...(prev || []), { ...newHistoryRecord, _syncUpdatedAt: new Date().toISOString() }]);
 
-                printSuratJalan(client, processedItems, sjId);
+                printSuratJalan(client, processedItems, sjId, newHistoryRecord.date);
                 showToast(`Surat Jalan ${sjId} berhasil dibuat dan barang dikirim!`, "success");
             };
 
@@ -4384,7 +4384,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
 
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) === String(selectedOrder.id)) {
-                        const nextStatus = activeMaterialCount === 0 ? 'Belum' : 'Selesai';
+                        const nextStatus = activeMaterialCount === 0 ? 'Belum' : (o.materialStatus && o.materialStatus !== 'Belum' ? o.materialStatus : 'Selesai');
                         const nextOrderStatus = activeMaterialCount === 0 ? (hasProductionStarted(o) ? o.status : 'Pending') : getOrderStatusAfterMaterialPurchase(o);
                         // Pindahkan pembayaran & status-beli dari batchKey lama ke baru HANYA bila batchKey
                         // lama tidak lagi dipakai bahan aktif manapun (akan yatim). Uang tidak pernah hilang.
@@ -4526,15 +4526,22 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
 
             const deleteVendorPayment = (orderId, vendorName, batchDateKey, paymentId) => {
                 const batchKey = getMaterialBatchKey(vendorName, batchDateKey);
+                const now = new Date().toISOString();
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPayments = { ...(o.materialPayments || {}) };
                     nextPayments[batchKey] = (nextPayments[batchKey] || []).filter(pay => String(pay.id) !== String(paymentId));
+                    const checkOrder = { ...o, materialPayments: nextPayments };
+                    const allSettled = areAllOrderMaterialsSettled(checkOrder);
+                    const anyPurchased = Object.values(checkOrder.materialPurchasedVendors || {}).some(Boolean) || Object.values(checkOrder.materialPurchasedBatches || {}).some(Boolean);
                     return {
                         ...o,
                         materialPayments: nextPayments,
-                        materialLastActionAt: new Date().toISOString(),
-                        materialLastAction: 'Hapus Termin Pembayaran'
+                        materialStatus: allSettled ? 'Selesai' : (anyPurchased ? 'Dibeli Sebagian' : (o.materialStatus === 'Belum' ? 'Direkap' : (o.materialStatus || 'Direkap'))),
+                        materialPurchasedAt: allSettled ? o.materialPurchasedAt : null,
+                        materialLastActionAt: now,
+                        materialLastAction: 'Hapus Termin Pembayaran',
+                        status: allSettled ? getOrderStatusAfterMaterialPurchase(o) : o.status
                     };
                 }));
                 showToast("Termin pembayaran dihapus.", "success");
@@ -4553,18 +4560,25 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 if (method === null) return;
                 const note = window.prompt('Catatan pembayaran', payment?.note || '');
                 if (note === null) return;
+                const now = new Date().toISOString();
                 setOrders(prevOrders => prevOrders.map(o => {
                     if (String(o.id) !== String(orderId)) return o;
                     const nextPayments = { ...(o.materialPayments || {}) };
                     nextPayments[batchKey] = (nextPayments[batchKey] || []).map(pay => String(pay.id) === String(payment?.id)
-                        ? { ...pay, amount, method: method || 'Transfer', note, updatedAt: new Date().toISOString() }
+                        ? { ...pay, amount, method: method || 'Transfer', note, updatedAt: now }
                         : pay
                     );
+                    const checkOrder = { ...o, materialPayments: nextPayments };
+                    const allSettled = areAllOrderMaterialsSettled(checkOrder);
+                    const anyPurchased = Object.values(checkOrder.materialPurchasedVendors || {}).some(Boolean) || Object.values(checkOrder.materialPurchasedBatches || {}).some(Boolean);
                     return {
                         ...o,
                         materialPayments: nextPayments,
-                        materialLastActionAt: new Date().toISOString(),
-                        materialLastAction: 'Edit Termin Pembayaran'
+                        materialStatus: allSettled ? 'Selesai' : (anyPurchased ? 'Dibeli Sebagian' : (o.materialStatus === 'Belum' ? 'Direkap' : (o.materialStatus || 'Direkap'))),
+                        materialPurchasedAt: allSettled ? (o.materialPurchasedAt || now) : null,
+                        materialLastActionAt: now,
+                        materialLastAction: 'Edit Termin Pembayaran',
+                        status: allSettled ? getOrderStatusAfterMaterialPurchase(o) : o.status
                     };
                 }));
                 showToast("Termin pembayaran diperbarui.", "success");
@@ -9218,10 +9232,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {[
+                                            {(() => { const screenKasMasuk = [
                                                 ...invoiceRows.map(inv => ({ date: inv.date || '-', ref: inv.id || '-', sumber: 'Invoice', ket: inv.customer || '-', nominal: getInvoicePaid(inv) })),
+                                                ...allClientDpRows.map(dp => ({ date: dp.date || '-', ref: dp.id || '-', sumber: 'Saldo Klien', ket: dp.clientName || '-', nominal: safeMoney(dp.amount) })),
                                                 ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
-                                            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)); return screenKasMasuk.length === 0 ? (
+                                                <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas masuk pada periode ini.</td></tr>
+                                            ) : screenKasMasuk.map((r, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                                                     <td className="p-3">{r.date}</td>
                                                     <td className="p-3 font-mono text-xs">{r.ref}</td>
@@ -9229,22 +9246,22 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <td className="p-3">{r.ket}</td>
                                                     <td className="p-3 text-right font-black text-green-700">{formatRupiah(r.nominal)}</td>
                                                 </tr>
-                                            ))}
-                                            {invoiceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Masuk').length === 0 && (
-                                                <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas masuk pada periode ini.</td></tr>
-                                            )}
+                                            )); })()}
                                             <tr className="bg-green-50 font-black border-t-2 border-green-400">
                                                 <td colSpan="4" className="p-3 text-green-800">TOTAL KAS MASUK</td>
-                                                <td className="p-3 text-right text-green-800">{formatRupiah(invoiceRows.reduce((s, inv) => s + getInvoicePaid(inv), 0) + expenseRows.filter(r => r.type === 'Uang Masuk').reduce((s, r) => s + safeMoney(r.amount), 0))}</td>
+                                                <td className="p-3 text-right text-green-800">{formatRupiah(invoiceRows.reduce((s, inv) => s + getInvoicePaid(inv), 0) + allClientDpRows.reduce((s, dp) => s + safeMoney(dp.amount), 0) + expenseRows.filter(r => r.type === 'Uang Masuk').reduce((s, r) => s + safeMoney(r.amount), 0))}</td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                    {[
+                                    {(() => { const screenKasMasukM = [
                                         ...invoiceRows.map(inv => ({ date: inv.date || '-', ref: inv.id || '-', sumber: 'Invoice', ket: inv.customer || '-', nominal: getInvoicePaid(inv) })),
+                                        ...allClientDpRows.map(dp => ({ date: dp.date || '-', ref: dp.id || '-', sumber: 'Saldo Klien', ket: dp.clientName || '-', nominal: safeMoney(dp.amount) })),
                                         ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
-                                    ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                    ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)); return screenKasMasukM.length === 0 ? (
+                                        <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas masuk pada periode ini.</div>
+                                    ) : screenKasMasukM.map((r, i) => (
                                         <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -9256,13 +9273,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </div>
                                             <div className="text-sm font-black text-green-700 shrink-0">{formatRupiah(r.nominal)}</div>
                                         </div>
-                                    ))}
-                                    {invoiceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Masuk').length === 0 && (
-                                        <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas masuk pada periode ini.</div>
-                                    )}
+                                    )); })()}
                                     <div className="px-4 py-3 bg-green-50 border-t-2 border-green-400 flex justify-between items-center">
                                         <span className="font-black text-green-800 text-sm">TOTAL KAS MASUK</span>
-                                        <span className="font-black text-green-800 text-sm">{formatRupiah(invoiceRows.reduce((s, inv) => s + getInvoicePaid(inv), 0) + expenseRows.filter(r => r.type === 'Uang Masuk').reduce((s, r) => s + safeMoney(r.amount), 0))}</span>
+                                        <span className="font-black text-green-800 text-sm">{formatRupiah(invoiceRows.reduce((s, inv) => s + getInvoicePaid(inv), 0) + allClientDpRows.reduce((s, dp) => s + safeMoney(dp.amount), 0) + expenseRows.filter(r => r.type === 'Uang Masuk').reduce((s, r) => s + safeMoney(r.amount), 0))}</span>
                                     </div>
                                 </div>
                             </Card>
@@ -9280,12 +9294,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {[
+                                            {(() => { const screenKasKeluar = [
                                                 ...materialRows.map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
                                                 ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                                 ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
-                                                ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
-                                            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                                ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) })),
+                                                ...safeArray(investorBagiHasil).filter(isVisibleRecord).filter(r => isInPeriod(r.tanggal || new Date().toISOString().slice(0,10))).map(r => ({ date: r.tanggal || '-', ref: r.id || '-', sumber: 'Bagi Hasil Investor', ket: r.investorId || '-', nominal: parseFloat(r.totalBagiHasil) || 0 }))
+                                            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)); return screenKasKeluar.length === 0 ? (
+                                                <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas keluar pada periode ini.</td></tr>
+                                            ) : screenKasKeluar.map((r, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                                                     <td className="p-3">{r.date}</td>
                                                     <td className="p-3 font-mono text-xs">{r.ref}</td>
@@ -9293,10 +9310,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <td className="p-3">{r.ket}</td>
                                                     <td className="p-3 text-right font-black text-red-700">{formatRupiah(r.nominal)}</td>
                                                 </tr>
-                                            ))}
-                                            {materialRows.length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
-                                                <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas keluar pada periode ini.</td></tr>
-                                            )}
+                                            )); })()}
                                             <tr className="bg-red-50 font-black border-t-2 border-red-400">
                                                 <td colSpan="4" className="p-3 text-red-800">TOTAL KAS KELUAR</td>
                                                 <td className="p-3 text-right text-red-800">{formatRupiah(totalBeban)}</td>
@@ -9305,12 +9319,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </table>
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                    {[
+                                    {(() => { const screenKasKeluarM = [
                                         ...materialRows.map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.client + ' — ' + r.vendors.join(', '), nominal: r.total })),
                                         ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                         ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
-                                        ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
-                                    ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                        ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) })),
+                                        ...safeArray(investorBagiHasil).filter(isVisibleRecord).filter(r => isInPeriod(r.tanggal || new Date().toISOString().slice(0,10))).map(r => ({ date: r.tanggal || '-', ref: r.id || '-', sumber: 'Bagi Hasil Investor', ket: r.investorId || '-', nominal: parseFloat(r.totalBagiHasil) || 0 }))
+                                    ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)); return screenKasKeluarM.length === 0 ? (
+                                        <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas keluar pada periode ini.</div>
+                                    ) : screenKasKeluarM.map((r, i) => (
                                         <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -9322,10 +9339,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </div>
                                             <div className="text-sm font-black text-red-700 shrink-0">{formatRupiah(r.nominal)}</div>
                                         </div>
-                                    ))}
-                                    {materialRows.length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
-                                        <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas keluar pada periode ini.</div>
-                                    )}
+                                    )); })()}
                                     <div className="px-4 py-3 bg-red-50 border-t-2 border-red-400 flex justify-between items-center">
                                         <span className="font-black text-red-800 text-sm">TOTAL KAS KELUAR</span>
                                         <span className="font-black text-red-800 text-sm">{formatRupiah(totalBeban)}</span>
@@ -9527,7 +9541,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             if (!inv.marketing) return false;
                             if (getInvoiceCommissionTotal(inv) <= 0) return false;
                             if (inv.commissionRekapId) return false;
-                            if (period && inv.date && !inv.date.startsWith(period)) return false;
+                            if (!isInPeriod(inv.date)) return false;
                             return true;
                         });
                         const allRows = Object.values(filtered.reduce((acc, inv) => {
@@ -12219,7 +12233,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const handleDeleteRekap = () => {
                 const rekapToDelete = (rekapKinerja || []).find(r => String(r.id) === String(deleteRekapConfirmId));
                 if (!rekapToDelete) return;
-                const logsToUnlock = (rekapToDelete.items || []).flatMap(item => 
+                const logsToUnlock = (rekapToDelete.items || []).flatMap(item =>
                     (item.logIds || []).map(l => ({ orderId: item.orderId, stageId: l.stageId, logId: l.logId }))
                 );
                 setOrders(prevOrders => {
@@ -12244,6 +12258,31 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return newOrders;
                 });
                 const now = new Date().toISOString();
+                if (safeMoney(rekapToDelete.cashAdvanceDeduction) > 0 || Array.isArray(rekapToDelete.dailySalaryLogs) || (rekapToDelete.items || []).some(item => item.isManual)) {
+                    setEmployees(prev => (prev || []).map(emp => {
+                        if (String(emp.id) !== String(rekapToDelete.empId)) return emp;
+                        const nextCashAdvances = (emp.cashAdvances || []).map(item => {
+                            const history = Array.isArray(item.deductionHistory) ? item.deductionHistory : [];
+                            const removedAmount = history
+                                .filter(entry => String(entry.rekapId) === String(rekapToDelete.id))
+                                .reduce((sum, entry) => sum + safeMoney(entry.amount), 0);
+                            if (removedAmount <= 0) return item;
+                            const nextItem = {
+                                ...item,
+                                deductedAmount: Math.max(0, getCashAdvanceDeducted(item) - removedAmount),
+                                deductionHistory: history.filter(entry => String(entry.rekapId) !== String(rekapToDelete.id)),
+                                updatedAt: now
+                            };
+                            return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
+                        });
+                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                        const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                        return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
+                    }));
+                }
+                if (Array.isArray(rekapToDelete.marketingInvoiceIds) && setInvoices) {
+                    setInvoices(prev => (prev || []).map(inv => rekapToDelete.marketingInvoiceIds.some(id => String(id) === String(inv.id)) ? { ...inv, commissionRekapId: '', commissionRekapDate: '', _syncUpdatedAt: now } : inv));
+                }
                 setRekapKinerja(prev => (prev || []).map(r => String(r.id) === String(deleteRekapConfirmId) ? { ...r, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : r));
                 setDeleteRekapConfirmId(null);
                 showToast("Rekap dibatalkan, pekerjaan kembali ke laporan kinerja.", "success");
@@ -16674,13 +16713,15 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 }
             }, [activeTab, authUser, isReady]);
             
-            const updateTemplates = (updater) => { 
+            const updateTemplates = (updater) => {
                 setTemplates(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object') ? nextVal : initialTemplates;
-                    setTimeout(() => {
-                        safeLocalSet('simpati_templates_sync', JSON.stringify(valid));
-                        saveToSupabase('templates', valid);
+                    setTimeout(async () => {
+                        const remote = await fetchStoreData('templates', {});
+                        const merged = (remote && typeof remote === 'object') ? { ...remote, ...valid } : valid;
+                        safeLocalSet('simpati_templates_sync', JSON.stringify(merged));
+                        saveToSupabase('templates', merged);
                     }, 0);
                     return valid;
                 });
@@ -17026,7 +17067,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 const jamTelatEff = shiftConfig?.jamTelat || jamTelatConfig;
                 const jamPulangEff = shiftConfig?.jamPulang || jamPulangConfig;
                 const mLemburMulai = timeToMinutes(lemburMulaiConfig);
-                const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
+                const sorted = [...entries].sort((a, b) => (timeToMinutes(a.jam) ?? 0) - (timeToMinutes(b.jam) ?? 0));
                 const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mLemburMulai);
                 const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mLemburMulai);
 
@@ -17245,8 +17286,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                         if (metrics.jamMasuk) {
                             empMap[pin].hadir++;
                             if (metrics.status === 'Terlambat') empMap[pin].terlambat++;
+                            empMap[pin].lemburMenit += metrics.lemburMenit;
                         }
-                        empMap[pin].lemburMenit += metrics.lemburMenit;
                     });
                 }
 
@@ -17287,7 +17328,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
             const deleteEdit = (row) => {
                 const existing = getEditOverride(row.pin, row.tanggal);
                 if (!existing) return;
-                setAbsensiEdits(prev => prev.map(e => e.id === existing.id ? { ...e, isDeleted: true } : e));
+                setAbsensiEdits(prev => prev.map(e => e.id === existing.id ? { ...e, isDeleted: true, deletedAt: new Date().toISOString() } : e));
                 showToast('Override dihapus, kembali ke data mesin');
             };
 
