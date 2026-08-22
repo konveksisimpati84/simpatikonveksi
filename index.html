@@ -16398,10 +16398,11 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 });
             };
             
-            const updateEmployees = (updater) => { 
+            const updateEmployees = (updater) => {
                 setEmployees(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = sanitizeEmployees(stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []));
+                    safeLocalSet('simpati_employees_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('employees', valid);
                         safeLocalSet('simpati_employees_sync', JSON.stringify(merged));
@@ -16415,10 +16416,11 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 });
             };
             
-            const updateAccounts = (updater) => { 
+            const updateAccounts = (updater) => {
                 setAccounts(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_accounts_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('accounts', valid);
                         safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
@@ -16433,10 +16435,11 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 });
             };
             
-            const updateRekapKinerja = (updater) => { 
+            const updateRekapKinerja = (updater) => {
                 setRekapKinerja(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_rekap_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('rekapKinerja', valid);
                         safeLocalSet('simpati_rekap_sync', JSON.stringify(merged));
@@ -16556,6 +16559,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setInvestors(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_investors_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('investors', valid);
                         safeLocalSet('simpati_investors_sync', JSON.stringify(merged));
@@ -16573,6 +16577,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setInvestorBagiHasil(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('investorBagiHasil', valid);
                         safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(merged));
@@ -16590,6 +16595,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setDrivers(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_drivers_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('drivers', valid);
                         safeLocalSet('simpati_drivers_sync', JSON.stringify(merged));
@@ -16607,6 +16613,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setDriverTarifs(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('driverTarifs', valid);
                         safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(merged));
@@ -16624,6 +16631,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setDriverTransactions(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_driver_trx_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('driverTransactions', valid);
                         safeLocalSet('simpati_driver_trx_sync', JSON.stringify(merged));
@@ -16641,6 +16649,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setDriverRekapGaji(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('driverRekapGaji', valid);
                         safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(merged));
@@ -16658,6 +16667,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setDriverKasbon(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('driverKasbon', valid);
                         safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(merged));
@@ -16675,6 +16685,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setStockItems(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_stock_items_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('stockItems', valid);
                         safeLocalSet('simpati_stock_items_sync', JSON.stringify(merged));
@@ -16692,6 +16703,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setAbsensiEdits(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('absensiEdits', valid);
                         safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(merged));
