@@ -16584,8 +16584,8 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setManualVendorPayments(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) ? nextVal : {};
+                    safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(valid));
                     setTimeout(() => {
-                        safeLocalSet('simpati_manual_vendor_payments_sync', JSON.stringify(valid));
                         saveToSupabase('manualVendorPayments', valid);
                     }, 0);
                     return valid;
