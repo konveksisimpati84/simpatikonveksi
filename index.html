@@ -3966,7 +3966,7 @@ ${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Cat
                 .filter(riwayat => matchesSearch([riwayat.id, riwayat.date, riwayat.client, riwayat.total, ...(riwayat.items || []).map(item => `${item.orderId || ''} ${item.type || ''} ${item.details || ''}`)], searchTerm));
 
             const printSuratJalan = (client, items, sjId, dateStr) => {
-                const formattedDate = new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                const formattedDate = (dateStr ? new Date(dateStr) : new Date()).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
                 const totalBarang = items.reduce((sum, item) => sum + (parseInt(item.total) || 0), 0);
 
                 const printContent = `<!DOCTYPE html><html><head><title>SJ - ${client}</title><style>
@@ -16747,6 +16747,7 @@ ${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px
                 setTemplates(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object') ? nextVal : initialTemplates;
+                    safeLocalSet('simpati_templates_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const remote = await fetchStoreData('templates', {});
                         const merged = (remote && typeof remote === 'object') ? { ...remote, ...valid } : valid;
