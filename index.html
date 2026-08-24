@@ -8094,7 +8094,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [form, setForm] = useState({ name: '', modalMasuk: '', bagiHasilType: 'per_pcs', bagiHasilPerPcs: '', bagiHasilPersen: '', tanggalMulai: new Date().toISOString().slice(0,10), catatan: '' });
             const [expandedId, setExpandedId] = useState(null);
             const [showBHModal, setShowBHModal] = useState(null);
-            const [bhForm, setBhForm] = useState({ dateFrom: '', dateTo: '', selectedIds: new Set(), note: '' });
+            const [bhForm, setBhForm] = useState({ dateFrom: '', dateTo: '', selectedIds: [], note: '' });
             const [deleteConfirm, setDeleteConfirm] = useState(null);
             const [deleteBHConfirm, setDeleteBHConfirm] = useState(null);
             const [lunasConfirm, setLunasConfirm] = useState(null);
@@ -8153,7 +8153,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const saveBagiHasil = () => {
                 const investor = safeInvestors.find(inv => inv.id === showBHModal);
                 if (!investor) return;
-                if (bhForm.selectedIds.size === 0) { showToast('Pilih minimal satu invoice', 'error'); return; }
+                if (bhForm.selectedIds.length === 0) { showToast('Pilih minimal satu invoice', 'error'); return; }
                 const invType = investor.bagiHasilType || 'per_pcs';
                 const newRecords = [];
                 for (const invoiceId of bhForm.selectedIds) {
@@ -8179,7 +8179,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const totalBH = newRecords.reduce((s, r) => s + r.totalBagiHasil, 0);
                 setInvestorBagiHasil(prev => [...safeArray(prev), ...newRecords]);
                 setShowBHModal(null);
-                setBhForm({ dateFrom: '', dateTo: '', selectedIds: new Set(), note: '' });
+                setBhForm({ dateFrom: '', dateTo: '', selectedIds: [], note: '' });
                 showToast(`${newRecords.length} invoice dicatat · Total BH ${formatRupiah(totalBH)}`, 'success');
             };
 
@@ -8330,21 +8330,25 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             if (bhForm.dateTo && inv.date && inv.date > bhForm.dateTo) return false;
                             return true;
                         }).sort((a, b) => String(a.date||'').localeCompare(String(b.date||'')));
-                        const allFilteredSelected = filtered.length > 0 && filtered.every(inv => bhForm.selectedIds.has(inv.id));
+                        const selSet = new Set(bhForm.selectedIds);
+                        const allFilteredSelected = filtered.length > 0 && filtered.every(inv => selSet.has(inv.id));
                         const toggleInvoice = (id) => {
-                            const next = new Set(bhForm.selectedIds);
-                            next.has(id) ? next.delete(id) : next.add(id);
-                            setBhForm({...bhForm, selectedIds: next});
+                            const included = bhForm.selectedIds.includes(id);
+                            setBhForm({...bhForm, selectedIds: included ? bhForm.selectedIds.filter(i => i !== id) : [...bhForm.selectedIds, id]});
                         };
                         const toggleAll = () => {
-                            const next = new Set(bhForm.selectedIds);
-                            if (allFilteredSelected) { filtered.forEach(inv => next.delete(inv.id)); }
-                            else { filtered.forEach(inv => next.add(inv.id)); }
-                            setBhForm({...bhForm, selectedIds: next});
+                            if (allFilteredSelected) {
+                                const filteredIds = new Set(filtered.map(inv => inv.id));
+                                setBhForm({...bhForm, selectedIds: bhForm.selectedIds.filter(id => !filteredIds.has(id))});
+                            } else {
+                                const next = new Set(bhForm.selectedIds);
+                                filtered.forEach(inv => next.add(inv.id));
+                                setBhForm({...bhForm, selectedIds: [...next]});
+                            }
                         };
-                        const selectedCount = filtered.filter(inv => bhForm.selectedIds.has(inv.id)).length;
-                        const totalSelectedBH = filtered.filter(inv => bhForm.selectedIds.has(inv.id)).reduce((s, inv) => s + calcBH(inv), 0);
-                        const resetModal = () => { setShowBHModal(null); setBhForm({ dateFrom: '', dateTo: '', selectedIds: new Set(), note: '' }); };
+                        const selectedCount = filtered.filter(inv => selSet.has(inv.id)).length;
+                        const totalSelectedBH = filtered.filter(inv => selSet.has(inv.id)).reduce((s, inv) => s + calcBH(inv), 0);
+                        const resetModal = () => { setShowBHModal(null); setBhForm({ dateFrom: '', dateTo: '', selectedIds: [], note: '' }); };
                         return (
                             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
                                 <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col" style={{maxHeight:'90vh'}}>
@@ -8358,11 +8362,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-600 mb-1">Dari Tanggal</label>
-                                                <input type="date" className="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" value={bhForm.dateFrom} onChange={e => setBhForm({...bhForm, dateFrom: e.target.value, selectedIds: new Set()})} />
+                                                <input type="date" className="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" value={bhForm.dateFrom} onChange={e => setBhForm({...bhForm, dateFrom: e.target.value, selectedIds: []})} />
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-600 mb-1">Sampai Tanggal</label>
-                                                <input type="date" className="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" value={bhForm.dateTo} onChange={e => setBhForm({...bhForm, dateTo: e.target.value, selectedIds: new Set()})} />
+                                                <input type="date" className="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" value={bhForm.dateTo} onChange={e => setBhForm({...bhForm, dateTo: e.target.value, selectedIds: []})} />
                                             </div>
                                         </div>
                                     </div>
@@ -8383,7 +8387,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
                                                         const invTotal = getInvoiceTotals(inv).total;
                                                         const bh = calcBH(inv);
-                                                        const checked = bhForm.selectedIds.has(inv.id);
+                                                        const checked = selSet.has(inv.id);
                                                         return (
                                                             <label key={inv.id} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${checked ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
                                                                 <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" style={{accentColor:'#4f46e5'}} checked={checked} onChange={() => toggleInvoice(inv.id)} />
