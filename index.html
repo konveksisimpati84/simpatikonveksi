@@ -8094,7 +8094,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [form, setForm] = useState({ name: '', modalMasuk: '', bagiHasilType: 'per_pcs', bagiHasilPerPcs: '', bagiHasilPersen: '', tanggalMulai: new Date().toISOString().slice(0,10), catatan: '' });
             const [expandedId, setExpandedId] = useState(null);
             const [showBHModal, setShowBHModal] = useState(null);
-            const [bhForm, setBhForm] = useState({ invoiceId: '', tanggal: new Date().toISOString().slice(0,10), note: '' });
+            const [bhForm, setBhForm] = useState({ dateFrom: '', dateTo: '', selectedIds: new Set(), note: '' });
             const [deleteConfirm, setDeleteConfirm] = useState(null);
             const [deleteBHConfirm, setDeleteBHConfirm] = useState(null);
             const [lunasConfirm, setLunasConfirm] = useState(null);
@@ -8153,29 +8153,34 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const saveBagiHasil = () => {
                 const investor = safeInvestors.find(inv => inv.id === showBHModal);
                 if (!investor) return;
-                if (!bhForm.invoiceId) { showToast('Pilih invoice terlebih dahulu', 'error'); return; }
-                const inv = safeInvoices.find(i => i.id === bhForm.invoiceId);
-                if (!inv) return;
-                const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
+                if (bhForm.selectedIds.size === 0) { showToast('Pilih minimal satu invoice', 'error'); return; }
                 const invType = investor.bagiHasilType || 'per_pcs';
-                if (invType === 'per_pcs' && pcs <= 0) { showToast('Invoice tidak memiliki qty pcs', 'error'); return; }
-                const invTotal = getInvoiceTotals(inv).total;
-                const bh = invType === 'persen'
-                    ? Math.round(invTotal * (parseFloat(investor.bagiHasilPersen) || 0) / 100)
-                    : pcs * (parseFloat(investor.bagiHasilPerPcs) || 0);
-                const newRecord = {
-                    id: genId('BH-'), investorId: investor.id, invoiceId: inv.id,
-                    invoiceCustomer: inv.customer || '-', invoiceType: inv.type || '-',
-                    tanggal: bhForm.tanggal, pcs, bagiHasilType: invType,
-                    bagiHasilPerPcs: invType === 'per_pcs' ? parseFloat(investor.bagiHasilPerPcs) : 0,
-                    bagiHasilPersen: invType === 'persen' ? parseFloat(investor.bagiHasilPersen) : 0,
-                    invoiceTotal: invType === 'persen' ? invTotal : 0,
-                    totalBagiHasil: bh, note: bhForm.note, isDeleted: false, _syncUpdatedAt: now()
-                };
-                setInvestorBagiHasil(prev => [...safeArray(prev), newRecord]);
+                const newRecords = [];
+                for (const invoiceId of bhForm.selectedIds) {
+                    const inv = safeInvoices.find(i => i.id === invoiceId);
+                    if (!inv) continue;
+                    const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
+                    if (invType === 'per_pcs' && pcs <= 0) continue;
+                    const invTotal = getInvoiceTotals(inv).total;
+                    const bh = invType === 'persen'
+                        ? Math.round(invTotal * (parseFloat(investor.bagiHasilPersen) || 0) / 100)
+                        : pcs * (parseFloat(investor.bagiHasilPerPcs) || 0);
+                    newRecords.push({
+                        id: genId('BH-'), investorId: investor.id, invoiceId: inv.id,
+                        invoiceCustomer: inv.customer || '-', invoiceType: inv.type || '-',
+                        tanggal: inv.date || new Date().toISOString().slice(0,10), pcs, bagiHasilType: invType,
+                        bagiHasilPerPcs: invType === 'per_pcs' ? parseFloat(investor.bagiHasilPerPcs) : 0,
+                        bagiHasilPersen: invType === 'persen' ? parseFloat(investor.bagiHasilPersen) : 0,
+                        invoiceTotal: invType === 'persen' ? invTotal : 0,
+                        totalBagiHasil: bh, note: bhForm.note, isDeleted: false, _syncUpdatedAt: now()
+                    });
+                }
+                if (newRecords.length === 0) { showToast('Tidak ada invoice valid untuk dicatat', 'error'); return; }
+                const totalBH = newRecords.reduce((s, r) => s + r.totalBagiHasil, 0);
+                setInvestorBagiHasil(prev => [...safeArray(prev), ...newRecords]);
                 setShowBHModal(null);
-                setBhForm({ invoiceId: '', tanggal: new Date().toISOString().slice(0,10), note: '' });
-                showToast(`Bagi hasil ${formatRupiah(bh)} berhasil dicatat`, 'success');
+                setBhForm({ dateFrom: '', dateTo: '', selectedIds: new Set(), note: '' });
+                showToast(`${newRecords.length} invoice dicatat · Total BH ${formatRupiah(totalBH)}`, 'success');
             };
 
             const deleteBH = (id) => {
@@ -8312,43 +8317,112 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const investor = safeInvestors.find(inv => inv.id === showBHModal);
                         if (!investor) return null;
                         const avail = availableInvoices(showBHModal);
-                        const selInv = avail.find(i => i.id === bhForm.invoiceId);
-                        const previewPcs = selInv ? (getInvoicePcsTotal(selInv) || parseInt(selInv.qty) || 0) : 0;
-                        const previewInvTotal = selInv ? getInvoiceTotals(selInv).total : 0;
-                        const previewBH = (investor.bagiHasilType||'per_pcs')==='persen'
-                            ? Math.round(previewInvTotal * (parseFloat(investor.bagiHasilPersen)||0) / 100)
-                            : previewPcs * (parseFloat(investor.bagiHasilPerPcs)||0);
+                        const invType = investor.bagiHasilType || 'per_pcs';
+                        const calcBH = (inv) => {
+                            const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
+                            const invTotal = getInvoiceTotals(inv).total;
+                            return invType === 'persen'
+                                ? Math.round(invTotal * (parseFloat(investor.bagiHasilPersen) || 0) / 100)
+                                : pcs * (parseFloat(investor.bagiHasilPerPcs) || 0);
+                        };
+                        const filtered = avail.filter(inv => {
+                            if (bhForm.dateFrom && inv.date && inv.date < bhForm.dateFrom) return false;
+                            if (bhForm.dateTo && inv.date && inv.date > bhForm.dateTo) return false;
+                            return true;
+                        }).sort((a, b) => String(a.date||'').localeCompare(String(b.date||'')));
+                        const allFilteredSelected = filtered.length > 0 && filtered.every(inv => bhForm.selectedIds.has(inv.id));
+                        const toggleInvoice = (id) => {
+                            const next = new Set(bhForm.selectedIds);
+                            next.has(id) ? next.delete(id) : next.add(id);
+                            setBhForm({...bhForm, selectedIds: next});
+                        };
+                        const toggleAll = () => {
+                            const next = new Set(bhForm.selectedIds);
+                            if (allFilteredSelected) { filtered.forEach(inv => next.delete(inv.id)); }
+                            else { filtered.forEach(inv => next.add(inv.id)); }
+                            setBhForm({...bhForm, selectedIds: next});
+                        };
+                        const selectedCount = filtered.filter(inv => bhForm.selectedIds.has(inv.id)).length;
+                        const totalSelectedBH = filtered.filter(inv => bhForm.selectedIds.has(inv.id)).reduce((s, inv) => s + calcBH(inv), 0);
+                        const resetModal = () => { setShowBHModal(null); setBhForm({ dateFrom: '', dateTo: '', selectedIds: new Set(), note: '' }); };
                         return (
                             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-                                <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
-                                    <h3 className="font-bold text-gray-800 mb-1">Catat Bagi Hasil</h3>
-                                    <p className="text-sm text-gray-500 mb-4">Investor: <strong>{investor.name}</strong> · {(investor.bagiHasilType||'per_pcs')==='persen' ? `${investor.bagiHasilPersen||0}% dari total invoice` : `${formatRupiah(investor.bagiHasilPerPcs)}/pcs`}</p>
-                                    <div className="space-y-3">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-600 mb-1">Pilih Invoice Lunas *</label>
-                                            <select className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={bhForm.invoiceId} onChange={e => setBhForm({...bhForm, invoiceId: e.target.value})}>
-                                                <option value="">-- Pilih Invoice --</option>
-                                                {avail.map(inv => <option key={inv.id} value={inv.id}>{inv.id} — {inv.customer} ({getInvoicePcsTotal(inv) || inv.qty || 0} pcs)</option>)}
-                                            </select>
-                                            {avail.length === 0 && <p className="text-xs text-orange-500 mt-1">Tidak ada invoice lunas yang tersedia untuk investor ini.</p>}
+                                <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col" style={{maxHeight:'90vh'}}>
+                                    {/* Header */}
+                                    <div className="px-6 py-4 border-b shrink-0">
+                                        <h3 className="font-bold text-gray-800 text-lg">Catat Bagi Hasil</h3>
+                                        <p className="text-sm text-gray-500 mt-0.5">Investor: <strong>{investor.name}</strong> · {invType === 'persen' ? `${investor.bagiHasilPersen||0}% dari total invoice` : `${formatRupiah(investor.bagiHasilPerPcs)}/pcs`}</p>
+                                    </div>
+                                    {/* Filter tanggal */}
+                                    <div className="px-6 py-3 border-b bg-gray-50 shrink-0">
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-600 mb-1">Dari Tanggal</label>
+                                                <input type="date" className="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" value={bhForm.dateFrom} onChange={e => setBhForm({...bhForm, dateFrom: e.target.value, selectedIds: new Set()})} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-600 mb-1">Sampai Tanggal</label>
+                                                <input type="date" className="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" value={bhForm.dateTo} onChange={e => setBhForm({...bhForm, dateTo: e.target.value, selectedIds: new Set()})} />
+                                            </div>
                                         </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Catat</label>
-                                            <input type="date" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={bhForm.tanggal} onChange={e => setBhForm({...bhForm, tanggal: e.target.value})} />
-                                        </div>
+                                    </div>
+                                    {/* Daftar invoice */}
+                                    <div className="flex-1 overflow-y-auto px-6 py-3">
+                                        {avail.length === 0 ? (
+                                            <p className="text-sm text-orange-500 text-center py-8 italic">Tidak ada invoice lunas yang tersedia untuk investor ini.</p>
+                                        ) : filtered.length === 0 ? (
+                                            <p className="text-sm text-gray-400 text-center py-8 italic">{(bhForm.dateFrom || bhForm.dateTo) ? 'Tidak ada invoice dalam rentang tanggal ini.' : 'Isi filter tanggal untuk menampilkan invoice.'}</p>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-xs font-bold text-gray-500">{filtered.length} invoice tersedia</span>
+                                                    <button type="button" onClick={toggleAll} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline">{allFilteredSelected ? 'Batal Semua' : 'Pilih Semua'}</button>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {filtered.map(inv => {
+                                                        const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
+                                                        const invTotal = getInvoiceTotals(inv).total;
+                                                        const bh = calcBH(inv);
+                                                        const checked = bhForm.selectedIds.has(inv.id);
+                                                        return (
+                                                            <label key={inv.id} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${checked ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                                                                <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" style={{accentColor:'#4f46e5'}} checked={checked} onChange={() => toggleInvoice(inv.id)} />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <span className="font-bold text-sm text-blue-700">{inv.id}</span>
+                                                                        <span className="font-black text-indigo-700 text-sm shrink-0">{formatRupiah(bh)}</span>
+                                                                    </div>
+                                                                    <div className="text-xs text-gray-600 mt-0.5 truncate">{inv.customer || '-'} · {inv.date || '-'}</div>
+                                                                    <div className="text-xs text-gray-400 mt-0.5">
+                                                                        {invType === 'persen'
+                                                                            ? `Total: ${formatRupiah(invTotal)} × ${investor.bagiHasilPersen||0}%`
+                                                                            : `${pcs} pcs × ${formatRupiah(investor.bagiHasilPerPcs)}`}
+                                                                    </div>
+                                                                </div>
+                                                            </label>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                    {/* Footer */}
+                                    <div className="px-6 py-4 border-t shrink-0 space-y-3">
                                         <div>
                                             <label className="block text-xs font-bold text-gray-600 mb-1">Catatan (Opsional)</label>
-                                            <input type="text" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-400" value={bhForm.note} onChange={e => setBhForm({...bhForm, note: e.target.value})} placeholder="Keterangan tambahan..." />
+                                            <input type="text" className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" value={bhForm.note} onChange={e => setBhForm({...bhForm, note: e.target.value})} placeholder="Keterangan tambahan..." />
                                         </div>
-                                        {selInv && (
-                                            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm space-y-1">
-                                                <div className="flex justify-between"><span className="text-gray-600">Jumlah pcs:</span><strong>{previewPcs} pcs</strong></div>
-                                                {(investor.bagiHasilType||'per_pcs')==='persen' ? (<><div className="flex justify-between"><span className="text-gray-600">Total invoice:</span><strong>{formatRupiah(previewInvTotal)}</strong></div><div className="flex justify-between"><span className="text-gray-600">Persentase bagi hasil:</span><strong>{investor.bagiHasilPersen||0}%</strong></div></>) : (<div className="flex justify-between"><span className="text-gray-600">Bagi hasil per pcs:</span><strong>{formatRupiah(investor.bagiHasilPerPcs)}</strong></div>)}<div className="flex justify-between pt-1 border-t border-indigo-200"><span className="font-bold text-indigo-700">Bagi hasil order ini:</span><strong className="text-indigo-700 text-base">{formatRupiah(previewBH)}</strong></div>
+                                        {selectedCount > 0 && (
+                                            <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-2.5 flex justify-between items-center">
+                                                <span className="text-sm font-bold text-indigo-700">{selectedCount} invoice dipilih</span>
+                                                <span className="text-base font-black text-indigo-700">{formatRupiah(totalSelectedBH)}</span>
                                             </div>
                                         )}
-                                        <div className="flex justify-end gap-2 pt-2">
-                                            <button onClick={() => setShowBHModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium">Batal</button>
-                                            <button onClick={saveBagiHasil} className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold">Simpan</button>
+                                        <div className="flex justify-end gap-2">
+                                            <button onClick={resetModal} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium text-sm">Batal</button>
+                                            <button onClick={saveBagiHasil} disabled={selectedCount === 0} className={`px-6 py-2 rounded-lg font-bold text-sm text-white transition-colors ${selectedCount > 0 ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed'}`}>
+                                                Simpan{selectedCount > 0 ? ` (${selectedCount})` : ''}
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
