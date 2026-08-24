@@ -6249,7 +6249,12 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
                 return { subtotal, discount, total: Math.max(0, subtotal - discount) };
             };
             const paidTotal = (inv) => (Array.isArray(inv.payments) ? inv.payments : []).reduce((sum, pay) => sum + safeMoney(pay.amount), 0);
-            const commissionTotal = (inv) => (inv.commissionType === 'Rupiah' || inv.commissionType === 'Nominal') ? safeMoney(inv.qty) * safeMoney(inv.commissionValue) : invoiceTotal(inv).total * safeMoney(inv.commissionValue) / 100;
+            const commissionTotal = (inv) => {
+                const type = String(inv.commissionType || 'Persen').toLowerCase();
+                if (type.includes('pcs')) return safeMoney(inv.qty) * safeMoney(inv.commissionValue);
+                if (type === 'rupiah' || type === 'nominal') return safeMoney(inv.commissionValue);
+                return invoiceTotal(inv).total * safeMoney(inv.commissionValue) / 100;
+            };
             const visibleInvoices = (invoices || []).filter(isVisibleRecord).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note], searchTerm);
@@ -9715,6 +9720,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const filteredSub = safeInvForComm.filter(inv => {
                             if (!inv.subMarketing) return false;
                             if (getInvoiceSubMarketingCommissionTotal(inv) <= 0) return false;
+                            if (inv.commissionRekapId) return false;
                             if (!isInPeriod(inv.date)) return false;
                             return true;
                         });
@@ -9736,7 +9742,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         }, {})).sort((a, b) => b.totalCommission - a.totalCommission);
                         const allRows = [...commByMarketing, ...commBySubMarketing];
                         const grandTotalComm = allRows.reduce((sum, row) => sum + row.totalCommission, 0);
-                        const totalInvoiceCount = filtered.length + filteredSub.length;
+                        const totalInvoiceCount = new Set([...filtered, ...filteredSub].map(i => i.id)).size;
 
                         const printKomisiStruk = (row) => {
                             const fmt = (n) => formatRupiah(n || 0);
