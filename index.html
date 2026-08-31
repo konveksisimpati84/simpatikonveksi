@@ -12215,10 +12215,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
                     const hasMarketing = safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                     const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
-                    if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd) ids.add(String(emp.id));
+                    const fpPin = String(emp.fingerPin || '').trim();
+                    const fpIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
+                    let hasFingerPending = false;
+                    if (fpPin && fpIsHarian) {
+                        const fpCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
+                        const fpToday = new Date().toISOString().split('T')[0];
+                        hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
+                    }
+                    if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd || hasFingerPending) ids.add(String(emp.id));
                 });
                 return ids;
-            }, [employees, safeOrdersForReport, invoices, rekapKinerja]);
+            }, [employees, safeOrdersForReport, invoices, rekapKinerja, absensiRawLogs]);
 
             const filteredReportEmployees = visibleEmployees.filter(emp => {
                 if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
@@ -12890,7 +12898,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const previewOvertimeForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id)));
                 const newRekapId = genId('RKP-');
                 const toFinalLog = (log) => { const { _isAutoPreview, ...rest } = log; return { ...rest, id: genId('DAY-'), rekapId: newRekapId }; };
-                const finalPreviewLogs = [...previewDailyForRekap, ...previewOvertimeForRekap].map(toFinalLog);
+                const finalPreviewLogs = [...new Map([...previewDailyForRekap, ...previewOvertimeForRekap].map(l => [String(l.id), l])).values()].map(toFinalLog);
                 const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap, ...finalPreviewLogs].map(l => [String(l.id || l.date), l])).values()];
                 const dailySalary = [...dailySalaryLogsForRekap, ...previewDailyForRekap].reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
                 const overtimeSalary = [...overtimeLogsForRekap, ...previewOvertimeForRekap].reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
@@ -13430,7 +13438,7 @@ ${getRekapShareLink(rekap)}
             }, [safeRekapForReport, safeInvoicesForReport]);
             // === END AUDIT ===
 
-            const readyToRekapSummary = filteredReportEmployees.reduce((acc, emp) => {
+            const readyToRekapSummary = React.useMemo(() => filteredReportEmployees.reduce((acc, emp) => {
                 let prodWage = 0;
                 safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
                     if (!order.progress) return;
@@ -13467,9 +13475,9 @@ ${getRekapShareLink(rekap)}
                 }
                 const total = totalProdWage + harian + lembur + komisi + rPreviewHarian + rPreviewLembur;
                 return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian + rPreviewHarian, lembur: acc.lembur + lembur + rPreviewLembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
-            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 });
+            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 }), [filteredReportEmployees, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs]);
 
-            const pinnedSummary = pinnedEmpIds.size === 0 ? { net: 0, count: 0 } : visibleEmployees
+            const pinnedSummary = React.useMemo(() => pinnedEmpIds.size === 0 ? { net: 0, count: 0 } : visibleEmployees
                 .filter(emp => pinnedEmpIds.has(emp.id))
                 .reduce((acc, emp) => {
                     let prodWage = 0;
@@ -13511,7 +13519,7 @@ ${getRekapShareLink(rekap)}
                     const kasbon = getEmployeeCashAdvanceSummary(emp).remaining;
                     const net = Math.max(0, total - Math.min(kasbon, total));
                     return { net: acc.net + net, count: acc.count + 1 };
-                }, { net: 0, count: 0 });
+                }, { net: 0, count: 0 }), [visibleEmployees, pinnedEmpIds, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs]);
 
 
             const rankingData = React.useMemo(() => {
