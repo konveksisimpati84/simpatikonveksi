@@ -12746,9 +12746,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const dates = [];
                 const cur = new Date(startDate); const end = new Date(today);
                 while (cur <= end) { dates.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1); }
-                let hadir = 0, lembur = 0;
-                const hourAdjDetails = [];
                 const warnings = [];
+                const previewLogs = [];
+                const nowTs = new Date().toISOString();
                 dates.forEach(date => {
                     const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin) === pin);
                     const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
@@ -12767,16 +12767,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (jamMasuk && !jamPulang) warnings.push({ date, type: 'masuk_tanpa_pulang', jam: jamMasuk });
                     else if (!jamMasuk && jamPulang) warnings.push({ date, type: 'pulang_tanpa_masuk', jam: jamPulang });
                     if (jamMasuk && jamPulang) {
-                        hadir++;
+                        let dayAdjAmt = 0; let dayAdjDetails = [];
                         if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
                             const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
                             const selisihMenit = actualMenit - standardMenit;
                             if (Math.abs(selisihMenit) >= 30) {
                                 const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
                                 const amount = selisihMenit > 0 ? Math.round((selisihMenit / 60) * rateLebih) : -Math.round((Math.abs(selisihMenit) / 60) * rateKurang);
-                                if (amount !== 0) hourAdjDetails.push({ date, selisihMenit, selisihJam, amount });
+                                if (amount !== 0) { dayAdjAmt = amount; dayAdjDetails = [{ date, selisihMenit, selisihJam, amount }]; }
                             }
                         }
+                        const dayAdjFields = {};
+                        if (dayAdjAmt !== 0) dayAdjFields.hourAdjustment = dayAdjAmt;
+                        if (dayAdjDetails.length > 0) dayAdjFields.hourAdjDetails = dayAdjDetails;
+                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-DAY-${emp.id}-${date}`, date, note: `Hadir ${date}`, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 1, dailySalary: safeMoney(emp.dailySalary) || 0, overtimeCount: 0, overtimeRate: 0, ...dayAdjFields });
                     }
                     const shouldCalcLembur = empShift3obj != null ? true : !hasEmpShiftAssignment;
                     const mShift3Pulang = empShift3obj ? ttm(empShift3obj.jamPulang) : null;
@@ -12791,22 +12795,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const jlPulang = override?.jamLemburPulang || rawLPulang;
                     const mLMasuk = ttm(jlMasuk), mLPulang = ttm(jlPulang);
                     const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
-                    if (shouldCalcLembur && lemburMenit >= 60) lembur += Math.round(lemburMenit / 60 * 10) / 10;
+                    if (shouldCalcLembur && lemburMenit >= 60) { const lemburJam = Math.round(lemburMenit / 60 * 10) / 10; previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: `Lembur ${date}`, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: safeMoney(emp.overtimeRate) || 0 }); }
                 });
-                if (hadir === 0 && lembur === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
-                const totalHourAdj = hourAdjDetails.reduce((s, d) => s + d.amount, 0);
-                const previewLogs = [];
-                const nowTs = new Date().toISOString();
-                const baseLog = { _isAutoPreview: true, date: today, note: `Auto absensi ${startDate} s/d ${today}`, fromAbsensi: true, absensiDateFrom: startDate, absensiDateTo: today, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs };
-                if (hadir > 0) {
-                    const adjFields = {};
-                    if (totalHourAdj !== 0) adjFields.hourAdjustment = totalHourAdj;
-                    if (hourAdjDetails.length > 0) adjFields.hourAdjDetails = hourAdjDetails;
-                    previewLogs.push({ ...baseLog, id: `PREVIEW-DAY-${emp.id}`, workDays: hadir, dailySalary: safeMoney(emp.dailySalary) || 0, overtimeCount: 0, overtimeRate: 0, ...adjFields });
-                }
-                if (lembur > 0) {
-                    previewLogs.push({ ...baseLog, id: `PREVIEW-OT-${emp.id}`, workDays: 0, dailySalary: 0, overtimeCount: lembur, overtimeRate: safeMoney(emp.overtimeRate) || 0 });
-                }
+                if (previewLogs.length === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
                 return { previewLogs, warnings, startDate, endDate: today };
             };
 
@@ -14769,6 +14760,9 @@ ${getRekapShareLink(rekap)}
                             dHasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === dEmpPin && l.tanggal > (dAbsCutoff || '0000-00-00') && l.tanggal <= dAbsTodayStr);
                         }
                         const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || dHasAbsensiPending;
+                        const dPreviewResult = (dEmpPin && dEmpIsHarian) ? computeAutoAbsensiForEmp(dEmp) : { previewLogs: [] };
+                        const dPreviewDailyRows = safeArray(dPreviewResult.previewLogs).filter(log => getDailySalaryLogTotal(log).daily > 0);
+                        const dPreviewOvertimeRows = safeArray(dPreviewResult.previewLogs).filter(log => getDailySalaryLogTotal(log).overtime > 0);
                         return (
                             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setInputDetailEmpId(null)}>
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -14824,7 +14818,7 @@ ${getRekapShareLink(rekap)}
                                             </div>
                                             <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                 <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
-                                                    <span className="font-black text-xs text-gray-700">Gaji Harian ({dDailySalaryRows.length})</span>
+                                                    <span className="font-black text-xs text-gray-700">Gaji Harian ({dDailySalaryRows.length + dPreviewDailyRows.length})</span>
                                                     <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: (prev.empId === dEmp.id && prev.mode === 'harian') ? null : dEmp.id, mode: 'harian', date: new Date().toISOString().slice(0,10), workDays: '', dailySalary: String(dEmp.dailySalary || ''), note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">+ Input Harian</button>
                                                 </div>
                                                 {dailyInputForm.empId === dEmp.id && dailyInputForm.mode === 'harian' && (
@@ -14843,11 +14837,11 @@ ${getRekapShareLink(rekap)}
                                                         </div>
                                                     </div>
                                                 )}
-                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Hari</th><th className="p-2 text-right">Subtotal</th><th className="p-2 w-6"></th></tr></thead><tbody>{dDailySalaryRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-daily-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2 max-w-[100px] truncate">{safeText(log.note,'Masuk Kerja')}</td><td className="p-2 text-right">{safeNumber(log.workDays)}h</td><td className="p-2 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td><td className="p-2 text-center"><button onClick={() => handleDeleteDailyLog(dEmp.id, log.id)} className="text-red-400 hover:text-red-600 font-black text-sm leading-none">✕</button></td></tr>; })}{dDailySalaryRows.length===0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Belum ada.</td></tr>}</tbody></table>
+                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Hari</th><th className="p-2 text-right">Subtotal</th><th className="p-2 w-6"></th></tr></thead><tbody>{dDailySalaryRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-daily-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2 max-w-[100px] truncate">{safeText(log.note,'Masuk Kerja')}</td><td className="p-2 text-right">{safeNumber(log.workDays)}h</td><td className="p-2 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td><td className="p-2 text-center"><button onClick={() => handleDeleteDailyLog(dEmp.id, log.id)} className="text-red-400 hover:text-red-600 font-black text-sm leading-none">✕</button></td></tr>; })}{dPreviewDailyRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-preview-daily-${log.id}`} className="border-t bg-amber-50"><td className="p-2 text-gray-600">{safeText(log.date)}</td><td className="p-2 max-w-[100px] truncate text-amber-700 flex items-center gap-1"><span className="text-[9px] font-black bg-amber-100 border border-amber-300 rounded px-1 py-0.5 leading-none mr-1">AUTO</span>Absensi</td><td className="p-2 text-right text-gray-500">1h</td><td className="p-2 text-right font-black text-amber-700">{formatRupiah(t.daily)}</td><td className="p-2"></td></tr>; })}{dDailySalaryRows.length===0 && dPreviewDailyRows.length===0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Belum ada.</td></tr>}</tbody></table>
                                             </div>
                                             <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                 <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
-                                                    <span className="font-black text-xs text-gray-700">Lembur ({dOvertimeRows.length})</span>
+                                                    <span className="font-black text-xs text-gray-700">Lembur ({dOvertimeRows.length + dPreviewOvertimeRows.length})</span>
                                                     <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: (prev.empId === dEmp.id && prev.mode === 'lembur') ? null : dEmp.id, mode: 'lembur', date: new Date().toISOString().slice(0,10), overtimeCount: '', overtimeRate: String(dEmp.overtimeRate || ''), note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700">+ Input Lembur</button>
                                                 </div>
                                                 {dailyInputForm.empId === dEmp.id && dailyInputForm.mode === 'lembur' && (
@@ -14866,7 +14860,7 @@ ${getRekapShareLink(rekap)}
                                                         </div>
                                                     </div>
                                                 )}
-                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Jumlah</th><th className="p-2 text-right">Subtotal</th><th className="p-2 w-6"></th></tr></thead><tbody>{dOvertimeRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-ot-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2 max-w-[100px] truncate">{safeText(log.note,'Lembur')}</td><td className="p-2 text-right">{safeNumber(log.overtimeCount)}x</td><td className="p-2 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td><td className="p-2 text-center"><button onClick={() => handleDeleteDailyLog(dEmp.id, log.id)} className="text-red-400 hover:text-red-600 font-black text-sm leading-none">✕</button></td></tr>; })}{dOvertimeRows.length===0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Tidak ada.</td></tr>}</tbody></table>
+                                                <table className="w-full text-xs"><thead className="bg-white text-gray-500"><tr><th className="p-2 text-left">Tanggal</th><th className="p-2 text-left">Ket.</th><th className="p-2 text-right">Jumlah</th><th className="p-2 text-right">Subtotal</th><th className="p-2 w-6"></th></tr></thead><tbody>{dOvertimeRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-ot-${log.id||log.date}`} className="border-t"><td className="p-2">{safeText(log.date)}</td><td className="p-2 max-w-[100px] truncate">{safeText(log.note,'Lembur')}</td><td className="p-2 text-right">{safeNumber(log.overtimeCount)}x</td><td className="p-2 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td><td className="p-2 text-center"><button onClick={() => handleDeleteDailyLog(dEmp.id, log.id)} className="text-red-400 hover:text-red-600 font-black text-sm leading-none">✕</button></td></tr>; })}{dPreviewOvertimeRows.map(log => { const t=getDailySalaryLogTotal(log); return <tr key={`d-preview-ot-${log.id}`} className="border-t bg-amber-50"><td className="p-2 text-gray-600">{safeText(log.date)}</td><td className="p-2 max-w-[100px] truncate text-amber-700"><span className="text-[9px] font-black bg-amber-100 border border-amber-300 rounded px-1 py-0.5 leading-none mr-1">AUTO</span>Lembur</td><td className="p-2 text-right text-gray-500">{safeNumber(log.overtimeCount)}j</td><td className="p-2 text-right font-black text-amber-700">{formatRupiah(t.overtime)}</td><td className="p-2"></td></tr>; })}{dOvertimeRows.length===0 && dPreviewOvertimeRows.length===0 && <tr><td colSpan="5" className="p-4 text-center text-gray-500 italic">Tidak ada.</td></tr>}</tbody></table>
                                             </div>
                                             <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                 <div className="bg-gray-50 px-3 py-2 font-black text-xs text-gray-700">Kasbon</div>
