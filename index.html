@@ -13243,7 +13243,11 @@ ${getRekapShareLink(rekap)}
                         const nextItem = { ...item, deductedAmount: Math.max(0, getCashAdvanceDeducted(item) - removedAmount), deductionHistory: history.filter(entry => String(entry.rekapId) !== String(rekap.id)), updatedAt: now };
                         return removedAmount > 0 ? { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) } : item;
                     });
-                    const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => String(log.rekapId) === String(rekap.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                    const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => {
+                        if (String(log.rekapId) !== String(rekap.id)) return log;
+                        if (log.fromAbsensi) return { ...log, isDeleted: true, _syncUpdatedAt: now };
+                        return { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now };
+                    });
                     const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => String(log.rekapId) === String(rekap.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
                     return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
                 }));
