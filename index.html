@@ -700,7 +700,7 @@
         const getDailySalaryLogTotal = (log) => {
             const base = safeMoney(log?.workDays) * safeMoney(log?.dailySalary);
             const adj = (log?.hourAdjustment != null) ? safeMoney(log.hourAdjustment) : 0;
-            const daily = base + adj;
+            const daily = Math.max(0, base + adj);
             const overtime = safeMoney(log?.overtimeCount) * safeMoney(log?.overtimeRate);
             return { daily, base, adj, overtime, total: daily + overtime };
         };
@@ -13231,6 +13231,7 @@ ${getRekapShareLink(rekap)}
                         const stageData = { ...(order.progress?.[target.stageId] || { workLogs: [] }) };
                         stageData.workLogs = (stageData.workLogs || []).map(log => String(log.id) === String(target.logId) ? { ...log, isReported: false, isReportedChangedAt: now, _syncUpdatedAt: now } : log);
                         order.progress = { ...(order.progress || {}), [target.stageId]: stageData };
+                        order._syncUpdatedAt = now;
                         nextOrders[orderIndex] = order;
                     });
                     return nextOrders;
@@ -13451,11 +13452,24 @@ ${getRekapShareLink(rekap)}
                 const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                 const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                 const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
-                const total = totalProdWage + harian + lembur + komisi;
-                return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian, lembur: acc.lembur + lembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
+                const rEmpPin = String(emp.fingerPin || '').trim();
+                const rEmpIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
+                let rPreviewHarian = 0, rPreviewLembur = 0;
+                if (rEmpPin && rEmpIsHarian) {
+                    const rCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
+                    const rTodayStr = new Date().toISOString().split('T')[0];
+                    const rHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === rEmpPin && l.tanggal > (rCutoff || '0000-00-00') && l.tanggal <= rTodayStr);
+                    if (rHasPending) {
+                        const rResult = computeAutoAbsensiForEmp(emp);
+                        rPreviewHarian = safeArray(rResult.previewLogs).filter(l => getDailySalaryLogTotal(l).daily > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
+                        rPreviewLembur = safeArray(rResult.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
+                    }
+                }
+                const total = totalProdWage + harian + lembur + komisi + rPreviewHarian + rPreviewLembur;
+                return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian + rPreviewHarian, lembur: acc.lembur + lembur + rPreviewLembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
             }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 });
 
-            const pinnedSummary = pinnedEmpIds.size === 0 ? { net: 0, count: 0 } : filteredReportEmployees
+            const pinnedSummary = pinnedEmpIds.size === 0 ? { net: 0, count: 0 } : visibleEmployees
                 .filter(emp => pinnedEmpIds.has(emp.id))
                 .reduce((acc, emp) => {
                     let prodWage = 0;
