@@ -13692,9 +13692,6 @@ ${getRekapShareLink(rekap)}
                                 const totalMarketingCommission = marketingRows.reduce((sum, inv) => sum + safeNumber(inv.commissionTotal), 0);
                                 const cashAdvanceSummary = getEmployeeCashAdvanceSummary(emp);
                                 const totalIncome = safeNumber(totalUnsettledWage) + safeNumber(totalMarketingCommission) + safeNumber(totalDailySalary) + safeNumber(totalOvertimeSalary);
-                                const projectedCashAdvanceDeduction = Math.min(safeNumber(cashAdvanceSummary.remaining), safeNumber(totalIncome));
-                                const projectedNetSalary = Math.max(0, safeNumber(totalIncome) - safeNumber(projectedCashAdvanceDeduction));
-                                
                                 const empSelectedItems = unsettledItems.filter(item => selectedItemKeys.has(`${item.orderId}-${item.stage}`));
                                 const empSelectedTotal = empSelectedItems.reduce((sum, item) => sum + item.qty, 0);
                                 const empSelectedWage = empSelectedItems.reduce((sum, item) => sum + (Math.round(item.wageTotal) || 0), 0);
@@ -14434,7 +14431,6 @@ ${getRekapShareLink(rekap)}
                         const dTotalMarketingCommission = dMarketingRows.reduce((s, inv) => s + safeNumber(inv.commissionTotal), 0);
                         const dCashAdvanceSummary = getEmployeeCashAdvanceSummary(dEmp);
                         const dTotalIncome = dTotalUnsettledWage + dTotalMarketingCommission + dTotalDailySalary + dTotalOvertimeSalary;
-                        const dNetSalary = Math.max(0, dTotalIncome - Math.min(safeNumber(dCashAdvanceSummary.remaining), dTotalIncome));
                         const dEmpPin = String(dEmp.fingerPin || '').trim();
                         const dEmpIsHarian = getEmployeeSalaryTypes(dEmp).includes('Harian');
                         let dHasAbsensiPending = false;
