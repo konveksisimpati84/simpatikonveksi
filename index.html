@@ -13746,8 +13746,8 @@ ${getRekapShareLink(rekap)}
                         <p className="text-sm text-gray-500 mt-1">Input laporan kinerja dan rekap gaji produksi berada dalam satu menu.</p>
                     </div>
                     <div className="flex gap-4 border-b border-gray-200 pb-2">
-                        <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Input / Laporan Kinerja</button>
-                        <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
+                        <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Penghasilan & Rekap</button>
+                        <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Riwayat Rekap</button>
                         <button onClick={() => setActiveReportTab('ranking')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'ranking' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🏆 Ranking Produksi</button>
                         
                     </div>
@@ -13908,7 +13908,15 @@ ${getRekapShareLink(rekap)}
                                 const empSelectedTotal = empSelectedItems.reduce((sum, item) => sum + item.qty, 0);
                                 const empSelectedWage = empSelectedItems.reduce((sum, item) => sum + (Math.round(item.wageTotal) || 0), 0);
 
-                                const hasUnsettled = unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0;
+                                const empPin = String(emp.fingerPin || '').trim();
+                                const empIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
+                                let hasAbsensiPending = false;
+                                if (empPin && empIsHarian) {
+                                    const absCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
+                                    const absTodayStr = new Date().toISOString().split('T')[0];
+                                    hasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === empPin && l.tanggal > (absCutoff || '0000-00-00') && l.tanggal <= absTodayStr);
+                                }
+                                const hasUnsettled = unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || hasAbsensiPending;
                                 const isPinned = pinnedEmpIds.has(emp.id);
                                 return (
                                     <div key={emp.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 transition-colors border-l-4 ${isPinned ? 'bg-orange-100/60 border-l-orange-400 hover:bg-orange-100/80' : hasUnsettled ? 'bg-yellow-50/70 border-l-yellow-400 hover:bg-yellow-100/60' : 'bg-green-50/50 border-l-green-300 hover:bg-green-50/80'}`}>
@@ -14752,7 +14760,15 @@ ${getRekapShareLink(rekap)}
                         const dCashAdvanceSummary = getEmployeeCashAdvanceSummary(dEmp);
                         const dTotalIncome = dTotalUnsettledWage + dTotalMarketingCommission + dTotalDailySalary + dTotalOvertimeSalary;
                         const dNetSalary = Math.max(0, dTotalIncome - Math.min(safeNumber(dCashAdvanceSummary.remaining), dTotalIncome));
-                        const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0;
+                        const dEmpPin = String(dEmp.fingerPin || '').trim();
+                        const dEmpIsHarian = getEmployeeSalaryTypes(dEmp).includes('Harian');
+                        let dHasAbsensiPending = false;
+                        if (dEmpPin && dEmpIsHarian) {
+                            const dAbsCutoff = safeArray(dEmp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
+                            const dAbsTodayStr = new Date().toISOString().split('T')[0];
+                            dHasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === dEmpPin && l.tanggal > (dAbsCutoff || '0000-00-00') && l.tanggal <= dAbsTodayStr);
+                        }
+                        const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || dHasAbsensiPending;
                         return (
                             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setInputDetailEmpId(null)}>
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
