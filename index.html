@@ -12701,6 +12701,105 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 showToast('Entri dihapus.', 'success');
             };
 
+            const computeAutoAbsensiForEmp = (emp) => {
+                const ttm = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+                const pin = String(emp?.fingerPin || '').trim();
+                if (!pin || !getEmployeeSalaryTypes(emp).includes('Harian')) return { previewLogs: [], warnings: [] };
+                const empAssignment = safeArray(templates?.absensiShiftAssignments).find(a => String(a.pin) === pin);
+                const empPrimaryId = empAssignment ? safeArray(empAssignment.shifts).find(id => id !== 'shift3') : null;
+                const empHasShift3 = empAssignment ? safeArray(empAssignment.shifts).includes('shift3') : false;
+                const empPrimaryShift = empPrimaryId ? safeArray(templates?.absensiShifts).find(s => s.id === empPrimaryId) : null;
+                const empShift3obj = empHasShift3 ? safeArray(templates?.absensiShifts).find(s => s.id === 'shift3') : null;
+                const hasEmpShiftAssignment = !!(empAssignment && safeArray(empAssignment.shifts).length > 0);
+                const jmCfg = empPrimaryShift?.jamMasuk || templates?.absensiJamMasuk || '07:00';
+                const jpCfg = empPrimaryShift?.jamPulang || templates?.absensiJamPulang || '16:30';
+                const lmCfg = templates?.absensiLemburMulai || '18:00';
+                const lsCfg = templates?.absensiLemburSelesai || '21:00';
+                const ttCfg = templates?.absensiTitikTengah || '';
+                const ttLCfg = templates?.absensiTitikTengahLembur || '';
+                const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
+                const mLM = ttm(lmCfg), mLS = ttm(lsCfg);
+                const mMid = ttCfg ? ttm(ttCfg) : (mMasukCfg != null && mPulangCfg != null ? (mMasukCfg + mPulangCfg) / 2 : null);
+                const standardMenit = (mMasukCfg != null && mPulangCfg != null) ? mPulangCfg - mMasukCfg : 0;
+                const rateKurang = safeMoney(emp.rateKurang) || 0;
+                const rateLebih = safeMoney(emp.rateLebih) || 0;
+                const existingAbsensiLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo);
+                const cutoffDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateTo).sort().reverse()[0] : null;
+                const today = new Date().toISOString().split('T')[0];
+                let startDate;
+                if (cutoffDate) {
+                    const d = new Date(cutoffDate); d.setDate(d.getDate() + 1);
+                    startDate = d.toISOString().split('T')[0];
+                } else {
+                    const allPinDates = safeArray(absensiRawLogs).filter(l => !l.isDeleted && String(l.pin) === pin).map(l => l.tanggal).filter(Boolean).sort();
+                    startDate = allPinDates[0] || null;
+                }
+                if (!startDate || startDate > today) return { previewLogs: [], warnings: [] };
+                const dates = [];
+                const cur = new Date(startDate); const end = new Date(today);
+                while (cur <= end) { dates.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1); }
+                let hadir = 0, lembur = 0;
+                const hourAdjDetails = [];
+                const warnings = [];
+                dates.forEach(date => {
+                    const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin) === pin);
+                    const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
+                    const sorted = [...dayLogs].sort((a, b) => a.jam > b.jam ? 1 : -1);
+                    const mShift3Masuk = empShift3obj ? ttm(empShift3obj.jamMasuk) : null;
+                    const mPrimPulang = ttm(jpCfg);
+                    const lembFloorBase = mShift3Masuk !== null ? mShift3Masuk : mLM;
+                    const mAktifBoundary = mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase;
+                    const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mAktifBoundary);
+                    const masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
+                    const pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
+                    const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
+                    const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
+                    const jamMasuk = override?.jamMasuk || rawMasuk;
+                    const jamPulang = override?.jamPulang || rawPulang;
+                    if (jamMasuk && !jamPulang) warnings.push({ date, type: 'masuk_tanpa_pulang', jam: jamMasuk });
+                    else if (!jamMasuk && jamPulang) warnings.push({ date, type: 'pulang_tanpa_masuk', jam: jamPulang });
+                    if (jamMasuk && jamPulang) {
+                        hadir++;
+                        if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
+                            const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
+                            const selisihMenit = actualMenit - standardMenit;
+                            if (Math.abs(selisihMenit) >= 30) {
+                                const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
+                                const amount = selisihMenit > 0 ? Math.round((selisihMenit / 60) * rateLebih) : -Math.round((Math.abs(selisihMenit) / 60) * rateKurang);
+                                if (amount !== 0) hourAdjDetails.push({ date, selisihMenit, selisihJam, amount });
+                            }
+                        }
+                    }
+                    const shouldCalcLembur = empShift3obj != null ? true : !hasEmpShiftAssignment;
+                    const mShift3Pulang = empShift3obj ? ttm(empShift3obj.jamPulang) : null;
+                    const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : mLS;
+                    const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (mAktifBoundary != null && mLemburSelesaiRef != null ? (mAktifBoundary + mLemburSelesaiRef) / 2 : null);
+                    const lembForLembur = shouldCalcLembur ? sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mAktifBoundary) : [];
+                    const lMasukZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= effectiveMidLembur) : lembForLembur;
+                    const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
+                    const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
+                    const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length - 1].jam : null;
+                    const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
+                    const jlPulang = override?.jamLemburPulang || rawLPulang;
+                    const mLMasuk = ttm(jlMasuk), mLPulang = ttm(jlPulang);
+                    const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
+                    if (shouldCalcLembur && lemburMenit >= 60) lembur += Math.round(lemburMenit / 60 * 10) / 10;
+                });
+                if (hadir === 0 && lembur === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
+                const totalHourAdj = hourAdjDetails.reduce((s, d) => s + d.amount, 0);
+                const previewLogs = [];
+                const nowTs = new Date().toISOString();
+                const baseLog = { _isAutoPreview: true, date: today, note: `Auto absensi ${startDate} s/d ${today}`, fromAbsensi: true, absensiDateFrom: startDate, absensiDateTo: today, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs };
+                if (hadir > 0) {
+                    const adjFields = (totalHourAdj !== 0 && hourAdjDetails.length > 0) ? { hourAdjustment: totalHourAdj, hourAdjDetails } : {};
+                    previewLogs.push({ ...baseLog, id: `PREVIEW-DAY-${emp.id}`, workDays: hadir, dailySalary: safeMoney(emp.dailySalary) || 0, overtimeCount: 0, overtimeRate: 0, ...adjFields });
+                }
+                if (lembur > 0) {
+                    previewLogs.push({ ...baseLog, id: `PREVIEW-OT-${emp.id}`, workDays: 0, dailySalary: 0, overtimeCount: lembur, overtimeRate: safeMoney(emp.overtimeRate) || 0 });
+                }
+                return { previewLogs, warnings, startDate, endDate: today };
+            };
+
             const handleOpenRekapModal = (empId, items) => {
                 const emp = visibleEmployees.find(e => String(e.id) === String(empId));
                 const selectedKeys = new Set((items || []).map(getRekapItemKey));
@@ -12709,7 +12808,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const selectedOvertimeKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => String(log.id || log.date)));
                 const mktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const selectedMarketingKeys = new Set(mktInvoices.map(inv => String(inv.id)));
-                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys });
+                const { previewLogs, warnings } = emp ? computeAutoAbsensiForEmp(emp) : { previewLogs: [], warnings: [] };
+                previewLogs.forEach(log => {
+                    if (getDailySalaryLogTotal(log).daily > 0) selectedDailyKeys.add(String(log.id));
+                    if (getDailySalaryLogTotal(log).overtime > 0) selectedOvertimeKeys.add(String(log.id));
+                });
+                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings });
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
                 setBonusSalary('');
@@ -12802,11 +12906,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                 const empForRekap = visibleEmployees.find(e => String(e.id) === String(modalData.empId));
                 const allUnrekapedLogs = getEmployeeDailySalaryLogs(empForRekap).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
+                const allPreviewLogs = safeArray(modalData?.autoPreviewLogs);
                 const dailySalaryLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
                 const overtimeLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
-                const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap].map(l => [String(l.id || l.date), l])).values()];
-                const dailySalary = dailySalaryLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
-                const overtimeSalary = overtimeLogsForRekap.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
+                const previewDailyForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id)));
+                const previewOvertimeForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id)));
+                const toFinalLog = (log) => { const { _isAutoPreview, ...rest } = log; return { ...rest, id: genId('DAY-') }; };
+                const finalPreviewLogs = [...previewDailyForRekap, ...previewOvertimeForRekap].map(toFinalLog);
+                const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap, ...finalPreviewLogs].map(l => [String(l.id || l.date), l])).values()];
+                const dailySalary = [...dailySalaryLogsForRekap, ...previewDailyForRekap].reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
+                const overtimeSalary = [...overtimeLogsForRekap, ...previewOvertimeForRekap].reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
                 const allMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(empForRekap?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const marketingInvoicesForRekap = allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
                 const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
@@ -12874,7 +12983,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             };
                             return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
                         });
-                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => allLogsForRekap.some(row => String(row.id || row.date) === String(log.id || log.date)) ? { ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : log);
+                        const newFinalLogsWithRekap = finalPreviewLogs.map(log => ({ ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now }));
+                        const nextDailySalaryLogs = [...newFinalLogsWithRekap, ...(emp.dailySalaryLogs || []).map(log => allLogsForRekap.some(row => String(row.id || row.date) === String(log.id || log.date)) ? { ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : log)];
                         const manualLogIdsToMark = selectedItems.filter(item => item.isManual).map(item => item.manualLogId);
                         const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => manualLogIdsToMark.includes(String(log.id)) ? { ...log, rekapId: newRekap.id, rekapDate: newRekap.dateProcessed, _syncUpdatedAt: now } : log);
                         return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
@@ -13169,8 +13279,9 @@ ${getRekapShareLink(rekap)}
             const modalSelectedWage = modalSelectedItems.reduce((sum, item) => sum + (Math.round(item.wageTotal) || 0), 0);
             const modalEmployee = modalData ? visibleEmployees.find(emp => String(emp.id) === String(modalData.empId)) : null;
             const modalDailySalaryLogs = getEmployeeDailySalaryLogs(modalEmployee).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
-            const modalAllDailyLogs = modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
-            const modalAllOvertimeLogs = modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
+            const modalPreviewLogs = safeArray(modalData?.autoPreviewLogs);
+            const modalAllDailyLogs = [...modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).daily > 0), ...modalPreviewLogs.filter(log => getDailySalaryLogTotal(log).daily > 0)];
+            const modalAllOvertimeLogs = [...modalDailySalaryLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0), ...modalPreviewLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0)];
             const selectedDailyLogs = modalAllDailyLogs.filter(log => modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
             const selectedOvertimeLogs = modalAllOvertimeLogs.filter(log => modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
             const modalDailySalary = selectedDailyLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
@@ -14249,6 +14360,20 @@ ${getRekapShareLink(rekap)}
                                             <div>
                                                 <div className="font-black text-yellow-800 text-sm">Karyawan ini memiliki kasbon aktif</div>
                                                 <div className="text-xs text-yellow-700 mt-0.5">Sisa kasbon: <b>{formatRupiah(modalCashAdvanceSummary.remaining)}</b> — jangan lupa isi jumlah potongan di bagian <b>Potongan Kasbon</b> di bawah sebelum mencetak.</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {(modalData?.absensiWarnings?.length > 0) && (
+                                        <div className="flex items-start gap-3 bg-red-50 border border-red-300 rounded-lg px-4 py-3">
+                                            <span className="text-red-500 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+                                            <div className="flex-1">
+                                                <div className="font-black text-red-800 text-sm">{modalData.absensiWarnings.length} hari absensi tidak lengkap</div>
+                                                <div className="text-xs text-red-700 mt-1 space-y-0.5">
+                                                    {modalData.absensiWarnings.map((w, i) => (
+                                                        <div key={i}>{w.date}: {w.type === 'masuk_tanpa_pulang' ? `masuk ${w.jam}, tidak ada pulang` : `pulang ${w.jam}, tidak ada masuk`}</div>
+                                                    ))}
+                                                </div>
+                                                <div className="text-xs text-red-600 mt-1 font-semibold">Hari ini tidak dihitung hadir. Koreksi via menu Absensi jika perlu.</div>
                                             </div>
                                         </div>
                                     )}
