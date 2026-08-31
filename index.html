@@ -12616,8 +12616,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             })
                             : (emp.cashAdvances || []);
                         const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log =>
-                            rekapLogIds.has(String(log.id || log.date)) && !log.rekapId
-                                ? { ...log, rekapId: rekap.id, rekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
+                            rekapLogIds.has(String(log.id || log.date)) && (log.isDeleted || !log.rekapId)
+                                ? { ...log, isDeleted: false, rekapId: rekap.id, rekapDate: rekap.dateProcessed, _syncUpdatedAt: now }
                                 : log
                         );
                         const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log =>
