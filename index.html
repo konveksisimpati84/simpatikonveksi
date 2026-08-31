@@ -675,7 +675,10 @@
         };
 
         const getEmployeeSalaryTypes = (employee) => {
-            if (Array.isArray(employee?.salaryTypes) && employee.salaryTypes.length > 0) return employee.salaryTypes;
+            if (Array.isArray(employee?.salaryTypes) && employee.salaryTypes.length > 0) {
+                const expanded = employee.salaryTypes.flatMap(t => t === 'Campuran' ? ['Produksi', 'Harian'] : [t]);
+                return [...new Set(expanded)];
+            }
             const legacyType = employee?.salaryType || 'Produksi';
             if (legacyType === 'Campuran') return ['Produksi', 'Harian'];
             return [legacyType];
@@ -12132,6 +12135,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             const [bonusSalary, setBonusSalary] = useState('');
             const [bonusNote, setBonusNote] = useState('');
+            const [isRekapProcessing, setIsRekapProcessing] = useState(false);
             // printOptions dihapus — pilihan direkap kini langsung dikontrol oleh selectedKeys per kategori
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const [expandedInputIds, setExpandedInputIds] = useState({});
@@ -12534,7 +12538,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             };
                             return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
                         });
-                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => {
+                            if (String(log.rekapId) !== String(rekapToDelete.id)) return log;
+                            if (log.fromAbsensi) return { ...log, isDeleted: true, _syncUpdatedAt: now };
+                            return { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now };
+                        });
                         const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
                         return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
                     }));
@@ -12812,7 +12820,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const selectedMarketingKeys = new Set(mktInvoices.map(inv => String(inv.id)));
                 const { previewLogs, warnings } = emp ? computeAutoAbsensiForEmp(emp) : { previewLogs: [], warnings: [] };
                 previewLogs.forEach(log => {
-                    if (getDailySalaryLogTotal(log).daily > 0) selectedDailyKeys.add(String(log.id));
+                    if (log.workDays > 0) selectedDailyKeys.add(String(log.id));
                     if (getDailySalaryLogTotal(log).overtime > 0) selectedOvertimeKeys.add(String(log.id));
                 });
                 setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings });
@@ -12866,12 +12874,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const executeRekapAndPrint = () => {
                 if(!modalData) return;
+                if(isRekapProcessing) return;
+                setIsRekapProcessing(true);
                 const selectedItems = (modalData.allItems || []).filter(item => modalData.selectedKeys?.has(getRekapItemKey(item)));
                 const hasAnyDailySelected = (modalData?.selectedDailyKeys?.size || 0) > 0;
                 const hasAnyOvertimeSelected = (modalData?.selectedOvertimeKeys?.size || 0) > 0;
                 const hasAnyMarketingSelected = (modalData?.selectedMarketingKeys?.size || 0) > 0;
                 if (selectedItems.length === 0 && !hasAnyDailySelected && !hasAnyOvertimeSelected && !hasAnyMarketingSelected) {
                     showToast("Pilih minimal 1 item untuk direkap.", "error");
+                    setIsRekapProcessing(false);
                     return;
                 }
                 // Guard: cek apakah ada item yang sudah direkap (isReported) sejak modal dibuka
@@ -12901,6 +12912,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 });
                 if (alreadyReported || manualAlreadyReported || dailyAlreadyReported || marketingAlreadyReported) {
                     showToast("Beberapa item sudah pernah direkap. Tutup modal dan coba lagi.", "error");
+                    setIsRekapProcessing(false);
                     return;
                 }
                 const selectedTotal = selectedItems.reduce((sum, item) => sum + (parseInt(item.qty) || 0), 0);
@@ -12911,9 +12923,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const allPreviewLogs = safeArray(modalData?.autoPreviewLogs);
                 const dailySalaryLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
                 const overtimeLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
-                const previewDailyForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id)));
+                const previewDailyForRekap = allPreviewLogs.filter(log => (log.workDays > 0) && modalData?.selectedDailyKeys?.has(String(log.id)));
                 const previewOvertimeForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id)));
-                const toFinalLog = (log) => { const { _isAutoPreview, ...rest } = log; return { ...rest, id: genId('DAY-') }; };
+                const newRekapId = genId('RKP-');
+                const toFinalLog = (log) => { const { _isAutoPreview, ...rest } = log; return { ...rest, id: genId('DAY-'), rekapId: newRekapId }; };
                 const finalPreviewLogs = [...previewDailyForRekap, ...previewOvertimeForRekap].map(toFinalLog);
                 const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap, ...finalPreviewLogs].map(l => [String(l.id || l.date), l])).values()];
                 const dailySalary = [...dailySalaryLogsForRekap, ...previewDailyForRekap].reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
@@ -12927,15 +12940,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const deduction = Math.min(safeMoney(cashAdvanceDeduction), grossSalary, empCashAdvanceSummary.remaining);
                 if (safeMoney(cashAdvanceDeduction) > grossSalary) {
                     showToast("Potongan kasbon tidak boleh melebihi gaji bruto.", "error");
+                    setIsRekapProcessing(false);
                     return;
                 }
                 if (safeMoney(cashAdvanceDeduction) > empCashAdvanceSummary.remaining) {
                     showToast("Potongan kasbon tidak boleh melebihi sisa kasbon.", "error");
+                    setIsRekapProcessing(false);
                     return;
                 }
                 const netSalary = Math.max(0, grossSalary - deduction);
                 const newRekap = {
-                    id: genId('RKP-'),
+                    id: newRekapId,
                     empId: modalData.empId,
                     empName: empForRekap?.name || '',
                     division: empForRekap ? getEmployeeDivisions(empForRekap).join(', ') : '',
@@ -13034,6 +13049,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setCashAdvanceDeductionNote('');
                 setBonusSalary('');
                 setBonusNote('');
+                setIsRekapProcessing(false);
                 const emp = visibleEmployees.find(e => String(e.id) === String(newRekap.empId));
                 showToast("Laporan direkap dan siap dicetak.", "success");
                 if (emp) {
@@ -15205,7 +15221,11 @@ ${getRekapShareLink(rekap)}
                             };
                             return { ...nextItem, status: normalizeCashAdvanceStatus(nextItem) };
                         });
-                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
+                        const nextDailySalaryLogs = (emp.dailySalaryLogs || []).map(log => {
+                            if (String(log.rekapId) !== String(rekapToDelete.id)) return log;
+                            if (log.fromAbsensi) return { ...log, isDeleted: true, _syncUpdatedAt: now };
+                            return { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now };
+                        });
                         const nextManualProductionLogs = (emp.manualProductionLogs || []).map(log => String(log.rekapId) === String(rekapToDelete.id) ? { ...log, rekapId: '', rekapDate: '', _syncUpdatedAt: now } : log);
                         return { ...emp, cashAdvances: nextCashAdvances, dailySalaryLogs: nextDailySalaryLogs, manualProductionLogs: nextManualProductionLogs, _syncUpdatedAt: now };
                     }));
