@@ -8,9 +8,9 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
     <!-- React & Tailwind (tiap library punya CDN cadangan kalau CDN utama gagal/diblokir) -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/react@18/umd/react.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/react-dom@18/umd/react-dom.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/@babel/standalone/babel.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/@supabase/supabase-js@2&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
@@ -18236,6 +18236,58 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
             };
 
+            // === CACHE TIMESTAMP HELPERS ===
+            const TS_CACHE_KEY = 'simpati_ts_cache';
+            const getTsCache = () => { try { return JSON.parse(localStorage.getItem(TS_CACHE_KEY) || '{}'); } catch { return {}; } };
+            const setTsCache = (map) => { try { localStorage.setItem(TS_CACHE_KEY, JSON.stringify(map)); } catch {} };
+            const updateTsCache = (key, ts) => { const c = getTsCache(); c[key] = ts; setTsCache(c); };
+
+            // Ambil timestamps dari meta-row '_timestamps' di Supabase (1 request ringan)
+            const fetchRemoteTimestamps = async () => {
+                if (!supabaseClient) return {};
+                try {
+                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                    if (error || !data?.data) return {};
+                    return data.data || {};
+                } catch { return {}; }
+            };
+
+            // Update meta-row '_timestamps' di Supabase setelah save (jalankan di background)
+            const updateRemoteTimestamp = async (key, ts) => {
+                if (!supabaseClient) return;
+                try {
+                    const { data } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                    const existing = (data?.data && typeof data.data === 'object') ? data.data : {};
+                    existing[key] = ts;
+                    await supabaseClient.from('app_data').upsert({ id: '_timestamps', data: existing });
+                } catch {}
+            };
+
+            // Inisialisasi semua timestamps di Supabase setelah load pertama
+            const seedRemoteTimestamps = async (keys) => {
+                if (!supabaseClient) return;
+                try {
+                    const { data } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                    const existing = (data?.data && typeof data.data === 'object') ? data.data : {};
+                    const now = new Date().toISOString();
+                    let changed = false;
+                    keys.forEach(k => { if (!existing[k]) { existing[k] = now; changed = true; } });
+                    if (changed) await supabaseClient.from('app_data').upsert({ id: '_timestamps', data: existing });
+                    setTsCache(existing);
+                } catch {}
+            };
+
+            // Fetch dengan cache: gunakan localStorage jika timestamp tidak berubah
+            const fetchStoreDataCached = async (key, defaultVal, remoteTsMap) => {
+                const localTs = getTsCache()[key];
+                const remoteTs = remoteTsMap[key];
+                if (localTs && remoteTs && localTs >= remoteTs) {
+                    return loadLocalData(`simpati_${key}_sync`, defaultVal);
+                }
+                return fetchStoreData(key, defaultVal);
+            };
+            // === END CACHE TIMESTAMP HELPERS ===
+
             const fetchStoreData = async (key, defaultVal) => {
                 if (!supabaseClient) return loadLocalData(`simpati_${key}_sync`, defaultVal);
 
@@ -18691,31 +18743,32 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const applyRemoteDataSnapshotInner = async () => {
+                const remoteTsMap = await fetchRemoteTimestamps();
                 const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi] = await Promise.all([
-                    fetchStoreData('accounts', initialAccounts),
-                    fetchStoreData('employees', initialEmployees),
-                    fetchStoreData('orders', initialOrders),
-                    fetchStoreData('rekapKinerja', []),
-                    fetchStoreData('riwayatPengiriman', []),
-                    fetchStoreData('expenses', []),
-                    fetchStoreData('invoices', []),
-                    fetchStoreData('clients', []),
-                    fetchStoreData('templates', initialTemplates),
-                    fetchStoreData('manualPurchases', []),
-                    fetchStoreData('investors', []),
-                    fetchStoreData('investorBagiHasil', []),
-                    fetchStoreData('drivers', []),
-                    fetchStoreData('driverTarifs', []),
-                    fetchStoreData('driverTransactions', []),
-                    fetchStoreData('driverRekapGaji', []),
-                    fetchStoreData('driverKasbon', []),
-                    fetchStoreData('stockItems', []),
-                    fetchStoreData('absensiEdits', []),
-                    fetchStoreData('kartu_kredit', []),
-                    fetchStoreData('transaksi_kartu', []),
-                    fetchStoreData('purchaseNotes', []),
-                    fetchStoreData('danaOperasional', []),
-                    fetchStoreData('bagiHasilPromosi', [])
+                    fetchStoreDataCached('accounts', initialAccounts, remoteTsMap),
+                    fetchStoreDataCached('employees', initialEmployees, remoteTsMap),
+                    fetchStoreDataCached('orders', initialOrders, remoteTsMap),
+                    fetchStoreDataCached('rekapKinerja', [], remoteTsMap),
+                    fetchStoreDataCached('riwayatPengiriman', [], remoteTsMap),
+                    fetchStoreDataCached('expenses', [], remoteTsMap),
+                    fetchStoreDataCached('invoices', [], remoteTsMap),
+                    fetchStoreDataCached('clients', [], remoteTsMap),
+                    fetchStoreDataCached('templates', initialTemplates, remoteTsMap),
+                    fetchStoreDataCached('manualPurchases', [], remoteTsMap),
+                    fetchStoreDataCached('investors', [], remoteTsMap),
+                    fetchStoreDataCached('investorBagiHasil', [], remoteTsMap),
+                    fetchStoreDataCached('drivers', [], remoteTsMap),
+                    fetchStoreDataCached('driverTarifs', [], remoteTsMap),
+                    fetchStoreDataCached('driverTransactions', [], remoteTsMap),
+                    fetchStoreDataCached('driverRekapGaji', [], remoteTsMap),
+                    fetchStoreDataCached('driverKasbon', [], remoteTsMap),
+                    fetchStoreDataCached('stockItems', [], remoteTsMap),
+                    fetchStoreDataCached('absensiEdits', [], remoteTsMap),
+                    fetchStoreDataCached('kartu_kredit', [], remoteTsMap),
+                    fetchStoreDataCached('transaksi_kartu', [], remoteTsMap),
+                    fetchStoreDataCached('purchaseNotes', [], remoteTsMap),
+                    fetchStoreDataCached('danaOperasional', [], remoteTsMap),
+                    fetchStoreDataCached('bagiHasilPromosi', [], remoteTsMap)
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -19022,33 +19075,34 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
                             );
+                            const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), 5000))]);
                             const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi] = await Promise.race([
                                 Promise.all([
-                                    fetchStoreData('accounts', initialAccounts),
-                                    fetchStoreData('employees', initialEmployees),
-                                    fetchStoreData('orders', initialOrders),
-                                    fetchStoreData('rekapKinerja', []),
-                                    fetchStoreData('riwayatPengiriman', []),
-                                    fetchStoreData('expenses', []),
-                                    fetchStoreData('invoices', []),
-                                    fetchStoreData('clients', []),
-                                    fetchStoreData('templates', initialTemplates),
-                                    fetchStoreData('manualPurchases', []),
-                                    fetchStoreData('investors', []),
-                                    fetchStoreData('investorBagiHasil', []),
-                                    fetchStoreData('drivers', []),
-                                    fetchStoreData('driverTarifs', []),
-                                    fetchStoreData('driverTransactions', []),
-                                    fetchStoreData('driverRekapGaji', []),
-                                    fetchStoreData('driverKasbon', []),
-                                    fetchStoreData('stockItems', []),
-                                    fetchStoreData('absensiEdits', []),
-                                    fetchStoreData('absensiRawLogs', []),
-                                    fetchStoreData('kartu_kredit', []),
-                                    fetchStoreData('transaksi_kartu', []),
-                                    fetchStoreData('purchaseNotes', []),
-                                    fetchStoreData('danaOperasional', []),
-                                    fetchStoreData('bagiHasilPromosi', [])
+                                    fetchStoreDataCached('accounts', initialAccounts, initTsMap),
+                                    fetchStoreDataCached('employees', initialEmployees, initTsMap),
+                                    fetchStoreDataCached('orders', initialOrders, initTsMap),
+                                    fetchStoreDataCached('rekapKinerja', [], initTsMap),
+                                    fetchStoreDataCached('riwayatPengiriman', [], initTsMap),
+                                    fetchStoreDataCached('expenses', [], initTsMap),
+                                    fetchStoreDataCached('invoices', [], initTsMap),
+                                    fetchStoreDataCached('clients', [], initTsMap),
+                                    fetchStoreDataCached('templates', initialTemplates, initTsMap),
+                                    fetchStoreDataCached('manualPurchases', [], initTsMap),
+                                    fetchStoreDataCached('investors', [], initTsMap),
+                                    fetchStoreDataCached('investorBagiHasil', [], initTsMap),
+                                    fetchStoreDataCached('drivers', [], initTsMap),
+                                    fetchStoreDataCached('driverTarifs', [], initTsMap),
+                                    fetchStoreDataCached('driverTransactions', [], initTsMap),
+                                    fetchStoreDataCached('driverRekapGaji', [], initTsMap),
+                                    fetchStoreDataCached('driverKasbon', [], initTsMap),
+                                    fetchStoreDataCached('stockItems', [], initTsMap),
+                                    fetchStoreDataCached('absensiEdits', [], initTsMap),
+                                    fetchStoreDataCached('absensiRawLogs', [], initTsMap),
+                                    fetchStoreDataCached('kartu_kredit', [], initTsMap),
+                                    fetchStoreDataCached('transaksi_kartu', [], initTsMap),
+                                    fetchStoreDataCached('purchaseNotes', [], initTsMap),
+                                    fetchStoreDataCached('danaOperasional', [], initTsMap),
+                                    fetchStoreDataCached('bagiHasilPromosi', [], initTsMap)
                                 ]),
                                 _fetchTimeout
                             ]);
@@ -19183,6 +19237,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 if (JSON.stringify(next) !== JSON.stringify(initTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', next), 0);
                             }
                             supabaseLoadedRef.current = true;
+                            setTimeout(() => seedRemoteTimestamps(['accounts','employees','orders','rekapKinerja','riwayatPengiriman','expenses','invoices','clients','templates','manualPurchases','investors','investorBagiHasil','drivers','driverTarifs','driverTransactions','driverRekapGaji','driverKasbon','stockItems','absensiEdits','absensiRawLogs','kartu_kredit','transaksi_kartu','purchaseNotes','danaOperasional','bagiHasilPromosi']), 2000);
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });
                         } catch (error) {
                             console.error("Gagal memuat dari Supabase, memakai data lokal.");
@@ -19274,6 +19329,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         if (error.code === '42P01') {
                             showToast(`PERINGATAN: TABEL BELUM DIBUAT! Tabel 'app_data' belum ada di database Supabase Anda.`, 'error');
                         }
+                    } else {
+                        const now = new Date().toISOString();
+                        updateTsCache(key, now);
+                        setTimeout(() => updateRemoteTimestamp(key, now), 0);
                     }
                 } catch (err) {
                     console.error(`Gagal menyimpan ${key}:`, err);
