@@ -12894,7 +12894,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const allPreviewLogs = safeArray(modalData?.autoPreviewLogs);
                 const dailySalaryLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
                 const overtimeLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
-                const previewDailyForRekap = allPreviewLogs.filter(log => (log.workDays > 0) && modalData?.selectedDailyKeys?.has(String(log.id)));
+                const previewDailyForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id)));
                 const previewOvertimeForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id)));
                 const newRekapId = genId('RKP-');
                 const toFinalLog = (log) => { const { _isAutoPreview, ...rest } = log; return { ...rest, id: genId('DAY-'), rekapId: newRekapId }; };
@@ -18255,12 +18255,27 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // Update meta-row '_timestamps' di Supabase setelah save (jalankan di background)
             const updateRemoteTimestamp = async (key, ts) => {
                 if (!supabaseClient) return;
-                try {
+                const tryUpdate = async () => {
                     const { data } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
                     const existing = (data?.data && typeof data.data === 'object') ? data.data : {};
                     existing[key] = ts;
                     await supabaseClient.from('app_data').upsert({ id: '_timestamps', data: existing });
-                } catch {}
+                };
+                try {
+                    await tryUpdate();
+                } catch {
+                    try {
+                        await new Promise(r => setTimeout(r, 2000));
+                        await tryUpdate();
+                    } catch {
+                        // Remote update failed twice — revert local cache to avoid false-fresh state
+                        const cache = getTsCache();
+                        if (cache[key] === ts) {
+                            delete cache[key];
+                            setTsCache(cache);
+                        }
+                    }
+                }
             };
 
             // Inisialisasi semua timestamps di Supabase setelah load pertama
@@ -18271,9 +18286,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const existing = (data?.data && typeof data.data === 'object') ? data.data : {};
                     const now = new Date().toISOString();
                     let changed = false;
-                    keys.forEach(k => { if (!existing[k]) { existing[k] = now; changed = true; } });
+                    const newlySeeded = [];
+                    keys.forEach(k => { if (!existing[k]) { existing[k] = now; changed = true; newlySeeded.push(k); } });
                     if (changed) await supabaseClient.from('app_data').upsert({ id: '_timestamps', data: existing });
-                    setTsCache(existing);
+                    newlySeeded.forEach(k => updateTsCache(k, now));
                 } catch {}
             };
 
@@ -18744,7 +18760,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const applyRemoteDataSnapshotInner = async () => {
                 const remoteTsMap = await fetchRemoteTimestamps();
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi] = await Promise.all([
                     fetchStoreDataCached('accounts', initialAccounts, remoteTsMap),
                     fetchStoreDataCached('employees', initialEmployees, remoteTsMap),
                     fetchStoreDataCached('orders', initialOrders, remoteTsMap),
@@ -18764,6 +18780,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreDataCached('driverKasbon', [], remoteTsMap),
                     fetchStoreDataCached('stockItems', [], remoteTsMap),
                     fetchStoreDataCached('absensiEdits', [], remoteTsMap),
+                    fetchStoreDataCached('absensiRawLogs', [], remoteTsMap),
                     fetchStoreDataCached('kartu_kredit', [], remoteTsMap),
                     fetchStoreDataCached('transaksi_kartu', [], remoteTsMap),
                     fetchStoreDataCached('purchaseNotes', [], remoteTsMap),
@@ -18949,6 +18966,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         return merged;
                     });
                 }
+                if (Array.isArray(remoteAbsensiRawLogs)) {
+                    setAbsensiRawLogs(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteAbsensiRawLogs);
+                        safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteAbsensiRawLogs)) setTimeout(() => saveToSupabase('absensiRawLogs', merged), 0);
+                        return merged;
+                    });
+                }
                 if (Array.isArray(remoteKartuKredit)) {
                     setKartuKredit(prev => {
                         const merged = mergeRecordLists(prev || [], remoteKartuKredit);
@@ -19072,10 +19097,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const initData = async () => {
                     if (supabaseClient) {
                         try {
+                            const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), 5000))]);
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
                             );
-                            const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), 5000))]);
                             const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi] = await Promise.race([
                                 Promise.all([
                                     fetchStoreDataCached('accounts', initialAccounts, initTsMap),
