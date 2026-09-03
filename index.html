@@ -13475,7 +13475,7 @@ ${getRekapShareLink(rekap)}
                 }
                 const total = totalProdWage + harian + lembur + komisi + rPreviewHarian + rPreviewLembur;
                 return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian + rPreviewHarian, lembur: acc.lembur + lembur + rPreviewLembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
-            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 }), [filteredReportEmployees, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs]);
+            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 }), [filteredReportEmployees, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs, absensiEdits]);
 
             const pinnedSummary = React.useMemo(() => pinnedEmpIds.size === 0 ? { net: 0, count: 0 } : visibleEmployees
                 .filter(emp => pinnedEmpIds.has(emp.id))
@@ -13519,7 +13519,7 @@ ${getRekapShareLink(rekap)}
                     const kasbon = getEmployeeCashAdvanceSummary(emp).remaining;
                     const net = Math.max(0, total - Math.min(kasbon, total));
                     return { net: acc.net + net, count: acc.count + 1 };
-                }, { net: 0, count: 0 }), [visibleEmployees, pinnedEmpIds, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs]);
+                }, { net: 0, count: 0 }), [visibleEmployees, pinnedEmpIds, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs, absensiEdits]);
 
 
             const rankingData = React.useMemo(() => {
