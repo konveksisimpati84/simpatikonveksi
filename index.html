@@ -19348,10 +19348,21 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (!isReady || !supabaseClient) return;
 
                 const refresh = () => {
+                    lastRefreshRef.current = Date.now();
                     applyRemoteDataSnapshot().catch(err => console.error('Gagal refresh data Supabase:', err));
                 };
 
-                const intervalId = setInterval(() => { lastRefreshRef.current = Date.now(); refresh(); }, 60000);
+                // Realtime: sync langsung saat _timestamps berubah (ada data baru dari PC lain)
+                const channel = supabaseClient
+                    .channel('app-timestamps-sync')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'app_data', filter: "id=eq._timestamps" }, () => {
+                        refresh();
+                    })
+                    .subscribe();
+
+                // Fallback polling 5 menit (jika Realtime terputus)
+                const intervalId = setInterval(refresh, 300000);
+
                 const handleFocus = () => {
                     const now = Date.now();
                     if (now - lastRefreshRef.current > 60000) { lastRefreshRef.current = now; refresh(); }
@@ -19364,6 +19375,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 document.addEventListener('visibilitychange', handleVisibility);
 
                 return () => {
+                    supabaseClient.removeChannel(channel);
                     clearInterval(intervalId);
                     window.removeEventListener('focus', handleFocus);
                     document.removeEventListener('visibilitychange', handleVisibility);
@@ -20195,9 +20207,20 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             React.useEffect(() => { fetchLogs(); }, []);
             React.useEffect(() => {
-                if (!autoRefresh) return;
-                const t = setInterval(fetchLogs, 30000);
-                return () => clearInterval(t);
+                if (!autoRefresh || !supabaseClient) return;
+                // Realtime: fetch langsung saat ada data fingerprint baru masuk
+                const channel = supabaseClient
+                    .channel('absensi-rawlogs-sync')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'app_data', filter: "id=eq.absensiRawLogs" }, () => {
+                        fetchLogs();
+                    })
+                    .subscribe();
+                // Fallback polling 5 menit jika Realtime terputus
+                const t = setInterval(fetchLogs, 300000);
+                return () => {
+                    supabaseClient.removeChannel(channel);
+                    clearInterval(t);
+                };
             }, [autoRefresh]);
 
             // Group raw logs by pin for the selected date
