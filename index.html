@@ -18011,6 +18011,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [isReady, setIsReady] = useState(false);
             const syncInFlightRef = React.useRef(false);
             const supabaseLoadedRef = React.useRef(false);
+            const inMemorySessionRef = React.useRef(null);
             const [authUser, setAuthUser] = useState(null);
             const [activeTab, setActiveTab] = useState('dashboard');
             const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -18062,47 +18063,70 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const saveAuthSession = (user, lastActiveAt = new Date().toISOString()) => {
                 if (!user) return;
+                const sessionData = JSON.stringify({ user, lastActiveAt });
+                // Lapisan 1: in-memory (selalu berhasil, bertahan selama tab terbuka)
+                inMemorySessionRef.current = { user, lastActiveAt };
+                // Lapisan 2: sessionStorage (tidak terkena batas kuota ITP di iOS/Safari)
+                try { sessionStorage.setItem('simpati_auth_session', sessionData); } catch(e) {}
+                // Lapisan 3: localStorage (permanen, bisa penuh di HP/iPad)
                 try {
-                    localStorage.setItem('simpati_auth_session', JSON.stringify({ user, lastActiveAt }));
+                    localStorage.setItem('simpati_auth_session', sessionData);
                 } catch(e) {
                     try {
                         localStorage.removeItem('simpati_templates_sync');
                         localStorage.removeItem('simpati_rekap_sync');
-                        localStorage.setItem('simpati_auth_session', JSON.stringify({ user, lastActiveAt }));
-                    } catch(e2) { console.warn('[auth] gagal simpan session:', e2); }
+                        localStorage.setItem('simpati_auth_session', sessionData);
+                    } catch(e2) { console.warn('[auth] gagal simpan session di localStorage:', e2); }
                 }
             };
 
             const clearAuthSession = () => {
-                localStorage.removeItem('simpati_auth_session');
+                inMemorySessionRef.current = null;
+                try { sessionStorage.removeItem('simpati_auth_session'); } catch(e) {}
+                try { localStorage.removeItem('simpati_auth_session'); } catch(e) {}
             };
 
             const getAuthSessionLastActiveAt = () => {
+                if (inMemorySessionRef.current?.lastActiveAt) return inMemorySessionRef.current.lastActiveAt;
+                try {
+                    const ss = sessionStorage.getItem('simpati_auth_session');
+                    if (ss) { const p = JSON.parse(ss); if (p?.lastActiveAt) return p.lastActiveAt; }
+                } catch(e) {}
                 try {
                     const parsed = JSON.parse(localStorage.getItem('simpati_auth_session') || '{}');
                     return parsed?.lastActiveAt || '';
-                } catch (error) {
-                    return '';
-                }
+                } catch (error) { return ''; }
             };
 
             const readValidAuthSession = () => {
-                const savedSession = localStorage.getItem('simpati_auth_session');
-                if (!savedSession) return null;
-                try {
-                    const parsed = JSON.parse(savedSession);
-                    const sessionUser = parsed?.user || null;
-                    const lastActiveAt = parsed?.lastActiveAt;
-                    const lastActiveTime = new Date(lastActiveAt || 0).getTime();
-                    if (!sessionUser || !lastActiveTime || Date.now() - lastActiveTime > AUTH_SESSION_TIMEOUT_MS) {
-                        clearAuthSession();
-                        return null;
-                    }
-                    return sessionUser;
-                } catch (error) {
-                    clearAuthSession();
-                    return null;
+                const parseAndValidate = (sessionStr) => {
+                    if (!sessionStr) return null;
+                    try {
+                        const parsed = JSON.parse(sessionStr);
+                        const sessionUser = parsed?.user || null;
+                        const lastActiveTime = new Date(parsed?.lastActiveAt || 0).getTime();
+                        if (!sessionUser || !lastActiveTime || Date.now() - lastActiveTime > AUTH_SESSION_TIMEOUT_MS) return null;
+                        return sessionUser;
+                    } catch { return null; }
+                };
+                // Lapisan 1: in-memory (paling cepat, tidak bisa gagal karena storage penuh)
+                const mem = inMemorySessionRef.current;
+                if (mem) {
+                    const lastActiveTime = new Date(mem.lastActiveAt || 0).getTime();
+                    if (mem.user && lastActiveTime && Date.now() - lastActiveTime <= AUTH_SESSION_TIMEOUT_MS) return mem.user;
+                    inMemorySessionRef.current = null;
                 }
+                // Lapisan 2: sessionStorage (tidak terkena batasan ITP di iOS/Safari)
+                try {
+                    const ssUser = parseAndValidate(sessionStorage.getItem('simpati_auth_session'));
+                    if (ssUser) { inMemorySessionRef.current = { user: ssUser, lastActiveAt: new Date().toISOString() }; return ssUser; }
+                } catch(e) {}
+                // Lapisan 3: localStorage
+                const lsSession = localStorage.getItem('simpati_auth_session');
+                const lsUser = parseAndValidate(lsSession);
+                if (lsUser) { inMemorySessionRef.current = { user: lsUser, lastActiveAt: new Date().toISOString() }; return lsUser; }
+                if (lsSession) clearAuthSession();
+                return null;
             };
 
             const handleLogout = () => {
