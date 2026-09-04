@@ -19273,7 +19273,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             }
                             if (Array.isArray(remAbsensiRawLogs)) {
                                 setAbsensiRawLogs(remAbsensiRawLogs);
-                                safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remAbsensiRawLogs));
+                                safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(remAbsensiRawLogs));
                             }
                             if (Array.isArray(initKartuKredit)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_kartu_kredit_sync', []), initKartuKredit);
@@ -19326,6 +19326,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDriverKasbon(loadLocalData('simpati_driver_kasbon_sync', []));
                     setStockItems(loadLocalData('simpati_stock_items_sync', []));
                     setAbsensiEdits(loadLocalData('simpati_absensi_edits_sync', []));
+                    setAbsensiRawLogs(loadLocalData('simpati_absensiRawLogs_sync', []));
                     setKartuKredit(loadLocalData('simpati_kartu_kredit_sync', []));
                     setTransaksiKartu(loadLocalData('simpati_transaksi_kartu_sync', []));
                     // Hanya validasi sesi jika ada cache akun yang nyata (bukan hanya fallback initialAccounts).
@@ -19826,7 +19827,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const remote = await fetchStoreData('absensiRawLogs', []);
                 if (Array.isArray(remote)) {
                     setAbsensiRawLogs(remote);
-                    safeLocalSet('simpati_absensi_raw_logs_sync', JSON.stringify(remote));
+                    safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(remote));
                 }
                 return Array.isArray(remote) ? remote : [];
             };
