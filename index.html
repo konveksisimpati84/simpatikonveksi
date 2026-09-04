@@ -3775,6 +3775,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     }
                 }
 
+                const now = new Date().toISOString();
                 let anyShipped = false;
                 let processedItems = [];
 
@@ -3808,7 +3809,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             const newStatus = isFullyShipped ? 'Terkirim' : order.status;
                             const orderIndex = updatedOrders.findIndex(o => String(o.id) === String(order.id));
                             if(orderIndex > -1) {
-                                updatedOrders[orderIndex] = { ...order, shipped: newShipped, status: newStatus };
+                                updatedOrders[orderIndex] = { ...order, shipped: newShipped, status: newStatus, _syncUpdatedAt: now };
                             }
                             processedItems.push({ orderId: order.id, type: order.type, details: shippedDetails.join(', '), total: totalOrderShipment });
                         }
@@ -3852,11 +3853,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 return 'belum';
             };
             const displayShipOrders = shipColorFilter ? filteredActiveOrders.filter(o => getShipOrderColorKey(o) === shipColorFilter) : filteredActiveOrders;
-            const ordersByClient = filteredActiveOrders.reduce((acc, o) => {
-                if (!acc[o.client]) acc[o.client] = [];
-                acc[o.client].push(o);
-                return acc;
-            }, {});
 
             if (activeShippingTab === 'riwayat') {
                 return (
@@ -4178,7 +4174,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     });
                 });
                 return Object.entries(map).sort((a, b) => b[1].totalPcs - a[1].totalPcs);
-            }, [filteredRiwayatPengiriman]);
+            }, [riwayatPengiriman, orders, searchTerm]);
 
             const enterPrintMode = () => {
                 prevExpandedRef.current = { ...expandedClientKeys };
