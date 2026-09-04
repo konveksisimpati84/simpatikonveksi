@@ -4989,8 +4989,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const allSebagian = allNotes.filter(n => noteStatus(n) === 'Dibayar Sebagian');
                 const totalLunas = allLunas.reduce((sum, n) => sum + noteTotal(n), 0);
                 const totalBelum = allBelum.reduce((sum, n) => sum + noteTotal(n), 0);
-                const totalSebagian = allSebagian.reduce((sum, n) => sum + noteTotal(n), 0);
+                const totalSisaSebagian = allSebagian.reduce((sum, n) => sum + noteDebt(n), 0);
+                const totalHutang = [...allBelum, ...allSebagian].reduce((sum, n) => sum + noteDebt(n), 0);
                 const jumlahVendor = new Set(allNotes.map(n => normalizeVendorName(n.vendor))).size;
+                const jumlahBelumLunas = allBelum.length + allSebagian.length;
                 const grouped = {};
                 if (useGrouped) notes.forEach(note => { const k = (note.date || '').slice(0, 7); if (!grouped[k]) grouped[k] = []; grouped[k].push(note); });
                 const groupKeys = Object.keys(grouped).sort((a, b) => sortBy === 'terlama' ? a.localeCompare(b) : b.localeCompare(a));
@@ -5011,8 +5013,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const statCards = [
                     { label: 'Total Pembelian', value: formatRupiah(totalAll), sub: `${allNotes.length} nota`, icon: '💰', accent: '#1B6B3A', text: '#166534' },
                     { label: 'Lunas', value: formatRupiah(totalLunas), sub: `${allLunas.length} nota`, icon: '✅', accent: '#1B4F72', text: '#1e40af' },
-                    { label: 'Dibayar Sebagian', value: formatRupiah(totalSebagian), sub: `${allSebagian.length} nota`, icon: '◑', accent: '#D97706', text: '#92400E' },
+                    { label: 'Dibayar Sebagian', value: formatRupiah(totalSisaSebagian), sub: `sisa dari ${allSebagian.length} nota`, icon: '◑', accent: '#D97706', text: '#92400E' },
                     { label: 'Belum Dibayar', value: formatRupiah(totalBelum), sub: `${allBelum.length} nota`, icon: '✗', accent: '#DC2626', text: '#991B1B' },
+                    { label: 'Total Hutang', value: formatRupiah(totalHutang), sub: `${jumlahBelumLunas} nota belum lunas`, icon: '⚠', accent: '#7C2D12', text: '#7C2D12' },
                     { label: 'Vendor', value: jumlahVendor, sub: 'vendor berbeda', icon: '🏪', accent: '#5B21B6', text: '#5B21B6' },
                 ];
 
