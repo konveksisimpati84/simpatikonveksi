@@ -10828,8 +10828,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalGrossWage = totalWage;
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
             const totalCashAdvanceGiven = cashAdvanceRows.reduce((sum, row) => sum + row.amount, 0);
-            // Gunakan cashAdvanceRows (sudah difilter periode) agar konsisten dengan filter yang dipilih
-            const totalCashAdvanceDeducted = cashAdvanceRows.reduce((sum, row) => sum + row.deducted, 0);
+            // Potongan kasbon yang terjadi dalam periode ini (berdasarkan tanggal rekap di deductionHistory)
+            const totalCashAdvanceDeducted = visibleEmployees
+                .flatMap(emp => getEmployeeCashAdvances(emp))
+                .flatMap(item => Array.isArray(item.deductionHistory) ? item.deductionHistory : [])
+                .filter(entry => isInPeriod(entry.date))
+                .reduce((sum, entry) => sum + safeMoney(entry.amount), 0);
             const totalCashAdvanceRemaining = cashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
             const expenseRows = (expenses || []).filter(isVisibleRecord).filter(row => {
                 if (!isInPeriod(row.date)) return false;
@@ -11836,7 +11840,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <Card className="border-l-4 border-l-emerald-500">
                                     <h3 className="text-sm font-bold text-gray-500">Total Kasbon Dipotong</h3>
                                     <p className="text-2xl font-black text-emerald-700 mt-2">{formatRupiah(totalCashAdvanceDeducted)}</p>
-                                    <p className="text-xs text-gray-500 mt-1">Akumulasi potongan dari rekap gaji</p>
+                                    <p className="text-xs text-gray-500 mt-1">Potongan rekap dalam periode ini</p>
                                 </Card>
                                 <Card className="border-l-4 border-l-yellow-500">
                                     <h3 className="text-sm font-bold text-gray-500">Total Sisa Kasbon</h3>
