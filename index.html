@@ -19171,6 +19171,29 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (savedUser) setAuthUser(savedUser);
 
                 const initData = async () => {
+                    // Mode share slip gaji karyawan: hanya fetch 4 dataset yang dibutuhkan
+                    if (rekapGajiShareId) {
+                        try {
+                            if (supabaseClient) {
+                                const [rekaps, emps, tmpls, invs] = await Promise.all([
+                                    fetchStoreData('rekapKinerja', []),
+                                    fetchStoreData('employees', []),
+                                    fetchStoreData('templates', initialTemplates),
+                                    fetchStoreData('invoices', []),
+                                ]);
+                                setRekapKinerja(Array.isArray(rekaps) ? rekaps : []);
+                                setEmployees(sanitizeEmployees(Array.isArray(emps) ? emps : []));
+                                setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
+                                setInvoices(Array.isArray(invs) ? invs : []);
+                            }
+                        } catch(e) {
+                            console.error('Gagal fetch data share rekap:', e);
+                        } finally {
+                            setIsReady(true);
+                        }
+                        return; // Jangan lanjut fetch 25 dataset penuh
+                    }
+
                     if (supabaseClient) {
                         try {
                             const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), 5000))]);
@@ -19395,6 +19418,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const lastRefreshRef = React.useRef(0);
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
+                // Mode share: tidak perlu sync — karyawan hanya lihat slip gaji statis
+                if (rekapGajiShareId) return;
 
                 const refresh = () => {
                     lastRefreshRef.current = Date.now();
