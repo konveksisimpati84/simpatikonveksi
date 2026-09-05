@@ -12394,7 +12394,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return t.overtime > 0 || (log.hourAdjDetails?.length > 0 && t.adj !== 0);
                 });
                 const plainTotal = plainDailyLogs.reduce((s, log) => s + getDailySalaryLogTotal(log).base, 0);
-                const plainWorkDaysRaw = plainDailyLogs.reduce((s, log) => s + (parseFloat(log.workDays) || 1), 0);
+                const plainWorkDaysRaw = plainDailyLogs.reduce((s, log) => { const wd = parseFloat(log.workDays); return s + (Number.isFinite(wd) ? wd : 1); }, 0);
                 const plainWorkDays = Number.isInteger(plainWorkDaysRaw) ? plainWorkDaysRaw : parseFloat(plainWorkDaysRaw.toFixed(1));
                 const _plainByMonth = {};
                 plainDailyLogs.forEach(log => {
