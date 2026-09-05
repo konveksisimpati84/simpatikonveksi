@@ -16815,7 +16815,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const kasbonDeductions = [];
                 if (potongan > 0) {
                     let sisaPotong = potongan;
-                    for (const k of visibleKasbon.filter(k2 => k2.driverId === rekapDriverId)) {
+                    for (const k of visibleKasbon.filter(k2 => k2.driverId === rekapDriverId).sort((a, b) => (a.tanggal || '') > (b.tanggal || '') ? 1 : -1)) {
                         const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
                         if (sisaPotong <= 0 || sisa <= 0) continue;
                         const potong = Math.min(sisa, sisaPotong);
@@ -17949,7 +17949,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const w = window.open('','_blank','width=420,height=700');
                 if (!w) return;
                 const rows = trips.map(t=>{const trf=tarifs.find(x=>x.id===t.tarifId);const rute=trf?trf.from+' → '+trf.to:'-';return `<div class="item-row"><span><b>${rute}</b><small>${t.date}${t.tripType==='pp'?' &bull; PP':''}${t.note?' &bull; '+t.note:''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`;}).join('');
-                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SD - ${drv?.name || 'Driver'}</title><style>
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SD - ${driver?.name || 'Driver'}</title><style>
                     @page{size:80mm auto;margin:4mm;}
                     html,body{width:72mm;}
                     body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
@@ -19173,21 +19173,26 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const initData = async () => {
                     // Mode share slip gaji karyawan: hanya fetch 4 dataset yang dibutuhkan
                     if (rekapGajiShareId) {
+                        if (!supabaseClient) {
+                            // SDK Supabase gagal dimuat (jaringan buruk) — tampilkan pesan yang tepat
+                            showToast('Koneksi gagal. Periksa jaringan internet lalu muat ulang halaman.', 'error');
+                            setIsReady(true);
+                            return;
+                        }
                         try {
-                            if (supabaseClient) {
-                                const [rekaps, emps, tmpls, invs] = await Promise.all([
-                                    fetchStoreData('rekapKinerja', []),
-                                    fetchStoreData('employees', []),
-                                    fetchStoreData('templates', initialTemplates),
-                                    fetchStoreData('invoices', []),
-                                ]);
-                                setRekapKinerja(Array.isArray(rekaps) ? rekaps : []);
-                                setEmployees(sanitizeEmployees(Array.isArray(emps) ? emps : []));
-                                setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
-                                setInvoices(Array.isArray(invs) ? invs : []);
-                            }
+                            const [rekaps, emps, tmpls, invs] = await Promise.all([
+                                fetchStoreData('rekapKinerja', []),
+                                fetchStoreData('employees', []),
+                                fetchStoreData('templates', initialTemplates),
+                                fetchStoreData('invoices', []),
+                            ]);
+                            setRekapKinerja(Array.isArray(rekaps) ? rekaps : []);
+                            setEmployees(sanitizeEmployees(Array.isArray(emps) ? emps : []));
+                            setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
+                            setInvoices(Array.isArray(invs) ? invs : []);
                         } catch(e) {
                             console.error('Gagal fetch data share rekap:', e);
+                            showToast('Gagal memuat data. Periksa jaringan lalu muat ulang halaman.', 'error');
                         } finally {
                             setIsReady(true);
                         }
