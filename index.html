@@ -7363,10 +7363,35 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             };
             const deleteDp = (dpId) => {
                 const now = new Date().toISOString();
+                const clientData = (clients || []).find(c => String(c.id) === String(selectedClient?.id));
+
                 setClients(prev => (Array.isArray(prev) ? prev : []).map(client => {
                     if (String(client.id) !== String(selectedClient?.id)) return client;
                     return { ...client, clientDpPayments: (client.clientDpPayments || []).map(dp => String(dp.id) === String(dpId) ? { ...dp, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : dp), _syncUpdatedAt: now };
                 }));
+
+                // Setelah DP dihapus, cek apakah total linkedDpAmount invoice melebihi sisa pool
+                const remainingPool = (clientData?.clientDpPayments || [])
+                    .filter(dp => !dp.isDeleted && String(dp.id) !== String(dpId))
+                    .reduce((sum, dp) => sum + safeMoney(dp.amount), 0);
+                const clientName = clientData?.name || '';
+                const clientInvs = (invoices || []).filter(inv => !inv.isDeleted && normalizeText(inv.customer) === normalizeText(clientName) && safeMoney(inv.linkedDpAmount) > 0);
+                const totalLinked = clientInvs.reduce((sum, inv) => sum + safeMoney(inv.linkedDpAmount), 0);
+                if (totalLinked > remainingPool) {
+                    // Kurangi linkedDpAmount dari invoice terbaru dulu sampai pas dengan sisa pool
+                    const sorted = [...clientInvs].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+                    let budget = remainingPool;
+                    const adjustments = new Map();
+                    for (const inv of sorted) {
+                        const newLinked = Math.min(safeMoney(inv.linkedDpAmount), Math.max(0, budget));
+                        adjustments.set(String(inv.id), newLinked);
+                        budget = Math.max(0, budget - newLinked);
+                    }
+                    setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => {
+                        if (!adjustments.has(String(inv.id))) return inv;
+                        return { ...inv, linkedDpAmount: adjustments.get(String(inv.id)), _syncUpdatedAt: now };
+                    }));
+                }
             };
             const activeClient = selectedClient ? visibleClients.find(c => String(c.id) === String(selectedClient.id)) || selectedClient : null;
             const activeSummary = getClientSummary(activeClient);
@@ -10866,7 +10891,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             // Komisi dari invoice yang di-rekap sudah masuk totalWage; kecuali rekapnya sudah dihapus
             const deletedRekapIds = new Set(safeFinanceRekaps.filter(r => !isVisibleRecord(r)).map(r => String(r.id)));
-            const totalMarketingCommission = invoiceRows.filter(inv => !inv.commissionRekapId || deletedRekapIds.has(String(inv.commissionRekapId))).reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
+            // Filter komisi marketing konsisten dengan filter karyawan/divisi yang aktif
+            const filteredMktNames = (() => {
+                if (employeeFilter !== 'Semua') {
+                    const emp = visibleEmployees.find(e => String(e.id) === String(employeeFilter));
+                    return emp ? new Set([normalizeText(emp.name)]) : new Set();
+                }
+                if (divisionFilter !== 'Semua') {
+                    return new Set(visibleEmployees.filter(e => getEmployeeDivisions(e).some(d => d === divisionFilter)).map(e => normalizeText(e.name)));
+                }
+                return null;
+            })();
+            const totalMarketingCommission = invoiceRows
+                .filter(inv => !inv.commissionRekapId || deletedRekapIds.has(String(inv.commissionRekapId)))
+                .filter(inv => !filteredMktNames || filteredMktNames.has(normalizeText(inv.marketing || '')))
+                .reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
             // AKUNTANSI STANDAR
             // Pendapatan = pembayaran invoice + pemasukan manual (BUKAN saldo DP)
             const totalPendapatan = totalInvoiceIncome + totalManualIncome;
