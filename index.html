@@ -12384,19 +12384,56 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <span>${formatReceiptMoney(item.wageTotal || 0)}</span>
                     </div>
                 `);
-                const dailyRows = dailyOnlyLogs.map(log => {
+                const _mnNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+                const plainDailyLogs = dailyOnlyLogs.filter(log => {
                     const t = getDailySalaryLogTotal(log);
-                    const hasAdj = log.hourAdjDetails?.length > 0 && t.adj !== 0;
-                    const adjRows = hasAdj
-                        ? log.hourAdjDetails.map(d => `<div class="item-row" style="font-size:9.5px;background:#fafafa;padding-left:8px"><span style="color:#6b7280">↳ <b style="color:#374151">${d.date}</b> | ${d.selisihJam > 0 ? '+' : ''}${d.selisihJam} jam</span><span style="color:${d.amount > 0 ? '#15803d' : '#dc2626'};font-weight:700">${d.amount > 0 ? '+' : ''}${formatReceiptMoney(d.amount)}</span></div>`).join('') +
-                          (log.hourAdjDetails.length > 1 ? `<div class="item-row" style="font-size:9.5px;background:#f0fdf4;padding-left:8px"><span style="font-weight:700;color:#374151">Subtotal Penyesuaian</span><span style="color:${t.adj > 0 ? '#15803d' : '#dc2626'};font-weight:700">${t.adj > 0 ? '+' : ''}${formatReceiptMoney(t.adj)}</span></div>` : '')
-                        : '';
-                    return `
-                    <div class="item-row">
-                        <span><b>${log.date || '-'}</b><small>${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</small></span>
-                        <span>${formatReceiptMoney(t.base)}</span>
-                    </div>${adjRows}`;
+                    return t.overtime === 0 && (!log.hourAdjDetails?.length || t.adj === 0);
                 });
+                const specialDailyLogs = dailyOnlyLogs.filter(log => {
+                    const t = getDailySalaryLogTotal(log);
+                    return t.overtime > 0 || (log.hourAdjDetails?.length > 0 && t.adj !== 0);
+                });
+                const plainTotal = plainDailyLogs.reduce((s, log) => s + getDailySalaryLogTotal(log).base, 0);
+                const plainWorkDaysRaw = plainDailyLogs.reduce((s, log) => s + (parseFloat(log.workDays) || 1), 0);
+                const plainWorkDays = Number.isInteger(plainWorkDaysRaw) ? plainWorkDaysRaw : parseFloat(plainWorkDaysRaw.toFixed(1));
+                const _plainByMonth = {};
+                plainDailyLogs.forEach(log => {
+                    if (!log.date) return;
+                    const parts = String(log.date).split('-');
+                    const y = parts[0], m = parseInt(parts[1], 10), d = parseInt(parts[2], 10);
+                    const key = `${y}-${String(m).padStart(2,'0')}`;
+                    if (!_plainByMonth[key]) _plainByMonth[key] = { year: y, month: m, days: [] };
+                    _plainByMonth[key].days.push(d);
+                });
+                const plainDateLines = Object.keys(_plainByMonth).sort().map(key => {
+                    const { year, month, days } = _plainByMonth[key];
+                    days.sort((a, b) => a - b);
+                    return `${days.join(', ')} ${_mnNames[month - 1]} ${year}`;
+                });
+                const groupedPlainRow = plainDailyLogs.length > 0 ? `
+                    <div class="item-row" style="border-left:2px solid #86efac;padding-left:6px;background:#f0fdf4">
+                        <span>
+                            <b>Gaji Harian (${plainWorkDays} hari)</b>
+                            ${plainDateLines.map((line, i) => `<small style="color:#374151">${i === 0 ? 'Tgl: ' : '       '}${line}</small>`).join('')}
+                        </span>
+                        <span>${formatReceiptMoney(plainTotal)}</span>
+                    </div>` : '';
+                const dailyRows = [
+                    ...(groupedPlainRow ? [groupedPlainRow] : []),
+                    ...specialDailyLogs.map(log => {
+                        const t = getDailySalaryLogTotal(log);
+                        const hasAdj = log.hourAdjDetails?.length > 0 && t.adj !== 0;
+                        const adjRows = hasAdj
+                            ? log.hourAdjDetails.map(d => `<div class="item-row" style="font-size:9.5px;background:#fafafa;padding-left:8px"><span style="color:#6b7280">↳ <b style="color:#374151">${d.date}</b> | ${d.selisihJam > 0 ? '+' : ''}${d.selisihJam} jam</span><span style="color:${d.amount > 0 ? '#15803d' : '#dc2626'};font-weight:700">${d.amount > 0 ? '+' : ''}${formatReceiptMoney(d.amount)}</span></div>`).join('') +
+                              (log.hourAdjDetails.length > 1 ? `<div class="item-row" style="font-size:9.5px;background:#f0fdf4;padding-left:8px"><span style="font-weight:700;color:#374151">Subtotal Penyesuaian</span><span style="color:${t.adj > 0 ? '#15803d' : '#dc2626'};font-weight:700">${t.adj > 0 ? '+' : ''}${formatReceiptMoney(t.adj)}</span></div>` : '')
+                            : '';
+                        return `
+                        <div class="item-row" style="border-left:2px solid #fcd34d;padding-left:6px;background:#fffbeb">
+                            <span><b>${log.date || '-'}</b><small>${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</small></span>
+                            <span>${formatReceiptMoney(t.base)}</span>
+                        </div>${adjRows}`;
+                    })
+                ];
                 const overtimeRows = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => `
                     <div class="item-row">
                         <span><b>${log.date || '-'}</b><small>${log.note || 'Lembur'} | ${log.overtimeCount || 0} jam</small></span>
