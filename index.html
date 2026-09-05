@@ -10776,7 +10776,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         total: safeMoney(rekap.netSalary ?? rekap.totalWage),
                         grossSalary: safeMoney(rekap.grossSalary ?? rekap.totalWage),
                         cashAdvanceDeduction: safeMoney(rekap.cashAdvanceDeduction),
-                        netSalary: safeMoney(rekap.netSalary ?? rekap.totalWage),
+                        netSalary: safeMoney(rekap.netSalary ?? rekap.grossSalary ?? rekap.totalWage),
                         commissionSalary: safeMoney(rekap.marketingCommission || 0),
                         items: rekap.items || []
                     };
@@ -10818,11 +10818,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const totalMaterial = materialRows.reduce((sum, row) => sum + row.total, 0);
             const totalMaterialPaid = materialRows.filter(r => !r.isHutang).reduce((sum, r) => sum + r.total, 0);
-            const totalWage = wageRows.reduce((sum, row) => sum + row.netSalary, 0);
+            // totalWage = grossSalary (biaya tenaga kerja penuh, untuk L/R akrual)
+            const totalWage = wageRows.reduce((sum, row) => sum + row.grossSalary, 0);
+            // totalCashWage = netSalary (kas yang benar-benar dibayarkan ke karyawan, untuk Buku Kas)
+            const totalCashWage = wageRows.reduce((sum, row) => sum + row.netSalary, 0);
             // Pisahkan komponen gaji: produksi (HPP) vs komisi yang sudah dibayar (Beban Usaha)
             const totalCommissionWage = wageRows.reduce((sum, row) => sum + row.commissionSalary, 0);
             const totalProductionWage = totalWage - totalCommissionWage;
-            const totalGrossWage = wageRows.reduce((sum, row) => sum + row.grossSalary, 0);
+            const totalGrossWage = totalWage;
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
             const totalCashAdvanceGiven = cashAdvanceRows.reduce((sum, row) => sum + row.amount, 0);
             // Gunakan cashAdvanceRows (sudah difilter periode) agar konsisten dengan filter yang dipilih
@@ -10857,8 +10860,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalClientDpIncome = clientDpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalManualIncome = expenseRows.filter(row => row.type === 'Uang Masuk').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
-            // Hanya invoice yang BELUM di-rekap — yang sudah di-rekap komisinnya sudah masuk totalWage
-            const totalMarketingCommission = invoiceRows.filter(inv => !inv.commissionRekapId).reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
+            // Komisi dari invoice yang di-rekap sudah masuk totalWage; kecuali rekapnya sudah dihapus
+            const deletedRekapIds = new Set(safeFinanceRekaps.filter(r => !isVisibleRecord(r)).map(r => String(r.id)));
+            const totalMarketingCommission = invoiceRows.filter(inv => !inv.commissionRekapId || deletedRekapIds.has(String(inv.commissionRekapId))).reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
             // AKUNTANSI STANDAR
             // Pendapatan = pembayaran invoice + pemasukan manual (BUKAN saldo DP)
             const totalPendapatan = totalInvoiceIncome + totalManualIncome;
@@ -10886,12 +10890,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return s + (type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value);
             }, 0);
 
-            // Beban L/R (basis kas): kasbon TIDAK masuk beban — kasbon = piutang karyawan, bukan biaya.
-            // netSalary di rekap kinerja sudah netto (gross - kasbon), sehingga kasbon sudah
-            // terefleksi secara implisit di totalWage tanpa perlu dicatat dua kali.
+            // Beban L/R: kasbon = piutang karyawan (aset), bukan biaya — tidak masuk beban.
+            // totalWage menggunakan grossSalary (biaya tenaga kerja penuh, sebelum potongan kasbon).
             const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
-            // Buku Kas = arus kas keluar nyata (termasuk kasbon, karena kas memang keluar)
-            const totalBebanKas = totalMaterialPaid + totalWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
+            // Buku Kas = arus kas keluar nyata: pakai totalCashWage (netSalary) + kasbon yang diberikan
+            const totalBebanKas = totalMaterialPaid + totalCashWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
             // Piutang kasbon all-time (neraca) — kasbon yang belum terpotong dari rekap manapun
             const totalKasbonOutstanding = allCashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
             // HPP = bahan baku + upah produksi murni (komisi TIDAK masuk HPP)
