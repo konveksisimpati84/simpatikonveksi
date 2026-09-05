@@ -11855,7 +11855,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </Card>
                                 <Card className="border-l-4 border-l-blue-500">
                                     <h3 className="text-sm font-bold text-gray-500">Total Gaji Bersih</h3>
-                                    <p className="text-2xl font-black text-blue-700 mt-2">{formatRupiah(totalWage)}</p>
+                                    <p className="text-2xl font-black text-blue-700 mt-2">{formatRupiah(totalCashWage)}</p>
                                     <p className="text-xs text-gray-500 mt-1">Setelah potongan kasbon</p>
                                 </Card>
                             </div>
@@ -12796,7 +12796,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const mktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const selectedMarketingKeys = new Set(mktInvoices.map(inv => String(inv.id)));
                 const { previewLogs, warnings } = emp ? computeAutoAbsensiForEmp(emp) : { previewLogs: [], warnings: [] };
+                const existingManualDates = new Set(allDailyLogs.map(l => String(l.date)));
                 previewLogs.forEach(log => {
+                    // Jangan auto-select preview jika tanggal ini sudah punya log manual
+                    if (existingManualDates.has(String(log.date))) return;
                     if (log.workDays > 0) selectedDailyKeys.add(String(log.id));
                     if (getDailySalaryLogTotal(log).overtime > 0) selectedOvertimeKeys.add(String(log.id));
                 });
