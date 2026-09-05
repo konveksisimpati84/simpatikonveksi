@@ -12410,10 +12410,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     days.sort((a, b) => a - b);
                     return `${days.join(', ')} ${_mnNames[month - 1]} ${year}`;
                 });
+                const plainRatePerHari = plainWorkDaysRaw > 0 ? Math.round(plainTotal / plainWorkDaysRaw) : 0;
                 const groupedPlainRow = plainDailyLogs.length > 0 ? `
                     <div class="item-row" style="border-left:2px solid #86efac;padding-left:6px;background:#f0fdf4">
                         <span>
                             <b>Gaji Harian (${plainWorkDays} hari)</b>
+                            <small style="color:#555">${plainWorkDays} hari × ${formatReceiptMoney(plainRatePerHari)}/hari</small>
                             ${plainDateLines.map((line, i) => `<small style="color:#374151">${i === 0 ? 'Tgl: ' : '       '}${line}</small>`).join('')}
                         </span>
                         <span>${formatReceiptMoney(plainTotal)}</span>
