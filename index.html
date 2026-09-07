@@ -19957,12 +19957,26 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const refreshAbsensiRawLogs = async () => {
-                const remote = await fetchStoreData('absensiRawLogs', []);
-                if (Array.isArray(remote)) {
-                    setAbsensiRawLogs(remote);
-                    safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(remote));
+                if (!supabaseClient) return loadLocalData('simpati_absensiRawLogs_sync', []);
+                try {
+                    const { data: tsData } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                    const remoteTsMap = (tsData?.data && typeof tsData.data === 'object') ? tsData.data : {};
+                    const localTs = getTsCache()['absensiRawLogs'];
+                    const remoteTs = remoteTsMap['absensiRawLogs'];
+                    if (localTs && remoteTs && localTs >= remoteTs) {
+                        return loadLocalData('simpati_absensiRawLogs_sync', []);
+                    }
+                    const remote = await fetchStoreData('absensiRawLogs', []);
+                    if (Array.isArray(remote)) {
+                        setAbsensiRawLogs(remote);
+                        safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(remote));
+                        if (remoteTs) updateTsCache('absensiRawLogs', remoteTs);
+                    }
+                    return Array.isArray(remote) ? remote : [];
+                } catch(err) {
+                    console.error('Gagal refresh absensiRawLogs:', err);
+                    return loadLocalData('simpati_absensiRawLogs_sync', []);
                 }
-                return Array.isArray(remote) ? remote : [];
             };
 
             useEffect(() => {
