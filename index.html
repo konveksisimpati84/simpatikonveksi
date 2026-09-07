@@ -7936,7 +7936,19 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
 
         const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi }) => {
             const newSize = () => ({ id: `SIZE-${Date.now()}-${Math.random()}`, size: '', qty: '', pricePerPcs: '', discountPerPcs: '', discountPercent: '' });
-            const newItem = () => ({ id: `ITEM-${Date.now()}-${Math.random()}`, productionType: '', sizes: [newSize()] });
+            const newItem = () => ({ id: `ITEM-${Date.now()}-${Math.random()}`, productionType: '', pricePerPcs: '', discountType: 'Rp', discountValue: '', sizes: [newSize()] });
+            // Konversi item dari data tersimpan ke format form (harga ke level item)
+            const prepareItemsForForm = (items) => (Array.isArray(items) ? items : []).map(item => {
+                const sizes = Array.isArray(item.sizes) ? item.sizes : [];
+                const firstSize = sizes[0] || {};
+                const basePrice = safeMoney(firstSize.pricePerPcs !== undefined ? firstSize.pricePerPcs : item.pricePerPcs);
+                const discPerPcs = safeMoney(firstSize.discountPerPcs);
+                const discPct = safeMoney(firstSize.discountPercent);
+                const discountType = discPct > 0 ? '%' : 'Rp';
+                const discountValue = discPct > 0 ? String(discPct) : (discPerPcs > 0 ? String(discPerPcs) : '');
+                const hasMixedPrices = sizes.length > 1 && sizes.some(s => safeMoney(s.pricePerPcs) !== basePrice);
+                return { ...item, pricePerPcs: basePrice > 0 ? String(basePrice) : (item.pricePerPcs || ''), discountType, discountValue, _hasMixedPrices: hasMixedPrices };
+            });
             const emptyInvoice = {
                 date: new Date().toISOString().slice(0, 10),
                 customer: '',
@@ -8009,10 +8021,12 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             };
             const patchItem = (itemId, patch) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) === String(itemId) ? { ...item, ...patch } : item) }));
             const patchSize = (itemId, sizeId, patch) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) === String(itemId) ? { ...item, sizes: (item.sizes || []).map(size => String(size.id) === String(sizeId) ? { ...size, ...patch } : size) } : item) }));
-            const addSize = (itemId) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) === String(itemId) ? { ...item, sizes: [...(item.sizes || []), newSize()] } : item) }));
+            const addSize = (itemId) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => { if (String(item.id) !== String(itemId)) return item; const dv = safeMoney(item.discountValue); return { ...item, sizes: [...(item.sizes || []), { ...newSize(), pricePerPcs: item.pricePerPcs || '', discountPerPcs: item.discountType === 'Rp' ? dv : 0, discountPercent: item.discountType === '%' ? dv : 0 }] }; }) }));
             const removeSize = (itemId, sizeId) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) === String(itemId) ? { ...item, sizes: (item.sizes || []).filter(size => String(size.id) !== String(sizeId)) } : item) }));
             const addProductionItem = () => setForm(prev => ({ ...prev, invoiceItems: [...getInvoiceItems(prev), newItem()] }));
             const removeProductionItem = (itemId) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).filter(item => String(item.id) !== String(itemId)) }));
+            const patchItemPrice = (itemId, val) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => String(item.id) !== String(itemId) ? item : { ...item, pricePerPcs: val, sizes: (item.sizes || []).map(s => ({ ...s, pricePerPcs: val })) }) }));
+            const patchItemDiscount = (itemId, discountType, discountValue) => setForm(prev => ({ ...prev, invoiceItems: getInvoiceItems(prev).map(item => { if (String(item.id) !== String(itemId)) return item; const dv = safeMoney(discountValue); return { ...item, discountType, discountValue, sizes: (item.sizes || []).map(s => ({ ...s, discountPerPcs: discountType === 'Rp' ? dv : 0, discountPercent: discountType === '%' ? dv : 0 })) }; }) }));
             const syncClientFromInvoice = (invoice) => {
                 if (!invoice.customer || !setClients) return;
                 const now = new Date().toISOString();
@@ -8570,9 +8584,25 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <datalist id="invoice-type-list">{uniqueInvoiceTypes.map((t,i)=><option key={i} value={t}/>)}</datalist>
                                                     {getInvoiceItems(form).length > 1 && <button type="button" onClick={() => removeProductionItem(item.id)} className="px-3 py-2 bg-red-50 text-red-600 rounded-xl font-bold text-sm border border-red-100 hover:bg-red-100 transition-colors">Hapus</button>}
                                                 </div>
+                                                {/* Harga & Diskon level item */}
+                                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Harga/pcs</span>
+                                                        <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={item.pricePerPcs || ''} onChange={e => patchItemPrice(item.id, e.target.value)}/>
+                                                    </div>
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span className="text-[9.5px] font-bold text-orange-500 uppercase tracking-wide px-0.5">Diskon</span>
+                                                        <div className="flex gap-1">
+                                                            <button type="button" onClick={() => patchItemDiscount(item.id, item.discountType === 'Rp' ? '%' : 'Rp', item.discountValue || '')} className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors ${item.discountType === '%' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>{item.discountType || 'Rp'}</button>
+                                                            <input type="number" className="flex-1 p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={item.discountValue || ''} onChange={e => patchItemDiscount(item.id, item.discountType || 'Rp', e.target.value)}/>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {item._hasMixedPrices && <div className="mb-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">Data lama: ukuran ini punya harga berbeda-beda. Harga yang tampil diambil dari ukuran pertama. Simpan ulang untuk menyamakan harga.</div>}
+                                                {/* Baris ukuran */}
                                                 <div className="space-y-2">
                                                     {(item.sizes || []).map(size => (
-                                                        <div key={size.id} className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end">
+                                                        <div key={size.id} className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
                                                             <div className="flex flex-col gap-0.5">
                                                                 <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Ukuran</span>
                                                                 <input className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm" placeholder="M / L / XL" value={size.size || ''} onChange={e => patchSize(item.id, size.id, { size: e.target.value })}/>
@@ -8580,18 +8610,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                             <div className="flex flex-col gap-0.5">
                                                                 <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Jumlah</span>
                                                                 <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.qty} onChange={e => patchSize(item.id, size.id, { qty: e.target.value })}/>
-                                                            </div>
-                                                            <div className="flex flex-col gap-0.5">
-                                                                <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Harga/pcs</span>
-                                                                <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.pricePerPcs} onChange={e => patchSize(item.id, size.id, { pricePerPcs: e.target.value })}/>
-                                                            </div>
-                                                            <div className="flex flex-col gap-0.5">
-                                                                <span className="text-[9.5px] font-bold text-orange-500 uppercase tracking-wide px-0.5">Diskon Rp</span>
-                                                                <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.discountPerPcs} onChange={e => patchSize(item.id, size.id, { discountPerPcs: e.target.value })}/>
-                                                            </div>
-                                                            <div className="flex flex-col gap-0.5">
-                                                                <span className="text-[9.5px] font-bold text-green-600 uppercase tracking-wide px-0.5">Diskon %</span>
-                                                                <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.discountPercent} onChange={e => patchSize(item.id, size.id, { discountPercent: e.target.value })}/>
                                                             </div>
                                                             <div className="flex flex-col gap-0.5 items-end">
                                                                 <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Subtotal</span>
@@ -8825,7 +8843,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <button onClick={() => setDetailInvId(inv.id)} title="Rincian" className="bg-blue-50 hover:bg-blue-100 text-blue-700 p-2 rounded-lg border border-blue-100 transition-colors"><IconEye /></button>
                                                     {status !== 'Lunas' && <button onClick={() => { setPayInvId(inv.id); setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' }); }} title="Bayar" className="bg-green-50 hover:bg-green-100 text-green-700 p-2 rounded-lg border border-green-100 transition-colors"><IconCash /></button>}
                                                     {status !== 'Lunas' && <button onClick={() => { const token = getOrCreateInvShareToken(inv.id); if (token) setInvShareModal({ inv, token }); }} title="Tagih via WhatsApp" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 p-2 rounded-lg border border-emerald-200 transition-colors flex items-center justify-center"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.123.553 4.112 1.523 5.837L.057 23.25a.75.75 0 00.921.921l5.45-1.467A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.9 0-3.7-.5-5.27-1.38l-.38-.22-3.93 1.06 1.03-3.84-.24-.38A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg></button>}
-                                                    <button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: getInvoiceItems(inv), invoiceDp: getInvoiceDp(inv) }); setEditModalOpen(true); }} title="Edit Invoice" className="bg-purple-50 hover:bg-purple-100 text-purple-700 p-2 rounded-lg border border-purple-100 transition-colors"><IconEdit /></button>
+                                                    <button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: prepareItemsForForm(getInvoiceItems(inv)), invoiceDp: getInvoiceDp(inv) }); setEditModalOpen(true); }} title="Edit Invoice" className="bg-purple-50 hover:bg-purple-100 text-purple-700 p-2 rounded-lg border border-purple-100 transition-colors"><IconEdit /></button>
                                                     <button onClick={() => printInvoice(inv)} title="Cetak Invoice" className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2 rounded-lg border border-slate-100 transition-colors"><IconPrinter /></button>
                                                     {status === 'Lunas' && <button onClick={() => printKwitansiPelunasan(inv)} title="Cetak Kwitansi Pelunasan" className="bg-green-50 hover:bg-green-100 text-green-700 px-2 py-2 rounded-lg border border-green-100 transition-colors text-xs font-bold">Kwt</button>}
                                                     <button onClick={() => setDeleteInvConfirmId(inv.id)} title="Hapus Invoice" className="bg-red-50 hover:bg-red-100 text-red-600 p-2 rounded-lg border border-red-100 transition-colors"><IconTrash /></button>
