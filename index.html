@@ -19979,18 +19979,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const refreshAbsensiRawLogs = async () => {
                 if (!supabaseClient) return loadLocalData('simpati_absensiRawLogs_sync', []);
                 try {
-                    const { data: tsData } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
-                    const remoteTsMap = (tsData?.data && typeof tsData.data === 'object') ? tsData.data : {};
-                    const localTs = getTsCache()['absensiRawLogs'];
-                    const remoteTs = remoteTsMap['absensiRawLogs'];
-                    if (localTs && remoteTs && localTs >= remoteTs) {
-                        return loadLocalData('simpati_absensiRawLogs_sync', []);
-                    }
                     const remote = await fetchStoreData('absensiRawLogs', []);
                     if (Array.isArray(remote)) {
                         setAbsensiRawLogs(remote);
                         safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(remote));
-                        if (remoteTs) updateTsCache('absensiRawLogs', remoteTs);
                     }
                     return Array.isArray(remote) ? remote : [];
                 } catch(err) {
@@ -20367,8 +20359,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         fetchLogs();
                     })
                     .subscribe();
-                // Fallback polling 5 menit jika Realtime terputus
-                const t = setInterval(fetchLogs, 300000);
+                // Fallback polling 60 menit jika Realtime terputus
+                const t = setInterval(fetchLogs, 3600000);
                 return () => {
                     supabaseClient.removeChannel(channel);
                     clearInterval(t);
