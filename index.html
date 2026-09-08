@@ -18495,7 +18495,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const getRecordSyncTime = (record) => {
-                const candidates = [record?._syncUpdatedAt, record?.deletedAt, record?.updatedAt, record?.dateProcessed, record?.date];
+                const candidates = [record?._syncUpdatedAt, record?.deletedAt, record?.updatedAt, record?.dateProcessed];
                 let latest = 0;
                 for (const value of candidates) {
                     const time = new Date(value || 0).getTime();
