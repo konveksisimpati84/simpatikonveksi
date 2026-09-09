@@ -954,7 +954,7 @@
             const monthlyPcs = React.useMemo(() => {
                 const totals = Array(12).fill(0);
                 safeOrders.forEach(o => {
-                    if (!o.date || o.isArchived) return;
+                    if (!o.date) return;
                     const parts = String(o.date).split('-');
                     if (parts[0] !== chartYear) return;
                     const m = parseInt(parts[1], 10) - 1;
