@@ -1207,22 +1207,26 @@
                                         const barH = v > 0 ? Math.max(v / gridMax * cH, 4) : 0;
                                         const y = PAD.top + cH - barH;
                                         const cx = x + barW / 2;
-                                        const lbl = v >= 1000 ? (v/1000).toFixed(1)+'k' : v > 0 ? String(v) : '';
-                                        const calloutW = 68, calloutH = 20;
+                                        const lbl = v > 0 ? v.toLocaleString('id') : '';
+                                        // Callout bubble untuk bar tertinggi: 2 baris (nama bulan + angka)
+                                        const calloutW = 80, calloutH = 32;
                                         const calloutX = Math.min(Math.max(cx - calloutW/2, PAD.left), W-PAD.right-calloutW);
-                                        const calloutY = Math.max(y - (lbl ? 8 : 0) - calloutH - 10, 2);
+                                        const calloutY = Math.max(y - calloutH - 14, 2);
                                         return (
                                             <g key={i}>
                                                 {v > 0
                                                     ? <rect x={x} y={y} width={barW} height={barH} rx="4" fill={isPeak ? 'url(#peakGradDash)' : 'url(#barGradDash)'} opacity="0.95"/>
                                                     : <rect x={x} y={PAD.top+cH-2} width={barW} height="2" rx="1" fill="#e5e7eb"/>
                                                 }
-                                                {lbl && <text x={cx} y={y-5} textAnchor="middle" fontSize="9" fontWeight="700" fill={isPeak?'#f59e0b':'#6366f1'}>{lbl}</text>}
+                                                {/* Label angka: hanya tampil untuk bar NON-peak */}
+                                                {lbl && !isPeak && <text x={cx} y={y-5} textAnchor="middle" fontSize="9" fontWeight="700" fill="#6366f1">{lbl}</text>}
+                                                {/* Callout bubble untuk bar tertinggi: angka di dalam bubble */}
                                                 {isPeak && (
                                                     <g>
-                                                        <rect x={calloutX} y={calloutY} width={calloutW} height={calloutH} rx="5" fill="#f59e0b"/>
-                                                        <polygon points={`${cx},${y-5} ${cx-4},${calloutY+calloutH} ${cx+4},${calloutY+calloutH}`} fill="#f59e0b"/>
-                                                        <text x={calloutX+calloutW/2} y={calloutY+13} textAnchor="middle" fontSize="9" fontWeight="700" fill="#fff">↑ {MONTHS_FULL[i]}</text>
+                                                        <rect x={calloutX} y={calloutY} width={calloutW} height={calloutH} rx="6" fill="#f59e0b"/>
+                                                        <polygon points={`${cx},${y-2} ${cx-5},${calloutY+calloutH} ${cx+5},${calloutY+calloutH}`} fill="#f59e0b"/>
+                                                        <text x={calloutX+calloutW/2} y={calloutY+12} textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#fff">↑ {MONTHS_FULL[i]}</text>
+                                                        <text x={calloutX+calloutW/2} y={calloutY+24} textAnchor="middle" fontSize="9" fontWeight="800" fill="#fff">{lbl} pcs</text>
                                                     </g>
                                                 )}
                                                 <text x={cx} y={PAD.top+cH+14} textAnchor="middle" fontSize="9" fontWeight="600" fill={isPeak?'#f59e0b':'#9ca3af'}>{MONTHS_SHORT[i]}</text>
