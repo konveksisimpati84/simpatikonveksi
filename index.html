@@ -1135,8 +1135,8 @@
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <Card className="border-l-4 border-l-blue-500"><h3 className="text-gray-500 text-sm font-medium">Total Order Masuk</h3><p className="text-3xl font-bold text-gray-800 mt-2">{totalOrders}</p></Card>
-                        <Card className="border-l-4 border-l-yellow-500"><h3 className="text-gray-500 text-sm font-medium">Sedang Diproses</h3><p className="text-3xl font-bold text-gray-800 mt-2">{activeOrders}</p></Card>
+                        <Card className="border-l-4 border-l-blue-500"><h3 className="text-gray-500 text-sm font-medium">Order Aktif</h3><p className="text-3xl font-bold text-gray-800 mt-2">{totalOrders}</p></Card>
+                        <Card className="border-l-4 border-l-yellow-500"><h3 className="text-gray-500 text-sm font-medium">Antrian & Proses</h3><p className="text-3xl font-bold text-gray-800 mt-2">{activeOrders}</p></Card>
                         <Card className="border-l-4 border-l-green-500"><h3 className="text-gray-500 text-sm font-medium">Selesai Produksi</h3><p className="text-3xl font-bold text-gray-800 mt-2">{doneOrders}</p></Card>
                         <Card className="border-l-4 border-l-purple-500"><h3 className="text-gray-500 text-sm font-medium">Menunggu Diarsipkan</h3><p className="text-3xl font-bold text-gray-800 mt-2">{shippedOrders}</p></Card>
                     </div>
@@ -1209,7 +1209,7 @@
                                         const lbl = v >= 1000 ? (v/1000).toFixed(1)+'k' : v > 0 ? String(v) : '';
                                         const calloutW = 68, calloutH = 20;
                                         const calloutX = Math.min(Math.max(cx - calloutW/2, PAD.left), W-PAD.right-calloutW);
-                                        const calloutY = Math.max(y - lbl ? 8 : 0 - calloutH - 10, 2);
+                                        const calloutY = Math.max(y - (lbl ? 8 : 0) - calloutH - 10, 2);
                                         return (
                                             <g key={i}>
                                                 {v > 0
