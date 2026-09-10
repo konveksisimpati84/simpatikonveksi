@@ -19070,7 +19070,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Satuan</label>
                                                 <select value={editDraft.unit || 'Pcs'} onChange={e => setEditDraft(d => ({ ...d, unit: e.target.value }))}
                                                     className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition bg-white cursor-pointer">
-                                                    {['Kg','Meter','Roll','Pcs','Gross','Lusin','Pack','Lembar','Set'].map(u => <option key={u} value={u}>{u}</option>)}
+                                                    {['Kg','Meter','Yard','Roll','Pcs','Helai','Gross','Lusin','Kodi','Pack','Lembar','Set'].map(u => <option key={u} value={u}>{u}</option>)}
                                                 </select>
                                             </div>
                                             <div>
