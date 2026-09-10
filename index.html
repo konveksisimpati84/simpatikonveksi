@@ -18361,6 +18361,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [savedQuotations, setSavedQuotations] = React.useState([]);
             const [selectedHistoryIds, setSelectedHistoryIds] = React.useState(new Set());
             const [quotationItems, setQuotationItems] = React.useState([]);
+            const [editingOrderId, setEditingOrderId] = React.useState(null);
             const chartRef  = React.useRef(null);
             const chartInst = React.useRef(null);
             const initializedRef = React.useRef(false);
@@ -18468,14 +18469,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setOrderName('Kaos Event Cotton Combed 30s + Sablon'); setOrderQty(100); setOrderWaste(5);
                 setActiveMaterials([{ masterId:'MAT-1', usagePerPcs:0.25 },{ masterId:'MAT-5', usagePerPcs:0.05 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-2' },{ masterId:'LBR-5' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
-                setIsPriceManual(false);
+                setIsPriceManual(false); setEditingOrderId(null);
                 showToast('Preset KAOS dimuat!', 'success');
             };
             const loadPresetKemeja = () => {
                 setOrderName('Kemeja American Drill + Bordir Logo'); setOrderQty(50); setOrderWaste(5);
                 setActiveMaterials([{ masterId:'MAT-3', usagePerPcs:1.5 },{ masterId:'MAT-5', usagePerPcs:0.1 },{ masterId:'MAT-6', usagePerPcs:0.07 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-3' },{ masterId:'LBR-6' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
-                setIsPriceManual(false);
+                setIsPriceManual(false); setEditingOrderId(null);
                 showToast('Preset KEMEJA dimuat!', 'success');
             };
             const loadCustomPreset = (preset) => {
@@ -18488,7 +18489,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (preset.bopTransport !== undefined) setBopTransport(preset.bopTransport);
                 if (preset.bopLain !== undefined)      setBopLain(preset.bopLain);
                 if (preset.marginPct !== undefined)    setMarginPct(preset.marginPct);
-                setIsPriceManual(false);
+                setIsPriceManual(false); setEditingOrderId(null);
                 showToast(`Preset "${preset.title}" dimuat!`, 'success');
             };
             const saveCurrentAsPreset = () => {
@@ -18500,19 +18501,38 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const deleteCustomPreset = (id) => { setCustomPresets(prev => prev.filter(p => p.id !== id)); showToast('Preset dihapus.', 'info'); };
 
             const saveCalculation = () => {
-                const newOrder = {
-                    id: 'ORD-'+Date.now(),
-                    date: new Date().toLocaleString('id-ID', { dateStyle:'short', timeStyle:'short' }),
-                    name: orderName || 'Order Konveksi',
-                    qty: calc.qty, waste: orderWaste,
-                    hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
-                    projectedProfit: formatRp(calc.profitTotal),
-                    activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
-                    activeLabor: JSON.parse(JSON.stringify(activeLabor)),
-                    bopListrik, bopSewa, bopTransport, bopLain, marginPct,
-                };
-                setSavedOrders(prev => [newOrder, ...prev]);
-                showToast(`Perhitungan "${newOrder.name}" disimpan!`, 'success');
+                const name = orderName || 'Order Konveksi';
+                if (editingOrderId) {
+                    // Mode UPDATE — perbarui record yang ada
+                    setSavedOrders(prev => prev.map(o => o.id !== editingOrderId ? o : {
+                        ...o,
+                        date: new Date().toLocaleString('id-ID', { dateStyle:'short', timeStyle:'short' }),
+                        name,
+                        qty: calc.qty, waste: orderWaste,
+                        hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
+                        projectedProfit: formatRp(calc.profitTotal),
+                        activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
+                        activeLabor: JSON.parse(JSON.stringify(activeLabor)),
+                        bopListrik, bopSewa, bopTransport, bopLain, marginPct,
+                    }));
+                    setEditingOrderId(null);
+                    showToast(`Perhitungan "${name}" diperbarui!`, 'success');
+                } else {
+                    // Mode BARU — buat record baru
+                    const newOrder = {
+                        id: 'ORD-'+Date.now(),
+                        date: new Date().toLocaleString('id-ID', { dateStyle:'short', timeStyle:'short' }),
+                        name,
+                        qty: calc.qty, waste: orderWaste,
+                        hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
+                        projectedProfit: formatRp(calc.profitTotal),
+                        activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
+                        activeLabor: JSON.parse(JSON.stringify(activeLabor)),
+                        bopListrik, bopSewa, bopTransport, bopLain, marginPct,
+                    };
+                    setSavedOrders(prev => [newOrder, ...prev]);
+                    showToast(`Perhitungan "${name}" disimpan!`, 'success');
+                }
             };
             const loadHistoryItem = (item) => {
                 setOrderName(item.name); setOrderQty(item.qty); setOrderWaste(item.waste);
@@ -18524,11 +18544,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (item.bopLain !== undefined)      setBopLain(item.bopLain);
                 if (item.marginPct !== undefined)    setMarginPct(item.marginPct);
                 if (item.sellingPrice !== undefined) { setCustomPrice(item.sellingPrice); setIsPriceManual(true); }
+                setEditingOrderId(item.id);
                 setActiveSection('calculator');
-                showToast(`"${item.name}" dimuat ke kalkulator.`, 'info');
+                showToast(`"${item.name}" dimuat — perubahan akan diupdate ke riwayat.`, 'info');
             };
-            const deleteHistoryItem = (id) => { setSavedOrders(prev => prev.filter(o => o.id !== id)); showToast('Item dihapus.', 'info'); };
-            const clearHistory = () => { setSavedOrders([]); showToast('Semua riwayat dihapus.', 'info'); };
+            const deleteHistoryItem = (id) => {
+                setSavedOrders(prev => prev.filter(o => o.id !== id));
+                if (editingOrderId === id) setEditingOrderId(null);
+                showToast('Item dihapus.', 'info');
+            };
+            const clearHistory = () => { setSavedOrders([]); setEditingOrderId(null); showToast('Semua riwayat dihapus.', 'info'); };
 
             // ── Quotation helpers ─────────────────────────────────────────────────
             const generateQuoNumber = () => {
@@ -18706,6 +18731,22 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     {/* ── SECTION: KALKULATOR ───────────────────────────────────── */}
                     {activeSection === 'calculator' && (
                         <div className="space-y-5">
+                            {/* Banner edit mode */}
+                            {editingOrderId && (() => {
+                                const editingItem = savedOrders.find(o => o.id === editingOrderId);
+                                return editingItem ? (
+                                    <div className="flex items-center justify-between bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3 text-xs">
+                                        <div className="flex items-center gap-2 text-amber-800">
+                                            <i className="fa-solid fa-pen-to-square text-amber-500 text-sm"></i>
+                                            <span>Sedang mengedit riwayat: <span className="font-bold">{editingItem.name}</span> — klik <span className="font-bold">Update Perhitungan</span> untuk menyimpan perubahan.</span>
+                                        </div>
+                                        <button onClick={() => setEditingOrderId(null)}
+                                            className="ml-4 text-amber-500 hover:text-rose-600 font-semibold whitespace-nowrap transition flex items-center gap-1">
+                                            <i className="fa-solid fa-xmark"></i> Batalkan Edit
+                                        </button>
+                                    </div>
+                                ) : null;
+                            })()}
                             {/* Preset bar */}
                             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -18960,8 +19001,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-2 pt-1">
-                                                <button onClick={saveCalculation} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-1.5 text-xs">
-                                                    <i className="fa-solid fa-bookmark"></i>Simpan Perhitungan
+                                                <button onClick={saveCalculation} className={`w-full ${editingOrderId ? 'bg-amber-500 hover:bg-amber-400' : 'bg-emerald-600 hover:bg-emerald-500'} text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-1.5 text-xs`}>
+                                                    <i className={`fa-solid ${editingOrderId ? 'fa-rotate' : 'fa-bookmark'}`}></i>
+                                                    {editingOrderId ? 'Update Perhitungan' : 'Simpan Perhitungan'}
                                                 </button>
                                                 <button onClick={() => setActiveSection('quotation')} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-1.5 text-xs">
                                                     <i className="fa-solid fa-print"></i>Surat Penawaran
