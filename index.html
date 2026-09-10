@@ -16,6 +16,10 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/@supabase/supabase-js@2&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
     <!-- jsPDF — label export PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
+    <!-- Chart.js — HPP Kalkulator doughnut chart -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+    <!-- Font Awesome — HPP Kalkulator icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" />
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
@@ -184,13 +188,14 @@
             { id: 'label_maker', label: 'Label Maker' },
             { id: 'stock_barang', label: 'Stock Barang' },
             { id: 'absensi_finger', label: 'Absensi Finger' },
+            { id: 'hpp_kalkulator', label: 'Kalkulator HPP' },
         ];
 
         const getDefaultMenuAccess = (role) => {
             if (role === 'Admin') return menuAccessOptions.map(menu => menu.id);
             if (role === 'Karyawan') return ['produksi', 'laporan'];
             if (role === 'Kasir') return ['dashboard', 'pembelian_bahan', 'pengiriman', 'biaya', 'invoice', 'klien_instansi', 'tracking_instansi', 'laporan_keuangan', 'laporan_order', 'investor', 'label_maker'];
-            return ['dashboard', 'input_order', 'antrean', 'pembelian_bahan', 'produksi', 'tracking_instansi', 'laporan', 'laporan_order', 'karyawan', 'label_maker'];
+            return ['dashboard', 'input_order', 'antrean', 'pembelian_bahan', 'produksi', 'tracking_instansi', 'laporan', 'laporan_order', 'karyawan', 'label_maker', 'hpp_kalkulator'];
         };
 
         const getAccountMenuAccess = (account) => {
@@ -304,6 +309,7 @@
         const IconShoppingCart = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>;
         const IconLayers = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>;
         const IconFingerprint = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.153-.433 2.445-1.457 3.757l-.291.337m-1.854 1.807a13.999 13.999 0 001.587-5.001m-5.2-1.6C7.12 12.178 7 12.598 7 13c0 2.5.906 4.787 2.4 6.55m-.8-10.572A4 4 0 0116 11c0 .626-.061 1.236-.18 1.826" /></svg>;
+        const IconCalculatorHpp = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01" /></svg>;
         const IconEye = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>;
         const IconCash = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>;
 
@@ -18250,6 +18256,767 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             );
         };
 
+        // ── HPP KALKULATOR ────────────────────────────────────────────────────────
+        const HppKalkulatorView = ({ supabaseClient, showToast }) => {
+            const DB_KEY_MATERIALS  = 'hpp_master_materials';
+            const DB_KEY_LABOR      = 'hpp_master_labor';
+            const DB_KEY_PRESETS    = 'hpp_custom_presets';
+            const DB_KEY_ORDERS     = 'hpp_saved_orders';
+
+            const DEFAULT_MASTER_MATERIALS = [
+                { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
+                { id: 'MAT-2', name: 'Kain PE Single',          unit: 'Kg',    price: 65000  },
+                { id: 'MAT-3', name: 'Kain American Drill',     unit: 'Meter', price: 35000  },
+                { id: 'MAT-4', name: 'Kain Cotton Fleece',      unit: 'Kg',    price: 125000 },
+                { id: 'MAT-5', name: 'Benang Jahit',            unit: 'Roll',  price: 6000   },
+                { id: 'MAT-6', name: 'Kancing Kemeja',          unit: 'Gross', price: 15000  },
+                { id: 'MAT-7', name: 'Plastik Packing OPP',     unit: 'Pack',  price: 18000  },
+                { id: 'MAT-8', name: 'Label Woven Brand',       unit: 'Pcs',   price: 450    },
+            ];
+            const DEFAULT_MASTER_LABOR = [
+                { id: 'LBR-1', job: 'Potong (Cutting Kain)',              rate: 1500  },
+                { id: 'LBR-2', job: 'Jahit Kaos Polos',                   rate: 4500  },
+                { id: 'LBR-3', job: 'Jahit Kemeja Standard',              rate: 9000  },
+                { id: 'LBR-4', job: 'Jahit Hoodie / Jaket',               rate: 12000 },
+                { id: 'LBR-5', job: 'Sablon Manual (2 Warna)',             rate: 3500  },
+                { id: 'LBR-6', job: 'Bordir Logo / Tulisan',              rate: 3000  },
+                { id: 'LBR-7', job: 'Finishing, Buang Benang, & QC',      rate: 1000  },
+                { id: 'LBR-8', job: 'Lipat & Packing Plastik',            rate: 500   },
+            ];
+
+            const [activeSection, setActiveSection] = React.useState('calculator');
+            const [masterMaterials, setMasterMaterials] = React.useState(DEFAULT_MASTER_MATERIALS);
+            const [masterLabor, setMasterLabor] = React.useState(DEFAULT_MASTER_LABOR);
+            const [customPresets, setCustomPresets] = React.useState([]);
+            const [savedOrders, setSavedOrders] = React.useState([]);
+            const [activeMaterials, setActiveMaterials] = React.useState([
+                { masterId: 'MAT-1', usagePerPcs: 0.25 },
+                { masterId: 'MAT-5', usagePerPcs: 0.05 },
+                { masterId: 'MAT-7', usagePerPcs: 0.01 },
+                { masterId: 'MAT-8', usagePerPcs: 1    },
+            ]);
+            const [activeLabor, setActiveLabor] = React.useState([
+                { masterId: 'LBR-1' },
+                { masterId: 'LBR-2' },
+                { masterId: 'LBR-5' },
+                { masterId: 'LBR-7' },
+                { masterId: 'LBR-8' },
+            ]);
+            const [orderName,   setOrderName]   = React.useState('Kaos Event Combed 30s + Sablon');
+            const [orderQty,    setOrderQty]    = React.useState(100);
+            const [orderWaste,  setOrderWaste]  = React.useState(5);
+            const [bopListrik,  setBopListrik]  = React.useState(500);
+            const [bopSewa,     setBopSewa]     = React.useState(1000);
+            const [bopTransport,setBopTransport]= React.useState(500);
+            const [bopLain,     setBopLain]     = React.useState(300);
+            const [marginPct,   setMarginPct]   = React.useState(35);
+            const [customPrice, setCustomPrice] = React.useState(0);
+            const [qClientName,  setQClientName]  = React.useState('');
+            const [qClientContact, setQClientContact] = React.useState('');
+            const chartRef  = React.useRef(null);
+            const chartInst = React.useRef(null);
+            const initializedRef = React.useRef(false);
+
+            const formatRp = (v) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(v || 0);
+
+            // ── Supabase helpers ──────────────────────────────────────────────────
+            const sbGet = async (key, fallback) => {
+                try {
+                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
+                    if (error || !data) return fallback;
+                    return data.data ?? fallback;
+                } catch { return fallback; }
+            };
+            const sbSet = async (key, value) => {
+                try {
+                    await supabaseClient.from('app_data').upsert({ id: key, data: value }, { onConflict: 'id' });
+                } catch (e) { console.error('hpp sbSet', key, e); }
+            };
+
+            // ── Load on mount ─────────────────────────────────────────────────────
+            React.useEffect(() => {
+                (async () => {
+                    const [mm, ml, cp, so] = await Promise.all([
+                        sbGet(DB_KEY_MATERIALS, DEFAULT_MASTER_MATERIALS),
+                        sbGet(DB_KEY_LABOR,     DEFAULT_MASTER_LABOR),
+                        sbGet(DB_KEY_PRESETS,   []),
+                        sbGet(DB_KEY_ORDERS,    []),
+                    ]);
+                    setMasterMaterials(mm);
+                    setMasterLabor(ml);
+                    setCustomPresets(cp);
+                    setSavedOrders(so);
+                    initializedRef.current = true;
+                })();
+            }, []);
+
+            // ── Persist to Supabase on change (after initial load) ────────────────
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_MATERIALS, masterMaterials); }, [masterMaterials]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_LABOR,     masterLabor);     }, [masterLabor]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRESETS,   customPresets);   }, [customPresets]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_ORDERS,    savedOrders);     }, [savedOrders]);
+
+            // ── Derived HPP calculation ───────────────────────────────────────────
+            const calc = React.useMemo(() => {
+                const qty      = Math.max(1, orderQty || 1);
+                const wasteMul = 1 + (orderWaste || 0) / 100;
+
+                let bbbTotal = 0;
+                const bbbRows = activeMaterials.map((item) => {
+                    const mat = masterMaterials.find(m => m.id === item.masterId) || { price: 0, unit: '-' };
+                    const usageWaste = (item.usagePerPcs || 0) * wasteMul;
+                    const costPcs    = usageWaste * mat.price;
+                    const totalReq   = usageWaste * qty;
+                    const rowCost    = totalReq * mat.price;
+                    bbbTotal += rowCost;
+                    return { mat, usageWaste, costPcs, totalReq, rowCost };
+                });
+
+                let btklTotal = 0;
+                const btklRows = activeLabor.map((item) => {
+                    const lab = masterLabor.find(l => l.id === item.masterId) || { rate: 0 };
+                    const rowCost = lab.rate * qty;
+                    btklTotal += rowCost;
+                    return { lab, rowCost };
+                });
+
+                const bopPerPcs = (bopListrik || 0) + (bopSewa || 0) + (bopTransport || 0) + (bopLain || 0);
+                const bopTotal  = bopPerPcs * qty;
+                const hppTotal  = bbbTotal + btklTotal + bopTotal;
+                const hppPcs    = hppTotal / qty;
+                const recPrice  = Math.ceil((hppPcs * (1 + marginPct / 100)) / 500) * 500;
+                const sellPrice = customPrice || recPrice;
+                const turnover  = sellPrice * qty;
+                const profitTotal = turnover - hppTotal;
+                const profitPcs   = sellPrice - hppPcs;
+                return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, hppTotal, hppPcs, recPrice, sellPrice, turnover, profitTotal, profitPcs };
+            }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, marginPct, customPrice]);
+
+            // Keep custom price in sync with recommended price when margin slider moves
+            React.useEffect(() => {
+                setCustomPrice(calc.recPrice);
+            }, [calc.recPrice]);
+
+            // ── Chart.js doughnut ─────────────────────────────────────────────────
+            React.useEffect(() => {
+                if (!chartRef.current || !window.Chart) return;
+                if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; }
+                chartInst.current = new window.Chart(chartRef.current, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Bahan Baku (BBB)', 'Upah Kerja (BTKL)', 'Overhead (BOP)'],
+                        datasets: [{ data: [calc.bbbTotal, calc.btklTotal, calc.bopTotal], backgroundColor: ['#6366f1','#10b981','#f59e0b'], borderWidth: 0 }],
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } } }, cutout: '65%' },
+                });
+                return () => { if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; } };
+            }, [activeSection, calc.bbbTotal, calc.btklTotal, calc.bopTotal]);
+
+            // ── Preset logic ──────────────────────────────────────────────────────
+            const loadPresetKaos = () => {
+                setOrderName('Kaos Event Cotton Combed 30s + Sablon'); setOrderQty(100); setOrderWaste(5);
+                setActiveMaterials([{ masterId:'MAT-1', usagePerPcs:0.25 },{ masterId:'MAT-5', usagePerPcs:0.05 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
+                setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-2' },{ masterId:'LBR-5' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
+                showToast('Preset KAOS dimuat!', 'success');
+            };
+            const loadPresetKemeja = () => {
+                setOrderName('Kemeja American Drill + Bordir Logo'); setOrderQty(50); setOrderWaste(5);
+                setActiveMaterials([{ masterId:'MAT-3', usagePerPcs:1.5 },{ masterId:'MAT-5', usagePerPcs:0.1 },{ masterId:'MAT-6', usagePerPcs:0.07 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
+                setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-3' },{ masterId:'LBR-6' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
+                showToast('Preset KEMEJA dimuat!', 'success');
+            };
+            const loadCustomPreset = (preset) => {
+                setOrderName(preset.orderName || preset.title);
+                if (preset.waste !== undefined) setOrderWaste(preset.waste);
+                setActiveMaterials(JSON.parse(JSON.stringify(preset.materials)));
+                setActiveLabor(JSON.parse(JSON.stringify(preset.labor)));
+                if (preset.bopListrik !== undefined)   setBopListrik(preset.bopListrik);
+                if (preset.bopSewa !== undefined)      setBopSewa(preset.bopSewa);
+                if (preset.bopTransport !== undefined) setBopTransport(preset.bopTransport);
+                if (preset.bopLain !== undefined)      setBopLain(preset.bopLain);
+                if (preset.marginPct !== undefined)    setMarginPct(preset.marginPct);
+                showToast(`Preset "${preset.title}" dimuat!`, 'success');
+            };
+            const saveCurrentAsPreset = () => {
+                const title = (orderName || 'Preset Baru').trim();
+                const newPreset = { id:'PRESET-'+Date.now(), title, orderName:title, waste:orderWaste, materials:JSON.parse(JSON.stringify(activeMaterials)), labor:JSON.parse(JSON.stringify(activeLabor)), bopListrik, bopSewa, bopTransport, bopLain, marginPct };
+                setCustomPresets(prev => [...prev, newPreset]);
+                showToast(`Preset "${title}" disimpan!`, 'success');
+            };
+            const deleteCustomPreset = (id) => { setCustomPresets(prev => prev.filter(p => p.id !== id)); showToast('Preset dihapus.', 'info'); };
+
+            const saveCalculation = () => {
+                const newOrder = {
+                    id: 'ORD-'+Date.now(),
+                    date: new Date().toLocaleString('id-ID', { dateStyle:'short', timeStyle:'short' }),
+                    name: orderName || 'Order Konveksi',
+                    qty: calc.qty, waste: orderWaste,
+                    hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
+                    projectedProfit: formatRp(calc.profitTotal),
+                    activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
+                    activeLabor: JSON.parse(JSON.stringify(activeLabor)),
+                    bopListrik, bopSewa, bopTransport, bopLain, marginPct,
+                };
+                setSavedOrders(prev => [newOrder, ...prev]);
+                showToast(`Perhitungan "${newOrder.name}" disimpan!`, 'success');
+            };
+            const loadHistoryItem = (item) => {
+                setOrderName(item.name); setOrderQty(item.qty); setOrderWaste(item.waste);
+                setActiveMaterials(JSON.parse(JSON.stringify(item.activeMaterials)));
+                setActiveLabor(JSON.parse(JSON.stringify(item.activeLabor)));
+                if (item.bopListrik !== undefined)   setBopListrik(item.bopListrik);
+                if (item.bopSewa !== undefined)      setBopSewa(item.bopSewa);
+                if (item.bopTransport !== undefined) setBopTransport(item.bopTransport);
+                if (item.bopLain !== undefined)      setBopLain(item.bopLain);
+                if (item.marginPct !== undefined)    setMarginPct(item.marginPct);
+                setActiveSection('calculator');
+                showToast(`"${item.name}" dimuat ke kalkulator.`, 'info');
+            };
+            const deleteHistoryItem = (id) => { setSavedOrders(prev => prev.filter(o => o.id !== id)); showToast('Item dihapus.', 'info'); };
+            const clearHistory = () => { setSavedOrders([]); showToast('Semua riwayat dihapus.', 'info'); };
+
+            const addMaterialRow = () => {
+                if (masterMaterials.length === 0) return;
+                setActiveMaterials(prev => [...prev, { masterId: masterMaterials[0].id, usagePerPcs: 1 }]);
+            };
+            const removeMaterialRow = (idx) => setActiveMaterials(prev => prev.filter((_, i) => i !== idx));
+            const updateMaterialItem = (idx, key, val) => setActiveMaterials(prev => prev.map((item, i) => i === idx ? { ...item, [key]: key === 'usagePerPcs' ? (parseFloat(val) || 0) : val } : item));
+            const addLaborRow = () => {
+                if (masterLabor.length === 0) return;
+                setActiveLabor(prev => [...prev, { masterId: masterLabor[0].id }]);
+            };
+            const removeLaborRow = (idx) => setActiveLabor(prev => prev.filter((_, i) => i !== idx));
+            const updateLaborItem = (idx, key, val) => setActiveLabor(prev => prev.map((item, i) => i === idx ? { ...item, [key]: val } : item));
+
+            const addNewMasterMaterial = () => {
+                const newMat = { id:'MAT-'+Date.now(), name:'Bahan Baru', unit:'Pcs', price:10000 };
+                setMasterMaterials(prev => [...prev, newMat]);
+                showToast('Bahan baku baru ditambahkan.', 'success');
+            };
+            const deleteMasterMaterial = (id) => { setMasterMaterials(prev => prev.filter(m => m.id !== id)); };
+            const addNewMasterLabor = () => {
+                const newLab = { id:'LBR-'+Date.now(), job:'Pekerjaan Baru', rate:2000 };
+                setMasterLabor(prev => [...prev, newLab]);
+                showToast('Tarif borongan baru ditambahkan.', 'success');
+            };
+            const deleteMasterLabor = (id) => { setMasterLabor(prev => prev.filter(l => l.id !== id)); };
+
+            const today = new Date().toLocaleDateString('id-ID', { year:'numeric', month:'long', day:'numeric' });
+
+            const TAB_CLASS_ACTIVE   = "px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white shadow";
+            const TAB_CLASS_INACTIVE = "px-4 py-2 rounded-lg text-sm font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition";
+
+            return (
+                <div className="space-y-6">
+                    {/* Header & Tab Nav */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-indigo-600 text-white p-2.5 rounded-xl shadow">
+                                <i className="fa-solid fa-calculator text-lg"></i>
+                            </div>
+                            <div>
+                                <h2 className="font-bold text-gray-900 text-lg leading-tight">Kalkulator HPP Konveksi</h2>
+                                <p className="text-xs text-gray-400">Harga Pokok Produksi & Estimasi Harga Jual</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl flex-wrap">
+                            <button onClick={() => setActiveSection('calculator')} className={activeSection === 'calculator' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
+                                <i className="fa-solid fa-calculator mr-1.5"></i>Kalkulator HPP
+                            </button>
+                            <button onClick={() => setActiveSection('history')} className={activeSection === 'history' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
+                                <i className="fa-solid fa-clock-rotate-left mr-1.5"></i>Riwayat ({savedOrders.length})
+                            </button>
+                            <button onClick={() => setActiveSection('master')} className={activeSection === 'master' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
+                                <i className="fa-solid fa-database mr-1.5"></i>Master Harga
+                            </button>
+                            <button onClick={() => setActiveSection('quotation')} className={activeSection === 'quotation' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
+                                <i className="fa-solid fa-file-invoice-dollar mr-1.5"></i>Cetak Penawaran
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ── SECTION: KALKULATOR ───────────────────────────────────── */}
+                    {activeSection === 'calculator' && (
+                        <div className="space-y-5">
+                            {/* Preset bar */}
+                            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-bold text-slate-600 uppercase tracking-wider whitespace-nowrap">
+                                        <i className="fa-solid fa-wand-magic-sparkles text-amber-500 mr-1"></i>Preset:
+                                    </span>
+                                    <button onClick={loadPresetKaos} className="text-xs bg-slate-800 hover:bg-slate-700 text-white font-semibold px-3 py-1.5 rounded-lg border border-slate-700 transition">Kaos</button>
+                                    <button onClick={loadPresetKemeja} className="text-xs bg-slate-800 hover:bg-slate-700 text-white font-semibold px-3 py-1.5 rounded-lg border border-slate-700 transition">Kemeja</button>
+                                    {customPresets.map(p => (
+                                        <span key={p.id} className="inline-flex items-center text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg px-2.5 py-1 font-semibold gap-1.5">
+                                            <button onClick={() => loadCustomPreset(p)} className="hover:underline flex items-center gap-1">
+                                                <i className="fa-solid fa-star text-amber-500 text-[10px]"></i>{p.title}
+                                            </button>
+                                            <button onClick={() => deleteCustomPreset(p.id)} className="text-indigo-400 hover:text-rose-600 transition"><i className="fa-solid fa-xmark text-xs"></i></button>
+                                        </span>
+                                    ))}
+                                </div>
+                                <button onClick={saveCurrentAsPreset} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm whitespace-nowrap">
+                                    <i className="fa-solid fa-bookmark text-amber-300"></i>+ Simpan Preset Ini
+                                </button>
+                            </div>
+
+                            {/* Order Info */}
+                            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                                    <div className="md:col-span-2">
+                                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Nama Produk / Order Pesanan</label>
+                                        <input type="text" value={orderName} onChange={e => setOrderName(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-semibold text-sm transition" placeholder="Contoh: Kemeja PDL Almamater" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Jumlah Order (Qty Pcs)</label>
+                                        <div className="relative">
+                                            <input type="number" value={orderQty} onChange={e => setOrderQty(parseFloat(e.target.value) || 1)} min="1" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-bold text-sm pr-12 transition" />
+                                            <span className="absolute right-4 top-2.5 text-slate-400 font-semibold text-xs">Pcs</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Toleransi Waste Kain (%)</label>
+                                        <div className="relative">
+                                            <input type="number" value={orderWaste} onChange={e => setOrderWaste(parseFloat(e.target.value) || 0)} min="0" max="30" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-bold text-sm pr-10 transition" />
+                                            <span className="absolute right-4 top-2.5 text-slate-400 font-semibold text-xs">%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Main Grid */}
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                                {/* Left: BBB + BTKL + BOP */}
+                                <div className="lg:col-span-2 space-y-5">
+                                    {/* BBB */}
+                                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                        <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">1</div>
+                                                <div>
+                                                    <h3 className="font-bold text-slate-800 text-sm">Biaya Bahan Baku & Aksesoris (BBB)</h3>
+                                                    <p className="text-xs text-slate-500">Kain, benang, kancing, zipper, label, & kemasan</p>
+                                                </div>
+                                            </div>
+                                            <button onClick={addMaterialRow} className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-3 py-2 rounded-xl transition flex items-center gap-1">
+                                                <i className="fa-solid fa-plus"></i>Tambah Bahan
+                                            </button>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left text-xs">
+                                                <thead>
+                                                    <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-100 font-semibold">
+                                                        <th className="pb-3 w-1/3">Pilih Bahan</th>
+                                                        <th className="pb-3 text-center">Pemakaian / Pcs</th>
+                                                        <th className="pb-3 text-center">Total Kebutuhan</th>
+                                                        <th className="pb-3 text-right">Harga Satuan</th>
+                                                        <th className="pb-3 text-right">Biaya / Pcs</th>
+                                                        <th className="pb-3 text-right">Total Batch</th>
+                                                        <th className="pb-3 w-8"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {activeMaterials.map((item, idx) => {
+                                                        const { mat, usageWaste, costPcs, totalReq, rowCost } = calc.bbbRows[idx] || {};
+                                                        const curMat = mat || masterMaterials.find(m => m.id === item.masterId) || { price:0, unit:'-' };
+                                                        return (
+                                                            <tr key={idx} className="hover:bg-slate-50 transition">
+                                                                <td className="py-2.5 pr-2">
+                                                                    <select value={item.masterId} onChange={e => updateMaterialItem(idx, 'masterId', e.target.value)} className="w-full text-xs p-2 bg-white border border-slate-300 rounded-lg font-medium">
+                                                                        {masterMaterials.map(m => <option key={m.id} value={m.id}>{m.name} ({formatRp(m.price)}/{m.unit})</option>)}
+                                                                    </select>
+                                                                </td>
+                                                                <td className="py-2.5 px-2 text-center">
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <input type="number" step="0.01" value={item.usagePerPcs} onChange={e => updateMaterialItem(idx, 'usagePerPcs', e.target.value)} className="w-16 text-center text-xs p-1.5 border border-slate-300 rounded-lg font-bold" />
+                                                                        <span className="text-slate-500 text-[11px]">{curMat.unit}</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="py-2.5 px-2 text-center font-bold text-slate-700 text-[11px]">{totalReq !== undefined ? Number(totalReq.toFixed(2)).toLocaleString('id-ID') : 0} {curMat.unit}</td>
+                                                                <td className="py-2.5 px-2 text-right font-medium text-slate-600">{formatRp(curMat.price)}</td>
+                                                                <td className="py-2.5 px-2 text-right font-semibold text-indigo-600">{formatRp(costPcs)}</td>
+                                                                <td className="py-2.5 px-2 text-right font-extrabold text-slate-800">{formatRp(rowCost)}</td>
+                                                                <td className="py-2.5 pl-2 text-center">
+                                                                    <button onClick={() => removeMaterialRow(idx)} className="text-slate-400 hover:text-rose-500 p-1"><i className="fa-solid fa-trash-can"></i></button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center bg-indigo-50/50 p-3 rounded-xl">
+                                            <span className="text-xs font-bold text-slate-700">Subtotal Biaya Bahan Baku (BBB):</span>
+                                            <span className="text-base font-extrabold text-indigo-700">{formatRp(calc.bbbTotal)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* BTKL */}
+                                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                        <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-sm">2</div>
+                                                <div>
+                                                    <h3 className="font-bold text-slate-800 text-sm">Biaya Tenaga Kerja Langsung (BTKL)</h3>
+                                                    <p className="text-xs text-slate-500">Upah potong, jahit, sablon/bordir, & finishing</p>
+                                                </div>
+                                            </div>
+                                            <button onClick={addLaborRow} className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold px-3 py-2 rounded-xl transition flex items-center gap-1">
+                                                <i className="fa-solid fa-plus"></i>Tambah Upah
+                                            </button>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left text-xs">
+                                                <thead>
+                                                    <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-100 font-semibold">
+                                                        <th className="pb-3 w-1/2">Jenis Pekerjaan</th>
+                                                        <th className="pb-3 text-right">Tarif Borongan / Pcs</th>
+                                                        <th className="pb-3 text-right">Total Biaya Batch</th>
+                                                        <th className="pb-3 w-10"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {activeLabor.map((item, idx) => {
+                                                        const { lab, rowCost } = calc.btklRows[idx] || {};
+                                                        const curLab = lab || masterLabor.find(l => l.id === item.masterId) || { rate:0 };
+                                                        return (
+                                                            <tr key={idx} className="hover:bg-slate-50 transition">
+                                                                <td className="py-2.5 pr-2">
+                                                                    <select value={item.masterId} onChange={e => updateLaborItem(idx, 'masterId', e.target.value)} className="w-full text-xs p-2 bg-white border border-slate-300 rounded-lg font-medium">
+                                                                        {masterLabor.map(l => <option key={l.id} value={l.id}>{l.job}</option>)}
+                                                                    </select>
+                                                                </td>
+                                                                <td className="py-2.5 px-2 text-right font-bold text-slate-700">{formatRp(curLab.rate)}</td>
+                                                                <td className="py-2.5 px-2 text-right font-extrabold text-slate-800">{formatRp(rowCost)}</td>
+                                                                <td className="py-2.5 pl-2 text-center">
+                                                                    <button onClick={() => removeLaborRow(idx)} className="text-slate-400 hover:text-rose-500 p-1"><i className="fa-solid fa-trash-can"></i></button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center bg-emerald-50/50 p-3 rounded-xl">
+                                            <span className="text-xs font-bold text-slate-700">Subtotal Upah Tenaga Kerja (BTKL):</span>
+                                            <span className="text-base font-extrabold text-emerald-700">{formatRp(calc.btklTotal)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* BOP */}
+                                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                        <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center font-bold text-sm">3</div>
+                                                <div>
+                                                    <h3 className="font-bold text-slate-800 text-sm">Biaya Overhead Pabrik & Operasional (BOP)</h3>
+                                                    <p className="text-xs text-slate-500">Listrik, penyusutan mesin, minyak/jarum, & transport</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            {[
+                                                ['Biaya Listrik, Jarum, & Minyak (per pcs)', bopListrik, setBopListrik],
+                                                ['Penyusutan Mesin & Sewa Tempat (per pcs)',  bopSewa,    setBopSewa],
+                                                ['Transport, Bensin, & Handling (per pcs)',   bopTransport,setBopTransport],
+                                                ['Overhead Lainnya / Cadangan Risk (per pcs)', bopLain,   setBopLain],
+                                            ].map(([label, val, setter]) => (
+                                                <div key={label}>
+                                                    <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+                                                    <div className="relative">
+                                                        <span className="absolute left-3 top-2.5 text-slate-400 font-medium text-xs">Rp</span>
+                                                        <input type="number" value={val} onChange={e => setter(parseFloat(e.target.value) || 0)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500" />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center bg-amber-50/50 p-3 rounded-xl">
+                                            <span className="text-xs font-bold text-slate-700">Subtotal Biaya Overhead (BOP):</span>
+                                            <span className="text-base font-extrabold text-amber-700">{formatRp(calc.bopTotal)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Right: Summary */}
+                                <div className="space-y-5">
+                                    <div className="bg-white rounded-2xl p-5 shadow-xl border border-indigo-100">
+                                        <h3 className="font-extrabold text-slate-900 text-base mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+                                            <span>Ringkasan HPP & Profit</span>
+                                            <i className="fa-solid fa-chart-pie text-indigo-600"></i>
+                                        </h3>
+                                        <div className="space-y-2.5 text-xs mb-5">
+                                            <div className="flex justify-between text-slate-600"><span>Total Biaya Bahan (BBB):</span><span className="font-bold text-slate-800">{formatRp(calc.bbbTotal)}</span></div>
+                                            <div className="flex justify-between text-slate-600"><span>Total Upah Kerja (BTKL):</span><span className="font-bold text-slate-800">{formatRp(calc.btklTotal)}</span></div>
+                                            <div className="flex justify-between text-slate-600"><span>Total Overhead (BOP):</span><span className="font-bold text-slate-800">{formatRp(calc.bopTotal)}</span></div>
+                                            <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline">
+                                                <span className="font-bold text-slate-800 text-sm">TOTAL HPP BATCH:</span>
+                                                <span className="font-extrabold text-slate-900 text-base">{formatRp(calc.hppTotal)}</span>
+                                            </div>
+                                        </div>
+                                        <div className="bg-indigo-600 text-white rounded-2xl p-4 text-center shadow-lg mb-5">
+                                            <p className="text-xs uppercase tracking-wider font-semibold opacity-80">HPP Produksi Per Pcs</p>
+                                            <p className="text-3xl font-black mt-1">{formatRp(calc.hppPcs)}</p>
+                                            <p className="text-[11px] opacity-75 mt-1">Modal bersih per potong sebelum profit</p>
+                                        </div>
+                                        <div className="space-y-4 pt-1">
+                                            <div>
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <label className="text-xs font-bold text-slate-700">Target Margin Keuntungan</label>
+                                                    <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">{marginPct}%</span>
+                                                </div>
+                                                <input type="range" min="10" max="100" value={marginPct} onChange={e => setMarginPct(parseInt(e.target.value))} className="w-full accent-indigo-600 h-2 bg-slate-200 rounded-lg cursor-pointer" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-700 mb-1">Harga Jual / Pcs (dapat diubah manual)</label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-2.5 text-slate-400 font-bold text-sm">Rp</span>
+                                                    <input type="number" value={customPrice} onChange={e => setCustomPrice(parseFloat(e.target.value) || 0)} className="w-full pl-10 pr-3 py-2.5 bg-emerald-50 border-2 border-emerald-400 text-emerald-900 rounded-xl text-base font-extrabold focus:ring-2 focus:ring-emerald-500" />
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 mt-1">Rekomendasi: {formatRp(calc.recPrice)}</p>
+                                            </div>
+                                            <div className="bg-slate-100/80 rounded-xl p-3 space-y-2 border border-slate-200/80 text-xs">
+                                                <div className="flex justify-between text-slate-600"><span>Estimasi Total Omset:</span><span className="font-bold text-slate-800">{formatRp(calc.turnover)}</span></div>
+                                                <div className="flex justify-between text-emerald-700 font-semibold border-t border-slate-200 pt-1.5"><span>Keuntungan Bersih / Pcs:</span><span className="font-extrabold">{formatRp(calc.profitPcs)}</span></div>
+                                                <div className="flex justify-between text-emerald-800 font-bold text-sm pt-1 border-t border-slate-200"><span>Estimasi Total Laba Bersih:</span><span>{formatRp(calc.profitTotal)}</span></div>
+                                            </div>
+                                            <div className="pt-2">
+                                                <p className="text-xs font-bold text-slate-500 mb-2 text-center uppercase tracking-wider">Komposisi Biaya & Margin</p>
+                                                <div className="h-44 w-full flex justify-center">
+                                                    <canvas ref={chartRef}></canvas>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2 pt-1">
+                                                <button onClick={saveCalculation} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-1.5 text-xs">
+                                                    <i className="fa-solid fa-bookmark"></i>Simpan Perhitungan
+                                                </button>
+                                                <button onClick={() => setActiveSection('quotation')} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-1.5 text-xs">
+                                                    <i className="fa-solid fa-print"></i>Surat Penawaran
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── SECTION: RIWAYAT ─────────────────────────────────────────── */}
+                    {activeSection === 'history' && (
+                        <div className="space-y-5">
+                            <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-lg flex justify-between items-center">
+                                <div>
+                                    <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-clock-rotate-left mr-2 text-emerald-400"></i>Daftar Riwayat Perhitungan HPP</h2>
+                                    <p className="text-xs text-slate-400">Simulasi biaya order yang telah disimpan untuk referensi atau pembuatan penawaran ulang.</p>
+                                </div>
+                                <button onClick={clearHistory} className="text-xs bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-2 rounded-xl transition">
+                                    <i className="fa-solid fa-trash-can mr-1"></i>Hapus Semua
+                                </button>
+                            </div>
+                            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                {savedOrders.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400 text-2xl"><i className="fa-solid fa-folder-open"></i></div>
+                                        <p className="font-bold text-slate-700">Belum ada riwayat perhitungan disimpan</p>
+                                        <p className="text-xs text-slate-400 mt-1">Hitung HPP produk di tab Kalkulator lalu klik "Simpan Perhitungan".</p>
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
+                                                    <th className="pb-3">Tanggal</th>
+                                                    <th className="pb-3">Nama Order</th>
+                                                    <th className="pb-3 text-center">Qty</th>
+                                                    <th className="pb-3 text-right">HPP / Pcs</th>
+                                                    <th className="pb-3 text-right">Harga Jual / Pcs</th>
+                                                    <th className="pb-3 text-right">Est. Laba Bersih</th>
+                                                    <th className="pb-3 text-center">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {savedOrders.map(item => (
+                                                    <tr key={item.id} className="hover:bg-slate-50 transition text-xs">
+                                                        <td className="py-3 px-1 text-slate-500 font-medium">{item.date}</td>
+                                                        <td className="py-3 px-1 font-bold text-slate-800">{item.name}</td>
+                                                        <td className="py-3 px-1 text-center font-bold text-slate-700">{item.qty} Pcs</td>
+                                                        <td className="py-3 px-1 text-right font-semibold text-slate-700">{item.hppPcs}</td>
+                                                        <td className="py-3 px-1 text-right font-extrabold text-emerald-600">{formatRp(item.sellingPrice)}</td>
+                                                        <td className="py-3 px-1 text-right font-extrabold text-indigo-600">{item.projectedProfit}</td>
+                                                        <td className="py-3 px-1 text-center">
+                                                            <div className="flex items-center justify-center gap-1.5">
+                                                                <button onClick={() => loadHistoryItem(item)} title="Buka di Kalkulator" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-folder-open text-xs"></i></button>
+                                                                <button onClick={() => { loadHistoryItem(item); setActiveSection('quotation'); }} title="Buat Penawaran" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-file-invoice-dollar text-xs"></i></button>
+                                                                <button onClick={() => deleteHistoryItem(item.id)} title="Hapus" className="bg-rose-50 hover:bg-rose-100 text-rose-500 p-1.5 rounded-lg transition"><i className="fa-solid fa-trash-can text-xs"></i></button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── SECTION: MASTER DATA ─────────────────────────────────────── */}
+                    {activeSection === 'master' && (
+                        <div className="space-y-5">
+                            <div className="bg-indigo-900 text-white p-5 rounded-2xl shadow-lg">
+                                <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-database mr-2"></i>Master Data Bahan Baku & Tarif Kerja</h2>
+                                <p className="text-xs text-indigo-200">Ubah harga patokan kain, aksesoris, dan tarif borongan jahit agar kalkulator otomatis terupdate.</p>
+                            </div>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                {/* Master Bahan */}
+                                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-bold text-slate-800 text-sm"><i className="fa-solid fa-boxes-stacked mr-2 text-indigo-600"></i>Master Bahan Baku</h3>
+                                        <button onClick={addNewMasterMaterial} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition">+ Tambah Master Bahan</button>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
+                                                    <th className="pb-2">Nama Bahan</th>
+                                                    <th className="pb-2">Satuan</th>
+                                                    <th className="pb-2 text-right">Harga Standard</th>
+                                                    <th className="pb-2 text-center">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {masterMaterials.map((m) => (
+                                                    <tr key={m.id} className="hover:bg-slate-50">
+                                                        <td className="py-2 font-semibold text-slate-800">{m.name}</td>
+                                                        <td className="py-2 text-slate-500">{m.unit}</td>
+                                                        <td className="py-2 text-right font-bold text-slate-700">{formatRp(m.price)}</td>
+                                                        <td className="py-2 text-center"><button onClick={() => deleteMasterMaterial(m.id)} className="text-rose-500 hover:text-rose-700 font-bold text-xs"><i className="fa-solid fa-trash"></i></button></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                {/* Master Upah */}
+                                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-bold text-slate-800 text-sm"><i className="fa-solid fa-user-gear mr-2 text-emerald-600"></i>Master Tarif Borongan</h3>
+                                        <button onClick={addNewMasterLabor} className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition">+ Tambah Master Tarif</button>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
+                                                    <th className="pb-2">Jenis Pekerjaan</th>
+                                                    <th className="pb-2 text-right">Tarif / Pcs</th>
+                                                    <th className="pb-2 text-center">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {masterLabor.map((l) => (
+                                                    <tr key={l.id} className="hover:bg-slate-50">
+                                                        <td className="py-2 font-semibold text-slate-800">{l.job}</td>
+                                                        <td className="py-2 text-right font-bold text-slate-700">{formatRp(l.rate)}</td>
+                                                        <td className="py-2 text-center"><button onClick={() => deleteMasterLabor(l.id)} className="text-rose-500 hover:text-rose-700 font-bold text-xs"><i className="fa-solid fa-trash"></i></button></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── SECTION: SURAT PENAWARAN ─────────────────────────────────── */}
+                    {activeSection === 'quotation' && (
+                        <div className="space-y-5">
+                            <div className="flex justify-between items-center bg-slate-900 text-white p-4 rounded-2xl">
+                                <div>
+                                    <h2 className="font-bold text-base"><i className="fa-solid fa-file-invoice-dollar mr-2 text-indigo-400"></i>Pratinjau Surat Penawaran Harga</h2>
+                                    <p className="text-xs text-slate-400">Siap dicetak atau disimpan sebagai PDF untuk dikirimkan ke pelanggan.</p>
+                                </div>
+                                <button onClick={() => window.print()} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow transition flex items-center gap-2">
+                                    <i className="fa-solid fa-print"></i>Cetak / Save PDF
+                                </button>
+                            </div>
+                            <div className="bg-white p-8 md:p-12 rounded-2xl shadow-xl max-w-4xl mx-auto text-slate-800 border border-slate-200">
+                                <div className="flex justify-between items-start border-b border-slate-200 pb-6 mb-6">
+                                    <div>
+                                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">SURAT PENAWARAN HARGA</h1>
+                                        <p className="text-xs font-semibold text-indigo-600 mt-1">Ref: QUO/{new Date().getFullYear()}/001</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <h2 className="font-extrabold text-slate-800 text-lg">SIMPATI KONVEKSI</h2>
+                                        <p className="text-xs text-slate-500">Jl. Industri Konveksi, Bandung</p>
+                                        <p className="text-xs text-slate-500">simpatikonveksi@gmail.com</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6 mb-8 text-xs">
+                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                        <p className="font-bold text-slate-400 uppercase tracking-wider text-[10px] mb-2">Kepada Yth:</p>
+                                        <input type="text" value={qClientName} onChange={e => setQClientName(e.target.value)} className="w-full font-bold text-slate-800 border border-slate-300 rounded p-1 mb-1 text-xs" placeholder="Nama Klien / Perusahaan" />
+                                        <input type="text" value={qClientContact} onChange={e => setQClientContact(e.target.value)} className="w-full text-slate-600 border border-slate-300 rounded p-1 text-xs" placeholder="Kontak" />
+                                    </div>
+                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-right">
+                                        <p className="font-bold text-slate-400 uppercase tracking-wider text-[10px] mb-2">Tanggal & Masa Berlaku:</p>
+                                        <p className="font-semibold text-slate-800">Tanggal: {today}</p>
+                                        <p className="text-slate-500 mt-1">Berlaku hingga: 14 Hari Kerja</p>
+                                    </div>
+                                </div>
+                                <table className="w-full text-left text-xs mb-8">
+                                    <thead>
+                                        <tr className="bg-slate-900 text-white">
+                                            <th className="p-3 rounded-l-lg">No</th>
+                                            <th className="p-3">Deskripsi Produk & Spesifikasi</th>
+                                            <th className="p-3 text-center">Jumlah (Qty)</th>
+                                            <th className="p-3 text-right">Harga Satuan (Rp)</th>
+                                            <th className="p-3 text-right rounded-r-lg">Total Harga (Rp)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        <tr>
+                                            <td className="p-3 font-bold">1</td>
+                                            <td className="p-3">
+                                                <p className="font-bold text-slate-900 text-sm">{orderName || 'Order Konveksi'}</p>
+                                                <p className="text-slate-500 text-[11px] mt-0.5">Termasuk Bahan Baku Standard, Jahitan Rapi, & Finishing Packing</p>
+                                            </td>
+                                            <td className="p-3 text-center font-bold">{calc.qty} Pcs</td>
+                                            <td className="p-3 text-right font-bold">{formatRp(calc.sellPrice)}</td>
+                                            <td className="p-3 text-right font-extrabold text-slate-900 text-sm">{formatRp(calc.turnover)}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <div className="grid grid-cols-2 gap-6 items-start text-xs border-t border-slate-200 pt-6">
+                                    <div className="space-y-2">
+                                        <p className="font-bold text-slate-800">Syarat & Ketentuan Pembayaran:</p>
+                                        <ul className="list-disc list-inside text-slate-600 space-y-1 text-[11px]">
+                                            <li>DP 50% saat Order Disetujui (SPK terbit).</li>
+                                            <li>Pelunasan 50% dilakukan sebelum pengiriman barang.</li>
+                                            <li>Waktu pengerjaan standar: 7 - 10 hari kerja.</li>
+                                        </ul>
+                                    </div>
+                                    <div className="bg-slate-50 p-4 rounded-xl space-y-2">
+                                        <div className="flex justify-between text-slate-600"><span>Subtotal Order:</span><span className="font-bold text-slate-800">{formatRp(calc.turnover)}</span></div>
+                                        <div className="flex justify-between text-slate-600"><span>Pajak / PPN (0%):</span><span className="font-bold text-slate-800">Rp 0</span></div>
+                                        <div className="flex justify-between text-indigo-700 font-black text-base pt-2 border-t border-slate-200"><span>TOTAL PENAWARAN:</span><span>{formatRp(calc.turnover)}</span></div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6 text-center text-xs mt-12 pt-8">
+                                    <div>
+                                        <p className="text-slate-500 mb-12">Disetujui Oleh (Pelanggan),</p>
+                                        <p className="font-bold text-slate-900 underline">( ............................................ )</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-slate-500 mb-12">Hormat Kami (Marketing),</p>
+                                        <p className="font-bold text-slate-900 underline">( Tim Simpati Konveksi )</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
 
         const App = () => {
             const [isReady, setIsReady] = useState(false);
@@ -20317,6 +21084,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 { id: 'label_maker', label: 'Label Maker', icon: <IconLayers /> },
                 { id: 'stock_barang', label: 'Stock Barang', icon: <IconArchive /> },
                 { id: 'absensi_finger', label: 'Absensi Finger', icon: <IconFingerprint /> },
+                { id: 'hpp_kalkulator', label: 'Kalkulator HPP', icon: <IconCalculatorHpp /> },
             ];
             const allowedMenuIds = new Set(getAccountMenuAccess(authUser));
             const canOpen = (menuId) => allowedMenuIds.has(menuId);
@@ -20438,6 +21206,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'master_akun' && canOpen('master_akun') && <MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} />}
                                 {activeTab === 'stock_barang' && canOpen('stock_barang') && <StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} />}
                                 {activeTab === 'absensi_finger' && canOpen('absensi_finger') && <AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} />}
+                                {activeTab === 'hpp_kalkulator' && canOpen('hpp_kalkulator') && <HppKalkulatorView supabaseClient={supabaseClient} showToast={showToast} />}
                                 {activeMenuAllowed === false && (
                                     <Card>
                                         <div className="text-center py-10 text-gray-500 font-bold">Menu ini tidak tersedia untuk akun Anda.</div>
