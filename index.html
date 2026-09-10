@@ -18418,12 +18418,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setOrderName('Kaos Event Cotton Combed 30s + Sablon'); setOrderQty(100); setOrderWaste(5);
                 setActiveMaterials([{ masterId:'MAT-1', usagePerPcs:0.25 },{ masterId:'MAT-5', usagePerPcs:0.05 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-2' },{ masterId:'LBR-5' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
+                setIsPriceManual(false);
                 showToast('Preset KAOS dimuat!', 'success');
             };
             const loadPresetKemeja = () => {
                 setOrderName('Kemeja American Drill + Bordir Logo'); setOrderQty(50); setOrderWaste(5);
                 setActiveMaterials([{ masterId:'MAT-3', usagePerPcs:1.5 },{ masterId:'MAT-5', usagePerPcs:0.1 },{ masterId:'MAT-6', usagePerPcs:0.07 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-3' },{ masterId:'LBR-6' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
+                setIsPriceManual(false);
                 showToast('Preset KEMEJA dimuat!', 'success');
             };
             const loadCustomPreset = (preset) => {
@@ -18436,6 +18438,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (preset.bopTransport !== undefined) setBopTransport(preset.bopTransport);
                 if (preset.bopLain !== undefined)      setBopLain(preset.bopLain);
                 if (preset.marginPct !== undefined)    setMarginPct(preset.marginPct);
+                setIsPriceManual(false);
                 showToast(`Preset "${preset.title}" dimuat!`, 'success');
             };
             const saveCurrentAsPreset = () => {
