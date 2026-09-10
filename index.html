@@ -18371,6 +18371,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const chartInst = React.useRef(null);
             const initializedRef = React.useRef(false);
             const [pendingPrint, setPendingPrint] = React.useState(false);
+            const printMetaRef = React.useRef({ clientName: '' });
 
             const formatRp = (v) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(v || 0);
 
@@ -18459,6 +18460,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => {
                 if (pendingPrint) {
                     setPendingPrint(false);
+                    const originalTitle = document.title;
+                    const client = (printMetaRef.current.clientName || '').trim();
+                    document.title = client ? `Surat Penawaran - ${client}` : 'Surat Penawaran';
+                    window.addEventListener('afterprint', () => { document.title = originalTitle; }, { once: true });
                     window.print();
                 }
             }, [pendingPrint, qClientName, qClientContact, qNotes, quotationItems]);
@@ -18657,6 +18662,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const deleteQuotation = (id) => { setSavedQuotations(prev => prev.filter(q => q.id !== id)); showToast('Penawaran dihapus.', 'info'); };
 
             const printQuotation = (q) => {
+                printMetaRef.current = { clientName: q.clientName || '' };
                 loadQuotation(q);
                 setPendingPrint(true);
             };
