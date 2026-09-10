@@ -19242,10 +19242,22 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 </div>
 
                                 {/* kepada */}
-                                <div className="mb-6 text-xs">
+                                <div className="mb-4 text-xs">
                                     <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px] mb-1">Kepada Yth:</p>
                                     <p className="font-bold text-slate-900 text-sm">{qClientName || '___________________________'}</p>
                                     {qClientContact && <p className="text-slate-600">{qClientContact}</p>}
+                                    <p className="text-slate-600 mt-0.5">di Tempat</p>
+                                </div>
+
+                                {/* kalimat pembuka */}
+                                <div className="mb-5 text-xs text-slate-700 leading-relaxed space-y-1.5">
+                                    <p><span className="font-bold">Dengan hormat,</span></p>
+                                    <p>
+                                        Menanggapi kebutuhan{qClientName ? ` Bapak/Ibu/Sdr. ${qClientName}` : ' Bapak/Ibu/Sdr.'}, dengan ini kami sampaikan penawaran harga
+                                        pengerjaan produk konveksi dari <span className="font-semibold">{coName}</span>. Kami berkomitmen menghadirkan produk
+                                        berkualitas dengan jahitan rapi, bahan pilihan, pengiriman tepat waktu, dan harga yang kompetitif.
+                                    </p>
+                                    <p>Adapun rincian penawaran kami adalah sebagai berikut:</p>
                                 </div>
 
                                 {/* tabel item */}
@@ -19327,6 +19339,20 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         </div>
                                         <p className="text-[10px] text-slate-400">*Jumlah bersifat estimasi, dapat berubah sesuai konfirmasi order.</p>
                                     </div>
+                                </div>
+
+                                {/* kalimat penutup */}
+                                <div className="mb-6 text-xs text-slate-700 leading-relaxed space-y-1.5 border-t border-slate-100 pt-5">
+                                    <p>
+                                        Demikian penawaran ini kami sampaikan dengan sepenuh hati. Besar harapan kami dapat menjalin
+                                        kerja sama yang saling menguntungkan bersama{qClientName ? ` Bapak/Ibu/Sdr. ${qClientName}` : ' Bapak/Ibu/Sdr.'}.
+                                        Penawaran ini berlaku <span className="font-semibold">14 hari kerja</span> sejak tanggal terbit.
+                                    </p>
+                                    <p>
+                                        Untuk konfirmasi order, negosiasi, atau informasi lebih lanjut, jangan ragu untuk menghubungi kami
+                                        kapan saja. Kami siap melayani dengan sepenuh hati dan profesional.
+                                    </p>
+                                    <p className="font-semibold text-slate-800">Terima kasih atas kepercayaan dan perhatian Bapak/Ibu/Sdr.</p>
                                 </div>
 
                                 {/* TTD */}
