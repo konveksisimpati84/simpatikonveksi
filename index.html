@@ -18370,7 +18370,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const chartRef  = React.useRef(null);
             const chartInst = React.useRef(null);
             const initializedRef = React.useRef(false);
-            const pendingPrintRef = React.useRef(false);
+            const [pendingPrint, setPendingPrint] = React.useState(false);
 
             const formatRp = (v) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(v || 0);
 
@@ -18448,20 +18448,20 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const profitTotal = turnover - hppTotal;
                 const profitPcs   = sellPrice - hppPcs;
                 return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, hppTotal, hppPcs, recPrice, sellPrice, turnover, profitTotal, profitPcs };
-            }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, marginPct, customPrice]);
+            }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, marginPct, customPrice, isPriceManual]);
 
             // Sync recommended price only when user has NOT manually overridden the price
             React.useEffect(() => {
                 if (!isPriceManual) setCustomPrice(calc.recPrice);
             }, [calc.recPrice, isPriceManual]);
 
-            // Fire print after quotation state has fully rendered (Bug 2 fix)
+            // Fire print setelah semua state quotation selesai dirender
             React.useEffect(() => {
-                if (pendingPrintRef.current) {
-                    pendingPrintRef.current = false;
+                if (pendingPrint) {
+                    setPendingPrint(false);
                     window.print();
                 }
-            }, [qClientName, qClientContact, qNotes, quotationItems]);
+            }, [pendingPrint, qClientName, qClientContact, qNotes, quotationItems]);
 
             // ── Chart.js doughnut ─────────────────────────────────────────────────
             React.useEffect(() => {
@@ -18568,7 +18568,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setSelectedHistoryIds(prev => { const next = new Set(prev); next.delete(id); return next; });
                 showToast('Item dihapus.', 'info');
             };
-            const clearHistory = () => { setSavedOrders([]); setEditingOrderId(null); showToast('Semua riwayat dihapus.', 'info'); };
+            const clearHistory = () => { setSavedOrders([]); setEditingOrderId(null); setSelectedHistoryIds(new Set()); showToast('Semua riwayat dihapus.', 'info'); };
 
             // ── Quotation helpers ─────────────────────────────────────────────────
             const generateQuoNumber = () => {
@@ -18657,8 +18657,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const deleteQuotation = (id) => { setSavedQuotations(prev => prev.filter(q => q.id !== id)); showToast('Penawaran dihapus.', 'info'); };
 
             const printQuotation = (q) => {
-                pendingPrintRef.current = true;
                 loadQuotation(q);
+                setPendingPrint(true);
             };
 
             const addMaterialRow = () => {
