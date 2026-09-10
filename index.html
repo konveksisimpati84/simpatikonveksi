@@ -12429,7 +12429,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (fpPin && fpIsHarian) {
                         const fpCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
                         const fpToday = new Date().toISOString().split('T')[0];
-                        hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
+                        hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
                     }
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd || hasFingerPending) ids.add(String(emp.id));
                 });
@@ -12966,7 +12966,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const d = new Date(cutoffDate); d.setDate(d.getDate() + 1);
                     startDate = d.toISOString().split('T')[0];
                 } else {
-                    const allPinDates = safeArray(absensiRawLogs).filter(l => !l.isDeleted && String(l.pin) === pin).map(l => l.tanggal).filter(Boolean).sort();
+                    const allPinDates = safeArray(absensiRawLogs).filter(l => !l.isDeleted && String(l.pin).trim() === pin).map(l => l.tanggal).filter(Boolean).sort();
                     startDate = allPinDates[0] || null;
                 }
                 if (!startDate || startDate > today) return { previewLogs: [], warnings: [] };
@@ -12977,7 +12977,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const previewLogs = [];
                 const nowTs = new Date().toISOString();
                 dates.forEach(date => {
-                    const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin) === pin);
+                    const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin).trim() === pin);
                     const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
                     const sorted = [...dayLogs].sort((a, b) => a.jam > b.jam ? 1 : -1);
                     const mShift3Masuk = empShift3obj ? ttm(empShift3obj.jamMasuk) : null;
@@ -13716,7 +13716,7 @@ ${getRekapShareLink(rekap)}
                 if (rEmpPin && rEmpIsHarian) {
                     const rCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
                     const rTodayStr = new Date().toISOString().split('T')[0];
-                    const rHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === rEmpPin && l.tanggal > (rCutoff || '0000-00-00') && l.tanggal <= rTodayStr);
+                    const rHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === rEmpPin && l.tanggal > (rCutoff || '0000-00-00') && l.tanggal <= rTodayStr);
                     if (rHasPending) {
                         const rResult = computeAutoAbsensiForEmp(emp);
                         rPreviewHarian = safeArray(rResult.previewLogs).filter(l => getDailySalaryLogTotal(l).daily > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
@@ -13758,7 +13758,7 @@ ${getRekapShareLink(rekap)}
                     if (pEmpPin && pEmpIsHarian) {
                         const pCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
                         const pTodayStr = new Date().toISOString().split('T')[0];
-                        const pHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === pEmpPin && l.tanggal > (pCutoff || '0000-00-00') && l.tanggal <= pTodayStr);
+                        const pHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === pEmpPin && l.tanggal > (pCutoff || '0000-00-00') && l.tanggal <= pTodayStr);
                         if (pHasPending) {
                             const pResult = computeAutoAbsensiForEmp(emp);
                             pPreviewHarian = safeArray(pResult.previewLogs).filter(l => getDailySalaryLogTotal(l).daily > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
@@ -13978,7 +13978,7 @@ ${getRekapShareLink(rekap)}
                                 if (empPin && empIsHarian) {
                                     const absCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
                                     const absTodayStr = new Date().toISOString().split('T')[0];
-                                    hasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === empPin && l.tanggal > (absCutoff || '0000-00-00') && l.tanggal <= absTodayStr);
+                                    hasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === empPin && l.tanggal > (absCutoff || '0000-00-00') && l.tanggal <= absTodayStr);
                                 }
                                 let listPreviewDailyTotal = 0, listPreviewOvertimeTotal = 0;
                                 if (empPin && empIsHarian && hasAbsensiPending) {
@@ -14713,7 +14713,7 @@ ${getRekapShareLink(rekap)}
                         if (dEmpPin && dEmpIsHarian) {
                             const dAbsCutoff = safeArray(dEmp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
                             const dAbsTodayStr = new Date().toISOString().split('T')[0];
-                            dHasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin) === dEmpPin && l.tanggal > (dAbsCutoff || '0000-00-00') && l.tanggal <= dAbsTodayStr);
+                            dHasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === dEmpPin && l.tanggal > (dAbsCutoff || '0000-00-00') && l.tanggal <= dAbsTodayStr);
                         }
                         const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || dHasAbsensiPending;
                         const dPreviewResult = (dEmpPin && dEmpIsHarian) ? computeAutoAbsensiForEmp(dEmp) : { previewLogs: [] };
