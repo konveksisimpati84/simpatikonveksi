@@ -18311,6 +18311,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [bopLain,     setBopLain]     = React.useState(300);
             const [marginPct,   setMarginPct]   = React.useState(35);
             const [customPrice, setCustomPrice] = React.useState(0);
+            const [isPriceManual, setIsPriceManual] = React.useState(false);
             const [qClientName,  setQClientName]  = React.useState('');
             const [qClientContact, setQClientContact] = React.useState('');
             const chartRef  = React.useRef(null);
@@ -18392,10 +18393,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, hppTotal, hppPcs, recPrice, sellPrice, turnover, profitTotal, profitPcs };
             }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, marginPct, customPrice]);
 
-            // Keep custom price in sync with recommended price when margin slider moves
+            // Sync recommended price only when user has NOT manually overridden the price
             React.useEffect(() => {
-                setCustomPrice(calc.recPrice);
-            }, [calc.recPrice]);
+                if (!isPriceManual) setCustomPrice(calc.recPrice);
+            }, [calc.recPrice, isPriceManual]);
 
             // ── Chart.js doughnut ─────────────────────────────────────────────────
             React.useEffect(() => {
@@ -18469,6 +18470,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (item.bopTransport !== undefined) setBopTransport(item.bopTransport);
                 if (item.bopLain !== undefined)      setBopLain(item.bopLain);
                 if (item.marginPct !== undefined)    setMarginPct(item.marginPct);
+                if (item.sellingPrice !== undefined) { setCustomPrice(item.sellingPrice); setIsPriceManual(true); }
                 setActiveSection('calculator');
                 showToast(`"${item.name}" dimuat ke kalkulator.`, 'info');
             };
@@ -18786,12 +18788,18 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <input type="range" min="10" max="100" value={marginPct} onChange={e => setMarginPct(parseInt(e.target.value))} className="w-full accent-indigo-600 h-2 bg-slate-200 rounded-lg cursor-pointer" />
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-bold text-slate-700 mb-1">Harga Jual / Pcs (dapat diubah manual)</label>
+                                                <label className="block text-xs font-bold text-slate-700 mb-1">
+                                                    Harga Jual / Pcs
+                                                    {isPriceManual && <span className="ml-1 text-orange-500">(manual)</span>}
+                                                </label>
                                                 <div className="relative">
                                                     <span className="absolute left-3 top-2.5 text-slate-400 font-bold text-sm">Rp</span>
-                                                    <input type="number" value={customPrice} onChange={e => setCustomPrice(parseFloat(e.target.value) || 0)} className="w-full pl-10 pr-3 py-2.5 bg-emerald-50 border-2 border-emerald-400 text-emerald-900 rounded-xl text-base font-extrabold focus:ring-2 focus:ring-emerald-500" />
+                                                    <input type="number" value={customPrice} onChange={e => { setCustomPrice(parseFloat(e.target.value) || 0); setIsPriceManual(true); }} className="w-full pl-10 pr-3 py-2.5 bg-emerald-50 border-2 border-emerald-400 text-emerald-900 rounded-xl text-base font-extrabold focus:ring-2 focus:ring-emerald-500" />
                                                 </div>
-                                                <p className="text-[11px] text-slate-500 mt-1">Rekomendasi: {formatRp(calc.recPrice)}</p>
+                                                <div className="flex items-center justify-between mt-1">
+                                                    <p className="text-[11px] text-slate-500">Rekomendasi: {formatRp(calc.recPrice)}</p>
+                                                    {isPriceManual && <button onClick={() => { setCustomPrice(calc.recPrice); setIsPriceManual(false); }} className="text-[11px] text-indigo-500 hover:text-indigo-700 font-semibold underline">Reset otomatis</button>}
+                                                </div>
                                             </div>
                                             <div className="bg-slate-100/80 rounded-xl p-3 space-y-2 border border-slate-200/80 text-xs">
                                                 <div className="flex justify-between text-slate-600"><span>Estimasi Total Omset:</span><span className="font-bold text-slate-800">{formatRp(calc.turnover)}</span></div>
