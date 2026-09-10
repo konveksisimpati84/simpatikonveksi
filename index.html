@@ -1193,7 +1193,7 @@
                                     {[0,1,2,3,4].map(g => {
                                         const v = gridStep * g;
                                         const y = yPos(v);
-                                        const lbl = v >= 1000 ? (v/1000).toFixed(v%1000 ? 1 : 0)+'k' : v;
+                                        const lbl = v > 0 ? v.toLocaleString('id') : 0;
                                         return (
                                             <g key={g}>
                                                 <line x1={PAD.left} y1={y} x2={W-PAD.right} y2={y} stroke="#e5e7eb" strokeWidth={g===0?1.5:1} strokeDasharray={g===0?'0':'5 4'}/>
@@ -20528,7 +20528,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const groupByPin = (logs) => {
                 const groups = {};
                 logs.filter(l => !l.isDeleted).forEach(l => {
-                    const pin = String(l.pin);
+                    const pin = String(l.pin).trim();
                     if (!groups[pin]) groups[pin] = [];
                     groups[pin].push(l);
                 });
@@ -20629,8 +20629,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const mMid = titikTengahConfig
                     ? timeToMinutes(titikTengahConfig)
                     : (mMasukCfg != null && mPulangCfg != null) ? (mMasukCfg + mPulangCfg) / 2 : null;
-                const masukZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) <= mMid) : aktifEntries;
-                const pulangZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) > mMid) : [];
+                let masukZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) <= mMid) : aktifEntries;
+                let pulangZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) > mMid) : [];
+                // Bug fix: jika scan tunggal jatuh di pulangZone (setelah midpoint), perlakukan sebagai masuk
+                if (masukZone.length === 0 && pulangZone.length > 0) {
+                    masukZone = [pulangZone[0]];
+                    pulangZone = pulangZone.slice(1);
+                }
                 const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
                 const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
 
