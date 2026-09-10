@@ -18682,13 +18682,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const addNewMasterMaterial = () => {
                 const newMat = { id:'MAT-'+Date.now(), name:'Bahan Baru', unit:'Pcs', price:10000 };
-                setMasterMaterials(prev => [...prev, newMat]);
+                setMasterMaterials(prev => [newMat, ...prev]);
+                setMatPage(1);
                 showToast('Bahan baku baru ditambahkan.', 'success');
             };
             const deleteMasterMaterial = (id) => { setMasterMaterials(prev => prev.filter(m => m.id !== id)); };
             const addNewMasterLabor = () => {
                 const newLab = { id:'LBR-'+Date.now(), job:'Pekerjaan Baru', rate:2000 };
-                setMasterLabor(prev => [...prev, newLab]);
+                setMasterLabor(prev => [newLab, ...prev]);
+                setLbrPage(1);
                 showToast('Tarif borongan baru ditambahkan.', 'success');
             };
             const deleteMasterLabor = (id) => { setMasterLabor(prev => prev.filter(l => l.id !== id)); };
