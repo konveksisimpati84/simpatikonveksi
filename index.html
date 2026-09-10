@@ -18370,6 +18370,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const chartRef  = React.useRef(null);
             const chartInst = React.useRef(null);
             const initializedRef = React.useRef(false);
+            const pendingPrintRef = React.useRef(false);
 
             const formatRp = (v) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(v || 0);
 
@@ -18442,7 +18443,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const hppTotal  = bbbTotal + btklTotal + bopTotal;
                 const hppPcs    = hppTotal / qty;
                 const recPrice  = Math.ceil((hppPcs * (1 + marginPct / 100)) / 500) * 500;
-                const sellPrice = customPrice || recPrice;
+                const sellPrice = isPriceManual ? customPrice : recPrice;
                 const turnover  = sellPrice * qty;
                 const profitTotal = turnover - hppTotal;
                 const profitPcs   = sellPrice - hppPcs;
@@ -18453,6 +18454,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => {
                 if (!isPriceManual) setCustomPrice(calc.recPrice);
             }, [calc.recPrice, isPriceManual]);
+
+            // Fire print after quotation state has fully rendered (Bug 2 fix)
+            React.useEffect(() => {
+                if (pendingPrintRef.current) {
+                    pendingPrintRef.current = false;
+                    window.print();
+                }
+            }, [qClientName, qClientContact, qNotes, quotationItems]);
 
             // ── Chart.js doughnut ─────────────────────────────────────────────────
             React.useEffect(() => {
@@ -18556,6 +18565,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const deleteHistoryItem = (id) => {
                 setSavedOrders(prev => prev.filter(o => o.id !== id));
                 if (editingOrderId === id) setEditingOrderId(null);
+                setSelectedHistoryIds(prev => { const next = new Set(prev); next.delete(id); return next; });
                 showToast('Item dihapus.', 'info');
             };
             const clearHistory = () => { setSavedOrders([]); setEditingOrderId(null); showToast('Semua riwayat dihapus.', 'info'); };
@@ -18647,8 +18657,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const deleteQuotation = (id) => { setSavedQuotations(prev => prev.filter(q => q.id !== id)); showToast('Penawaran dihapus.', 'info'); };
 
             const printQuotation = (q) => {
+                pendingPrintRef.current = true;
                 loadQuotation(q);
-                setTimeout(() => window.print(), 300);
             };
 
             const addMaterialRow = () => {
