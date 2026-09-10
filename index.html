@@ -19623,41 +19623,25 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 </div>
 
                                 {/* catatan & syarat */}
-                                <div className="grid grid-cols-2 gap-6 items-start text-xs border-t border-slate-200 pt-5 mb-8">
-                                    <div className="space-y-2">
-                                        <p className="font-bold text-slate-800">Syarat & Ketentuan:</p>
-                                        <ul className="list-disc list-inside text-slate-600 space-y-1 text-[11px]">
-                                            <li>DP 50% saat Order Disetujui (SPK terbit).</li>
-                                            <li>Pelunasan 50% dilakukan sebelum pengiriman barang.</li>
-                                        </ul>
-                                        {(bank1 || bank2) && (
-                                            <div className="mt-3 space-y-1">
-                                                <p className="font-bold text-slate-800">Rekening Pembayaran:</p>
-                                                {bank1 && <p className="text-[11px] text-slate-600">{bank1} – {bank1No} a.n. {bank1Name}</p>}
-                                                {bank2 && <p className="text-[11px] text-slate-600">{bank2} – {bank2No} a.n. {bank2Name}</p>}
-                                            </div>
-                                        )}
-                                        {qNotes && (
-                                            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                                                <p className="font-bold text-amber-700 text-[10px] uppercase mb-1">Catatan:</p>
-                                                <p className="text-slate-700 text-[11px] whitespace-pre-wrap">{qNotes}</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-100">
-                                        <p className="font-bold text-slate-600 text-[10px] uppercase tracking-wider mb-2">Ringkasan Penawaran</p>
-                                        {quotationItems.map((qi, idx) => (
-                                            <div key={qi.id} className="flex justify-between text-slate-600 text-[11px]">
-                                                <span className="truncate max-w-[60%]">{idx+1}. {qi.description || '—'} (~{(qi.estQty||0).toLocaleString('id-ID')} pcs)</span>
-                                                <span className="font-semibold whitespace-nowrap">{formatRp(calcQuotationItemNet(qi) * (qi.estQty||0))}</span>
-                                            </div>
-                                        ))}
-                                        <div className="flex justify-between text-indigo-700 font-black text-base pt-2 border-t border-slate-200">
-                                            <span>TOTAL ESTIMASI:</span>
-                                            <span>{formatRp(grandTotal)}</span>
+                                <div className="text-xs border-t border-slate-200 pt-5 mb-8 space-y-2">
+                                    <p className="font-bold text-slate-800">Syarat & Ketentuan:</p>
+                                    <ul className="list-disc list-inside text-slate-600 space-y-1 text-[11px]">
+                                        <li>DP 50% saat Order Disetujui (SPK terbit).</li>
+                                        <li>Pelunasan 50% dilakukan sebelum pengiriman barang.</li>
+                                    </ul>
+                                    {(bank1 || bank2) && (
+                                        <div className="mt-3 space-y-1">
+                                            <p className="font-bold text-slate-800">Rekening Pembayaran:</p>
+                                            {bank1 && <p className="text-[11px] text-slate-600">{bank1} – {bank1No} a.n. {bank1Name}</p>}
+                                            {bank2 && <p className="text-[11px] text-slate-600">{bank2} – {bank2No} a.n. {bank2Name}</p>}
                                         </div>
-                                        <p className="text-[10px] text-slate-400">*Jumlah bersifat estimasi, dapat berubah sesuai konfirmasi order.</p>
-                                    </div>
+                                    )}
+                                    {qNotes && (
+                                        <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                                            <p className="font-bold text-amber-700 text-[10px] uppercase mb-1">Catatan:</p>
+                                            <p className="text-slate-700 text-[11px] whitespace-pre-wrap">{qNotes}</p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* kalimat penutup */}
