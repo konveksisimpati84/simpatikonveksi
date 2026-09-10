@@ -18346,6 +18346,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 { masterId: 'LBR-8' },
             ]);
             const [orderName,   setOrderName]   = React.useState('Kaos Event Combed 30s + Sablon');
+            const [orderDetail, setOrderDetail] = React.useState('');
             const [orderQty,    setOrderQty]    = React.useState(100);
             const [orderWaste,  setOrderWaste]  = React.useState(5);
             const [bopListrik,  setBopListrik]  = React.useState(500);
@@ -18485,14 +18486,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             // ── Preset logic ──────────────────────────────────────────────────────
             const loadPresetKaos = () => {
-                setOrderName('Kaos Event Cotton Combed 30s + Sablon'); setOrderQty(100); setOrderWaste(5);
+                setOrderName('Kaos Event Cotton Combed 30s + Sablon'); setOrderDetail(''); setOrderQty(100); setOrderWaste(5);
                 setActiveMaterials([{ masterId:'MAT-1', usagePerPcs:0.25 },{ masterId:'MAT-5', usagePerPcs:0.05 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-2' },{ masterId:'LBR-5' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
                 setIsPriceManual(false); setEditingOrderId(null);
                 showToast('Preset KAOS dimuat!', 'success');
             };
             const loadPresetKemeja = () => {
-                setOrderName('Kemeja American Drill + Bordir Logo'); setOrderQty(50); setOrderWaste(5);
+                setOrderName('Kemeja American Drill + Bordir Logo'); setOrderDetail(''); setOrderQty(50); setOrderWaste(5);
                 setActiveMaterials([{ masterId:'MAT-3', usagePerPcs:1.5 },{ masterId:'MAT-5', usagePerPcs:0.1 },{ masterId:'MAT-6', usagePerPcs:0.07 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-3' },{ masterId:'LBR-6' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
                 setIsPriceManual(false); setEditingOrderId(null);
@@ -18526,7 +18527,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setSavedOrders(prev => prev.map(o => o.id !== editingOrderId ? o : {
                         ...o,
                         date: new Date().toLocaleString('id-ID', { dateStyle:'short', timeStyle:'short' }),
-                        name,
+                        name, detail: orderDetail,
                         qty: calc.qty, waste: orderWaste,
                         hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
                         projectedProfit: formatRp(calc.profitTotal),
@@ -18541,7 +18542,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const newOrder = {
                         id: 'ORD-'+Date.now(),
                         date: new Date().toLocaleString('id-ID', { dateStyle:'short', timeStyle:'short' }),
-                        name,
+                        name, detail: orderDetail,
                         qty: calc.qty, waste: orderWaste,
                         hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
                         projectedProfit: formatRp(calc.profitTotal),
@@ -18554,7 +18555,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
             };
             const loadHistoryItem = (item) => {
-                setOrderName(item.name); setOrderQty(item.qty); setOrderWaste(item.waste);
+                setOrderName(item.name); setOrderDetail(item.detail || ''); setOrderQty(item.qty); setOrderWaste(item.waste);
                 setActiveMaterials(JSON.parse(JSON.stringify(item.activeMaterials)));
                 setActiveLabor(JSON.parse(JSON.stringify(item.activeLabor)));
                 if (item.bopListrik !== undefined)   setBopListrik(item.bopListrik);
@@ -18600,6 +18601,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     .map(o => ({
                         id: 'QI-' + Date.now() + '-' + Math.random().toString(36).slice(2),
                         description: o.name,
+                        detail: o.detail || '',
                         estQty: o.qty,
                         unitPrice: o.sellingPrice || 0,
                         discountType: 'pct',
@@ -18615,6 +18617,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setQuotationItems(prev => [...prev, {
                     id: 'QI-' + Date.now(),
                     description: '',
+                    detail: '',
                     estQty: 100,
                     unitPrice: 0,
                     discountType: 'pct',
@@ -18887,6 +18890,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     <div className="md:col-span-2">
                                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Nama Produk / Order Pesanan</label>
                                         <input type="text" value={orderName} onChange={e => setOrderName(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-semibold text-sm transition" placeholder="Contoh: Kemeja PDL Almamater" />
+                                        <input type="text" value={orderDetail} onChange={e => setOrderDetail(e.target.value)} className="w-full mt-2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-500 text-xs transition" placeholder="Detail / spesifikasi produk (opsional, muncul di surat penawaran)" />
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Jumlah Order (Qty Pcs)</label>
@@ -19477,6 +19481,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                         <td className="py-2 pr-2">
                                                             <input type="text" value={qi.description} onChange={e => updateQuotationItem(qi.id, 'description', e.target.value)}
                                                                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 font-semibold focus:ring-1 focus:ring-indigo-400 outline-none text-xs" placeholder="Nama Produk" />
+                                                            <input type="text" value={qi.detail || ''} onChange={e => updateQuotationItem(qi.id, 'detail', e.target.value)}
+                                                                className="w-full mt-1 border border-slate-100 rounded-lg px-2 py-1 text-slate-400 focus:ring-1 focus:ring-indigo-300 outline-none text-[11px]" placeholder="Detail spesifikasi (opsional)" />
                                                         </td>
                                                         <td className="py-2 px-1">
                                                             <input type="number" value={qi.estQty} onChange={e => updateQuotationItem(qi.id, 'estQty', parseInt(e.target.value)||0)}
@@ -19592,7 +19598,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 return (
                                                     <tr key={qi.id} className="hover:bg-slate-50">
                                                         <td className="p-3 font-bold text-slate-500">{idx + 1}</td>
-                                                        <td className="p-3 font-bold text-slate-900">{qi.description || '—'}</td>
+                                                        <td className="p-3">
+                                                            <span className="font-bold text-slate-900 block">{qi.description || '—'}</span>
+                                                            {qi.detail && <span className="text-[10px] text-slate-400 italic block mt-0.5">{qi.detail}</span>}
+                                                        </td>
                                                         <td className="p-3 text-center font-bold text-slate-700">~{(qi.estQty||0).toLocaleString('id-ID')} Pcs</td>
                                                         <td className="p-3 text-right font-semibold text-slate-700">{formatRp(qi.unitPrice)}</td>
                                                         <td className="p-3 text-right">
