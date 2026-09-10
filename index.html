@@ -18362,6 +18362,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [selectedHistoryIds, setSelectedHistoryIds] = React.useState(new Set());
             const [quotationItems, setQuotationItems] = React.useState([]);
             const [editingOrderId, setEditingOrderId] = React.useState(null);
+            const [matSearch,  setMatSearch]  = React.useState('');
+            const [matPage,    setMatPage]    = React.useState(1);
+            const [lbrSearch,  setLbrSearch]  = React.useState('');
+            const [lbrPage,    setLbrPage]    = React.useState(1);
+            const MASTER_PAGE_SIZE = 8;
             const chartRef  = React.useRef(null);
             const chartInst = React.useRef(null);
             const initializedRef = React.useRef(false);
@@ -19107,7 +19112,52 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     )}
 
                     {/* ── SECTION: MASTER DATA ─────────────────────────────────────── */}
-                    {activeSection === 'master' && (
+                    {activeSection === 'master' && (() => {
+                        // ── filter & paginate Bahan ──
+                        const matQ   = matSearch.toLowerCase().trim();
+                        const matFiltered = matQ
+                            ? masterMaterials.filter(m =>
+                                m.name.toLowerCase().includes(matQ) ||
+                                m.unit.toLowerCase().includes(matQ) ||
+                                String(m.price).includes(matQ))
+                            : masterMaterials;
+                        const matTotalPages = Math.max(1, Math.ceil(matFiltered.length / MASTER_PAGE_SIZE));
+                        const matSafePage   = Math.min(matPage, matTotalPages);
+                        const matSlice      = matFiltered.slice((matSafePage - 1) * MASTER_PAGE_SIZE, matSafePage * MASTER_PAGE_SIZE);
+
+                        // ── filter & paginate Tarif ──
+                        const lbrQ   = lbrSearch.toLowerCase().trim();
+                        const lbrFiltered = lbrQ
+                            ? masterLabor.filter(l =>
+                                l.job.toLowerCase().includes(lbrQ) ||
+                                String(l.rate).includes(lbrQ))
+                            : masterLabor;
+                        const lbrTotalPages = Math.max(1, Math.ceil(lbrFiltered.length / MASTER_PAGE_SIZE));
+                        const lbrSafePage   = Math.min(lbrPage, lbrTotalPages);
+                        const lbrSlice      = lbrFiltered.slice((lbrSafePage - 1) * MASTER_PAGE_SIZE, lbrSafePage * MASTER_PAGE_SIZE);
+
+                        const Pagination = ({ page, totalPages, total, pageSize, onPrev, onNext }) => {
+                            const from = Math.min((page - 1) * pageSize + 1, total);
+                            const to   = Math.min(page * pageSize, total);
+                            return (
+                                <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                                    <span>{total === 0 ? 'Tidak ada data' : `${from}–${to} dari ${total} item`}</span>
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={onPrev} disabled={page <= 1}
+                                            className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition font-semibold">
+                                            ‹
+                                        </button>
+                                        <span className="px-2 font-bold text-slate-700">{page} / {totalPages}</span>
+                                        <button onClick={onNext} disabled={page >= totalPages}
+                                            className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition font-semibold">
+                                            ›
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        };
+
+                        return (
                         <div className="space-y-5">
                             <div className="bg-indigo-900 text-white p-5 rounded-2xl shadow-lg">
                                 <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-database mr-2"></i>Master Data Bahan Baku & Tarif Kerja</h2>
@@ -19116,9 +19166,26 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                                 {/* Master Bahan */}
                                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-                                    <div className="flex justify-between items-center mb-4">
+                                    <div className="flex justify-between items-center mb-3">
                                         <h3 className="font-bold text-slate-800 text-sm"><i className="fa-solid fa-boxes-stacked mr-2 text-indigo-600"></i>Master Bahan Baku</h3>
-                                        <button onClick={addNewMasterMaterial} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition">+ Tambah Master Bahan</button>
+                                        <button onClick={addNewMasterMaterial} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition">+ Tambah</button>
+                                    </div>
+                                    {/* Search Bahan */}
+                                    <div className="relative mb-3">
+                                        <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+                                        <input
+                                            type="text"
+                                            value={matSearch}
+                                            onChange={e => { setMatSearch(e.target.value); setMatPage(1); }}
+                                            placeholder="Cari nama bahan, satuan, atau harga..."
+                                            className="w-full pl-8 pr-8 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none transition text-slate-700 placeholder-slate-400"
+                                        />
+                                        {matSearch && (
+                                            <button onClick={() => { setMatSearch(''); setMatPage(1); }}
+                                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 transition">
+                                                <i className="fa-solid fa-xmark text-xs"></i>
+                                            </button>
+                                        )}
                                     </div>
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-left text-xs">
@@ -19131,7 +19198,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {masterMaterials.map((m) => (
+                                                {matSlice.length === 0 ? (
+                                                    <tr><td colSpan={4} className="py-8 text-center text-slate-400">
+                                                        <i className="fa-solid fa-search mr-1"></i>Tidak ditemukan untuk "<span className="font-semibold">{matSearch}</span>"
+                                                    </td></tr>
+                                                ) : matSlice.map((m) => (
                                                     <tr key={m.id} className="hover:bg-slate-50">
                                                         <td className="py-2 font-semibold text-slate-800">{m.name}</td>
                                                         <td className="py-2 text-slate-500">{m.unit}</td>
@@ -19147,12 +19218,36 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             </tbody>
                                         </table>
                                     </div>
+                                    <Pagination
+                                        page={matSafePage} totalPages={matTotalPages}
+                                        total={matFiltered.length} pageSize={MASTER_PAGE_SIZE}
+                                        onPrev={() => setMatPage(p => Math.max(1, p - 1))}
+                                        onNext={() => setMatPage(p => Math.min(matTotalPages, p + 1))}
+                                    />
                                 </div>
+
                                 {/* Master Upah */}
                                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-                                    <div className="flex justify-between items-center mb-4">
+                                    <div className="flex justify-between items-center mb-3">
                                         <h3 className="font-bold text-slate-800 text-sm"><i className="fa-solid fa-user-gear mr-2 text-emerald-600"></i>Master Tarif Borongan</h3>
-                                        <button onClick={addNewMasterLabor} className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition">+ Tambah Master Tarif</button>
+                                        <button onClick={addNewMasterLabor} className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition">+ Tambah</button>
+                                    </div>
+                                    {/* Search Tarif */}
+                                    <div className="relative mb-3">
+                                        <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+                                        <input
+                                            type="text"
+                                            value={lbrSearch}
+                                            onChange={e => { setLbrSearch(e.target.value); setLbrPage(1); }}
+                                            placeholder="Cari jenis pekerjaan atau tarif..."
+                                            className="w-full pl-8 pr-8 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 outline-none transition text-slate-700 placeholder-slate-400"
+                                        />
+                                        {lbrSearch && (
+                                            <button onClick={() => { setLbrSearch(''); setLbrPage(1); }}
+                                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 transition">
+                                                <i className="fa-solid fa-xmark text-xs"></i>
+                                            </button>
+                                        )}
                                     </div>
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-left text-xs">
@@ -19164,7 +19259,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {masterLabor.map((l) => (
+                                                {lbrSlice.length === 0 ? (
+                                                    <tr><td colSpan={3} className="py-8 text-center text-slate-400">
+                                                        <i className="fa-solid fa-search mr-1"></i>Tidak ditemukan untuk "<span className="font-semibold">{lbrSearch}</span>"
+                                                    </td></tr>
+                                                ) : lbrSlice.map((l) => (
                                                     <tr key={l.id} className="hover:bg-slate-50">
                                                         <td className="py-2 font-semibold text-slate-800">{l.job}</td>
                                                         <td className="py-2 text-right font-bold text-slate-700">{formatRp(l.rate)}</td>
@@ -19179,10 +19278,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             </tbody>
                                         </table>
                                     </div>
+                                    <Pagination
+                                        page={lbrSafePage} totalPages={lbrTotalPages}
+                                        total={lbrFiltered.length} pageSize={MASTER_PAGE_SIZE}
+                                        onPrev={() => setLbrPage(p => Math.max(1, p - 1))}
+                                        onNext={() => setLbrPage(p => Math.min(lbrTotalPages, p + 1))}
+                                    />
                                 </div>
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {/* ── SECTION: BUAT PENAWARAN ───────────────────────────────────── */}
                     {activeSection === 'quotation' && (() => {
