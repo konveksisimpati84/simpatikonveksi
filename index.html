@@ -18257,11 +18257,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
         };
 
         // ── HPP KALKULATOR ────────────────────────────────────────────────────────
-        const HppKalkulatorView = ({ supabaseClient, showToast }) => {
-            const DB_KEY_MATERIALS  = 'hpp_master_materials';
-            const DB_KEY_LABOR      = 'hpp_master_labor';
-            const DB_KEY_PRESETS    = 'hpp_custom_presets';
-            const DB_KEY_ORDERS     = 'hpp_saved_orders';
+        const HppKalkulatorView = ({ supabaseClient, showToast, templates }) => {
+            const DB_KEY_MATERIALS   = 'hpp_master_materials';
+            const DB_KEY_LABOR       = 'hpp_master_labor';
+            const DB_KEY_PRESETS     = 'hpp_custom_presets';
+            const DB_KEY_ORDERS      = 'hpp_saved_orders';
+            const DB_KEY_QUOTATIONS  = 'hpp_saved_quotations';
 
             const DEFAULT_MASTER_MATERIALS = [
                 { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
@@ -18314,6 +18315,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [isPriceManual, setIsPriceManual] = React.useState(false);
             const [qClientName,  setQClientName]  = React.useState('');
             const [qClientContact, setQClientContact] = React.useState('');
+            const [qNotes, setQNotes] = React.useState('');
+            const [savedQuotations, setSavedQuotations] = React.useState([]);
+            const [selectedHistoryIds, setSelectedHistoryIds] = React.useState(new Set());
+            const [quotationItems, setQuotationItems] = React.useState([]);
             const chartRef  = React.useRef(null);
             const chartInst = React.useRef(null);
             const initializedRef = React.useRef(false);
@@ -18337,25 +18342,28 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // ── Load on mount ─────────────────────────────────────────────────────
             React.useEffect(() => {
                 (async () => {
-                    const [mm, ml, cp, so] = await Promise.all([
-                        sbGet(DB_KEY_MATERIALS, DEFAULT_MASTER_MATERIALS),
-                        sbGet(DB_KEY_LABOR,     DEFAULT_MASTER_LABOR),
-                        sbGet(DB_KEY_PRESETS,   []),
-                        sbGet(DB_KEY_ORDERS,    []),
+                    const [mm, ml, cp, so, sq] = await Promise.all([
+                        sbGet(DB_KEY_MATERIALS,  DEFAULT_MASTER_MATERIALS),
+                        sbGet(DB_KEY_LABOR,      DEFAULT_MASTER_LABOR),
+                        sbGet(DB_KEY_PRESETS,    []),
+                        sbGet(DB_KEY_ORDERS,     []),
+                        sbGet(DB_KEY_QUOTATIONS, []),
                     ]);
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
                     setCustomPresets(cp);
                     setSavedOrders(so);
+                    setSavedQuotations(sq);
                     initializedRef.current = true;
                 })();
             }, []);
 
             // ── Persist to Supabase on change (after initial load) ────────────────
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_MATERIALS, masterMaterials); }, [masterMaterials]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_LABOR,     masterLabor);     }, [masterLabor]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRESETS,   customPresets);   }, [customPresets]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_ORDERS,    savedOrders);     }, [savedOrders]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_MATERIALS,  masterMaterials);  }, [masterMaterials]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_LABOR,      masterLabor);      }, [masterLabor]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRESETS,    customPresets);    }, [customPresets]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_ORDERS,     savedOrders);      }, [savedOrders]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_QUOTATIONS, savedQuotations);  }, [savedQuotations]);
 
             // ── Derived HPP calculation ───────────────────────────────────────────
             const calc = React.useMemo(() => {
@@ -18480,6 +18488,97 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const deleteHistoryItem = (id) => { setSavedOrders(prev => prev.filter(o => o.id !== id)); showToast('Item dihapus.', 'info'); };
             const clearHistory = () => { setSavedOrders([]); showToast('Semua riwayat dihapus.', 'info'); };
 
+            // ── Quotation helpers ─────────────────────────────────────────────────
+            const generateQuoNumber = () => {
+                const year = new Date().getFullYear();
+                const existing = savedQuotations.filter(q => q.quoNumber && q.quoNumber.includes(`/${year}/`));
+                const max = existing.reduce((m, q) => {
+                    const parts = q.quoNumber.split('/');
+                    return Math.max(m, parseInt(parts[2] || '0', 10));
+                }, 0);
+                return `QUO/${year}/${String(max + 1).padStart(3, '0')}`;
+            };
+
+            const toggleHistorySelect = (id) => {
+                setSelectedHistoryIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                });
+            };
+
+            const buildQuotationFromSelected = () => {
+                const items = savedOrders
+                    .filter(o => selectedHistoryIds.has(o.id))
+                    .map(o => ({
+                        id: 'QI-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+                        description: o.name,
+                        estQty: o.qty,
+                        unitPrice: o.sellingPrice || 0,
+                        discountType: 'pct',
+                        discountValue: 0,
+                    }));
+                if (items.length === 0) { showToast('Pilih minimal satu riwayat.', 'warning'); return; }
+                setQuotationItems(items);
+                setSelectedHistoryIds(new Set());
+                setActiveSection('quotation');
+            };
+
+            const addQuotationItemManual = () => {
+                setQuotationItems(prev => [...prev, {
+                    id: 'QI-' + Date.now(),
+                    description: '',
+                    estQty: 100,
+                    unitPrice: 0,
+                    discountType: 'pct',
+                    discountValue: 0,
+                }]);
+            };
+
+            const removeQuotationItem = (id) => setQuotationItems(prev => prev.filter(qi => qi.id !== id));
+
+            const updateQuotationItem = (id, key, val) => {
+                setQuotationItems(prev => prev.map(qi => qi.id === id ? { ...qi, [key]: val } : qi));
+            };
+
+            const calcQuotationItemNet = (qi) => {
+                const gross = (qi.unitPrice || 0);
+                if (qi.discountType === 'rp') return Math.max(0, gross - (qi.discountValue || 0));
+                return Math.max(0, gross * (1 - (qi.discountValue || 0) / 100));
+            };
+
+            const saveQuotation = () => {
+                if (quotationItems.length === 0) { showToast('Tambahkan minimal satu item penawaran.', 'warning'); return; }
+                const quoNumber = generateQuoNumber();
+                const newQ = {
+                    id: 'QUO-' + Date.now(),
+                    quoNumber,
+                    date: new Date().toLocaleDateString('id-ID', { year:'numeric', month:'long', day:'numeric' }),
+                    clientName: qClientName,
+                    clientContact: qClientContact,
+                    notes: qNotes,
+                    items: JSON.parse(JSON.stringify(quotationItems)),
+                };
+                setSavedQuotations(prev => [newQ, ...prev]);
+                showToast(`Penawaran ${quoNumber} disimpan!`, 'success');
+            };
+
+            const loadQuotation = (q) => {
+                setQClientName(q.clientName || '');
+                setQClientContact(q.clientContact || '');
+                setQNotes(q.notes || '');
+                setQuotationItems(JSON.parse(JSON.stringify(q.items || [])));
+                setActiveSection('quotation');
+                showToast(`Penawaran ${q.quoNumber} dibuka.`, 'info');
+            };
+
+            const deleteQuotation = (id) => { setSavedQuotations(prev => prev.filter(q => q.id !== id)); showToast('Penawaran dihapus.', 'info'); };
+
+            const printQuotation = (q) => {
+                loadQuotation(q);
+                setTimeout(() => window.print(), 300);
+            };
+
             const addMaterialRow = () => {
                 if (masterMaterials.length === 0) return;
                 setActiveMaterials(prev => [...prev, { masterId: masterMaterials[0].id, usagePerPcs: 1 }]);
@@ -18554,7 +18653,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 <i className="fa-solid fa-database mr-1.5"></i>Master Harga
                             </button>
                             <button onClick={() => setActiveSection('quotation')} className={activeSection === 'quotation' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
-                                <i className="fa-solid fa-file-invoice-dollar mr-1.5"></i>Cetak Penawaran
+                                <i className="fa-solid fa-file-invoice-dollar mr-1.5"></i>Buat Penawaran
+                            </button>
+                            <button onClick={() => setActiveSection('quotation_history')} className={activeSection === 'quotation_history' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
+                                <i className="fa-solid fa-folder-open mr-1.5"></i>Riwayat Penawaran ({savedQuotations.length})
                             </button>
                         </div>
                     </div>
@@ -18833,14 +18935,21 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     {/* ── SECTION: RIWAYAT ─────────────────────────────────────────── */}
                     {activeSection === 'history' && (
                         <div className="space-y-5">
-                            <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-lg flex justify-between items-center">
+                            <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-lg flex justify-between items-center flex-wrap gap-3">
                                 <div>
                                     <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-clock-rotate-left mr-2 text-emerald-400"></i>Daftar Riwayat Perhitungan HPP</h2>
-                                    <p className="text-xs text-slate-400">Simulasi biaya order yang telah disimpan untuk referensi atau pembuatan penawaran ulang.</p>
+                                    <p className="text-xs text-slate-400">Centang item untuk dimasukkan ke Surat Penawaran, atau buka satu per satu ke kalkulator.</p>
                                 </div>
-                                <button onClick={clearHistory} className="text-xs bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-2 rounded-xl transition">
-                                    <i className="fa-solid fa-trash-can mr-1"></i>Hapus Semua
-                                </button>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    {selectedHistoryIds.size > 0 && (
+                                        <button onClick={buildQuotationFromSelected} className="text-xs bg-emerald-500 hover:bg-emerald-400 text-white border border-emerald-400 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
+                                            <i className="fa-solid fa-file-invoice-dollar"></i>Buat Penawaran ({selectedHistoryIds.size} item)
+                                        </button>
+                                    )}
+                                    <button onClick={clearHistory} className="text-xs bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-2 rounded-xl transition">
+                                        <i className="fa-solid fa-trash-can mr-1"></i>Hapus Semua
+                                    </button>
+                                </div>
                             </div>
                             <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
                                 {savedOrders.length === 0 ? (
@@ -18850,40 +18959,64 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <p className="text-xs text-slate-400 mt-1">Hitung HPP produk di tab Kalkulator lalu klik "Simpan Perhitungan".</p>
                                     </div>
                                 ) : (
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left text-xs">
-                                            <thead>
-                                                <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
-                                                    <th className="pb-3">Tanggal</th>
-                                                    <th className="pb-3">Nama Order</th>
-                                                    <th className="pb-3 text-center">Qty</th>
-                                                    <th className="pb-3 text-right">HPP / Pcs</th>
-                                                    <th className="pb-3 text-right">Harga Jual / Pcs</th>
-                                                    <th className="pb-3 text-right">Est. Laba Bersih</th>
-                                                    <th className="pb-3 text-center">Aksi</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100">
-                                                {savedOrders.map(item => (
-                                                    <tr key={item.id} className="hover:bg-slate-50 transition text-xs">
-                                                        <td className="py-3 px-1 text-slate-500 font-medium">{item.date}</td>
-                                                        <td className="py-3 px-1 font-bold text-slate-800">{item.name}</td>
-                                                        <td className="py-3 px-1 text-center font-bold text-slate-700">{item.qty} Pcs</td>
-                                                        <td className="py-3 px-1 text-right font-semibold text-slate-700">{item.hppPcs}</td>
-                                                        <td className="py-3 px-1 text-right font-extrabold text-emerald-600">{formatRp(item.sellingPrice)}</td>
-                                                        <td className="py-3 px-1 text-right font-extrabold text-indigo-600">{item.projectedProfit}</td>
-                                                        <td className="py-3 px-1 text-center">
-                                                            <div className="flex items-center justify-center gap-1.5">
-                                                                <button onClick={() => loadHistoryItem(item)} title="Buka di Kalkulator" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-folder-open text-xs"></i></button>
-                                                                <button onClick={() => { loadHistoryItem(item); setActiveSection('quotation'); }} title="Buat Penawaran" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-file-invoice-dollar text-xs"></i></button>
-                                                                <button onClick={() => deleteHistoryItem(item.id)} title="Hapus" className="bg-rose-50 hover:bg-rose-100 text-rose-500 p-1.5 rounded-lg transition"><i className="fa-solid fa-trash-can text-xs"></i></button>
-                                                            </div>
-                                                        </td>
+                                    <>
+                                        {selectedHistoryIds.size > 0 && (
+                                            <div className="mb-3 flex items-center justify-between text-xs bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
+                                                <span className="text-emerald-700 font-semibold"><i className="fa-solid fa-check-square mr-1.5 text-emerald-500"></i>{selectedHistoryIds.size} item dipilih</span>
+                                                <button onClick={() => setSelectedHistoryIds(new Set())} className="text-slate-400 hover:text-rose-500 transition text-[11px]">Batal Pilih Semua</button>
+                                            </div>
+                                        )}
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left text-xs">
+                                                <thead>
+                                                    <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
+                                                        <th className="pb-3 w-8 text-center">
+                                                            <input type="checkbox"
+                                                                checked={savedOrders.length > 0 && selectedHistoryIds.size === savedOrders.length}
+                                                                onChange={e => setSelectedHistoryIds(e.target.checked ? new Set(savedOrders.map(o => o.id)) : new Set())}
+                                                                className="rounded" />
+                                                        </th>
+                                                        <th className="pb-3">Tanggal</th>
+                                                        <th className="pb-3">Nama Order</th>
+                                                        <th className="pb-3 text-center">Qty</th>
+                                                        <th className="pb-3 text-right">HPP / Pcs</th>
+                                                        <th className="pb-3 text-right">Harga Jual / Pcs</th>
+                                                        <th className="pb-3 text-right">Est. Laba</th>
+                                                        <th className="pb-3 text-center">Aksi</th>
                                                     </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {savedOrders.map(item => (
+                                                        <tr key={item.id} className={`hover:bg-slate-50 transition text-xs ${selectedHistoryIds.has(item.id) ? 'bg-emerald-50/60' : ''}`}>
+                                                            <td className="py-3 px-1 text-center">
+                                                                <input type="checkbox"
+                                                                    checked={selectedHistoryIds.has(item.id)}
+                                                                    onChange={() => toggleHistorySelect(item.id)}
+                                                                    className="rounded" />
+                                                            </td>
+                                                            <td className="py-3 px-1 text-slate-500 font-medium whitespace-nowrap">{item.date}</td>
+                                                            <td className="py-3 px-1 font-bold text-slate-800">{item.name}</td>
+                                                            <td className="py-3 px-1 text-center font-bold text-slate-700">{item.qty} Pcs</td>
+                                                            <td className="py-3 px-1 text-right font-semibold text-slate-700">{item.hppPcs}</td>
+                                                            <td className="py-3 px-1 text-right font-extrabold text-emerald-600">{formatRp(item.sellingPrice)}</td>
+                                                            <td className="py-3 px-1 text-right font-extrabold text-indigo-600">{item.projectedProfit}</td>
+                                                            <td className="py-3 px-1 text-center">
+                                                                <div className="flex items-center justify-center gap-1.5">
+                                                                    <button onClick={() => loadHistoryItem(item)} title="Buka di Kalkulator" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-folder-open text-xs"></i></button>
+                                                                    <button onClick={() => {
+                                                                        const qi = { id:'QI-'+Date.now(), description: item.name, estQty: item.qty, unitPrice: item.sellingPrice||0, discountType:'pct', discountValue:0 };
+                                                                        setQuotationItems([qi]);
+                                                                        setActiveSection('quotation');
+                                                                    }} title="Buat Penawaran" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-file-invoice-dollar text-xs"></i></button>
+                                                                    <button onClick={() => deleteHistoryItem(item.id)} title="Hapus" className="bg-rose-50 hover:bg-rose-100 text-rose-500 p-1.5 rounded-lg transition"><i className="fa-solid fa-trash-can text-xs"></i></button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </>
                                 )}
                             </div>
                         </div>
@@ -18967,90 +19100,308 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         </div>
                     )}
 
-                    {/* ── SECTION: SURAT PENAWARAN ─────────────────────────────────── */}
-                    {activeSection === 'quotation' && (
+                    {/* ── SECTION: BUAT PENAWARAN ───────────────────────────────────── */}
+                    {activeSection === 'quotation' && (() => {
+                        const tmpl = templates || {};
+                        const coName    = tmpl.companyName    || 'SIMPATI KONVEKSI';
+                        const coSub     = tmpl.companySubtitle|| 'Jasa Konveksi & Sablon';
+                        const coContact = tmpl.companyContact || '';
+                        const coLogo    = tmpl.companyLogo    || '';
+                        const sigImg    = tmpl.signatureImage || '';
+                        const sigSize   = tmpl.signatureSize  || 100;
+                        const bank1     = tmpl.paymentBank1   || '';
+                        const bank1No   = tmpl.paymentBank1No || '';
+                        const bank1Name = tmpl.paymentBank1Name || '';
+                        const bank2     = tmpl.paymentBank2   || '';
+                        const bank2No   = tmpl.paymentBank2No || '';
+                        const bank2Name = tmpl.paymentBank2Name || '';
+                        const sigRight  = tmpl.sjSignatureRight || 'Hormat Kami,';
+                        const grandTotal = quotationItems.reduce((s, qi) => s + calcQuotationItemNet(qi) * (qi.estQty || 0), 0);
+                        return (
                         <div className="space-y-5">
-                            <div className="flex justify-between items-center bg-slate-900 text-white p-4 rounded-2xl">
+                            {/* toolbar */}
+                            <div className="flex justify-between items-center bg-slate-900 text-white p-4 rounded-2xl flex-wrap gap-3">
                                 <div>
-                                    <h2 className="font-bold text-base"><i className="fa-solid fa-file-invoice-dollar mr-2 text-indigo-400"></i>Pratinjau Surat Penawaran Harga</h2>
-                                    <p className="text-xs text-slate-400">Siap dicetak atau disimpan sebagai PDF untuk dikirimkan ke pelanggan.</p>
+                                    <h2 className="font-bold text-base"><i className="fa-solid fa-file-invoice-dollar mr-2 text-indigo-400"></i>Buat Surat Penawaran Harga</h2>
+                                    <p className="text-xs text-slate-400">Isi detail klien, tambah/edit item, lalu simpan atau cetak PDF.</p>
                                 </div>
-                                <button onClick={() => window.print()} className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow transition flex items-center gap-2">
-                                    <i className="fa-solid fa-print"></i>Cetak / Save PDF
-                                </button>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <button onClick={saveQuotation} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow transition flex items-center gap-2">
+                                        <i className="fa-solid fa-floppy-disk"></i>Simpan Penawaran
+                                    </button>
+                                    <button onClick={() => window.print()} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow transition flex items-center gap-2">
+                                        <i className="fa-solid fa-print"></i>Cetak / PDF
+                                    </button>
+                                </div>
                             </div>
-                            <div className="bg-white p-8 md:p-12 rounded-2xl shadow-xl max-w-4xl mx-auto text-slate-800 border border-slate-200">
-                                <div className="flex justify-between items-start border-b border-slate-200 pb-6 mb-6">
-                                    <div>
-                                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">SURAT PENAWARAN HARGA</h1>
-                                        <p className="text-xs font-semibold text-indigo-600 mt-1">Ref: QUO/{new Date().getFullYear()}/001</p>
+
+                            {/* item editor (no-print) */}
+                            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 print:hidden">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-bold text-slate-800 text-sm"><i className="fa-solid fa-list-check mr-2 text-indigo-500"></i>Item Penawaran</h3>
+                                    <button onClick={addQuotationItemManual} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition">+ Tambah Item</button>
+                                </div>
+                                {quotationItems.length === 0 ? (
+                                    <div className="text-center py-8 text-slate-400 text-sm">
+                                        <i className="fa-solid fa-inbox text-3xl mb-2 block"></i>
+                                        Belum ada item. Tambah manual atau pilih dari tab Riwayat.
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs">
+                                            <thead>
+                                                <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold text-left">
+                                                    <th className="pb-2">Deskripsi Produk</th>
+                                                    <th className="pb-2 text-center w-24">Est. Jumlah</th>
+                                                    <th className="pb-2 text-right w-32">Harga Satuan</th>
+                                                    <th className="pb-2 text-center w-20">Diskon</th>
+                                                    <th className="pb-2 text-right w-32">Jenis</th>
+                                                    <th className="pb-2 text-right w-32">Harga Net/Pcs</th>
+                                                    <th className="pb-2 w-8"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {quotationItems.map((qi) => (
+                                                    <tr key={qi.id}>
+                                                        <td className="py-2 pr-2">
+                                                            <input type="text" value={qi.description} onChange={e => updateQuotationItem(qi.id, 'description', e.target.value)}
+                                                                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 font-semibold focus:ring-1 focus:ring-indigo-400 outline-none text-xs" placeholder="Nama Produk" />
+                                                        </td>
+                                                        <td className="py-2 px-1">
+                                                            <input type="number" value={qi.estQty} onChange={e => updateQuotationItem(qi.id, 'estQty', parseInt(e.target.value)||0)}
+                                                                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 focus:ring-1 focus:ring-indigo-400 outline-none text-xs" />
+                                                        </td>
+                                                        <td className="py-2 px-1">
+                                                            <input type="number" value={qi.unitPrice} onChange={e => updateQuotationItem(qi.id, 'unitPrice', parseFloat(e.target.value)||0)}
+                                                                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-slate-800 focus:ring-1 focus:ring-indigo-400 outline-none text-xs" />
+                                                        </td>
+                                                        <td className="py-2 px-1">
+                                                            <input type="number" value={qi.discountValue} onChange={e => updateQuotationItem(qi.id, 'discountValue', parseFloat(e.target.value)||0)}
+                                                                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 focus:ring-1 focus:ring-indigo-400 outline-none text-xs" />
+                                                        </td>
+                                                        <td className="py-2 px-1">
+                                                            <select value={qi.discountType} onChange={e => updateQuotationItem(qi.id, 'discountType', e.target.value)}
+                                                                className="w-full border border-slate-200 rounded-lg px-1 py-1.5 text-xs font-semibold text-slate-700 bg-white focus:ring-1 focus:ring-indigo-400 outline-none cursor-pointer">
+                                                                <option value="pct">%</option>
+                                                                <option value="rp">Rp</option>
+                                                            </select>
+                                                        </td>
+                                                        <td className="py-2 px-1 text-right font-extrabold text-emerald-700">{formatRp(calcQuotationItemNet(qi))}</td>
+                                                        <td className="py-2 pl-2">
+                                                            <button onClick={() => removeQuotationItem(qi.id)} className="text-slate-300 hover:text-rose-500 transition"><i className="fa-solid fa-xmark"></i></button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* client info (no-print form) */}
+                            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 print:hidden grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Nama Klien / Perusahaan</label>
+                                    <input type="text" value={qClientName} onChange={e => setQClientName(e.target.value)}
+                                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 outline-none" placeholder="Nama Klien" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Kontak Klien</label>
+                                    <input type="text" value={qClientContact} onChange={e => setQClientContact(e.target.value)}
+                                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 outline-none" placeholder="No HP / Email" />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Catatan / Keterangan Tambahan</label>
+                                    <textarea value={qNotes} onChange={e => setQNotes(e.target.value)} rows={2}
+                                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-indigo-400 outline-none resize-none" placeholder="Syarat pembayaran, keterangan khusus, dll." />
+                                </div>
+                            </div>
+
+                            {/* ── PRINT PREVIEW ── */}
+                            <div id="quotation-print-area" className="bg-white p-8 md:p-12 rounded-2xl shadow-xl max-w-4xl mx-auto text-slate-800 border border-slate-200">
+                                {/* kop surat */}
+                                <div className="flex justify-between items-start border-b-2 border-slate-800 pb-5 mb-6">
+                                    <div className="flex items-center gap-4">
+                                        {coLogo ? (
+                                            <img src={coLogo} alt="Logo" style={{height:'64px', width:'auto', objectFit:'contain'}} />
+                                        ) : (
+                                            <div className="w-16 h-16 bg-slate-800 rounded-xl flex items-center justify-center text-white text-2xl font-black">S</div>
+                                        )}
+                                        <div>
+                                            <h2 className="font-extrabold text-slate-900 text-xl leading-tight">{coName}</h2>
+                                            <p className="text-xs text-slate-500 mt-0.5">{coSub}</p>
+                                            {coContact && <p className="text-xs text-slate-500">{coContact}</p>}
+                                        </div>
                                     </div>
                                     <div className="text-right">
-                                        <h2 className="font-extrabold text-slate-800 text-lg">SIMPATI KONVEKSI</h2>
-                                        <p className="text-xs text-slate-500">Jl. Industri Konveksi, Bandung</p>
-                                        <p className="text-xs text-slate-500">simpatikonveksi@gmail.com</p>
+                                        <h1 className="text-xl font-black text-slate-900 tracking-tight uppercase">Surat Penawaran</h1>
+                                        <p className="text-xs font-semibold text-indigo-600 mt-1">{generateQuoNumber()}</p>
+                                        <p className="text-xs text-slate-500 mt-1">Tanggal: {today}</p>
+                                        <p className="text-xs text-slate-400">Berlaku: 14 Hari Kerja</p>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-6 mb-8 text-xs">
-                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                        <p className="font-bold text-slate-400 uppercase tracking-wider text-[10px] mb-2">Kepada Yth:</p>
-                                        <input type="text" value={qClientName} onChange={e => setQClientName(e.target.value)} className="w-full font-bold text-slate-800 border border-slate-300 rounded p-1 mb-1 text-xs" placeholder="Nama Klien / Perusahaan" />
-                                        <input type="text" value={qClientContact} onChange={e => setQClientContact(e.target.value)} className="w-full text-slate-600 border border-slate-300 rounded p-1 text-xs" placeholder="Kontak" />
-                                    </div>
-                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-right">
-                                        <p className="font-bold text-slate-400 uppercase tracking-wider text-[10px] mb-2">Tanggal & Masa Berlaku:</p>
-                                        <p className="font-semibold text-slate-800">Tanggal: {today}</p>
-                                        <p className="text-slate-500 mt-1">Berlaku hingga: 14 Hari Kerja</p>
-                                    </div>
+
+                                {/* kepada */}
+                                <div className="mb-6 text-xs">
+                                    <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px] mb-1">Kepada Yth:</p>
+                                    <p className="font-bold text-slate-900 text-sm">{qClientName || '___________________________'}</p>
+                                    {qClientContact && <p className="text-slate-600">{qClientContact}</p>}
                                 </div>
-                                <table className="w-full text-left text-xs mb-8">
-                                    <thead>
-                                        <tr className="bg-slate-900 text-white">
-                                            <th className="p-3 rounded-l-lg">No</th>
-                                            <th className="p-3">Deskripsi Produk & Spesifikasi</th>
-                                            <th className="p-3 text-center">Jumlah (Qty)</th>
-                                            <th className="p-3 text-right">Harga Satuan (Rp)</th>
-                                            <th className="p-3 text-right rounded-r-lg">Total Harga (Rp)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        <tr>
-                                            <td className="p-3 font-bold">1</td>
-                                            <td className="p-3">
-                                                <p className="font-bold text-slate-900 text-sm">{orderName || 'Order Konveksi'}</p>
-                                                <p className="text-slate-500 text-[11px] mt-0.5">Termasuk Bahan Baku Standard, Jahitan Rapi, & Finishing Packing</p>
-                                            </td>
-                                            <td className="p-3 text-center font-bold">{calc.qty} Pcs</td>
-                                            <td className="p-3 text-right font-bold">{formatRp(calc.sellPrice)}</td>
-                                            <td className="p-3 text-right font-extrabold text-slate-900 text-sm">{formatRp(calc.turnover)}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <div className="grid grid-cols-2 gap-6 items-start text-xs border-t border-slate-200 pt-6">
+
+                                {/* tabel item */}
+                                <div className="overflow-x-auto mb-6">
+                                    <table className="w-full text-left text-xs">
+                                        <thead>
+                                            <tr className="bg-slate-900 text-white">
+                                                <th className="p-3 rounded-l-lg w-8">No</th>
+                                                <th className="p-3">Deskripsi Produk & Spesifikasi</th>
+                                                <th className="p-3 text-center w-24">Est. Jumlah</th>
+                                                <th className="p-3 text-right w-32">Harga Satuan</th>
+                                                <th className="p-3 text-right w-36 rounded-r-lg">Diskon & Harga Net</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {quotationItems.length === 0 ? (
+                                                <tr><td colSpan={5} className="p-6 text-center text-slate-400">— Belum ada item —</td></tr>
+                                            ) : quotationItems.map((qi, idx) => {
+                                                const net = calcQuotationItemNet(qi);
+                                                const hasDiscount = qi.discountValue > 0;
+                                                return (
+                                                    <tr key={qi.id} className="hover:bg-slate-50">
+                                                        <td className="p-3 font-bold text-slate-500">{idx + 1}</td>
+                                                        <td className="p-3 font-bold text-slate-900">{qi.description || '—'}</td>
+                                                        <td className="p-3 text-center font-bold text-slate-700">~{(qi.estQty||0).toLocaleString('id-ID')} Pcs</td>
+                                                        <td className="p-3 text-right font-semibold text-slate-700">{formatRp(qi.unitPrice)}</td>
+                                                        <td className="p-3 text-right">
+                                                            {hasDiscount && (
+                                                                <span className="text-rose-500 text-[10px] line-through block">{formatRp(qi.unitPrice)}</span>
+                                                            )}
+                                                            {hasDiscount && (
+                                                                <span className="text-[10px] text-slate-400 block">
+                                                                    Diskon {qi.discountType === 'pct' ? `${qi.discountValue}%` : formatRp(qi.discountValue)}
+                                                                </span>
+                                                            )}
+                                                            <span className="font-extrabold text-slate-900">{formatRp(net)}</span>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* catatan & syarat */}
+                                <div className="grid grid-cols-2 gap-6 items-start text-xs border-t border-slate-200 pt-5 mb-8">
                                     <div className="space-y-2">
-                                        <p className="font-bold text-slate-800">Syarat & Ketentuan Pembayaran:</p>
+                                        <p className="font-bold text-slate-800">Syarat & Ketentuan:</p>
                                         <ul className="list-disc list-inside text-slate-600 space-y-1 text-[11px]">
                                             <li>DP 50% saat Order Disetujui (SPK terbit).</li>
                                             <li>Pelunasan 50% dilakukan sebelum pengiriman barang.</li>
-                                            <li>Waktu pengerjaan standar: 7 - 10 hari kerja.</li>
+                                            <li>Waktu pengerjaan standar: 7 – 10 hari kerja.</li>
                                         </ul>
+                                        {(bank1 || bank2) && (
+                                            <div className="mt-3 space-y-1">
+                                                <p className="font-bold text-slate-800">Rekening Pembayaran:</p>
+                                                {bank1 && <p className="text-[11px] text-slate-600">{bank1} – {bank1No} a.n. {bank1Name}</p>}
+                                                {bank2 && <p className="text-[11px] text-slate-600">{bank2} – {bank2No} a.n. {bank2Name}</p>}
+                                            </div>
+                                        )}
+                                        {qNotes && (
+                                            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                                                <p className="font-bold text-amber-700 text-[10px] uppercase mb-1">Catatan:</p>
+                                                <p className="text-slate-700 text-[11px] whitespace-pre-wrap">{qNotes}</p>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="bg-slate-50 p-4 rounded-xl space-y-2">
-                                        <div className="flex justify-between text-slate-600"><span>Subtotal Order:</span><span className="font-bold text-slate-800">{formatRp(calc.turnover)}</span></div>
-                                        <div className="flex justify-between text-slate-600"><span>Pajak / PPN (0%):</span><span className="font-bold text-slate-800">Rp 0</span></div>
-                                        <div className="flex justify-between text-indigo-700 font-black text-base pt-2 border-t border-slate-200"><span>TOTAL PENAWARAN:</span><span>{formatRp(calc.turnover)}</span></div>
+                                    <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-100">
+                                        <p className="font-bold text-slate-600 text-[10px] uppercase tracking-wider mb-2">Ringkasan Penawaran</p>
+                                        {quotationItems.map((qi, idx) => (
+                                            <div key={qi.id} className="flex justify-between text-slate-600 text-[11px]">
+                                                <span className="truncate max-w-[60%]">{idx+1}. {qi.description || '—'} (~{(qi.estQty||0).toLocaleString('id-ID')} pcs)</span>
+                                                <span className="font-semibold whitespace-nowrap">{formatRp(calcQuotationItemNet(qi) * (qi.estQty||0))}</span>
+                                            </div>
+                                        ))}
+                                        <div className="flex justify-between text-indigo-700 font-black text-base pt-2 border-t border-slate-200">
+                                            <span>TOTAL ESTIMASI:</span>
+                                            <span>{formatRp(grandTotal)}</span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-400">*Jumlah bersifat estimasi, dapat berubah sesuai konfirmasi order.</p>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-6 text-center text-xs mt-12 pt-8">
+
+                                {/* TTD */}
+                                <div className="grid grid-cols-2 gap-6 text-center text-xs pt-4">
                                     <div>
-                                        <p className="text-slate-500 mb-12">Disetujui Oleh (Pelanggan),</p>
-                                        <p className="font-bold text-slate-900 underline">( ............................................ )</p>
+                                        <p className="text-slate-500 mb-16">Disetujui Oleh (Pelanggan),</p>
+                                        <p className="font-bold text-slate-900 border-t border-slate-400 pt-2 mx-4">( ................................................ )</p>
                                     </div>
                                     <div>
-                                        <p className="text-slate-500 mb-12">Hormat Kami (Marketing),</p>
-                                        <p className="font-bold text-slate-900 underline">( Tim Simpati Konveksi )</p>
+                                        <p className="text-slate-500 mb-2">{sigRight}</p>
+                                        {sigImg ? (
+                                            <img src={sigImg} alt="TTD" style={{height: `${sigSize}px`, width:'auto', objectFit:'contain', margin:'0 auto 4px'}} />
+                                        ) : (
+                                            <div style={{height:'64px'}}></div>
+                                        )}
+                                        <p className="font-bold text-slate-900 border-t border-slate-400 pt-2 mx-4">( {coName} )</p>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                        );
+                    })()}
+
+                    {/* ── SECTION: RIWAYAT PENAWARAN ────────────────────────────────── */}
+                    {activeSection === 'quotation_history' && (
+                        <div className="space-y-5">
+                            <div className="bg-indigo-900 text-white p-5 rounded-2xl shadow-lg flex justify-between items-center flex-wrap gap-3">
+                                <div>
+                                    <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-folder-open mr-2 text-indigo-300"></i>Riwayat Surat Penawaran</h2>
+                                    <p className="text-xs text-indigo-300">Daftar penawaran yang telah disimpan. Buka kembali untuk edit/cetak ulang.</p>
+                                </div>
+                                <button onClick={() => { setQuotationItems([]); setQClientName(''); setQClientContact(''); setQNotes(''); setActiveSection('quotation'); }}
+                                    className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
+                                    <i className="fa-solid fa-plus"></i>Buat Penawaran Baru
+                                </button>
+                            </div>
+                            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                {savedQuotations.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400 text-2xl"><i className="fa-solid fa-file-invoice-dollar"></i></div>
+                                        <p className="font-bold text-slate-700">Belum ada surat penawaran tersimpan</p>
+                                        <p className="text-xs text-slate-400 mt-1">Buat penawaran di tab "Buat Penawaran" lalu klik "Simpan Penawaran".</p>
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
+                                                    <th className="pb-3">No Surat</th>
+                                                    <th className="pb-3">Tanggal</th>
+                                                    <th className="pb-3">Klien</th>
+                                                    <th className="pb-3 text-center">Jml Item</th>
+                                                    <th className="pb-3 text-center">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {savedQuotations.map(q => (
+                                                    <tr key={q.id} className="hover:bg-slate-50 transition">
+                                                        <td className="py-3 px-1 font-bold text-indigo-700">{q.quoNumber}</td>
+                                                        <td className="py-3 px-1 text-slate-500">{q.date}</td>
+                                                        <td className="py-3 px-1 font-semibold text-slate-800">{q.clientName || '—'}</td>
+                                                        <td className="py-3 px-1 text-center text-slate-600">{(q.items||[]).length} item</td>
+                                                        <td className="py-3 px-1 text-center">
+                                                            <div className="flex items-center justify-center gap-1.5">
+                                                                <button onClick={() => loadQuotation(q)} title="Buka & Edit" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-folder-open text-xs"></i></button>
+                                                                <button onClick={() => printQuotation(q)} title="Cetak" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-print text-xs"></i></button>
+                                                                <button onClick={() => deleteQuotation(q.id)} title="Hapus" className="bg-rose-50 hover:bg-rose-100 text-rose-500 p-1.5 rounded-lg transition"><i className="fa-solid fa-trash-can text-xs"></i></button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -21309,7 +21660,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'master_akun' && canOpen('master_akun') && <MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} />}
                                 {activeTab === 'stock_barang' && canOpen('stock_barang') && <StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} />}
                                 {activeTab === 'absensi_finger' && canOpen('absensi_finger') && <AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} />}
-                                {activeTab === 'hpp_kalkulator' && canOpen('hpp_kalkulator') && <HppKalkulatorView supabaseClient={supabaseClient} showToast={showToast} />}
+                                {activeTab === 'hpp_kalkulator' && canOpen('hpp_kalkulator') && <HppKalkulatorView supabaseClient={supabaseClient} showToast={showToast} templates={templates} />}
                                 {activeMenuAllowed === false && (
                                     <Card>
                                         <div className="text-center py-10 text-gray-500 font-bold">Menu ini tidak tersedia untuk akun Anda.</div>
