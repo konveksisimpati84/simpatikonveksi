@@ -18330,6 +18330,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const DB_KEY_QUOTATIONS  = 'hpp_saved_quotations';
             const DB_KEY_PRICE_LIST_ITEMS = 'hpp_price_list_items';
             const DB_KEY_PRICE_LIST_TITLE = 'hpp_price_list_title';
+            const DB_KEY_PRICE_LIST_NOTE  = 'hpp_price_list_note';
 
             const DEFAULT_MASTER_MATERIALS = [
                 { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
@@ -18392,6 +18393,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [quotationItems, setQuotationItems] = React.useState([]);
             const [priceListItems, setPriceListItems] = React.useState([]);
             const [priceListTitle, setPriceListTitle] = React.useState('DAFTAR HARGA');
+            const [priceListNote,  setPriceListNote]  = React.useState('');
             const [editingOrderId, setEditingOrderId] = React.useState(null);
             const [matSearch,  setMatSearch]  = React.useState('');
             const [matPage,    setMatPage]    = React.useState(1);
@@ -18423,7 +18425,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // ── Load on mount ─────────────────────────────────────────────────────
             React.useEffect(() => {
                 (async () => {
-                    const [mm, ml, cp, so, sq, hbp, pli, plt] = await Promise.all([
+                    const [mm, ml, cp, so, sq, hbp, pli, plt, pln] = await Promise.all([
                         sbGet(DB_KEY_MATERIALS,  DEFAULT_MASTER_MATERIALS),
                         sbGet(DB_KEY_LABOR,      DEFAULT_MASTER_LABOR),
                         sbGet(DB_KEY_PRESETS,    []),
@@ -18432,6 +18434,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         sbGet(DB_KEY_HIDDEN_PRESETS, []),
                         sbGet(DB_KEY_PRICE_LIST_ITEMS, []),
                         sbGet(DB_KEY_PRICE_LIST_TITLE, 'DAFTAR HARGA'),
+                        sbGet(DB_KEY_PRICE_LIST_NOTE,  ''),
                     ]);
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
@@ -18441,6 +18444,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setHiddenBuiltinPresets(hbp);
                     setPriceListItems(pli);
                     setPriceListTitle(plt);
+                    setPriceListNote(pln);
                     initializedRef.current = true;
                 })();
             }, []);
@@ -18454,6 +18458,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_QUOTATIONS, savedQuotations);  }, [savedQuotations]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_ITEMS, priceListItems); }, [priceListItems]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_TITLE, priceListTitle); }, [priceListTitle]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_NOTE,  priceListNote);  }, [priceListNote]);
 
             // ── Derived HPP calculation ───────────────────────────────────────────
             const calc = React.useMemo(() => {
@@ -19894,6 +19899,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none transition"
                                     />
                                     <p className="text-[11px] text-slate-400 mt-1.5"><i className="fa-solid fa-circle-info mr-1"></i>Judul ditampilkan di dokumen A4. Disimpan otomatis.</p>
+                                    <div className="mt-4">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Catatan (opsional)</label>
+                                        <textarea
+                                            value={priceListNote}
+                                            onChange={e => setPriceListNote(e.target.value)}
+                                            placeholder="Contoh: Harga belum termasuk ongkos kirim. Minimum order 50 pcs. Hubungi kami untuk negosiasi harga."
+                                            rows={3}
+                                            className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-700 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none transition resize-none"
+                                        />
+                                        <p className="text-[11px] text-slate-400 mt-1"><i className="fa-solid fa-circle-info mr-1"></i>Tampil di bagian bawah dokumen A4. Kosongkan jika tidak perlu.</p>
+                                    </div>
                                 </div>
 
                                 {/* ── Daftar item ── */}
@@ -20008,7 +20024,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                         <div style={{width:'5px',height:'5px',background:'#d97706',transform:'rotate(45deg)'}}></div>
                                                         <div style={{flex:1,height:'1px',background:'linear-gradient(to left,transparent,#d97706)'}}></div>
                                                     </div>
-                                                    <p style={{textAlign:'center',fontSize:'9.5px',color:'#a3724a',fontStyle:'italic'}}>Harga dapat berubah sewaktu-waktu. Hubungi kami untuk informasi lebih lanjut.</p>
+                                                    <p style={{textAlign:'center',fontSize:'9.5px',color:'#a3724a',fontStyle:'italic',whiteSpace:'pre-wrap'}}>
+                                                        {priceListNote || 'Harga dapat berubah sewaktu-waktu. Hubungi kami untuk informasi lebih lanjut.'}
+                                                    </p>
                                                 </div>
 
                                                 {/* ── Bottom strip ── */}
