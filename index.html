@@ -18925,7 +18925,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     <i className="fa-solid fa-star text-amber-500 text-[10px]"></i>{p.title}
                                                 </button>
                                             )}
-                                            <button onClick={() => startRenamePreset(p)} className="text-indigo-300 hover:text-indigo-600 transition" title="Ubah nama"><i className="fa-solid fa-pen text-[10px]"></i></button>
+                                            {editingPresetId !== p.id && <button onClick={() => startRenamePreset(p)} className="text-indigo-300 hover:text-indigo-600 transition" title="Ubah nama"><i className="fa-solid fa-pen text-[10px]"></i></button>}
                                             <button onClick={() => deleteCustomPreset(p.id)} className="text-indigo-300 hover:text-rose-600 transition" title="Hapus"><i className="fa-solid fa-xmark text-xs"></i></button>
                                         </span>
                                     ))}
