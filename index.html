@@ -75,6 +75,7 @@
             #quotation-print-area .text-base { font-size: 11pt !important; }
 
             /* ── Price List print area ── */
+            @page { size: A4; margin: 10mm; }
             #price-list-print-area,
             #price-list-print-area * { visibility: visible; }
 
@@ -20050,7 +20051,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {/* ── A4 Print area — selalu di DOM saat items ada, tersembunyi di tab Riwayat ── */}
                                 {priceListItems.length > 0 && (
                                     <div id="price-list-print-area" style={{display: plSubTab === 'editor' ? 'flex' : 'none', justifyContent:'center'}}>
-                                            <div className="pl-page" style={{width:'100%',maxWidth:'680px',background:'#F5F1E8',position:'relative',fontFamily:'Georgia,serif',boxShadow:'0 10px 40px rgba(42,24,8,.18)'}}>
+                                            <div className="pl-page" style={{width:'100%',maxWidth:'680px',minHeight:'962px',background:'#F5F1E8',position:'relative',fontFamily:'Georgia,serif',boxShadow:'0 10px 40px rgba(42,24,8,.18)',display:'flex',flexDirection:'column'}}>
 
                                                 {/* ── Corner ornaments ── */}
                                                 <div style={{position:'absolute',top:0,left:0,width:'90px',height:'90px',pointerEvents:'none'}}>
@@ -20107,7 +20108,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </div>
 
                                                 {/* ── Document body ── */}
-                                                <div style={{position:'relative',zIndex:1,padding:'48px 44px 40px'}}>
+                                                <div style={{position:'relative',zIndex:1,padding:'48px 44px 40px',display:'flex',flexDirection:'column',flex:'1'}}>
 
                                                     {/* ── Logo + Company header ── */}
                                                     <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'14px',marginBottom:'6px'}}>
@@ -20172,6 +20173,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             {priceListNote}
                                                         </div>
                                                     )}
+
+                                                    {/* ── Spacer pushes footer to bottom ── */}
+                                                    <div style={{flex:1}}></div>
 
                                                     {/* ── Bottom gold SVG divider ── */}
                                                     <div style={{display:'flex',justifyContent:'center',margin:'20px 0 8px'}}>
