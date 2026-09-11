@@ -94,7 +94,7 @@
                 print-color-adjust: exact;
             }
             #price-list-print-area .pl-no-print { display: none !important; }
-            #price-list-print-area .pl-page { box-shadow: none !important; border: none !important; margin: 0 !important; border-radius: 0 !important; max-width: 100% !important; width: 100% !important; overflow: visible !important; }
+            #price-list-print-area .pl-page { box-shadow: none !important; border: none !important; margin: 0 !important; border-radius: 0 !important; max-width: 100% !important; width: 100% !important; min-height: 0 !important; overflow: visible !important; }
             #price-list-print-area tbody tr { page-break-inside: avoid; }
         }
 
@@ -20049,8 +20049,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                                 {/* ── A4 Print area — selalu di DOM saat items ada, tersembunyi di tab Riwayat ── */}
                                 {priceListItems.length > 0 && (
-                                    <div id="price-list-print-area" style={{display: plSubTab === 'editor' ? 'flex' : 'none', justifyContent:'center'}}>
-                                            <div className="pl-page" style={{width:'100%',maxWidth:'680px',minHeight:'962px',background:'#F5F1E8',position:'relative',fontFamily:'Georgia,serif',boxShadow:'0 10px 40px rgba(42,24,8,.18)',display:'flex',flexDirection:'column'}}>
+                                    <div id="price-list-print-area" style={{display: plSubTab === 'editor' ? 'flex' : 'none', justifyContent:'center', background:'#6B7280', padding:'32px 24px', borderRadius:'8px'}}>
+                                            <div className="pl-page" style={{width:'100%',maxWidth:'680px',minHeight:'962px',background:'#F5F1E8',position:'relative',fontFamily:'Georgia,serif',boxShadow:'0 8px 32px rgba(0,0,0,.35)',display:'flex',flexDirection:'column'}}>
 
                                                 {/* ── Corner ornaments ── */}
                                                 <div style={{position:'absolute',top:0,left:0,width:'90px',height:'90px',pointerEvents:'none'}}>
