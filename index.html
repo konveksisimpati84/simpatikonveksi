@@ -391,7 +391,30 @@
             return "";
         };
 
-        const safeLocalSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch(e) { console.warn('[storage] quota exceeded, skip:', k); } };
+        const safeLocalSet = (k, v) => {
+            try {
+                window.localStorage.setItem(k, v);
+            } catch(e) {
+                // Quota exceeded — coba bebaskan space dengan hapus cache lama, lalu simpan ulang
+                try {
+                    const purgeKeys = [
+                        'simpati_absensiRawLogs_sync','simpati_rekap_sync','simpati_driver_trx_sync',
+                        'simpati_riwayat_sj_sync','simpati_invoices_sync','simpati_expenses_sync',
+                        'simpati_absensi_edits_sync','simpati_bagi_hasil_promosi_sync',
+                        'simpati_investor_bagi_hasil_sync','simpati_dana_operasional_sync'
+                    ];
+                    for (const pk of purgeKeys) {
+                        if (pk !== k) {
+                            window.localStorage.removeItem(pk);
+                            try { window.localStorage.setItem(k, v); return; } catch(e2) {}
+                        }
+                    }
+                    console.warn('[storage] quota exceeded bahkan setelah purge, skip:', k);
+                } catch(e2) {
+                    console.warn('[storage] quota exceeded, skip:', k);
+                }
+            }
+        };
 
         const dataUrlToInlinePart = (dataUrl) => {
             const match = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
@@ -21101,9 +21124,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (!supabaseClient) return;
                 if (syncInFlightRef.current) return;
                 syncInFlightRef.current = true;
+                // Safety: lepas lock setelah 30 detik agar refresh tidak permanen tersumbat
+                const lockTimeout = setTimeout(() => { syncInFlightRef.current = false; }, 30000);
                 try {
                     await applyRemoteDataSnapshotInner();
                 } finally {
+                    clearTimeout(lockTimeout);
                     syncInFlightRef.current = false;
                 }
             };
@@ -21475,9 +21501,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                     if (supabaseClient) {
                         try {
-                            const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), 5000))]);
+                            // Deteksi mobile/iPad → timeout lebih panjang (koneksi lebih lambat)
+                            const isMobile = /Mobi|Android|iPad|iPhone/i.test(navigator.userAgent);
+                            const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), isMobile ? 10000 : 5000))]);
                             const _fetchTimeout = new Promise((_, reject) =>
-                                setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), 10000)
+                                setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), isMobile ? 25000 : 10000)
                             );
                             const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi] = await Promise.race([
                                 Promise.all([
