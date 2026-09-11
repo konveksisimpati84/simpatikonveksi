@@ -43,6 +43,9 @@
             #quotation-print-area,
             #quotation-print-area * { visibility: visible; }
 
+            #price-list-print-area,
+            #price-list-print-area * { visibility: visible; }
+
             #quotation-print-area {
                 position: absolute !important;
                 top: 0 !important;
@@ -73,6 +76,28 @@
             #quotation-print-area .text-\[11px\] { font-size: 8pt !important; }
             #quotation-print-area .text-xs { font-size: 8.5pt !important; }
             #quotation-print-area .text-base { font-size: 11pt !important; }
+
+            /* ── Price List print area ── */
+            #price-list-print-area,
+            #price-list-print-area * { visibility: visible; }
+
+            #price-list-print-area {
+                position: absolute !important;
+                top: 0 !important; left: 0 !important;
+                width: 100% !important;
+                margin: 0 !important; padding: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+                border-radius: 0 !important;
+                background: white !important;
+            }
+            #price-list-print-area * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            #price-list-print-area .pl-no-print { display: none !important; }
+            #price-list-print-area .pl-page { box-shadow: none !important; border: none !important; margin: 0 !important; border-radius: 0 !important; }
+            #price-list-print-area tbody tr { page-break-inside: avoid; }
         }
 
         @keyframes slideInUp {
@@ -18306,6 +18331,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const DB_KEY_HIDDEN_PRESETS = 'hpp_hidden_builtin_presets';
             const DB_KEY_ORDERS      = 'hpp_saved_orders';
             const DB_KEY_QUOTATIONS  = 'hpp_saved_quotations';
+            const DB_KEY_PRICE_LIST_ITEMS = 'hpp_price_list_items';
+            const DB_KEY_PRICE_LIST_TITLE = 'hpp_price_list_title';
 
             const DEFAULT_MASTER_MATERIALS = [
                 { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
@@ -18366,6 +18393,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [savedQuotations, setSavedQuotations] = React.useState([]);
             const [selectedHistoryIds, setSelectedHistoryIds] = React.useState(new Set());
             const [quotationItems, setQuotationItems] = React.useState([]);
+            const [priceListItems, setPriceListItems] = React.useState([]);
+            const [priceListTitle, setPriceListTitle] = React.useState('DAFTAR HARGA');
             const [editingOrderId, setEditingOrderId] = React.useState(null);
             const [matSearch,  setMatSearch]  = React.useState('');
             const [matPage,    setMatPage]    = React.useState(1);
@@ -18397,13 +18426,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // ── Load on mount ─────────────────────────────────────────────────────
             React.useEffect(() => {
                 (async () => {
-                    const [mm, ml, cp, so, sq, hbp] = await Promise.all([
+                    const [mm, ml, cp, so, sq, hbp, pli, plt] = await Promise.all([
                         sbGet(DB_KEY_MATERIALS,  DEFAULT_MASTER_MATERIALS),
                         sbGet(DB_KEY_LABOR,      DEFAULT_MASTER_LABOR),
                         sbGet(DB_KEY_PRESETS,    []),
                         sbGet(DB_KEY_ORDERS,     []),
                         sbGet(DB_KEY_QUOTATIONS, []),
                         sbGet(DB_KEY_HIDDEN_PRESETS, []),
+                        sbGet(DB_KEY_PRICE_LIST_ITEMS, []),
+                        sbGet(DB_KEY_PRICE_LIST_TITLE, 'DAFTAR HARGA'),
                     ]);
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
@@ -18411,6 +18442,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setSavedOrders(so);
                     setSavedQuotations(sq);
                     setHiddenBuiltinPresets(hbp);
+                    setPriceListItems(pli);
+                    setPriceListTitle(plt);
                     initializedRef.current = true;
                 })();
             }, []);
@@ -18422,6 +18455,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_HIDDEN_PRESETS, hiddenBuiltinPresets); }, [hiddenBuiltinPresets]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_ORDERS,     savedOrders);      }, [savedOrders]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_QUOTATIONS, savedQuotations);  }, [savedQuotations]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_ITEMS, priceListItems); }, [priceListItems]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_TITLE, priceListTitle); }, [priceListTitle]);
 
             // ── Derived HPP calculation ───────────────────────────────────────────
             const calc = React.useMemo(() => {
@@ -18625,6 +18660,33 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setQuotationItems(items);
                 setSelectedHistoryIds(new Set());
                 setActiveSection('quotation');
+            };
+
+            const addToPriceList = () => {
+                const toAdd = savedOrders
+                    .filter(o => selectedHistoryIds.has(o.id))
+                    .filter(o => !priceListItems.some(p => p.id === o.id))
+                    .map(o => ({ id: o.id, name: o.name, detail: o.detail || '', sellingPrice: o.sellingPrice || 0 }));
+                const alreadyCount = savedOrders.filter(o => selectedHistoryIds.has(o.id)).length - toAdd.length;
+                if (toAdd.length === 0) {
+                    showToast('Semua item yang dipilih sudah ada di Price List.', 'info');
+                    return;
+                }
+                setPriceListItems(prev => [...prev, ...toAdd]);
+                setSelectedHistoryIds(new Set());
+                showToast(`${toAdd.length} produk ditambahkan ke Price List${alreadyCount > 0 ? `, ${alreadyCount} item sudah ada dilewati` : ''}.`, 'success');
+                setActiveSection('price_list');
+            };
+
+            const removeFromPriceList = (id) => {
+                setPriceListItems(prev => prev.filter(p => p.id !== id));
+            };
+
+            const printPriceList = () => {
+                const originalTitle = document.title;
+                document.title = priceListTitle || 'Price List';
+                window.addEventListener('afterprint', () => { document.title = originalTitle; }, { once: true });
+                window.print();
             };
 
             const addQuotationItemManual = () => {
@@ -18871,6 +18933,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </button>
                             <button onClick={() => setActiveSection('quotation_history')} className={activeSection === 'quotation_history' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
                                 <i className="fa-solid fa-folder-open mr-1.5"></i>Riwayat Penawaran ({savedQuotations.length})
+                            </button>
+                            <button onClick={() => setActiveSection('price_list')} className={activeSection === 'price_list' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
+                                <i className="fa-solid fa-list-check mr-1.5"></i>Price List {priceListItems.length > 0 && `(${priceListItems.length})`}
                             </button>
                         </div>
                     </div>
@@ -19207,9 +19272,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 </div>
                                 <div className="flex items-center gap-2 flex-wrap">
                                     {selectedHistoryIds.size > 0 && (
+                                        <>
                                         <button onClick={buildQuotationFromSelected} className="text-xs bg-emerald-500 hover:bg-emerald-400 text-white border border-emerald-400 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
                                             <i className="fa-solid fa-file-invoice-dollar"></i>Buat Penawaran ({selectedHistoryIds.size} item)
                                         </button>
+                                        <button onClick={addToPriceList} className="text-xs bg-amber-500 hover:bg-amber-400 text-white border border-amber-400 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
+                                            <i className="fa-solid fa-list-check"></i>+ Price List ({selectedHistoryIds.size} item)
+                                        </button>
+                                        </>
                                     )}
                                     <button onClick={clearHistory} className="text-xs bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-2 rounded-xl transition">
                                         <i className="fa-solid fa-trash-can mr-1"></i>Hapus Semua
@@ -19785,6 +19855,179 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </div>
                         </div>
                     )}
+
+                    {/* ── SECTION: PRICE LIST ───────────────────────────────────── */}
+                    {activeSection === 'price_list' && (() => {
+                        const logo = templates && templates.companyLogo;
+                        const companyName = (templates && templates.companyName) || 'SIMPATI KONVEKSI';
+                        const companySubtitle = (templates && templates.companySubtitle) || '';
+                        const companyContact = (templates && templates.companyContact) || '';
+
+                        return (
+                            <div className="space-y-5">
+                                {/* ── Header bar ── */}
+                                <div className="bg-gradient-to-r from-amber-700 to-amber-500 text-white p-5 rounded-2xl shadow-lg flex justify-between items-center flex-wrap gap-3">
+                                    <div>
+                                        <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-list-check mr-2 text-amber-200"></i>Price List</h2>
+                                        <p className="text-xs text-amber-100">Dokumen A4 harga jual produk — bisa diedit, disimpan otomatis, dan dicetak kapan saja.</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <button onClick={() => setActiveSection('history')} className="text-xs bg-white/20 hover:bg-white/30 text-white border border-white/30 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
+                                            <i className="fa-solid fa-plus"></i>Tambah Produk
+                                        </button>
+                                        {priceListItems.length > 0 && (
+                                            <button onClick={printPriceList} className="text-xs bg-white text-amber-700 hover:bg-amber-50 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5 shadow">
+                                                <i className="fa-solid fa-print"></i>Cetak / Simpan PDF
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* ── Judul editor + info ── */}
+                                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Judul Price List</label>
+                                    <input
+                                        type="text"
+                                        value={priceListTitle}
+                                        onChange={e => setPriceListTitle(e.target.value)}
+                                        placeholder="Contoh: DAFTAR HARGA KONVEKSI 2025"
+                                        className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none transition"
+                                    />
+                                    <p className="text-[11px] text-slate-400 mt-1.5"><i className="fa-solid fa-circle-info mr-1"></i>Judul ditampilkan di dokumen A4. Disimpan otomatis.</p>
+                                </div>
+
+                                {/* ── Daftar item ── */}
+                                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <p className="text-sm font-bold text-slate-700"><i className="fa-solid fa-boxes-stacked mr-1.5 text-amber-500"></i>Daftar Produk ({priceListItems.length})</p>
+                                        {priceListItems.length > 0 && (
+                                            <button onClick={() => { if (window.confirm('Hapus semua produk dari Price List?')) setPriceListItems([]); }} className="text-[11px] text-rose-400 hover:text-rose-600 transition font-semibold flex items-center gap-1">
+                                                <i className="fa-solid fa-trash-can"></i>Hapus Semua
+                                            </button>
+                                        )}
+                                    </div>
+                                    {priceListItems.length === 0 ? (
+                                        <div className="text-center py-10">
+                                            <div className="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3 text-amber-400 text-2xl"><i className="fa-solid fa-list-check"></i></div>
+                                            <p className="font-bold text-slate-600 text-sm">Belum ada produk</p>
+                                            <p className="text-xs text-slate-400 mt-1">Centang item di tab Riwayat lalu klik "+ Price List".</p>
+                                            <button onClick={() => setActiveSection('history')} className="mt-4 text-xs bg-amber-500 hover:bg-amber-400 text-white px-4 py-2 rounded-xl font-bold transition">
+                                                <i className="fa-solid fa-clock-rotate-left mr-1.5"></i>Ke Tab Riwayat
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-left text-xs">
+                                                <thead>
+                                                    <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
+                                                        <th className="pb-2 w-6">No</th>
+                                                        <th className="pb-2">Produk</th>
+                                                        <th className="pb-2 text-right">Harga Jual/Pcs</th>
+                                                        <th className="pb-2 w-8 text-center">Hapus</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {priceListItems.map((item, idx) => (
+                                                        <tr key={item.id} className="hover:bg-amber-50/40 transition">
+                                                            <td className="py-2.5 px-1 text-slate-400 font-mono">{idx + 1}</td>
+                                                            <td className="py-2.5 px-1">
+                                                                <p className="font-bold text-slate-800">{item.name}</p>
+                                                                {item.detail && <p className="text-[11px] text-slate-400 italic mt-0.5">{item.detail}</p>}
+                                                            </td>
+                                                            <td className="py-2.5 px-1 text-right font-extrabold text-emerald-600">{formatRp(item.sellingPrice)}</td>
+                                                            <td className="py-2.5 px-1 text-center">
+                                                                <button onClick={() => removeFromPriceList(item.id)} className="text-rose-400 hover:text-rose-600 transition p-1"><i className="fa-solid fa-xmark text-xs"></i></button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ── A4 Preview ── */}
+                                {priceListItems.length > 0 && (
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3"><i className="fa-solid fa-eye mr-1.5"></i>Preview Dokumen A4</p>
+                                        <div id="price-list-print-area" className="flex justify-center">
+                                            <div className="pl-page w-full max-w-[700px] bg-white shadow-xl rounded-lg overflow-hidden" style={{fontFamily:'Georgia,serif'}}>
+                                                {/* ── Ornamental top strip ── */}
+                                                <div style={{background:'linear-gradient(135deg,#7c2d12,#b45309)',height:'8px'}}></div>
+
+                                                {/* ── Document body ── */}
+                                                <div style={{padding:'32px 40px 36px'}}>
+                                                    {/* ── Header ── */}
+                                                    <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'16px',marginBottom:'20px'}}>
+                                                        {logo && <img src={logo} alt="Logo" style={{width:'56px',height:'56px',objectFit:'contain',borderRadius:'6px'}} />}
+                                                        <div style={{textAlign: logo ? 'left' : 'center', flex: logo ? '1' : 'none'}}>
+                                                            <div style={{fontFamily:'Georgia,serif',fontSize:'18px',fontWeight:'700',color:'#7c2d12',letterSpacing:'0.06em',textTransform:'uppercase'}}>{companyName}</div>
+                                                            {companySubtitle && <div style={{fontSize:'11px',color:'#92400e',marginTop:'2px',letterSpacing:'0.04em'}}>{companySubtitle}</div>}
+                                                            {companyContact && <div style={{fontSize:'10px',color:'#a3724a',marginTop:'2px'}}>{companyContact}</div>}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* ── Gold divider ── */}
+                                                    <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'18px'}}>
+                                                        <div style={{flex:1,height:'1.5px',background:'linear-gradient(to right,transparent,#b45309)'}}></div>
+                                                        <div style={{width:'6px',height:'6px',background:'#b45309',transform:'rotate(45deg)'}}></div>
+                                                        <div style={{flex:1,height:'1.5px',background:'linear-gradient(to left,transparent,#b45309)'}}></div>
+                                                    </div>
+
+                                                    {/* ── Title ── */}
+                                                    <div style={{textAlign:'center',marginBottom:'20px'}}>
+                                                        <div style={{fontFamily:'Georgia,serif',fontSize:'15px',fontWeight:'700',color:'#1e293b',letterSpacing:'0.1em',textTransform:'uppercase'}}>{priceListTitle || 'DAFTAR HARGA'}</div>
+                                                    </div>
+
+                                                    {/* ── Table ── */}
+                                                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
+                                                        <thead>
+                                                            <tr style={{background:'#7c2d12',color:'white'}}>
+                                                                <th style={{padding:'8px 10px',textAlign:'center',width:'36px',fontWeight:'700',letterSpacing:'0.05em',fontSize:'10px',textTransform:'uppercase'}}>No</th>
+                                                                <th style={{padding:'8px 10px',textAlign:'left',fontWeight:'700',letterSpacing:'0.05em',fontSize:'10px',textTransform:'uppercase'}}>Produk</th>
+                                                                <th style={{padding:'8px 10px',textAlign:'right',fontWeight:'700',letterSpacing:'0.05em',fontSize:'10px',textTransform:'uppercase'}}>Harga / Pcs</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {priceListItems.map((item, idx) => (
+                                                                <tr key={item.id} style={{background: idx % 2 === 0 ? '#fffbf5' : '#ffffff', borderBottom:'1px solid #e7ddd4'}}>
+                                                                    <td style={{padding:'9px 10px',textAlign:'center',color:'#92400e',fontWeight:'600',fontFamily:'monospace'}}>{idx + 1}</td>
+                                                                    <td style={{padding:'9px 10px'}}>
+                                                                        <div style={{fontWeight:'700',color:'#1e293b'}}>{item.name}</div>
+                                                                        {item.detail && <div style={{fontStyle:'italic',color:'#78716c',fontSize:'10.5px',marginTop:'2px'}}>{item.detail}</div>}
+                                                                    </td>
+                                                                    <td style={{padding:'9px 10px',textAlign:'right',fontWeight:'800',color:'#15803d',fontVariantNumeric:'tabular-nums'}}>{formatRp(item.sellingPrice)}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+
+                                                    {/* ── Bottom divider ── */}
+                                                    <div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'20px',marginBottom:'10px'}}>
+                                                        <div style={{flex:1,height:'1px',background:'linear-gradient(to right,transparent,#d97706)'}}></div>
+                                                        <div style={{width:'5px',height:'5px',background:'#d97706',transform:'rotate(45deg)'}}></div>
+                                                        <div style={{flex:1,height:'1px',background:'linear-gradient(to left,transparent,#d97706)'}}></div>
+                                                    </div>
+                                                    <p style={{textAlign:'center',fontSize:'9.5px',color:'#a3724a',fontStyle:'italic'}}>Harga dapat berubah sewaktu-waktu. Hubungi kami untuk informasi lebih lanjut.</p>
+                                                </div>
+
+                                                {/* ── Bottom strip ── */}
+                                                <div style={{background:'linear-gradient(135deg,#7c2d12,#b45309)',height:'5px'}}></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {priceListItems.length > 0 && (
+                                    <div className="flex justify-center">
+                                        <button onClick={printPriceList} className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
+                                            <i className="fa-solid fa-print"></i>Cetak / Simpan PDF
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
 
                     {/* ── MODAL EDIT MASTER ─────────────────────────────────────── */}
                     {editModal && (
