@@ -18303,6 +18303,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const DB_KEY_MATERIALS   = 'hpp_master_materials';
             const DB_KEY_LABOR       = 'hpp_master_labor';
             const DB_KEY_PRESETS     = 'hpp_custom_presets';
+            const DB_KEY_HIDDEN_PRESETS = 'hpp_hidden_builtin_presets';
             const DB_KEY_ORDERS      = 'hpp_saved_orders';
             const DB_KEY_QUOTATIONS  = 'hpp_saved_quotations';
 
@@ -18331,6 +18332,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [masterMaterials, setMasterMaterials] = React.useState(DEFAULT_MASTER_MATERIALS);
             const [masterLabor, setMasterLabor] = React.useState(DEFAULT_MASTER_LABOR);
             const [customPresets, setCustomPresets] = React.useState([]);
+            const [hiddenBuiltinPresets, setHiddenBuiltinPresets] = React.useState([]);
+            const [editingPresetId, setEditingPresetId] = React.useState(null);
+            const [editingPresetTitle, setEditingPresetTitle] = React.useState('');
             const [savedOrders, setSavedOrders] = React.useState([]);
             const [activeMaterials, setActiveMaterials] = React.useState([
                 { masterId: 'MAT-1', usagePerPcs: 0.25 },
@@ -18393,18 +18397,20 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // ── Load on mount ─────────────────────────────────────────────────────
             React.useEffect(() => {
                 (async () => {
-                    const [mm, ml, cp, so, sq] = await Promise.all([
+                    const [mm, ml, cp, so, sq, hbp] = await Promise.all([
                         sbGet(DB_KEY_MATERIALS,  DEFAULT_MASTER_MATERIALS),
                         sbGet(DB_KEY_LABOR,      DEFAULT_MASTER_LABOR),
                         sbGet(DB_KEY_PRESETS,    []),
                         sbGet(DB_KEY_ORDERS,     []),
                         sbGet(DB_KEY_QUOTATIONS, []),
+                        sbGet(DB_KEY_HIDDEN_PRESETS, []),
                     ]);
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
                     setCustomPresets(cp);
                     setSavedOrders(so);
                     setSavedQuotations(sq);
+                    setHiddenBuiltinPresets(hbp);
                     initializedRef.current = true;
                 })();
             }, []);
@@ -18413,6 +18419,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_MATERIALS,  masterMaterials);  }, [masterMaterials]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_LABOR,      masterLabor);      }, [masterLabor]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRESETS,    customPresets);    }, [customPresets]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_HIDDEN_PRESETS, hiddenBuiltinPresets); }, [hiddenBuiltinPresets]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_ORDERS,     savedOrders);      }, [savedOrders]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_QUOTATIONS, savedQuotations);  }, [savedQuotations]);
 
@@ -18519,6 +18526,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 showToast(`Preset "${title}" disimpan!`, 'success');
             };
             const deleteCustomPreset = (id) => { setCustomPresets(prev => prev.filter(p => p.id !== id)); showToast('Preset dihapus.', 'info'); };
+            const hideBuiltinPreset = (key) => { setHiddenBuiltinPresets(prev => [...prev, key]); showToast('Preset disembunyikan.', 'info'); };
+            const startRenamePreset = (p) => { setEditingPresetId(p.id); setEditingPresetTitle(p.title); };
+            const saveRenamePreset = () => {
+                const t = editingPresetTitle.trim();
+                if (t) setCustomPresets(prev => prev.map(p => p.id === editingPresetId ? { ...p, title: t } : p));
+                setEditingPresetId(null); setEditingPresetTitle('');
+            };
 
             const saveCalculation = () => {
                 const name = orderName || 'Order Konveksi';
@@ -18886,14 +18900,33 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     <span className="text-xs font-bold text-slate-600 uppercase tracking-wider whitespace-nowrap">
                                         <i className="fa-solid fa-wand-magic-sparkles text-amber-500 mr-1"></i>Preset:
                                     </span>
-                                    <button onClick={loadPresetKaos} className="text-xs bg-slate-800 hover:bg-slate-700 text-white font-semibold px-3 py-1.5 rounded-lg border border-slate-700 transition">Kaos</button>
-                                    <button onClick={loadPresetKemeja} className="text-xs bg-slate-800 hover:bg-slate-700 text-white font-semibold px-3 py-1.5 rounded-lg border border-slate-700 transition">Kemeja</button>
+                                    {!hiddenBuiltinPresets.includes('kaos') && (
+                                        <span className="inline-flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+                                            <button onClick={loadPresetKaos} className="text-xs text-white font-semibold px-3 py-1.5 hover:bg-slate-700 transition">Kaos</button>
+                                            <button onClick={() => hideBuiltinPreset('kaos')} className="text-slate-400 hover:text-rose-400 px-1.5 py-1.5 hover:bg-slate-700 transition" title="Sembunyikan"><i className="fa-solid fa-xmark text-xs"></i></button>
+                                        </span>
+                                    )}
+                                    {!hiddenBuiltinPresets.includes('kemeja') && (
+                                        <span className="inline-flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+                                            <button onClick={loadPresetKemeja} className="text-xs text-white font-semibold px-3 py-1.5 hover:bg-slate-700 transition">Kemeja</button>
+                                            <button onClick={() => hideBuiltinPreset('kemeja')} className="text-slate-400 hover:text-rose-400 px-1.5 py-1.5 hover:bg-slate-700 transition" title="Sembunyikan"><i className="fa-solid fa-xmark text-xs"></i></button>
+                                        </span>
+                                    )}
                                     {customPresets.map(p => (
-                                        <span key={p.id} className="inline-flex items-center text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg px-2.5 py-1 font-semibold gap-1.5">
-                                            <button onClick={() => loadCustomPreset(p)} className="hover:underline flex items-center gap-1">
-                                                <i className="fa-solid fa-star text-amber-500 text-[10px]"></i>{p.title}
-                                            </button>
-                                            <button onClick={() => deleteCustomPreset(p.id)} className="text-indigo-400 hover:text-rose-600 transition"><i className="fa-solid fa-xmark text-xs"></i></button>
+                                        <span key={p.id} className="inline-flex items-center text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg px-2 py-1 font-semibold gap-1">
+                                            {editingPresetId === p.id ? (
+                                                <input autoFocus type="text" value={editingPresetTitle}
+                                                    onChange={e => setEditingPresetTitle(e.target.value)}
+                                                    onBlur={saveRenamePreset}
+                                                    onKeyDown={e => { if (e.key === 'Enter') saveRenamePreset(); if (e.key === 'Escape') { setEditingPresetId(null); setEditingPresetTitle(''); } }}
+                                                    className="text-xs font-semibold text-indigo-800 bg-white border border-indigo-300 rounded px-1.5 py-0.5 w-28 outline-none focus:ring-1 focus:ring-indigo-400" />
+                                            ) : (
+                                                <button onClick={() => loadCustomPreset(p)} className="hover:underline flex items-center gap-1">
+                                                    <i className="fa-solid fa-star text-amber-500 text-[10px]"></i>{p.title}
+                                                </button>
+                                            )}
+                                            <button onClick={() => startRenamePreset(p)} className="text-indigo-300 hover:text-indigo-600 transition" title="Ubah nama"><i className="fa-solid fa-pen text-[10px]"></i></button>
+                                            <button onClick={() => deleteCustomPreset(p.id)} className="text-indigo-300 hover:text-rose-600 transition" title="Hapus"><i className="fa-solid fa-xmark text-xs"></i></button>
                                         </span>
                                     ))}
                                 </div>
