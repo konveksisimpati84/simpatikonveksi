@@ -18331,6 +18331,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const DB_KEY_PRICE_LIST_ITEMS = 'hpp_price_list_items';
             const DB_KEY_PRICE_LIST_TITLE = 'hpp_price_list_title';
             const DB_KEY_PRICE_LIST_NOTE  = 'hpp_price_list_note';
+            const DB_KEY_PRICE_LIST_DATE  = 'hpp_price_list_date';
 
             const DEFAULT_MASTER_MATERIALS = [
                 { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
@@ -18394,6 +18395,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [priceListItems, setPriceListItems] = React.useState([]);
             const [priceListTitle, setPriceListTitle] = React.useState('DAFTAR HARGA');
             const [priceListNote,  setPriceListNote]  = React.useState('');
+            const [priceListDate,  setPriceListDate]  = React.useState('');
             const [editingOrderId, setEditingOrderId] = React.useState(null);
             const [matSearch,  setMatSearch]  = React.useState('');
             const [matPage,    setMatPage]    = React.useState(1);
@@ -18425,7 +18427,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // ── Load on mount ─────────────────────────────────────────────────────
             React.useEffect(() => {
                 (async () => {
-                    const [mm, ml, cp, so, sq, hbp, pli, plt, pln] = await Promise.all([
+                    const [mm, ml, cp, so, sq, hbp, pli, plt, pln, pld] = await Promise.all([
                         sbGet(DB_KEY_MATERIALS,  DEFAULT_MASTER_MATERIALS),
                         sbGet(DB_KEY_LABOR,      DEFAULT_MASTER_LABOR),
                         sbGet(DB_KEY_PRESETS,    []),
@@ -18435,6 +18437,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         sbGet(DB_KEY_PRICE_LIST_ITEMS, []),
                         sbGet(DB_KEY_PRICE_LIST_TITLE, 'DAFTAR HARGA'),
                         sbGet(DB_KEY_PRICE_LIST_NOTE,  ''),
+                        sbGet(DB_KEY_PRICE_LIST_DATE,  ''),
                     ]);
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
@@ -18445,6 +18448,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setPriceListItems(pli);
                     setPriceListTitle(plt);
                     setPriceListNote(pln);
+                    setPriceListDate(pld);
                     initializedRef.current = true;
                 })();
             }, []);
@@ -18459,6 +18463,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_ITEMS, priceListItems); }, [priceListItems]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_TITLE, priceListTitle); }, [priceListTitle]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_NOTE,  priceListNote);  }, [priceListNote]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_DATE,  priceListDate);  }, [priceListDate]);
 
             // ── Derived HPP calculation ───────────────────────────────────────────
             const calc = React.useMemo(() => {
@@ -19910,6 +19915,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         />
                                         <p className="text-[11px] text-slate-400 mt-1"><i className="fa-solid fa-circle-info mr-1"></i>Tampil di bagian bawah dokumen A4. Kosongkan jika tidak perlu.</p>
                                     </div>
+                                    <div className="mt-4">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Berlaku / Periode (opsional)</label>
+                                        <input
+                                            type="text"
+                                            value={priceListDate}
+                                            onChange={e => setPriceListDate(e.target.value)}
+                                            placeholder="Contoh: Oktober 2026 atau 1 Jan – 31 Mar 2026"
+                                            className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-700 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none transition"
+                                        />
+                                        <p className="text-[11px] text-slate-400 mt-1"><i className="fa-solid fa-circle-info mr-1"></i>Tampil sebagai "Berlaku: …" di bawah judul. Kosongkan jika tidak perlu.</p>
+                                    </div>
                                 </div>
 
                                 {/* ── Daftar item ── */}
@@ -19966,71 +19982,149 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {priceListItems.length > 0 && (
                                     <div>
                                         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3"><i className="fa-solid fa-eye mr-1.5"></i>Preview Dokumen A4</p>
-                                        <div id="price-list-print-area" className="flex justify-center">
-                                            <div className="pl-page w-full max-w-[700px] bg-white shadow-xl rounded-lg overflow-hidden" style={{fontFamily:'Georgia,serif'}}>
-                                                {/* ── Ornamental top strip ── */}
-                                                <div style={{background:'linear-gradient(135deg,#7c2d12,#b45309)',height:'8px'}}></div>
+                                        <div id="price-list-print-area" style={{display:'flex',justifyContent:'center'}}>
+                                            <div className="pl-page" style={{width:'100%',maxWidth:'680px',background:'#F5F1E8',position:'relative',fontFamily:'Georgia,serif',boxShadow:'0 10px 40px rgba(42,24,8,.18)'}}>
+
+                                                {/* ── Corner ornaments ── */}
+                                                <div style={{position:'absolute',top:0,left:0,width:'90px',height:'90px',pointerEvents:'none'}}>
+                                                    <svg width="90" height="90" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
+                                                        <defs>
+                                                            <pattern id="pl-pa1" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+                                                                <circle cx="12" cy="12" r="11" fill="none" stroke="#8B1A1A" strokeWidth="1.4" opacity=".65"/>
+                                                                <circle cx="12" cy="12" r="7.5" fill="none" stroke="#8B1A1A" strokeWidth="1.1" opacity=".65"/>
+                                                                <circle cx="12" cy="12" r="4" fill="none" stroke="#8B1A1A" strokeWidth=".9" opacity=".65"/>
+                                                            </pattern>
+                                                            <clipPath id="pl-ca1"><polygon points="0,0 108,0 0,108"/></clipPath>
+                                                        </defs>
+                                                        <rect width="108" height="108" fill="url(#pl-pa1)" clipPath="url(#pl-ca1)"/>
+                                                    </svg>
+                                                </div>
+                                                <div style={{position:'absolute',top:0,right:0,width:'90px',height:'90px',pointerEvents:'none'}}>
+                                                    <svg width="90" height="90" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
+                                                        <defs>
+                                                            <pattern id="pl-pa2" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+                                                                <circle cx="12" cy="12" r="11" fill="none" stroke="#8B1A1A" strokeWidth="1.4" opacity=".65"/>
+                                                                <circle cx="12" cy="12" r="7.5" fill="none" stroke="#8B1A1A" strokeWidth="1.1" opacity=".65"/>
+                                                                <circle cx="12" cy="12" r="4" fill="none" stroke="#8B1A1A" strokeWidth=".9" opacity=".65"/>
+                                                            </pattern>
+                                                            <clipPath id="pl-ca2"><polygon points="0,0 108,0 108,108"/></clipPath>
+                                                        </defs>
+                                                        <rect width="108" height="108" fill="url(#pl-pa2)" clipPath="url(#pl-ca2)"/>
+                                                    </svg>
+                                                </div>
+                                                <div style={{position:'absolute',bottom:0,left:0,width:'90px',height:'90px',pointerEvents:'none'}}>
+                                                    <svg width="90" height="90" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
+                                                        <defs>
+                                                            <pattern id="pl-pa3" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+                                                                <circle cx="12" cy="12" r="11" fill="none" stroke="#8B1A1A" strokeWidth="1.4" opacity=".65"/>
+                                                                <circle cx="12" cy="12" r="7.5" fill="none" stroke="#8B1A1A" strokeWidth="1.1" opacity=".65"/>
+                                                                <circle cx="12" cy="12" r="4" fill="none" stroke="#8B1A1A" strokeWidth=".9" opacity=".65"/>
+                                                            </pattern>
+                                                            <clipPath id="pl-ca3"><polygon points="0,0 0,108 108,108"/></clipPath>
+                                                        </defs>
+                                                        <rect width="108" height="108" fill="url(#pl-pa3)" clipPath="url(#pl-ca3)"/>
+                                                    </svg>
+                                                </div>
+                                                <div style={{position:'absolute',bottom:0,right:0,width:'90px',height:'90px',pointerEvents:'none'}}>
+                                                    <svg width="90" height="90" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
+                                                        <defs>
+                                                            <pattern id="pl-pa4" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+                                                                <circle cx="12" cy="12" r="11" fill="none" stroke="#8B1A1A" strokeWidth="1.4" opacity=".65"/>
+                                                                <circle cx="12" cy="12" r="7.5" fill="none" stroke="#8B1A1A" strokeWidth="1.1" opacity=".65"/>
+                                                                <circle cx="12" cy="12" r="4" fill="none" stroke="#8B1A1A" strokeWidth=".9" opacity=".65"/>
+                                                            </pattern>
+                                                            <clipPath id="pl-ca4"><polygon points="108,0 0,108 108,108"/></clipPath>
+                                                        </defs>
+                                                        <rect width="108" height="108" fill="url(#pl-pa4)" clipPath="url(#pl-ca4)"/>
+                                                    </svg>
+                                                </div>
 
                                                 {/* ── Document body ── */}
-                                                <div style={{padding:'32px 40px 36px'}}>
-                                                    {/* ── Header ── */}
-                                                    <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'16px',marginBottom:'20px'}}>
-                                                        {logo && <img src={logo} alt="Logo" style={{width:'80px',height:'80px',objectFit:'contain',borderRadius:'8px'}} />}
-                                                        <div style={{textAlign: logo ? 'left' : 'center', flex: logo ? '1' : 'none'}}>
-                                                            <div style={{fontFamily:'Georgia,serif',fontSize:'18px',fontWeight:'700',color:'#7c2d12',letterSpacing:'0.06em',textTransform:'uppercase'}}>{companyName}</div>
-                                                            {companySubtitle && <div style={{fontSize:'11px',color:'#92400e',marginTop:'2px',letterSpacing:'0.04em'}}>{companySubtitle}</div>}
-                                                            {companyContact && <div style={{fontSize:'10px',color:'#a3724a',marginTop:'2px'}}>{companyContact}</div>}
+                                                <div style={{position:'relative',zIndex:1,padding:'48px 44px 40px'}}>
+
+                                                    {/* ── Logo + Company header ── */}
+                                                    <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'14px',marginBottom:'6px'}}>
+                                                        {logo && <img src={logo} alt="Logo" style={{width:'80px',height:'80px',objectFit:'contain',borderRadius:'8px',flexShrink:0}} />}
+                                                        <div style={{textAlign: logo ? 'left' : 'center'}}>
+                                                            <div style={{fontFamily:'Georgia,serif',fontSize:'19px',fontWeight:'700',color:'#8B1A1A',letterSpacing:'0.04em'}}>{companyName}</div>
+                                                            {companySubtitle && <div style={{fontFamily:'Arial,sans-serif',fontSize:'10px',color:'#7A6A58',letterSpacing:'0.04em',marginTop:'2px'}}>{companySubtitle}</div>}
+                                                            {companyContact && <div style={{fontFamily:'Arial,sans-serif',fontSize:'10px',color:'#7A6A58',marginTop:'1px'}}>{companyContact}</div>}
                                                         </div>
                                                     </div>
 
-                                                    {/* ── Gold divider ── */}
-                                                    <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'18px'}}>
-                                                        <div style={{flex:1,height:'1.5px',background:'linear-gradient(to right,transparent,#b45309)'}}></div>
-                                                        <div style={{width:'6px',height:'6px',background:'#b45309',transform:'rotate(45deg)'}}></div>
-                                                        <div style={{flex:1,height:'1.5px',background:'linear-gradient(to left,transparent,#b45309)'}}></div>
+                                                    {/* ── Gold SVG divider (elaborate) ── */}
+                                                    <div style={{display:'flex',justifyContent:'center',margin:'14px 0'}}>
+                                                        <svg viewBox="0 0 220 18" width="220" height="18" xmlns="http://www.w3.org/2000/svg">
+                                                            <line x1="8" y1="9" x2="88" y2="9" stroke="#B8860B" strokeWidth="1"/>
+                                                            <polygon points="88,9 93,5 98,9 93,13" fill="#B8860B"/>
+                                                            <circle cx="110" cy="9" r="6" fill="none" stroke="#B8860B" strokeWidth="1.2"/>
+                                                            <circle cx="110" cy="9" r="2.5" fill="#B8860B"/>
+                                                            <polygon points="122,9 127,5 132,9 127,13" fill="#B8860B"/>
+                                                            <line x1="132" y1="9" x2="212" y2="9" stroke="#B8860B" strokeWidth="1"/>
+                                                            <circle cx="8" cy="9" r="2.5" fill="#B8860B"/>
+                                                            <circle cx="212" cy="9" r="2.5" fill="#B8860B"/>
+                                                        </svg>
                                                     </div>
 
                                                     {/* ── Title ── */}
-                                                    <div style={{textAlign:'center',marginBottom:'20px'}}>
-                                                        <div style={{fontFamily:'Georgia,serif',fontSize:'15px',fontWeight:'700',color:'#1e293b',letterSpacing:'0.1em',textTransform:'uppercase'}}>{priceListTitle || 'DAFTAR HARGA'}</div>
+                                                    <div style={{textAlign:'center',marginBottom:'4px'}}>
+                                                        <div style={{fontFamily:'Georgia,serif',fontSize:'19px',fontWeight:'700',color:'#2A1808',lineHeight:'1.25'}}>{priceListTitle || 'DAFTAR HARGA'}</div>
                                                     </div>
+                                                    {priceListDate && (
+                                                        <div style={{textAlign:'center',fontFamily:'Arial,sans-serif',fontSize:'10px',color:'#7A6A58',marginBottom:'16px'}}>Berlaku: {priceListDate}</div>
+                                                    )}
+                                                    {!priceListDate && <div style={{marginBottom:'16px'}}></div>}
 
                                                     {/* ── Table ── */}
-                                                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
+                                                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11.5px'}}>
                                                         <thead>
-                                                            <tr style={{background:'#7c2d12',color:'white'}}>
-                                                                <th style={{padding:'8px 10px',textAlign:'center',width:'36px',fontWeight:'700',letterSpacing:'0.05em',fontSize:'10px',textTransform:'uppercase'}}>No</th>
-                                                                <th style={{padding:'8px 10px',textAlign:'left',fontWeight:'700',letterSpacing:'0.05em',fontSize:'10px',textTransform:'uppercase'}}>Produk</th>
-                                                                <th style={{padding:'8px 10px',textAlign:'right',fontWeight:'700',letterSpacing:'0.05em',fontSize:'10px',textTransform:'uppercase'}}>Harga / Pcs</th>
+                                                            <tr style={{borderTop:'1.8px solid #8B1A1A',borderBottom:'1.8px solid #8B1A1A'}}>
+                                                                <th style={{padding:'7px 6px',width:'28px',fontFamily:'Arial,sans-serif',fontSize:'9.5px',fontWeight:'700',letterSpacing:'0.08em',textTransform:'uppercase',color:'#8B1A1A',textAlign:'left'}}>No</th>
+                                                                <th style={{padding:'7px 6px',fontFamily:'Arial,sans-serif',fontSize:'9.5px',fontWeight:'700',letterSpacing:'0.08em',textTransform:'uppercase',color:'#8B1A1A',textAlign:'left'}}>Produk</th>
+                                                                <th style={{padding:'7px 6px',fontFamily:'Arial,sans-serif',fontSize:'9.5px',fontWeight:'700',letterSpacing:'0.08em',textTransform:'uppercase',color:'#8B1A1A',textAlign:'right',width:'110px'}}>Harga / Pcs</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
                                                             {priceListItems.map((item, idx) => (
-                                                                <tr key={item.id} style={{background: idx % 2 === 0 ? '#fffbf5' : '#ffffff', borderBottom:'1px solid #e7ddd4'}}>
-                                                                    <td style={{padding:'9px 10px',textAlign:'center',color:'#92400e',fontWeight:'600',fontFamily:'monospace'}}>{idx + 1}</td>
-                                                                    <td style={{padding:'9px 10px'}}>
-                                                                        <div style={{fontWeight:'700',color:'#1e293b'}}>{item.name}</div>
-                                                                        {item.detail && <div style={{fontStyle:'italic',color:'#78716c',fontSize:'10.5px',marginTop:'2px'}}>{item.detail}</div>}
+                                                                <tr key={item.id} style={{borderBottom:'1px solid #DDD5C4',background: idx % 2 === 1 ? 'rgba(139,26,26,.03)' : 'transparent'}}>
+                                                                    <td style={{padding:'9px 6px',verticalAlign:'top',fontFamily:'Arial,sans-serif',fontSize:'10px',color:'#7A6A58',paddingTop:'11px'}}>{idx + 1}</td>
+                                                                    <td style={{padding:'9px 6px',verticalAlign:'top'}}>
+                                                                        <div style={{fontWeight:'600',color:'#2A1808',lineHeight:'1.3'}}>{item.name}</div>
+                                                                        {item.detail && <div style={{fontStyle:'italic',color:'#7A6A58',fontSize:'10px',marginTop:'2px',lineHeight:'1.4'}}>{item.detail}</div>}
                                                                     </td>
-                                                                    <td style={{padding:'9px 10px',textAlign:'right',fontWeight:'800',color:'#15803d',fontVariantNumeric:'tabular-nums'}}>{formatRp(item.sellingPrice)}</td>
+                                                                    <td style={{padding:'9px 6px',verticalAlign:'top',textAlign:'right',fontWeight:'700',color:'#8B1A1A',fontVariantNumeric:'tabular-nums'}}>{formatRp(item.sellingPrice)}</td>
                                                                 </tr>
                                                             ))}
                                                         </tbody>
                                                     </table>
 
-                                                    {/* ── Bottom divider ── */}
-                                                    <div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'20px',marginBottom:'10px'}}>
-                                                        <div style={{flex:1,height:'1px',background:'linear-gradient(to right,transparent,#d97706)'}}></div>
-                                                        <div style={{width:'5px',height:'5px',background:'#d97706',transform:'rotate(45deg)'}}></div>
-                                                        <div style={{flex:1,height:'1px',background:'linear-gradient(to left,transparent,#d97706)'}}></div>
-                                                    </div>
-                                                    <p style={{textAlign:'center',fontSize:'9.5px',color:'#a3724a',fontStyle:'italic',whiteSpace:'pre-wrap'}}>
-                                                        {priceListNote || 'Harga dapat berubah sewaktu-waktu. Hubungi kami untuk informasi lebih lanjut.'}
-                                                    </p>
-                                                </div>
+                                                    {/* ── Catatan box ── */}
+                                                    {priceListNote && (
+                                                        <div style={{marginTop:'18px',border:'1px solid #D0C8B8',borderRadius:'3px',padding:'9px 12px',fontFamily:'Arial,sans-serif',fontSize:'10px',color:'#7A6A58',lineHeight:'1.7',whiteSpace:'pre-wrap'}}>
+                                                            <div style={{fontSize:'9.5px',fontWeight:'700',letterSpacing:'0.06em',textTransform:'uppercase',color:'#8B1A1A',marginBottom:'4px'}}>Catatan</div>
+                                                            {priceListNote}
+                                                        </div>
+                                                    )}
 
-                                                {/* ── Bottom strip ── */}
-                                                <div style={{background:'linear-gradient(135deg,#7c2d12,#b45309)',height:'5px'}}></div>
+                                                    {/* ── Bottom gold SVG divider ── */}
+                                                    <div style={{display:'flex',justifyContent:'center',margin:'20px 0 8px'}}>
+                                                        <svg viewBox="0 0 180 14" width="180" height="14" xmlns="http://www.w3.org/2000/svg">
+                                                            <line x1="5" y1="7" x2="75" y2="7" stroke="#B8860B" strokeWidth=".8" opacity=".6"/>
+                                                            <circle cx="5" cy="7" r="2" fill="#B8860B" opacity=".6"/>
+                                                            <circle cx="90" cy="7" r="5" fill="none" stroke="#B8860B" strokeWidth="1" opacity=".6"/>
+                                                            <circle cx="90" cy="7" r="2" fill="#B8860B" opacity=".6"/>
+                                                            <line x1="105" y1="7" x2="175" y2="7" stroke="#B8860B" strokeWidth=".8" opacity=".6"/>
+                                                            <circle cx="175" cy="7" r="2" fill="#B8860B" opacity=".6"/>
+                                                        </svg>
+                                                    </div>
+
+                                                    {/* ── Footer ── */}
+                                                    <div style={{textAlign:'center',fontFamily:'Arial,sans-serif',fontSize:'10px',color:'#7A6A58',lineHeight:'1.8'}}>
+                                                        <div style={{fontWeight:'700',fontSize:'10.5px',color:'#2A1808',marginBottom:'2px'}}>{companyName}</div>
+                                                        {companyContact && <div>{companyContact}</div>}
+                                                    </div>
+
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
