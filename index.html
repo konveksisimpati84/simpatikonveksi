@@ -43,9 +43,6 @@
             #quotation-print-area,
             #quotation-print-area * { visibility: visible; }
 
-            #price-list-print-area,
-            #price-list-print-area * { visibility: visible; }
-
             #quotation-print-area {
                 position: absolute !important;
                 top: 0 !important;
@@ -96,7 +93,7 @@
                 print-color-adjust: exact;
             }
             #price-list-print-area .pl-no-print { display: none !important; }
-            #price-list-print-area .pl-page { box-shadow: none !important; border: none !important; margin: 0 !important; border-radius: 0 !important; }
+            #price-list-print-area .pl-page { box-shadow: none !important; border: none !important; margin: 0 !important; border-radius: 0 !important; max-width: 100% !important; width: 100% !important; overflow: visible !important; }
             #price-list-print-area tbody tr { page-break-inside: avoid; }
         }
 
