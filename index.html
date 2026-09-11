@@ -19327,7 +19327,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     className="rounded" />
                                                             </td>
                                                             <td className="py-3 px-1 text-slate-500 font-medium whitespace-nowrap">{item.date}</td>
-                                                            <td className="py-3 px-1 font-bold text-slate-800">{item.name}</td>
+                                                            <td className="py-3 px-1">
+                                                                <p className="font-bold text-slate-800">{item.name}</p>
+                                                                {item.detail && <p className="text-[11px] text-slate-400 italic mt-0.5">{item.detail}</p>}
+                                                            </td>
                                                             <td className="py-3 px-1 text-center font-bold text-slate-700">{item.qty} Pcs</td>
                                                             <td className="py-3 px-1 text-right font-semibold text-slate-700">{item.hppPcs}</td>
                                                             <td className="py-3 px-1 text-right font-extrabold text-emerald-600">{formatRp(item.sellingPrice)}</td>
