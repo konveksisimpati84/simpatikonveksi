@@ -18332,6 +18332,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const DB_KEY_PRICE_LIST_TITLE = 'hpp_price_list_title';
             const DB_KEY_PRICE_LIST_NOTE  = 'hpp_price_list_note';
             const DB_KEY_PRICE_LIST_DATE  = 'hpp_price_list_date';
+            const DB_KEY_SAVED_PRICE_LISTS = 'hpp_saved_price_lists';
 
             const DEFAULT_MASTER_MATERIALS = [
                 { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
@@ -18396,6 +18397,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [priceListTitle, setPriceListTitle] = React.useState('DAFTAR HARGA');
             const [priceListNote,  setPriceListNote]  = React.useState('');
             const [priceListDate,  setPriceListDate]  = React.useState('');
+            const [savedPriceLists, setSavedPriceLists] = React.useState([]);
+            const [plSubTab, setPlSubTab] = React.useState('editor');
             const [editingOrderId, setEditingOrderId] = React.useState(null);
             const [matSearch,  setMatSearch]  = React.useState('');
             const [matPage,    setMatPage]    = React.useState(1);
@@ -18427,7 +18430,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // ── Load on mount ─────────────────────────────────────────────────────
             React.useEffect(() => {
                 (async () => {
-                    const [mm, ml, cp, so, sq, hbp, pli, plt, pln, pld] = await Promise.all([
+                    const [mm, ml, cp, so, sq, hbp, pli, plt, pln, pld, spl] = await Promise.all([
                         sbGet(DB_KEY_MATERIALS,  DEFAULT_MASTER_MATERIALS),
                         sbGet(DB_KEY_LABOR,      DEFAULT_MASTER_LABOR),
                         sbGet(DB_KEY_PRESETS,    []),
@@ -18438,6 +18441,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         sbGet(DB_KEY_PRICE_LIST_TITLE, 'DAFTAR HARGA'),
                         sbGet(DB_KEY_PRICE_LIST_NOTE,  ''),
                         sbGet(DB_KEY_PRICE_LIST_DATE,  ''),
+                        sbGet(DB_KEY_SAVED_PRICE_LISTS, []),
                     ]);
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
@@ -18449,6 +18453,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setPriceListTitle(plt);
                     setPriceListNote(pln);
                     setPriceListDate(pld);
+                    setSavedPriceLists(spl);
                     initializedRef.current = true;
                 })();
             }, []);
@@ -18464,6 +18469,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_TITLE, priceListTitle); }, [priceListTitle]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_NOTE,  priceListNote);  }, [priceListNote]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_DATE,  priceListDate);  }, [priceListDate]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_SAVED_PRICE_LISTS, savedPriceLists); }, [savedPriceLists]);
 
             // ── Derived HPP calculation ───────────────────────────────────────────
             const calc = React.useMemo(() => {
@@ -18694,6 +18700,35 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 document.title = priceListTitle || 'Price List';
                 window.addEventListener('afterprint', () => { document.title = originalTitle; }, { once: true });
                 window.print();
+            };
+
+            const savePriceListToHistory = () => {
+                if (priceListItems.length === 0) { showToast('Tidak ada produk untuk disimpan.', 'warning'); return; }
+                const snapshot = {
+                    id: 'PL-' + Date.now(),
+                    savedAt: new Date().toISOString(),
+                    title: priceListTitle,
+                    note: priceListNote,
+                    date: priceListDate,
+                    items: [...priceListItems],
+                };
+                setSavedPriceLists(prev => [snapshot, ...prev]);
+                showToast('Price List disimpan ke riwayat.', 'success');
+            };
+
+            const loadPriceListFromHistory = (pl) => {
+                if (!window.confirm(`Muat "${pl.title}"? Dokumen aktif saat ini akan digantikan.`)) return;
+                setPriceListTitle(pl.title);
+                setPriceListNote(pl.note || '');
+                setPriceListDate(pl.date || '');
+                setPriceListItems(pl.items || []);
+                setPlSubTab('editor');
+                showToast(`Price List "${pl.title}" dimuat.`, 'success');
+            };
+
+            const deletePriceListHistory = (id) => {
+                setSavedPriceLists(prev => prev.filter(p => p.id !== id));
+                showToast('Riwayat dihapus.', 'info');
             };
 
             const addQuotationItemManual = () => {
@@ -19879,12 +19914,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 <div className="bg-gradient-to-r from-amber-700 to-amber-500 text-white p-5 rounded-2xl shadow-lg flex justify-between items-center flex-wrap gap-3">
                                     <div>
                                         <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-list-check mr-2 text-amber-200"></i>Price List</h2>
-                                        <p className="text-xs text-amber-100">Dokumen A4 harga jual produk — bisa diedit, disimpan otomatis, dan dicetak kapan saja.</p>
+                                        <p className="text-xs text-amber-100">Dokumen A4 harga jual produk — bisa diedit, disimpan ke riwayat, dan dicetak kapan saja.</p>
                                     </div>
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <button onClick={() => setActiveSection('history')} className="text-xs bg-white/20 hover:bg-white/30 text-white border border-white/30 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
                                             <i className="fa-solid fa-plus"></i>Tambah Produk
                                         </button>
+                                        {priceListItems.length > 0 && (
+                                            <button onClick={savePriceListToHistory} className="text-xs bg-white/20 hover:bg-white/30 text-white border border-white/30 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
+                                                <i className="fa-solid fa-floppy-disk"></i>Simpan ke Riwayat
+                                            </button>
+                                        )}
                                         {priceListItems.length > 0 && (
                                             <button onClick={printPriceList} className="text-xs bg-white text-amber-700 hover:bg-amber-50 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5 shadow">
                                                 <i className="fa-solid fa-print"></i>Cetak / Simpan PDF
@@ -19893,6 +19933,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     </div>
                                 </div>
 
+                                {/* ── Sub-tab ── */}
+                                <div className="flex gap-2">
+                                    <button onClick={() => setPlSubTab('editor')} className={`text-xs px-4 py-2 rounded-xl font-bold transition flex items-center gap-1.5 ${plSubTab === 'editor' ? 'bg-amber-600 text-white shadow' : 'bg-white text-slate-500 border border-slate-200 hover:bg-amber-50'}`}>
+                                        <i className="fa-solid fa-pen-to-square"></i>Dokumen Aktif
+                                    </button>
+                                    <button onClick={() => setPlSubTab('history')} className={`text-xs px-4 py-2 rounded-xl font-bold transition flex items-center gap-1.5 ${plSubTab === 'history' ? 'bg-amber-600 text-white shadow' : 'bg-white text-slate-500 border border-slate-200 hover:bg-amber-50'}`}>
+                                        <i className="fa-solid fa-clock-rotate-left"></i>Riwayat {savedPriceLists.length > 0 && `(${savedPriceLists.length})`}
+                                    </button>
+                                </div>
+
+                                {plSubTab === 'editor' && (<React.Fragment>
                                 {/* ── Judul editor + info ── */}
                                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
                                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Judul Price List</label>
@@ -20131,10 +20182,62 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 )}
 
                                 {priceListItems.length > 0 && (
-                                    <div className="flex justify-center">
+                                    <div className="flex justify-center gap-3 flex-wrap">
+                                        <button onClick={savePriceListToHistory} className="bg-white border-2 border-amber-500 text-amber-700 hover:bg-amber-50 font-bold px-5 py-3 rounded-xl transition flex items-center gap-2 text-sm">
+                                            <i className="fa-solid fa-floppy-disk"></i>Simpan ke Riwayat
+                                        </button>
                                         <button onClick={printPriceList} className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
                                             <i className="fa-solid fa-print"></i>Cetak / Simpan PDF
                                         </button>
+                                    </div>
+                                )}
+                                </React.Fragment>)}
+
+                                {/* ── Tab Riwayat Price List ── */}
+                                {plSubTab === 'history' && (
+                                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <p className="text-sm font-bold text-slate-700"><i className="fa-solid fa-clock-rotate-left mr-1.5 text-amber-500"></i>Riwayat Price List ({savedPriceLists.length})</p>
+                                            {savedPriceLists.length > 0 && (
+                                                <button onClick={() => { if (window.confirm('Hapus semua riwayat Price List?')) setSavedPriceLists([]); }} className="text-[11px] text-rose-400 hover:text-rose-600 transition font-semibold flex items-center gap-1">
+                                                    <i className="fa-solid fa-trash-can"></i>Hapus Semua
+                                                </button>
+                                            )}
+                                        </div>
+                                        {savedPriceLists.length === 0 ? (
+                                            <div className="text-center py-10">
+                                                <div className="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3 text-amber-400 text-2xl"><i className="fa-solid fa-clock-rotate-left"></i></div>
+                                                <p className="font-bold text-slate-600 text-sm">Belum ada riwayat</p>
+                                                <p className="text-xs text-slate-400 mt-1">Klik "Simpan ke Riwayat" di tab Dokumen Aktif untuk menyimpan snapshot.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {savedPriceLists.map((pl) => {
+                                                    const d = new Date(pl.savedAt);
+                                                    const dateStr = d.toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' });
+                                                    const timeStr = d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' });
+                                                    return (
+                                                        <div key={pl.id} className="flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-amber-300 hover:bg-amber-50/30 transition">
+                                                            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 flex-shrink-0">
+                                                                <i className="fa-solid fa-list-check text-sm"></i>
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="font-bold text-slate-800 text-sm truncate">{pl.title || 'DAFTAR HARGA'}</p>
+                                                                <p className="text-[11px] text-slate-400 mt-0.5">{pl.items.length} produk · {dateStr} {timeStr}{pl.date ? ` · Berlaku: ${pl.date}` : ''}</p>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                                                <button onClick={() => loadPriceListFromHistory(pl)} className="text-xs bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1">
+                                                                    <i className="fa-solid fa-rotate-left text-[10px]"></i>Muat
+                                                                </button>
+                                                                <button onClick={() => deletePriceListHistory(pl.id)} className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-500 px-2 py-1.5 rounded-lg font-bold transition">
+                                                                    <i className="fa-solid fa-trash-can text-[10px]"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
