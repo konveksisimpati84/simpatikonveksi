@@ -79,6 +79,7 @@
             #price-list-print-area * { visibility: visible; }
 
             #price-list-print-area {
+                display: flex !important;
                 position: absolute !important;
                 top: 0 !important; left: 0 !important;
                 width: 100% !important;
@@ -20029,11 +20030,26 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     )}
                                 </div>
 
-                                {/* ── A4 Preview ── */}
+                                {/* ── A4 Preview label (only on editor tab) ── */}
                                 {priceListItems.length > 0 && (
-                                    <div>
-                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3"><i className="fa-solid fa-eye mr-1.5"></i>Preview Dokumen A4</p>
-                                        <div id="price-list-print-area" style={{display:'flex',justifyContent:'center'}}>
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0"><i className="fa-solid fa-eye mr-1.5"></i>Preview Dokumen A4</p>
+                                )}
+
+                                {priceListItems.length > 0 && (
+                                    <div className="flex justify-center gap-3 flex-wrap">
+                                        <button onClick={savePriceListToHistory} className="bg-white border-2 border-amber-500 text-amber-700 hover:bg-amber-50 font-bold px-5 py-3 rounded-xl transition flex items-center gap-2 text-sm">
+                                            <i className="fa-solid fa-floppy-disk"></i>Simpan ke Riwayat
+                                        </button>
+                                        <button onClick={printPriceList} className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
+                                            <i className="fa-solid fa-print"></i>Cetak / Simpan PDF
+                                        </button>
+                                    </div>
+                                )}
+                                </React.Fragment>)}
+
+                                {/* ── A4 Print area — selalu di DOM saat items ada, tersembunyi di tab Riwayat ── */}
+                                {priceListItems.length > 0 && (
+                                    <div id="price-list-print-area" style={{display: plSubTab === 'editor' ? 'flex' : 'none', justifyContent:'center'}}>
                                             <div className="pl-page" style={{width:'100%',maxWidth:'680px',background:'#F5F1E8',position:'relative',fontFamily:'Georgia,serif',boxShadow:'0 10px 40px rgba(42,24,8,.18)'}}>
 
                                                 {/* ── Corner ornaments ── */}
@@ -20178,20 +20194,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
                                 )}
-
-                                {priceListItems.length > 0 && (
-                                    <div className="flex justify-center gap-3 flex-wrap">
-                                        <button onClick={savePriceListToHistory} className="bg-white border-2 border-amber-500 text-amber-700 hover:bg-amber-50 font-bold px-5 py-3 rounded-xl transition flex items-center gap-2 text-sm">
-                                            <i className="fa-solid fa-floppy-disk"></i>Simpan ke Riwayat
-                                        </button>
-                                        <button onClick={printPriceList} className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
-                                            <i className="fa-solid fa-print"></i>Cetak / Simpan PDF
-                                        </button>
-                                    </div>
-                                )}
-                                </React.Fragment>)}
 
                                 {/* ── Tab Riwayat Price List ── */}
                                 {plSubTab === 'history' && (
