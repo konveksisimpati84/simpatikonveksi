@@ -18684,17 +18684,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const updateLaborItem = (idx, key, val) => setActiveLabor(prev => prev.map((item, i) => i === idx ? { ...item, [key]: val } : item));
 
             const addNewMasterMaterial = () => {
-                const newMat = { id:'MAT-'+Date.now(), name:'Bahan Baru', unit:'Pcs', price:10000 };
-                setMasterMaterials(prev => [newMat, ...prev]);
-                setMatSearch(''); setMatPage(1);
-                showToast('Bahan baku baru ditambahkan.', 'success');
+                setEditDraft({ id:'MAT-'+Date.now(), name:'', unit:'Pcs', price:0 });
+                setEditModal({ type:'material', isNew:true });
             };
             const deleteMasterMaterial = (id) => { setMasterMaterials(prev => prev.filter(m => m.id !== id)); };
             const addNewMasterLabor = () => {
-                const newLab = { id:'LBR-'+Date.now(), job:'Pekerjaan Baru', rate:2000 };
-                setMasterLabor(prev => [newLab, ...prev]);
-                setLbrSearch(''); setLbrPage(1);
-                showToast('Tarif borongan baru ditambahkan.', 'success');
+                setEditDraft({ id:'LBR-'+Date.now(), job:'', rate:0 });
+                setEditModal({ type:'labor', isNew:true });
             };
             const deleteMasterLabor = (id) => { setMasterLabor(prev => prev.filter(l => l.id !== id)); };
 
@@ -18708,11 +18704,33 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const saveEditModal = () => {
                 if (editModal.type === 'material') {
-                    setMasterMaterials(prev => prev.map(m => m.id === editDraft.id ? { ...editDraft, price: parseFloat(editDraft.price) || 0 } : m));
-                    showToast('Bahan baku berhasil diperbarui.', 'success');
+                    const nameVal = (editDraft.name || '').trim();
+                    if (!nameVal) { showToast('Nama bahan tidak boleh kosong.', 'warning'); return; }
+                    const duplicate = masterMaterials.some(m => m.id !== editDraft.id && m.name.toLowerCase() === nameVal.toLowerCase());
+                    if (duplicate) { showToast('Nama bahan sudah ada, gunakan nama yang berbeda.', 'warning'); return; }
+                    const saved = { ...editDraft, name: nameVal, price: parseFloat(editDraft.price) || 0 };
+                    if (editModal.isNew) {
+                        setMasterMaterials(prev => [saved, ...prev]);
+                        setMatSearch(''); setMatPage(1);
+                        showToast('Bahan baku baru ditambahkan.', 'success');
+                    } else {
+                        setMasterMaterials(prev => prev.map(m => m.id === saved.id ? saved : m));
+                        showToast('Bahan baku berhasil diperbarui.', 'success');
+                    }
                 } else {
-                    setMasterLabor(prev => prev.map(l => l.id === editDraft.id ? { ...editDraft, rate: parseFloat(editDraft.rate) || 0 } : l));
-                    showToast('Tarif borongan berhasil diperbarui.', 'success');
+                    const jobVal = (editDraft.job || '').trim();
+                    if (!jobVal) { showToast('Jenis pekerjaan tidak boleh kosong.', 'warning'); return; }
+                    const duplicate = masterLabor.some(l => l.id !== editDraft.id && l.job.toLowerCase() === jobVal.toLowerCase());
+                    if (duplicate) { showToast('Jenis pekerjaan sudah ada, gunakan nama yang berbeda.', 'warning'); return; }
+                    const saved = { ...editDraft, job: jobVal, rate: parseFloat(editDraft.rate) || 0 };
+                    if (editModal.isNew) {
+                        setMasterLabor(prev => [saved, ...prev]);
+                        setLbrSearch(''); setLbrPage(1);
+                        showToast('Tarif borongan baru ditambahkan.', 'success');
+                    } else {
+                        setMasterLabor(prev => prev.map(l => l.id === saved.id ? saved : l));
+                        showToast('Tarif borongan berhasil diperbarui.', 'success');
+                    }
                 }
                 closeEditModal();
             };
@@ -19742,8 +19760,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 <div className="flex items-center justify-between mb-5">
                                     <h3 className="font-bold text-slate-900 text-base">
                                         {editModal.type === 'material'
-                                            ? <span><i className="fa-solid fa-boxes-stacked mr-2 text-indigo-600"></i>Edit Bahan Baku</span>
-                                            : <span><i className="fa-solid fa-user-gear mr-2 text-emerald-600"></i>Edit Tarif Borongan</span>
+                                            ? <span><i className={`fa-solid fa-boxes-stacked mr-2 text-indigo-600`}></i>{editModal.isNew ? 'Tambah Bahan Baku' : 'Edit Bahan Baku'}</span>
+                                            : <span><i className={`fa-solid fa-user-gear mr-2 text-emerald-600`}></i>{editModal.isNew ? 'Tambah Tarif Borongan' : 'Edit Tarif Borongan'}</span>
                                         }
                                     </h3>
                                     <button onClick={closeEditModal} className="text-slate-400 hover:text-slate-600 transition text-lg"><i className="fa-solid fa-xmark"></i></button>
