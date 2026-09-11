@@ -194,6 +194,7 @@
             companyLogo: '',
             signatureImage: '',
             signatureSize: 100,
+            showSignatureOnPrint: true,
             companySubtitle: 'Sistem Manajemen Produksi',
             companyContact: 'Telp: 0812-3456-7890',
             suratJalanNote: '*Mohon diperiksa kembali. Barang yang sudah diterima dengan baik tidak dapat dikembalikan.',
@@ -3967,7 +3968,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
   </div>
   <div class="sign-box">
     <div class="sign-title">${templates?.sjSignatureRight || 'Hormat Kami,'}</div>
-    ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div><div class="sign-line"></div>'}
+    ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div><div class="sign-line"></div>'}
     <div class="sign-name">${templates?.companyName || 'Simpati Konveksi'}</div>
     <div class="sign-sub">Administration</div>
   </div>
@@ -4464,7 +4465,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const logoHtml = templates?.companyLogo ? `<img src="${templates.companyLogo}" style="max-height:48px;max-width:140px;object-fit:contain;display:block;margin-bottom:4px" alt="logo"/>` : '';
                 const totalGrand = selected.reduce((s, i) => s + i.totalPcs, 0);
                 const jumlahKlien = Object.keys(byClient).length;
-                const signHtml = templates?.signatureImage
+                const signHtml = (templates?.signatureImage && templates?.showSignatureOnPrint !== false)
                     ? `<img src="${templates.signatureImage}" style="max-height:60px;max-width:130px;object-fit:contain;display:block;margin:0 auto -10px;position:relative;z-index:1" alt="ttd"/>`
                     : '<div style="height:44px"></div>';
 
@@ -4645,7 +4646,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
   </div>
   <div class="sign-box">
     <div class="sign-title">${templates?.sjSignatureRight || 'Hormat Kami,'}</div>
-    ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div><div class="sign-line"></div>'}
+    ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div><div class="sign-line"></div>'}
     <div class="sign-name">${templates?.companyName || 'Simpati Konveksi'}</div>
     <div class="sign-sub">Administration</div>
   </div>
@@ -6925,7 +6926,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
   </div>
   <div class="sign-box">
     <div class="sign-title">Hormat Kami,</div>
-    ${templates?.signatureImage?`<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>`:'<div class="sign-space"></div>'}
+    ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false)?`<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>`:'<div class="sign-space"></div>'}
     <div class="sign-name">${safe(templates?.companyName||'Simpati Konveksi')}</div>
     <div class="sign-sub">Administration</div>
   </div>
@@ -8533,7 +8534,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 <div class="footer-section">
   <div class="sign-box">
     <div class="sign-title">Hormat Kami,</div>
-    ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
+    ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
     <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
     <div class="sign-sub">Administration</div>
   </div>
@@ -8595,7 +8596,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 <div class="bottom"><div><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${amount.toLocaleString('id-ID')}</div></div></div>
   <div class="sign"><div><span class="date-line">${safe(pay?.date || '-')}</span></div>
     <div class="sign-box"><div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:0">Hormat Kami,</div>
-      ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
+      ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
       <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div><div class="sign-sub">Administration</div>
     </div></div></div>
 </div></div></body></html>`;
@@ -8656,7 +8657,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 <div class="bottom"><div><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${amount.toLocaleString('id-ID')}</div></div></div>
   <div class="sign"><div><span class="date-line">${safe(lastDate)}</span></div>
     <div class="sign-box"><div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:0">Hormat Kami,</div>
-      ${templates?.signatureImage ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
+      ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div>'}
       <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div><div class="sign-sub">Administration</div>
     </div></div></div>
 </div></div></body></html>`;
@@ -10539,7 +10540,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 : `<div class="banner-icon">SK</div>`;
             const coNm = safe((tmpl||{}).companyName || 'SIMPATI KONVEKSI');
             const coSub = safe((tmpl||{}).companySubtitle || 'Konveksi Profesional');
-            const signHtml = (tmpl||{}).signatureImage
+            const signHtml = ((tmpl||{}).signatureImage && (tmpl||{}).showSignatureOnPrint !== false)
                 ? `<img src="${(tmpl||{}).signatureImage}" style="max-height:55px;max-width:160px;object-fit:contain;display:block;margin:0 auto;transform:scale(${((tmpl||{}).signatureSize||100)/100});transform-origin:center center"/>`
                 : '';
             const printContent = `<!DOCTYPE html><html><head><title>Sertifikat Investasi - ${safe(investor.name)}</title><style>
@@ -12775,7 +12776,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                             <div class="sig-box">
                                 <div>Hormat Kami,</div>
-                                ${(templates?.signatureImage) ? `<img class="sig-img" src="${templates.signatureImage}" style="transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                                ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sig-img" src="${templates.signatureImage}" style="transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
                                 <div class="signature-line">${(templates?.companyName || 'Simpati Konveksi')}</div>
                             </div>
                         </div>
@@ -16261,7 +16262,7 @@ ${getRekapShareLink(rekap)}
                                 </div>
                                 <div className="flex flex-col items-center" style={{minHeight:'70px'}}>
                                     <div>Hormat Kami,</div>
-                                    {templates?.signatureImage && <img src={templates.signatureImage} style={{maxHeight:'48px', maxWidth:'90px', objectFit:'contain', display:'block', margin:'6px auto 0', transform:`scale(${(templates?.signatureSize||100)/100})`, transformOrigin:'center center'}} />}
+                                    {(templates?.signatureImage && templates?.showSignatureOnPrint !== false) && <img src={templates.signatureImage} style={{maxHeight:'48px', maxWidth:'90px', objectFit:'contain', display:'block', margin:'6px auto 0', transform:`scale(${(templates?.signatureSize||100)/100})`, transformOrigin:'center center'}} />}
                                     <div className="w-full mt-auto pt-1" style={{borderTop:'1px solid #000'}}>{templates?.companyName || 'Simpati Konveksi'}</div>
                                 </div>
                             </div>
@@ -16477,6 +16478,26 @@ ${getRekapShareLink(rekap)}
                                     onChange={e => setLocalTemplates(prev => ({...prev, signatureSize: Number(e.target.value)}))}
                                     className="w-full" />
                                 <div className="flex justify-between text-xs text-gray-400 mt-0.5"><span>40%</span><span>Kecil</span><span>Normal (100%)</span><span>Besar</span><span>200%</span></div>
+                            </div>
+                            <div className="mt-4 pt-3 border-t border-gray-100">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-semibold text-gray-700">Tampilkan TTD/Stempel di semua cetakan</p>
+                                        <p className="text-xs text-gray-400 mt-0.5">Matikan jika cetakan membutuhkan tanda tangan manual</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setLocalTemplates(prev => ({ ...prev, showSignatureOnPrint: !(prev.showSignatureOnPrint !== false) }))}
+                                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${localTemplates.showSignatureOnPrint !== false ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                    >
+                                        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${localTemplates.showSignatureOnPrint !== false ? 'translate-x-5' : 'translate-x-0'}`}></span>
+                                    </button>
+                                </div>
+                                {localTemplates.showSignatureOnPrint === false && (
+                                    <p className="mt-2 text-xs text-amber-600 bg-amber-50 rounded px-2 py-1.5">
+                                        ⚠️ TTD/Stempel tidak akan muncul di cetakan. Gambar tetap tersimpan.
+                                    </p>
+                                )}
                             </div>
                         </Card>
                         <button type="submit" className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold float-right">Simpan Pengaturan</button>
@@ -16910,7 +16931,7 @@ ${getRekapShareLink(rekap)}
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
                         <div>Hormat Kami,</div>
-                        ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                        ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
                         <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(templates?.companyName || 'Simpati Konveksi')}</div>
                     </div>
                 </div>
@@ -17198,7 +17219,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
                         <div>Hormat Kami,</div>
-                        ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                        ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
                         <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(templates?.companyName || 'Simpati Konveksi')}</div>
                     </div>
                 </div>
@@ -18285,7 +18306,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
                         <div>Hormat Kami,</div>
-                        ${(templates?.signatureImage) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                        ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
                         <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(templates?.companyName || 'Simpati Konveksi')}</div>
                     </div>
                 </div>
@@ -19612,7 +19633,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const coSub     = tmpl.companySubtitle|| 'Jasa Konveksi & Sablon';
                         const coContact = tmpl.companyContact || '';
                         const coLogo    = tmpl.companyLogo    || '';
-                        const sigImg    = tmpl.signatureImage || '';
+                        const sigImg    = (tmpl.signatureImage && tmpl.showSignatureOnPrint !== false) ? tmpl.signatureImage : '';
                         const sigSize   = tmpl.signatureSize  || 100;
                         const bank1     = tmpl.paymentBank1   || '';
                         const bank1No   = tmpl.paymentBank1No || '';
@@ -22817,7 +22838,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const logoHtml = (tmpl||{}).companyLogo
                     ? `<img src="${(tmpl||{}).companyLogo}" style="height:32px;max-width:100px;object-fit:contain"/>`
                     : `<div class="brand-icon">SK</div>`;
-                const signHtml = (tmpl||{}).signatureImage
+                const signHtml = ((tmpl||{}).signatureImage && (tmpl||{}).showSignatureOnPrint !== false)
                     ? `<img src="${(tmpl||{}).signatureImage}" style="max-height:52px;max-width:150px;object-fit:contain;display:block;margin:0 auto"/>`
                     : '';
                 const lemburJam = emp.lemburMenit > 0 ? `${(emp.lemburMenit/60).toFixed(1)} Jam` : '-';
