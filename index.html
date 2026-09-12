@@ -18446,6 +18446,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 { id: 'LBR-7', job: 'Finishing, Buang Benang, & QC',      rate: 1000  },
                 { id: 'LBR-8', job: 'Lipat & Packing Plastik',            rate: 500   },
             ];
+            const PRESET_CATEGORIES = ['SD', 'SMP', 'SMA', 'Dewasa'];
 
             const [activeSection, setActiveSection] = React.useState('calculator');
             const [masterMaterials, setMasterMaterials] = React.useState(DEFAULT_MASTER_MATERIALS);
@@ -18492,6 +18493,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [savedPriceLists, setSavedPriceLists] = React.useState([]);
             const [plSubTab, setPlSubTab] = React.useState('editor');
             const [editingOrderId, setEditingOrderId] = React.useState(null);
+            const [orderKategori,       setOrderKategori]       = React.useState('');
+            const [orderKategoriCustom, setOrderKategoriCustom] = React.useState('');
+            const [historyKategoriFilter, setHistoryKategoriFilter] = React.useState('Semua');
             const [matSearch,  setMatSearch]  = React.useState('');
             const [matPage,    setMatPage]    = React.useState(1);
             const [lbrSearch,  setLbrSearch]  = React.useState('');
@@ -18636,14 +18640,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setOrderName('Kaos Event Cotton Combed 30s + Sablon'); setOrderDetail(''); setOrderQty(100); setOrderWaste(5);
                 setActiveMaterials([{ masterId:'MAT-1', usagePerPcs:0.25 },{ masterId:'MAT-5', usagePerPcs:0.05 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-2' },{ masterId:'LBR-5' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
-                setIsPriceManual(false); setEditingOrderId(null);
+                setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom('');
                 showToast('Preset KAOS dimuat!', 'success');
             };
             const loadPresetKemeja = () => {
                 setOrderName('Kemeja American Drill + Bordir Logo'); setOrderDetail(''); setOrderQty(50); setOrderWaste(5);
                 setActiveMaterials([{ masterId:'MAT-3', usagePerPcs:1.5 },{ masterId:'MAT-5', usagePerPcs:0.1 },{ masterId:'MAT-6', usagePerPcs:0.07 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-3' },{ masterId:'LBR-6' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
-                setIsPriceManual(false); setEditingOrderId(null);
+                setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom('');
                 showToast('Preset KEMEJA dimuat!', 'success');
             };
             const loadCustomPreset = (preset) => {
@@ -18656,7 +18660,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (preset.bopTransport !== undefined) setBopTransport(preset.bopTransport);
                 if (preset.bopLain !== undefined)      setBopLain(preset.bopLain);
                 if (preset.marginPct !== undefined)    setMarginPct(preset.marginPct);
-                setIsPriceManual(false); setEditingOrderId(null);
+                setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom('');
                 showToast(`Preset "${preset.title}" dimuat!`, 'success');
             };
             const saveCurrentAsPreset = () => {
@@ -18685,6 +18689,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         qty: calc.qty, waste: orderWaste,
                         hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
                         projectedProfit: formatRp(calc.profitTotal),
+                        kategori: orderKategori === 'Custom' ? (orderKategoriCustom.trim() || '') : orderKategori,
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
                         bopListrik, bopSewa, bopTransport, bopLain, marginPct,
@@ -18700,6 +18705,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         qty: calc.qty, waste: orderWaste,
                         hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
                         projectedProfit: formatRp(calc.profitTotal),
+                        kategori: orderKategori === 'Custom' ? (orderKategoriCustom.trim() || '') : orderKategori,
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
                         bopListrik, bopSewa, bopTransport, bopLain, marginPct,
@@ -18718,6 +18724,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (item.bopLain !== undefined)      setBopLain(item.bopLain);
                 if (item.marginPct !== undefined)    setMarginPct(item.marginPct);
                 if (item.sellingPrice !== undefined) { setCustomPrice(item.sellingPrice); setIsPriceManual(true); }
+                const cat = item.kategori || '';
+                if (PRESET_CATEGORIES.includes(cat)) { setOrderKategori(cat); setOrderKategoriCustom(''); }
+                else if (cat) { setOrderKategori('Custom'); setOrderKategoriCustom(cat); }
+                else { setOrderKategori(''); setOrderKategoriCustom(''); }
                 setEditingOrderId(item.id);
                 setActiveSection('calculator');
                 showToast(`"${item.name}" dimuat — perubahan akan diupdate ke riwayat.`, 'info');
@@ -19141,6 +19151,22 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Nama Produk / Order Pesanan</label>
                                         <input type="text" value={orderName} onChange={e => setOrderName(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-semibold text-sm transition" placeholder="Contoh: Kemeja PDL Almamater" />
                                         <input type="text" value={orderDetail} onChange={e => setOrderDetail(e.target.value)} className="w-full mt-2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-500 text-xs transition" placeholder="Detail / spesifikasi produk (opsional, muncul di surat penawaran)" />
+                                        <div className="mt-2 flex gap-2 items-center">
+                                            <div className="flex-1">
+                                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Kategori</label>
+                                                <select value={orderKategori} onChange={e => { setOrderKategori(e.target.value); setOrderKategoriCustom(''); }} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-600 text-xs transition">
+                                                    <option value="">-- Tanpa Kategori --</option>
+                                                    {PRESET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                    <option value="Custom">Kustom...</option>
+                                                </select>
+                                            </div>
+                                            {orderKategori === 'Custom' && (
+                                                <div className="flex-1">
+                                                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Nama Kategori</label>
+                                                    <input type="text" value={orderKategoriCustom} onChange={e => setOrderKategoriCustom(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-600 text-xs transition" placeholder="Contoh: Polri, Instansi..." />
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Jumlah Order (Qty Pcs)</label>
@@ -19427,22 +19453,47 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <p className="font-bold text-slate-700">Belum ada riwayat perhitungan disimpan</p>
                                         <p className="text-xs text-slate-400 mt-1">Hitung HPP produk di tab Kalkulator lalu klik "Simpan Perhitungan".</p>
                                     </div>
-                                ) : (
+                                ) : (() => {
+                                    const allCats = [...new Set(savedOrders.map(o => o.kategori || '').filter(Boolean))];
+                                    const sortedCats = [...PRESET_CATEGORIES.filter(c => allCats.includes(c)), ...allCats.filter(c => !PRESET_CATEGORIES.includes(c)).sort()];
+                                    const hasUncategorized = savedOrders.some(o => !o.kategori);
+                                    const filteredOrders = historyKategoriFilter === 'Semua' ? savedOrders
+                                        : historyKategoriFilter === '__lainnya__' ? savedOrders.filter(o => !o.kategori)
+                                        : savedOrders.filter(o => o.kategori === historyKategoriFilter);
+                                    return (
                                     <>
+                                        {/* Tab kategori */}
+                                        {(sortedCats.length > 0 || hasUncategorized) && (
+                                            <div className="flex gap-1.5 flex-wrap mb-4 pb-3 border-b border-slate-100">
+                                                {['Semua', ...sortedCats, ...(hasUncategorized ? ['__lainnya__'] : [])].map(cat => {
+                                                    const label = cat === 'Semua' ? `Semua (${savedOrders.length})` : cat === '__lainnya__' ? `Lainnya (${savedOrders.filter(o => !o.kategori).length})` : `${cat} (${savedOrders.filter(o => o.kategori === cat).length})`;
+                                                    const isActive = historyKategoriFilter === cat;
+                                                    return (
+                                                        <button key={cat} onClick={() => { setHistoryKategoriFilter(cat); setSelectedHistoryIds(new Set()); }}
+                                                            className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${isActive ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                                            {label}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
                                         {selectedHistoryIds.size > 0 && (
                                             <div className="mb-3 flex items-center justify-between text-xs bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
                                                 <span className="text-emerald-700 font-semibold"><i className="fa-solid fa-check-square mr-1.5 text-emerald-500"></i>{selectedHistoryIds.size} item dipilih</span>
                                                 <button onClick={() => setSelectedHistoryIds(new Set())} className="text-slate-400 hover:text-rose-500 transition text-[11px]">Batal Pilih Semua</button>
                                             </div>
                                         )}
+                                        {filteredOrders.length === 0 ? (
+                                            <div className="text-center py-8 text-slate-400 text-xs">Tidak ada item di kategori ini.</div>
+                                        ) : (
                                         <div className="overflow-x-auto">
                                             <table className="w-full text-left text-xs">
                                                 <thead>
                                                     <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
                                                         <th className="pb-3 w-8 text-center">
                                                             <input type="checkbox"
-                                                                checked={savedOrders.length > 0 && selectedHistoryIds.size === savedOrders.length}
-                                                                onChange={e => setSelectedHistoryIds(e.target.checked ? new Set(savedOrders.map(o => o.id)) : new Set())}
+                                                                checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedHistoryIds.has(o.id))}
+                                                                onChange={e => setSelectedHistoryIds(prev => { const next = new Set(prev); if (e.target.checked) filteredOrders.forEach(o => next.add(o.id)); else filteredOrders.forEach(o => next.delete(o.id)); return next; })}
                                                                 className="rounded" />
                                                         </th>
                                                         <th className="pb-3">Tanggal</th>
@@ -19455,7 +19506,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
-                                                    {savedOrders.map(item => (
+                                                    {filteredOrders.map(item => (
                                                         <tr key={item.id} className={`hover:bg-slate-50 transition text-xs ${selectedHistoryIds.has(item.id) ? 'bg-emerald-50/60' : ''}`}>
                                                             <td className="py-3 px-1 text-center">
                                                                 <input type="checkbox"
@@ -19465,7 +19516,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             </td>
                                                             <td className="py-3 px-1 text-slate-500 font-medium whitespace-nowrap">{item.date}</td>
                                                             <td className="py-3 px-1">
-                                                                <p className="font-bold text-slate-800">{item.name}</p>
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <p className="font-bold text-slate-800">{item.name}</p>
+                                                                    {item.kategori && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 whitespace-nowrap">{item.kategori}</span>}
+                                                                </div>
                                                                 {item.detail && <p className="text-[11px] text-slate-400 italic mt-0.5">{item.detail}</p>}
                                                             </td>
                                                             <td className="py-3 px-1 text-center font-bold text-slate-700">{item.qty} Pcs</td>
@@ -19488,8 +19542,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </tbody>
                                             </table>
                                         </div>
+                                        )}
                                     </>
-                                )}
+                                    );
+                                })()}
                             </div>
                         </div>
                     )}
