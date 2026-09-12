@@ -18496,6 +18496,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [orderKategori,       setOrderKategori]       = React.useState('');
             const [orderKategoriCustom, setOrderKategoriCustom] = React.useState('');
             const [historyKategoriFilter, setHistoryKategoriFilter] = React.useState('Semua');
+            const [editingKategoriId,     setEditingKategoriId]     = React.useState(null);
+            const [editingKategoriValue,  setEditingKategoriValue]  = React.useState('');
+            const [editingKategoriCustom, setEditingKategoriCustom] = React.useState('');
+            const [bulkKategoriOpen,      setBulkKategoriOpen]      = React.useState(false);
+            const [bulkKategoriValue,     setBulkKategoriValue]     = React.useState('');
+            const [bulkKategoriCustom,    setBulkKategoriCustom]    = React.useState('');
             const [matSearch,  setMatSearch]  = React.useState('');
             const [matPage,    setMatPage]    = React.useState(1);
             const [lbrSearch,  setLbrSearch]  = React.useState('');
@@ -18731,6 +18737,19 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setEditingOrderId(item.id);
                 setActiveSection('calculator');
                 showToast(`"${item.name}" dimuat — perubahan akan diupdate ke riwayat.`, 'info');
+            };
+            const saveItemKategori = (id, kat) => {
+                setSavedOrders(prev => prev.map(o => o.id === id ? {...o, kategori: kat} : o));
+                setEditingKategoriId(null);
+                showToast('Kategori disimpan.', 'success');
+            };
+            const saveBulkKategori = (ids, kat) => {
+                setSavedOrders(prev => prev.map(o => ids.has(o.id) ? {...o, kategori: kat} : o));
+                setBulkKategoriOpen(false);
+                setBulkKategoriValue('');
+                setBulkKategoriCustom('');
+                setSelectedHistoryIds(new Set());
+                showToast(`Kategori diperbarui untuk ${ids.size} item.`, 'success');
             };
             const deleteHistoryItem = (id) => {
                 setSavedOrders(prev => prev.filter(o => o.id !== id));
@@ -19433,6 +19452,31 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 <div className="flex items-center gap-2 flex-wrap">
                                     {selectedHistoryIds.size > 0 && (
                                         <>
+                                        <div className="relative">
+                                            <button onClick={() => { setBulkKategoriOpen(v => !v); setBulkKategoriValue(''); setBulkKategoriCustom(''); }} className="text-xs bg-violet-500 hover:bg-violet-400 text-white border border-violet-400 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
+                                                <i className="fa-solid fa-tags"></i>Set Kategori ({selectedHistoryIds.size})
+                                            </button>
+                                            {bulkKategoriOpen && (
+                                                <div className="absolute right-0 top-10 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 min-w-[220px]">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Pilih Kategori</p>
+                                                    <select value={bulkKategoriValue} onChange={e => { setBulkKategoriValue(e.target.value); setBulkKategoriCustom(''); }}
+                                                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-xs mb-2">
+                                                        <option value="">-- Tanpa Kategori --</option>
+                                                        {PRESET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                        <option value="Custom">Kustom...</option>
+                                                    </select>
+                                                    {bulkKategoriValue === 'Custom' && (
+                                                        <input type="text" value={bulkKategoriCustom} onChange={e => setBulkKategoriCustom(e.target.value)}
+                                                            placeholder="Nama kategori..." className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-xs mb-2" />
+                                                    )}
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => { const kat = bulkKategoriValue === 'Custom' ? (bulkKategoriCustom.trim()||'') : bulkKategoriValue; saveBulkKategori(selectedHistoryIds, kat); }}
+                                                            className="flex-1 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold py-2 rounded-xl transition">Simpan</button>
+                                                        <button onClick={() => setBulkKategoriOpen(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold py-2 rounded-xl transition">Batal</button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                         <button onClick={buildQuotationFromSelected} className="text-xs bg-emerald-500 hover:bg-emerald-400 text-white border border-emerald-400 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
                                             <i className="fa-solid fa-file-invoice-dollar"></i>Buat Penawaran ({selectedHistoryIds.size} item)
                                         </button>
@@ -19520,7 +19564,26 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     <p className="font-bold text-slate-800">{item.name}</p>
                                                                     {item.kategori && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 whitespace-nowrap">{item.kategori}</span>}
                                                                 </div>
-                                                                {item.detail && <p className="text-[11px] text-slate-400 italic mt-0.5">{item.detail}</p>}
+                                                                {editingKategoriId === item.id ? (
+                                                                    <div className="flex gap-1.5 items-center mt-1.5 flex-wrap">
+                                                                        <select value={editingKategoriValue} onChange={e => { setEditingKategoriValue(e.target.value); setEditingKategoriCustom(''); }}
+                                                                            className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-xs">
+                                                                            <option value="">-- Tanpa Kategori --</option>
+                                                                            {PRESET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                                            <option value="Custom">Kustom...</option>
+                                                                        </select>
+                                                                        {editingKategoriValue === 'Custom' && (
+                                                                            <input type="text" value={editingKategoriCustom} onChange={e => setEditingKategoriCustom(e.target.value)}
+                                                                                placeholder="Nama kategori..." className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-xs w-28" />
+                                                                        )}
+                                                                        <button onClick={() => { const kat = editingKategoriValue === 'Custom' ? (editingKategoriCustom.trim()||'') : editingKategoriValue; saveItemKategori(item.id, kat); }}
+                                                                            className="bg-violet-600 hover:bg-violet-500 text-white px-2 py-1 rounded-lg text-xs font-bold transition">✓</button>
+                                                                        <button onClick={() => setEditingKategoriId(null)}
+                                                                            className="bg-slate-100 hover:bg-slate-200 text-slate-500 px-2 py-1 rounded-lg text-xs font-bold transition">✕</button>
+                                                                    </div>
+                                                                ) : (
+                                                                    item.detail && <p className="text-[11px] text-slate-400 italic mt-0.5">{item.detail}</p>
+                                                                )}
                                                             </td>
                                                             <td className="py-3 px-1 text-center font-bold text-slate-700">{item.qty} Pcs</td>
                                                             <td className="py-3 px-1 text-right font-semibold text-slate-700">{item.hppPcs}</td>
@@ -19528,6 +19591,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             <td className="py-3 px-1 text-right font-extrabold text-indigo-600">{item.projectedProfit}</td>
                                                             <td className="py-3 px-1 text-center">
                                                                 <div className="flex items-center justify-center gap-1.5">
+                                                                    <button onClick={() => { setEditingKategoriId(item.id); const cat = item.kategori||''; if(PRESET_CATEGORIES.includes(cat)){setEditingKategoriValue(cat);setEditingKategoriCustom('');}else if(cat){setEditingKategoriValue('Custom');setEditingKategoriCustom(cat);}else{setEditingKategoriValue('');setEditingKategoriCustom('');} }} title="Edit Kategori" className="bg-violet-50 hover:bg-violet-100 text-violet-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-tag text-xs"></i></button>
                                                                     <button onClick={() => loadHistoryItem(item)} title="Buka di Kalkulator" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-folder-open text-xs"></i></button>
                                                                     <button onClick={() => {
                                                                         const qi = { id:'QI-'+Date.now(), description: item.name, estQty: item.qty, unitPrice: item.sellingPrice||0, discountType:'pct', discountValue:0 };
