@@ -8170,7 +8170,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                                 return (
                                                                     <div>
                                                                         <div className="text-[10px] text-gray-500 font-semibold mb-1">Sumber Dana (opsional)</div>
-                                                                        <select className="w-full p-2 text-xs border border-blue-200 rounded-lg focus:ring-1 focus:ring-blue-400 outline-none bg-blue-50" value={payForm.operasionalKaryawanId} onChange={e => setPayForm(prev => ({ ...prev, operasionalKaryawanId: e.target.value, method: e.target.value ? 'Dana Operasional' : prev.method }))}>
+                                                                        <select className="w-full p-2 text-xs border border-blue-200 rounded-lg focus:ring-1 focus:ring-blue-400 outline-none bg-blue-50" value={payForm.operasionalKaryawanId} onChange={e => setPayForm(prev => ({ ...prev, operasionalKaryawanId: e.target.value, method: e.target.value ? 'Dana Operasional' : 'Transfer' }))}>
                                                                             <option value="">— Pembayaran Biasa —</option>
                                                                             {aktifEmps.map(emp => {
                                                                                 const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, Array.isArray(bagiHasilPromosi) ? bagiHasilPromosi : []);
