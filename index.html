@@ -533,7 +533,7 @@
             return safeArray(danaOperasional).some(d => !d.isDeleted && String(d.karyawanId) === eid && d.type === 'aktivasi');
         };
         // Hitung saldo dana operasional karyawan secara dinamis dari data
-        const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses, rekapKinerja = []) => {
+        const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = []) => {
             const eid = String(empId);
             const records = safeArray(danaOperasional).filter(d => !d.isDeleted && String(d.karyawanId) === eid);
             // backward-compat: records without type field treated as 'keluar'
@@ -544,14 +544,15 @@
             const usedPN    = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedExp   = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
-            const rawBalance = totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap;
+            const usedBHP   = safeArray(bagiHasilPromosi).filter(b => !b.isDeleted).flatMap(b => safeArray(b.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
+            const rawBalance = totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap - usedBHP;
             const saldo = Math.max(0, rawBalance);
             // hutang = talangan yg belum dioffset oleh kontribusi bersih perusahaan (totalIn - penyelesaian)
             // menggunakan (totalIn - totalPenyelesaian) agar karyawan lama dengan history besar tetap benar
             const hutang = Math.max(0, totalTalangan - Math.max(0, totalIn - totalPenyelesaian));
             // defisit = pool negatif: total terpakai melebihi total pool (totalIn + talangan - penyelesaian)
             const defisit = Math.max(0, -rawBalance);
-            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap, totalPenyelesaian, saldo, hutang, defisit };
+            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap + usedBHP, totalPenyelesaian, saldo, hutang, defisit };
         };
         const notePaid   = (note) => {
             if (!note.payments && note.paymentStatus)
@@ -6364,7 +6365,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], showToast }) => {
+        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast }) => {
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const [selectedEmpId, setSelectedEmpId] = useState('');
             const emptyTransferForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '', type: 'keluar' };
@@ -6473,7 +6474,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, notaId: n.id, vendor: n.vendor, notaDate: n.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted).flatMap(ex => safeArray(ex.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, expId: ex.id, category: ex.category, expDate: ex.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const linkedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, rekapId: r.id, empName: r.empName, dateProcessed: r.dateProcessed }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-            const stats = selectedEmp ? getDanaSaldoKaryawan(selectedEmp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja) : null;
+            const linkedBHP = safeArray(bagiHasilPromosi).filter(b => !b.isDeleted).flatMap(b => safeArray(b.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, bhpId: b.id, bhpNama: b.nama }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const stats = selectedEmp ? getDanaSaldoKaryawan(selectedEmp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi) : null;
 
             return (
                 <div className="space-y-6">
@@ -6569,7 +6571,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         {safeEmployees.length === 0 && <p className="text-sm text-gray-400 italic">Belum ada data karyawan.</p>}
                         <div className="flex flex-wrap gap-2 items-center">
                             {safeEmployees.filter(emp => isAktifDana(emp.id, danaOperasional)).map(emp => {
-                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja);
+                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi);
                                 return (
                                     <span key={emp.id} className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
                                         {emp.name}
@@ -6607,7 +6609,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         {safeEmployees.length === 0 && <p className="text-sm text-gray-400 italic">Belum ada data karyawan. Tambahkan di menu Data Karyawan.</p>}
                         <div className="flex flex-wrap gap-2">
                             {safeEmployees.map(emp => {
-                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja);
+                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi);
                                 const isSelected = selectedEmpId === String(emp.id);
                                 if (s.totalIn === 0 && s.totalTalangan === 0 && s.defisit === 0 && !isAktifDana(emp.id, danaOperasional) && !isSelected) return null;
                                 return (
@@ -6770,7 +6772,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 </div>
                             )}
                         </Card>
-                        {(linkedPN.length > 0 || linkedExp.length > 0 || linkedRekap.length > 0) && (
+                        {(linkedPN.length > 0 || linkedExp.length > 0 || linkedRekap.length > 0 || linkedBHP.length > 0) && (
                             <Card>
                                 <div className="flex items-center gap-2 mb-4">
                                     <div className="w-1 h-4 rounded-full bg-red-400"></div>
@@ -6804,6 +6806,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             </div>
                                         </div>
                                     ))}
+                                    {linkedBHP.map(p => (
+                                        <div key={p.id} className="flex items-center gap-3 px-4 py-3 bg-teal-50 border border-teal-200 rounded-xl">
+                                            <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center text-teal-700 font-black text-sm flex-shrink-0">↑</div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-bold text-teal-800 text-sm">{formatRupiah(p.amount)}</div>
+                                                <div className="text-xs text-gray-500">Bagi Hasil Promosi · {p.date} · {p.bhpNama || '-'} · <span className="font-mono text-gray-400 text-[10px]">{p.bhpId}</span></div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </Card>
                         )}
@@ -6812,7 +6823,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                     {!selectedEmp && (
                         <div className="text-center py-12 text-gray-400 italic text-sm">
-                            {safeEmployees.some(emp => isAktifDana(emp.id, danaOperasional) || getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja).defisit > 0)
+                            {safeEmployees.some(emp => isAktifDana(emp.id, danaOperasional) || getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi).defisit > 0)
                                 ? 'Pilih karyawan di atas untuk melihat detail dana operasional.'
                                 : 'Daftarkan karyawan terlebih dahulu, lalu klik "+ Transfer Dana".'}
                         </div>
@@ -7774,14 +7785,14 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             return 'Dibayar Sebagian';
         };
 
-        const BagiHasilPromosiTab = ({ bagiHasilPromosi, updateBagiHasilPromosi, invoices, showToast }) => {
+        const BagiHasilPromosiTab = ({ bagiHasilPromosi, updateBagiHasilPromosi, invoices, showToast, employees, danaOperasional, purchaseNotes, expenses, rekapKinerja }) => {
             const emptyBhpForm = { nama: '', tanggal: new Date().toISOString().slice(0,10), invoiceIds: [], bagiHasilType: '%', bagiHasilValue: '', note: '', payments: [] };
             const [form, setForm] = React.useState(emptyBhpForm);
             const [editId, setEditId] = React.useState(null);
             const [invSearch, setInvSearch] = React.useState('');
             const [showInvDropdown, setShowInvDropdown] = React.useState(false);
             const [detailId, setDetailId] = React.useState(null);
-            const [payForm, setPayForm] = React.useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
+            const [payForm, setPayForm] = React.useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '', operasionalKaryawanId: '' });
             const [shareModal, setShareModal] = React.useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = React.useState(null);
 
@@ -7859,8 +7870,12 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 if (!amt) return showToast('Nominal pembayaran wajib diisi.', 'error');
                 const now = new Date().toISOString();
                 const pay = { id: genId('BHPP-'), date: payForm.date || now.slice(0,10), amount: amt, method: payForm.method || 'Transfer', note: payForm.note || '', _syncUpdatedAt: now };
+                if (payForm.operasionalKaryawanId) {
+                    pay.operasionalKaryawanId = payForm.operasionalKaryawanId;
+                    pay.method = 'Dana Operasional';
+                }
                 updateBagiHasilPromosi(prev => (Array.isArray(prev) ? prev : []).map(b => String(b.id) === String(bhpId) ? { ...b, payments: [...safeArray(b.payments), pay], _syncUpdatedAt: now } : b));
-                setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' });
+                setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '', operasionalKaryawanId: '' });
                 showToast('Pembayaran dicatat.', 'success');
             };
 
@@ -8132,24 +8147,47 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                         <div className="text-xs text-gray-400 italic py-2">Belum ada pembayaran dicatat.</div>
                                                     )}
                                                     <div className="space-y-1.5 mb-3">
-                                                        {safeArray(bhp.payments).map(p => (
-                                                            <div key={p.id} className="flex items-center gap-2 bg-white border border-green-100 rounded-xl px-3 py-2 text-xs">
-                                                                <div className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
+                                                        {safeArray(bhp.payments).map(p => {
+                                                            const empName = p.operasionalKaryawanId ? ((Array.isArray(employees) ? employees : []).find(e => String(e.id) === String(p.operasionalKaryawanId))?.name || 'Karyawan') : null;
+                                                            return (
+                                                            <div key={p.id} className={`flex items-center gap-2 border rounded-xl px-3 py-2 text-xs ${empName ? 'bg-blue-50 border-blue-200' : 'bg-white border-green-100'}`}>
+                                                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${empName ? 'bg-blue-400' : 'bg-green-400'}`} />
                                                                 <span className="text-gray-400 shrink-0 w-20">{p.date}</span>
-                                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 shrink-0">{p.method || '-'}</span>
-                                                                <span className="font-black text-green-700 flex-1" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(p.amount)}</span>
+                                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${empName ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>{empName ? `Dana ${empName}` : (p.method || '-')}</span>
+                                                                <span className={`font-black flex-1 ${empName ? 'text-blue-700' : 'text-green-700'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(p.amount)}</span>
                                                                 {p.note ? <span className="text-gray-400 truncate max-w-[80px]">{p.note}</span> : null}
                                                                 <button onClick={() => removePayment(bhp.id, p.id)} className="text-red-300 hover:text-red-500 shrink-0 leading-none text-base font-bold">×</button>
                                                             </div>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </div>
                                                     {sisa > 0 && (
                                                         <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
                                                             <div className="text-xs font-black text-gray-600">Catat Pembayaran</div>
+                                                            {(() => {
+                                                                const aktifEmps = (Array.isArray(employees) ? employees : []).filter(e => isVisibleRecord(e) && isAktifDana(e.id, danaOperasional));
+                                                                if (aktifEmps.length === 0) return null;
+                                                                return (
+                                                                    <div>
+                                                                        <div className="text-[10px] text-gray-500 font-semibold mb-1">Sumber Dana (opsional)</div>
+                                                                        <select className="w-full p-2 text-xs border border-blue-200 rounded-lg focus:ring-1 focus:ring-blue-400 outline-none bg-blue-50" value={payForm.operasionalKaryawanId} onChange={e => setPayForm(prev => ({ ...prev, operasionalKaryawanId: e.target.value, method: e.target.value ? 'Dana Operasional' : prev.method }))}>
+                                                                            <option value="">— Pembayaran Biasa —</option>
+                                                                            {aktifEmps.map(emp => {
+                                                                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, Array.isArray(bagiHasilPromosi) ? bagiHasilPromosi : []);
+                                                                                return <option key={emp.id} value={String(emp.id)}>{emp.name} · Saldo {formatRupiah(s.saldo)}</option>;
+                                                                            })}
+                                                                        </select>
+                                                                        {payForm.operasionalKaryawanId && (() => {
+                                                                            const s = getDanaSaldoKaryawan(payForm.operasionalKaryawanId, danaOperasional, purchaseNotes, expenses, rekapKinerja, Array.isArray(bagiHasilPromosi) ? bagiHasilPromosi : []);
+                                                                            return <div className="text-[10px] text-blue-600 font-bold mt-1">Saldo tersedia: {formatRupiah(s.saldo)}</div>;
+                                                                        })()}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                             <div className="grid grid-cols-2 gap-2">
                                                                 <input type="date" className="p-2 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-teal-400 outline-none" value={payForm.date} onChange={e => setPayForm(prev => ({ ...prev, date: e.target.value }))} />
-                                                                <select className="p-2 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-teal-400 outline-none" value={payForm.method} onChange={e => setPayForm(prev => ({ ...prev, method: e.target.value }))}>
-                                                                    <option>Transfer</option><option>Tunai</option><option>QRIS</option>
+                                                                <select className="p-2 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-teal-400 outline-none" value={payForm.method} onChange={e => setPayForm(prev => ({ ...prev, method: e.target.value }))} disabled={!!payForm.operasionalKaryawanId}>
+                                                                    <option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Dana Operasional</option>
                                                                 </select>
                                                                 <input type="number" min="0" className="p-2 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-teal-400 outline-none" placeholder={`Nominal (sisa ${formatRupiah(sisa)})`} value={payForm.amount} onChange={e => setPayForm(prev => ({ ...prev, amount: e.target.value }))} />
                                                                 <input type="text" className="p-2 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-teal-400 outline-none" placeholder="Catatan" value={payForm.note} onChange={e => setPayForm(prev => ({ ...prev, note: e.target.value }))} />
@@ -8210,7 +8248,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             );
         };
 
-        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi }) => {
+        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi, danaOperasional, purchaseNotes, expenses, rekapKinerja }) => {
             const newSize = () => ({ id: `SIZE-${Date.now()}-${Math.random()}`, size: '', qty: '', pricePerPcs: '', discountPerPcs: '', discountPercent: '' });
             const newItem = () => ({ id: `ITEM-${Date.now()}-${Math.random()}`, productionType: '', pricePerPcs: '', discountType: 'Rp', discountValue: '', sizes: [newSize()] });
             // Konversi item dari data tersimpan ke format form (harga ke level item)
@@ -9142,7 +9180,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Marketing</h3><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-right">Total Komisi</th><th className="p-3 text-center">Share Link</th></tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td><td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td></tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div><div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)}</div></div>{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
                     }
                     {activeInvoiceTab === 'bagi_hasil' &&
-                    <BagiHasilPromosiTab bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} />
+                    <BagiHasilPromosiTab bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />
                     }
                 </div>
                 {proofViewImg && (
@@ -22704,13 +22742,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'dashboard' && canOpen('dashboard') && <DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} />}
                                 {activeTab === 'antrean' && canOpen('antrean') && <AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />}
                                 {activeTab === 'karyawan' && canOpen('karyawan') && <KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} />}
-                                {activeTab === 'dana_operasional' && canOpen('dana_operasional') && <DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} showToast={showToast} />}
+                                {activeTab === 'dana_operasional' && canOpen('dana_operasional') && <DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} />}
                                 {activeTab === 'input_order' && canOpen('input_order') && <InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} />}
                                 {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} />}
-                                {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} />}
+                                {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
