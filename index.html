@@ -7868,6 +7868,13 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const addPayment = (bhpId) => {
                 const amt = safeMoney(payForm.amount);
                 if (!amt) return showToast('Nominal pembayaran wajib diisi.', 'error');
+                const bhp = safeBhp.find(b => String(b.id) === String(bhpId));
+                if (bhp) {
+                    const { nominal } = calcBagiHasil(bhp, safeInvoices);
+                    const alreadyPaid = getBhpPaid(bhp);
+                    const sisa = Math.max(0, nominal - alreadyPaid);
+                    if (amt > sisa + 0.01) return showToast(`Nominal melebihi sisa tagihan (${formatRupiah(sisa)}). Periksa kembali.`, 'error');
+                }
                 const now = new Date().toISOString();
                 const pay = { id: genId('BHPP-'), date: payForm.date || now.slice(0,10), amount: amt, method: payForm.method || 'Transfer', note: payForm.note || '', _syncUpdatedAt: now };
                 if (payForm.operasionalKaryawanId) {
