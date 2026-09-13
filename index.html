@@ -399,10 +399,12 @@
                 // Quota exceeded — coba bebaskan space dengan hapus cache lama, lalu simpan ulang
                 try {
                     const purgeKeys = [
-                        'simpati_absensiRawLogs_sync','simpati_rekap_sync','simpati_driver_trx_sync',
-                        'simpati_riwayat_sj_sync','simpati_invoices_sync','simpati_expenses_sync',
-                        'simpati_absensi_edits_sync','simpati_bagi_hasil_promosi_sync',
-                        'simpati_investor_bagi_hasil_sync','simpati_dana_operasional_sync'
+                        // Prioritas hapus: data besar/raw dulu, data keuangan penting terakhir
+                        'simpati_absensiRawLogs_sync','simpati_orders_sync','simpati_riwayat_sj_sync',
+                        'simpati_driver_trx_sync','simpati_absensi_edits_sync','simpati_driver_rekap_gaji_sync',
+                        'simpati_driver_kasbon_sync','simpati_bagi_hasil_promosi_sync',
+                        'simpati_investor_bagi_hasil_sync','simpati_invoices_sync',
+                        'simpati_expenses_sync','simpati_rekap_sync','simpati_dana_operasional_sync'
                     ];
                     for (const pk of purgeKeys) {
                         if (pk !== k) {
@@ -21370,7 +21372,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const applyRemoteDataSnapshotInner = async () => {
                 const remoteTsMap = await fetchRemoteTimestamps();
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi, remoteLabelTemplates] = await Promise.all([
                     fetchStoreDataCached('accounts', initialAccounts, remoteTsMap),
                     fetchStoreDataCached('employees', initialEmployees, remoteTsMap),
                     fetchStoreDataCached('orders', initialOrders, remoteTsMap),
@@ -21395,7 +21397,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreDataCached('transaksi_kartu', [], remoteTsMap),
                     fetchStoreDataCached('purchaseNotes', [], remoteTsMap),
                     fetchStoreDataCached('danaOperasional', [], remoteTsMap),
-                    fetchStoreDataCached('bagiHasilPromosi', [], remoteTsMap)
+                    fetchStoreDataCached('bagiHasilPromosi', [], remoteTsMap),
+                    fetchStoreDataCached('labelTemplates', [], remoteTsMap)
                 ]);
 
                 if (Array.isArray(remoteAccounts) && remoteAccounts.length) {
@@ -21467,8 +21470,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     });
                 }
                 if (remoteTemplates && typeof remoteTemplates === 'object') {
-                    setTemplates(remoteTemplates);
-                    safeLocalSet('simpati_templates_sync', JSON.stringify(remoteTemplates));
+                    const mergedTpl = { ...remoteTemplates, labelTemplates: (Array.isArray(remoteLabelTemplates) && remoteLabelTemplates.length) ? remoteLabelTemplates : (Array.isArray(remoteTemplates.labelTemplates) ? remoteTemplates.labelTemplates : []) };
+                    setTemplates(mergedTpl);
+                    safeLocalSet('simpati_templates_sync', JSON.stringify(mergedTpl));
                 }
                 if (Array.isArray(remoteManualPurchases)) {
                     setManualPurchases(prev => {
@@ -21741,7 +21745,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), isMobile ? 25000 : 10000)
                             );
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi] = await Promise.race([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi, remLabelTemplates] = await Promise.race([
                                 Promise.all([
                                     fetchStoreDataCached('accounts', initialAccounts, initTsMap),
                                     fetchStoreDataCached('employees', initialEmployees, initTsMap),
@@ -21767,7 +21771,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     fetchStoreDataCached('transaksi_kartu', [], initTsMap),
                                     fetchStoreDataCached('purchaseNotes', [], initTsMap),
                                     fetchStoreDataCached('danaOperasional', [], initTsMap),
-                                    fetchStoreDataCached('bagiHasilPromosi', [], initTsMap)
+                                    fetchStoreDataCached('bagiHasilPromosi', [], initTsMap),
+                                    fetchStoreDataCached('labelTemplates', [], initTsMap)
                                 ]),
                                 _fetchTimeout
                             ]);
@@ -21835,7 +21840,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             }
                             setRekapKinerja(nextRekaps);
                             setRiwayatPengiriman(nextRiwayats);
-                            setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : loadLocalData('simpati_templates_sync', initialTemplates));
+                            const localTplFallback = loadLocalData('simpati_templates_sync', initialTemplates);
+                            const mergedTpl2 = tmpls && typeof tmpls === 'object'
+                                ? { ...tmpls, labelTemplates: (Array.isArray(remLabelTemplates) && remLabelTemplates.length) ? remLabelTemplates : (Array.isArray(tmpls.labelTemplates) ? tmpls.labelTemplates : (localTplFallback.labelTemplates || [])) }
+                                : localTplFallback;
+                            setTemplates(mergedTpl2);
                             if (Array.isArray(remInvestors)) {
 
                                 const next = mergeRecordLists(loadLocalData('simpati_investors_sync', []), remInvestors);
@@ -22008,6 +22017,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         }
                         if (error.code === '42P01') {
                             showToast(`PERINGATAN: TABEL BELUM DIBUAT! Tabel 'app_data' belum ada di database Supabase Anda.`, 'error');
+                        }
+                        if (error.status === 413 || (error.message && (error.message.toLowerCase().includes('too large') || error.message.toLowerCase().includes('payload')))) {
+                            showToast(`PERINGATAN: Data '${key}' terlalu besar untuk disimpan ke cloud. Coba kurangi ukuran gambar.`, 'error');
                         }
                     } else {
                         const now = new Date().toISOString();
@@ -22485,13 +22497,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
             }, [activeTab, authUser, isReady]);
             
-            const updateTemplates = (updater) => { 
+            const updateTemplates = (updater) => {
                 setTemplates(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object') ? nextVal : initialTemplates;
                     setTimeout(() => {
                         safeLocalSet('simpati_templates_sync', JSON.stringify(valid));
-                        saveToSupabase('templates', valid);
+                        // Pisahkan labelTemplates ke key Supabase tersendiri agar templates inti tetap kecil
+                        const { labelTemplates: lt, ...templatesCore } = valid;
+                        saveToSupabase('templates', templatesCore);
+                        if (lt !== undefined) saveToSupabase('labelTemplates', Array.isArray(lt) ? lt : []);
                     }, 0);
                     return valid;
                 });
@@ -24593,7 +24608,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 r.onload = (ev) => {
                     const img = new Image();
                     img.onload = () => {
-                        const MAX = 600; // cukup tajam untuk cetak label kecil, ukuran data jauh lebih ringan
+                        const MAX = 400; // cukup tajam untuk cetak label kecil, ukuran data jauh lebih ringan
                         let w = img.width, h = img.height;
                         if (w > MAX || h > MAX) {
                             if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
