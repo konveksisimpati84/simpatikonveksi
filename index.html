@@ -18860,6 +18860,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         description: o.name,
                         detail: o.detail || '',
                         estQty: o.qty,
+                        estQtyDisplay: '',
                         unitPrice: o.sellingPrice || 0,
                         discountType: 'pct',
                         discountValue: 0,
@@ -18932,6 +18933,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     description: '',
                     detail: '',
                     estQty: 100,
+                    estQtyDisplay: '',
                     unitPrice: 0,
                     discountType: 'pct',
                     discountValue: 0,
@@ -19729,7 +19731,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     <button onClick={() => { setEditingKategoriId(item.id); const cat = item.kategori||''; if(PRESET_CATEGORIES.includes(cat)){setEditingKategoriValue(cat);setEditingKategoriCustom('');}else if(cat){setEditingKategoriValue('Custom');setEditingKategoriCustom(cat);}else{setEditingKategoriValue('');setEditingKategoriCustom('');} }} title="Edit Kategori" className="bg-violet-50 hover:bg-violet-100 text-violet-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-tag text-xs"></i></button>
                                                                     <button onClick={() => loadHistoryItem(item)} title="Buka di Kalkulator" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-folder-open text-xs"></i></button>
                                                                     <button onClick={() => {
-                                                                        const qi = { id:'QI-'+Date.now(), description: item.name, estQty: item.qty, unitPrice: item.sellingPrice||0, discountType:'pct', discountValue:0 };
+                                                                        const qi = { id:'QI-'+Date.now(), description: item.name, estQty: item.qty, estQtyDisplay: '', unitPrice: item.sellingPrice||0, discountType:'pct', discountValue:0 };
                                                                         setQuotationItems([qi]);
                                                                         setActiveSection('quotation');
                                                                     }} title="Buat Penawaran" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-file-invoice-dollar text-xs"></i></button>
@@ -20000,6 +20002,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                         <td className="py-2 px-1">
                                                             <input type="number" value={qi.estQty} onChange={e => updateQuotationItem(qi.id, 'estQty', parseInt(e.target.value)||0)}
                                                                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 focus:ring-1 focus:ring-indigo-400 outline-none text-xs" />
+                                                            <input type="text" value={qi.estQtyDisplay || ''} onChange={e => updateQuotationItem(qi.id, 'estQtyDisplay', e.target.value)}
+                                                                className="w-full mt-1 border border-slate-100 rounded-lg px-2 py-1 text-center text-slate-400 focus:ring-1 focus:ring-indigo-300 outline-none text-[11px]" placeholder="mis. 100-500 Pcs" />
                                                         </td>
                                                         <td className="py-2 px-1">
                                                             <input type="number" value={qi.unitPrice} onChange={e => updateQuotationItem(qi.id, 'unitPrice', parseFloat(e.target.value)||0)}
@@ -20115,7 +20119,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             <span className="font-bold text-slate-900 block">{qi.description || '—'}</span>
                                                             {qi.detail && <span className="text-[10px] text-slate-400 italic block mt-0.5">{qi.detail}</span>}
                                                         </td>
-                                                        <td className="p-3 text-center font-bold text-slate-700">~{(qi.estQty||0).toLocaleString('id-ID')} Pcs</td>
+                                                        <td className="p-3 text-center font-bold text-slate-700">{qi.estQtyDisplay && qi.estQtyDisplay.trim() ? qi.estQtyDisplay.trim() : `~${(qi.estQty||0).toLocaleString('id-ID')} Pcs`}</td>
                                                         <td className="p-3 text-right font-semibold text-slate-700">{formatRp(qi.unitPrice)}</td>
                                                         <td className="p-3 text-right">
                                                             {hasDiscount && (
