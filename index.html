@@ -18651,16 +18651,24 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const bopTotal  = bopPerPcs * qty;
                 const hppTotal  = bbbTotal + btklTotal + bopTotal;
                 const hppPcs    = hppTotal / qty;
-                const recPrice  = Math.ceil((hppPcs * (1 + marginPct / 100)) / 500) * 500;
+                // Rumus: P = HPP×(1+m) / [1-(k+e)×(1+m)]
+                // Komisi & entertain sudah masuk HPP — harga jual dihitung agar semua biaya+margin tertutup
+                const markup    = 1 + marginPct / 100;
+                const keDenom   = 1 - ((komisiPct + entertainPct) / 100) * markup;
+                const isKeDenomWarn = keDenom <= 0.05; // total biaya penjualan terlalu besar
+                const recPriceRaw = keDenom > 0.05 ? (hppPcs * markup) / keDenom : hppPcs * markup;
+                const recPrice  = Math.ceil(recPriceRaw / 500) * 500;
                 const sellPrice = isPriceManual ? customPrice : recPrice;
                 const turnover  = sellPrice * qty;
                 const komisiPerPcs   = sellPrice * (komisiPct / 100);
                 const komisiTotal    = komisiPerPcs * qty;
                 const entertainPerPcs= sellPrice * (entertainPct / 100);
                 const entertainTotal = entertainPerPcs * qty;
-                const profitTotal = turnover - hppTotal - komisiTotal - entertainTotal;
-                const profitPcs   = sellPrice - hppPcs - komisiPerPcs - entertainPerPcs;
-                return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, hppTotal, hppPcs, recPrice, sellPrice, turnover, komisiPerPcs, komisiTotal, entertainPerPcs, entertainTotal, profitTotal, profitPcs };
+                const hppAllInPcs   = hppPcs + komisiPerPcs + entertainPerPcs;
+                const hppAllInTotal = hppAllInPcs * qty;
+                const profitPcs   = sellPrice - hppAllInPcs;
+                const profitTotal = profitPcs * qty;
+                return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, hppTotal, hppPcs, hppAllInPcs, hppAllInTotal, recPrice, sellPrice, turnover, komisiPerPcs, komisiTotal, entertainPerPcs, entertainTotal, profitTotal, profitPcs, isKeDenomWarn };
             }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, marginPct, komisiPct, entertainPct, customPrice, isPriceManual]);
 
             // Sync recommended price only when user has NOT manually overridden the price
@@ -18689,6 +18697,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const chartColors = ['#6366f1','#10b981','#f59e0b'];
                 if (komisiPct > 0) { chartLabels.push(`Komisi (${komisiPct}%)`); chartData.push(calc.komisiTotal); chartColors.push('#f43f5e'); }
                 if (entertainPct > 0) { chartLabels.push(`Entertain (${entertainPct}%)`); chartData.push(calc.entertainTotal); chartColors.push('#ec4899'); }
+                if (calc.profitTotal > 0) { chartLabels.push('Laba Bersih'); chartData.push(calc.profitTotal); chartColors.push('#22c55e'); }
                 chartInst.current = new window.Chart(chartRef.current, {
                     type: 'doughnut',
                     data: {
@@ -18698,7 +18707,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } } }, cutout: '65%' },
                 });
                 return () => { if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; } };
-            }, [activeSection, calc.bbbTotal, calc.btklTotal, calc.bopTotal, calc.komisiTotal, calc.entertainTotal]);
+            }, [activeSection, calc.bbbTotal, calc.btklTotal, calc.bopTotal, calc.komisiTotal, calc.entertainTotal, calc.profitTotal]);
 
             // ── Preset logic ──────────────────────────────────────────────────────
             const loadPresetKaos = () => {
@@ -19442,7 +19451,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-sm">4</div>
                                                 <div>
                                                     <h3 className="font-bold text-slate-800 text-sm">Biaya Penjualan (Opsional)</h3>
-                                                    <p className="text-xs text-slate-500">Komisi marketing & dana entertain — dihitung dari harga jual</p>
+                                                    <p className="text-xs text-slate-500">Sudah masuk HPP — harga jual dihitung otomatis agar komisi & entertain tertutup</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -19492,22 +19501,30 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             <div className="flex justify-between text-slate-600"><span>Total Biaya Bahan (BBB):</span><span className="font-bold text-slate-800">{formatRp(calc.bbbTotal)}</span></div>
                                             <div className="flex justify-between text-slate-600"><span>Total Upah Kerja (BTKL):</span><span className="font-bold text-slate-800">{formatRp(calc.btklTotal)}</span></div>
                                             <div className="flex justify-between text-slate-600"><span>Total Overhead (BOP):</span><span className="font-bold text-slate-800">{formatRp(calc.bopTotal)}</span></div>
-                                            <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline">
-                                                <span className="font-bold text-slate-800 text-sm">TOTAL HPP BATCH:</span>
-                                                <span className="font-extrabold text-slate-900 text-base">{formatRp(calc.hppTotal)}</span>
-                                            </div>
-                                            {(komisiPct > 0 || entertainPct > 0) && (
+                                            {(komisiPct > 0 || entertainPct > 0) ? (
                                                 <>
-                                                    <div className="pt-1 border-t border-slate-100 text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Biaya Penjualan</div>
-                                                    {komisiPct > 0 && <div className="flex justify-between text-rose-600"><span>Komisi Marketing ({komisiPct}%):</span><span className="font-bold">− {formatRp(calc.komisiTotal)}</span></div>}
-                                                    {entertainPct > 0 && <div className="flex justify-between text-rose-600"><span>Dana Entertain ({entertainPct}%):</span><span className="font-bold">− {formatRp(calc.entertainTotal)}</span></div>}
+                                                    <div className="flex justify-between text-slate-500 border-t border-slate-100 pt-1"><span>HPP Produksi (subtotal):</span><span className="font-bold">{formatRp(calc.hppTotal)}</span></div>
+                                                    {komisiPct > 0 && <div className="flex justify-between text-rose-500"><span>+ Komisi Marketing ({komisiPct}%):</span><span className="font-bold">{formatRp(calc.komisiTotal)}</span></div>}
+                                                    {entertainPct > 0 && <div className="flex justify-between text-rose-500"><span>+ Dana Entertain ({entertainPct}%):</span><span className="font-bold">{formatRp(calc.entertainTotal)}</span></div>}
+                                                    <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline">
+                                                        <span className="font-bold text-slate-800 text-sm">HPP ALL-IN BATCH:</span>
+                                                        <span className="font-extrabold text-slate-900 text-base">{formatRp(calc.hppAllInTotal)}</span>
+                                                    </div>
                                                 </>
+                                            ) : (
+                                                <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline">
+                                                    <span className="font-bold text-slate-800 text-sm">TOTAL HPP BATCH:</span>
+                                                    <span className="font-extrabold text-slate-900 text-base">{formatRp(calc.hppTotal)}</span>
+                                                </div>
+                                            )}
+                                            {calc.isKeDenomWarn && (
+                                                <div className="text-[11px] text-rose-600 font-bold bg-rose-50 border border-rose-200 p-2 rounded-xl text-center">⚠ Komisi+entertain terlalu besar untuk margin ini. Kurangi % atau turunkan margin.</div>
                                             )}
                                         </div>
                                         <div className="bg-indigo-600 text-white rounded-2xl p-4 text-center shadow-lg mb-5">
-                                            <p className="text-xs uppercase tracking-wider font-semibold opacity-80">HPP Produksi Per Pcs</p>
-                                            <p className="text-3xl font-black mt-1">{formatRp(calc.hppPcs)}</p>
-                                            <p className="text-[11px] opacity-75 mt-1">Modal bersih per potong sebelum profit</p>
+                                            <p className="text-xs uppercase tracking-wider font-semibold opacity-80">{(komisiPct > 0 || entertainPct > 0) ? 'HPP All-In Per Pcs' : 'HPP Produksi Per Pcs'}</p>
+                                            <p className="text-3xl font-black mt-1">{formatRp((komisiPct > 0 || entertainPct > 0) ? calc.hppAllInPcs : calc.hppPcs)}</p>
+                                            <p className="text-[11px] opacity-75 mt-1">{(komisiPct > 0 || entertainPct > 0) ? 'Sudah termasuk komisi & entertain' : 'Modal bersih per potong sebelum profit'}</p>
                                         </div>
                                         <div className="space-y-4 pt-1">
                                             <div>
@@ -19533,11 +19550,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             </div>
                                             <div className="bg-slate-100/80 rounded-xl p-3 space-y-2 border border-slate-200/80 text-xs">
                                                 <div className="flex justify-between text-slate-600"><span>Estimasi Total Omset:</span><span className="font-bold text-slate-800">{formatRp(calc.turnover)}</span></div>
-                                                {(komisiPct > 0 || entertainPct > 0) && (
-                                                    <div className="flex justify-between text-rose-500 border-t border-slate-200 pt-1.5"><span>Total Biaya Penjualan:</span><span className="font-bold">− {formatRp(calc.komisiTotal + calc.entertainTotal)}</span></div>
-                                                )}
-                                                <div className={`flex justify-between text-emerald-700 font-semibold border-t border-slate-200 pt-1.5`}><span>Laba Bersih / Pcs{(komisiPct > 0 || entertainPct > 0) ? ' (stlh komisi)' : ''}:</span><span className="font-extrabold">{formatRp(calc.profitPcs)}</span></div>
-                                                <div className="flex justify-between text-emerald-800 font-bold text-sm pt-1 border-t border-slate-200"><span>Total Laba Bersih{(komisiPct > 0 || entertainPct > 0) ? ' (stlh komisi)' : ''}:</span><span>{formatRp(calc.profitTotal)}</span></div>
+                                                <div className="flex justify-between text-slate-500 border-t border-slate-200 pt-1.5"><span>HPP All-In (termasuk komisi):</span><span className="font-bold">− {formatRp(calc.hppAllInTotal)}</span></div>
+                                                <div className="flex justify-between text-emerald-700 font-semibold border-t border-slate-200 pt-1.5"><span>Laba Bersih / Pcs:</span><span className="font-extrabold">{formatRp(calc.profitPcs)}</span></div>
+                                                <div className="flex justify-between text-emerald-800 font-bold text-sm pt-1 border-t border-slate-200"><span>Total Laba Bersih:</span><span>{formatRp(calc.profitTotal)}</span></div>
                                             </div>
                                             <div className="pt-2">
                                                 <p className="text-xs font-bold text-slate-500 mb-2 text-center uppercase tracking-wider">Komposisi Biaya & Margin</p>
