@@ -1071,7 +1071,7 @@
             }
         };
 
-        const DashboardView = ({ orders, setOrders, showToast }) => {
+        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman }) => {
             const safeOrders = (orders || []).filter(isVisibleOrder);
             const totalOrders = safeOrders.filter(o => !o?.isArchived).length;
             const activeOrders = safeOrders.filter(o => !o?.isArchived && o?.status !== 'Terkirim' && o?.status !== 'Siap Kirim').length;
@@ -1727,8 +1727,8 @@
             const renderCards = (isDark = false) => {
                 return sortedOrders.map((order, index) => {
                     const today = new Date();
-                    today.setHours(0, 0, 0, 0); 
-                    const deadlineDate = new Date(order.deadline || Date.now());
+                    today.setHours(0, 0, 0, 0);
+                    const deadlineDate = order.deadline ? new Date(order.deadline + 'T00:00:00') : new Date();
                     const diffTime = deadlineDate - today;
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                     
@@ -2580,6 +2580,8 @@
                 setOrders(prev => [orderToAdd, ...(prev||[])]);
                 const selectedProcessLabels = orderProcessOptions.filter(opt => orderToAdd.processFlow[opt.id] !== false).map(opt => opt.label).join(', ');
                 showToast("Order ditambahkan ke antrean!", "success");
+                setNewOrder({ client: '', type: '', date: new Date().toISOString().split('T')[0], deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
+                setSizeInputs([{ id: 1, label: 'S', qty: '' }, { id: 2, label: 'M', qty: '' }, { id: 3, label: 'L', qty: '' }, { id: 4, label: 'XL', qty: '' }]);
                 setActiveTab('produksi');
             };
 
@@ -2782,12 +2784,12 @@
 
             const stages = productionStageOptions.map((stage, index) => ({ ...stage, label: `${index + 1}. ${stage.label}` }));
 
-            const myStageData = myEmpData ? stages.find(s => normalizeText(s.div) === normalizeText(myEmpData.division)) : null;
+            const myStageData = myEmpData ? stages.find(s => getEmployeeDivisions(myEmpData).some(d => normalizeText(s.div) === normalizeText(d))) : null;
             const myEmployeeProblem = (() => {
                 if (!isKaryawanMode) return '';
                 if (!myEmpData) return 'Akun karyawan ini belum terhubung ke data karyawan. Admin perlu membuka Master Akun, edit akun ini, lalu pilih data karyawan yang sesuai.';
                 if (normalizeText(myEmpData.status) === 'nonaktif') return 'Data karyawan untuk akun ini berstatus Nonaktif. Aktifkan kembali di menu Data Karyawan agar bisa input pekerjaan.';
-                if (!myStageData) return `Divisi karyawan "${myEmpData.division || '-'}" belum cocok dengan tahapan produksi. Sesuaikan divisi di menu Data Karyawan.`;
+                if (!myStageData) return `Divisi karyawan "${getEmployeeDivisions(myEmpData).join(', ') || '-'}" belum cocok dengan tahapan produksi. Sesuaikan divisi di menu Data Karyawan.`;
                 return '';
             })();
 
@@ -13229,6 +13231,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (getDailySalaryLogTotal(log).overtime > 0) selectedOvertimeKeys.add(String(log.id));
                 });
                 setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings });
+                setSelectedItemKeys(new Set());
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
                 setBonusSalary('');
@@ -16713,7 +16716,7 @@ ${getRekapShareLink(rekap)}
                                 {newAcc.role === 'Karyawan' && (
                                     <div className="md:col-span-2">
                                         <label className="block text-sm mb-1 font-semibold text-blue-800">Pilih Data Karyawan (Sesuai dengan Menu Data Karyawan)</label>
-                                        <select className="w-full p-2 border rounded border-blue-400 bg-blue-50" value={newAcc.linkedEmpId || ''} onChange={e => setNewAcc({...newAcc, linkedEmpId: parseInt(e.target.value) || ''})} required>
+                                        <select className="w-full p-2 border rounded border-blue-400 bg-blue-50" value={newAcc.linkedEmpId || ''} onChange={e => setNewAcc({...newAcc, linkedEmpId: e.target.value || ''})} required>
                                             <option value="">-- Pilih Pekerja --</option>
                                             {activeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} (Divisi: {getEmployeeDivisions(emp).join(', ')})</option>)}
                                         </select>
@@ -16778,7 +16781,7 @@ ${getRekapShareLink(rekap)}
                                     {editAcc.role === 'Karyawan' && (
                                         <div>
                                             <label className="block text-sm mb-1 font-semibold text-blue-800">Hubungkan ke Pekerja</label>
-                                            <select className="w-full p-2 border rounded border-blue-400 bg-blue-50" value={editAcc.linkedEmpId || ''} onChange={e => setEditAcc({...editAcc, linkedEmpId: parseInt(e.target.value) || ''})} required>
+                                            <select className="w-full p-2 border rounded border-blue-400 bg-blue-50" value={editAcc.linkedEmpId || ''} onChange={e => setEditAcc({...editAcc, linkedEmpId: e.target.value || ''})} required>
                                                 <option value="">-- Pilih Pekerja --</option>
                                                 {activeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} (Divisi: {getEmployeeDivisions(emp).join(', ')})</option>)}
                                             </select>
@@ -18707,7 +18710,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } } }, cutout: '65%' },
                 });
                 return () => { if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; } };
-            }, [activeSection, calc.bbbTotal, calc.btklTotal, calc.bopTotal, calc.komisiTotal, calc.entertainTotal, calc.profitTotal]);
+            }, [calc.bbbTotal, calc.btklTotal, calc.bopTotal, calc.komisiTotal, calc.entertainTotal, calc.profitTotal, komisiPct, entertainPct]);
 
             // ── Preset logic ──────────────────────────────────────────────────────
             const loadPresetKaos = () => {
@@ -18803,7 +18806,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (item.marginPct !== undefined)    setMarginPct(item.marginPct);
                 if (item.komisiPct !== undefined)    setKomisiPct(item.komisiPct); else setKomisiPct(0);
                 if (item.entertainPct !== undefined) setEntertainPct(item.entertainPct); else setEntertainPct(0);
-                if (item.sellingPrice !== undefined) { setCustomPrice(item.sellingPrice); setIsPriceManual(true); }
+                if (item.sellingPrice !== undefined) { setCustomPrice(item.sellingPrice); setIsPriceManual(true); } else { setIsPriceManual(false); }
                 const cat = item.kategori || '';
                 if (PRESET_CATEGORIES.includes(cat)) { setOrderKategori(cat); setOrderKategoriCustom(''); }
                 else if (cat) { setOrderKategori('Custom'); setOrderKategoriCustom(cat); }
@@ -22852,7 +22855,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'p-0 bg-gray-100 overflow-hidden' : 'p-4 md:p-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {activeTab === 'label_maker' && canOpen('label_maker') && <LabelMakerView templates={templates} setTemplates={updateTemplates} />}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
-                                {activeTab === 'dashboard' && canOpen('dashboard') && <DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} />}
+                                {activeTab === 'dashboard' && canOpen('dashboard') && <DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} />}
                                 {activeTab === 'antrean' && canOpen('antrean') && <AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />}
                                 {activeTab === 'karyawan' && canOpen('karyawan') && <KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} />}
                                 {activeTab === 'dana_operasional' && canOpen('dana_operasional') && <DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} />}
