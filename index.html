@@ -1964,8 +1964,8 @@
                         const maxW = field === 'fotoKtp' ? 600 : 300;
                         const maxH = field === 'fotoKtp' ? 380 : 400;
                         const ratio = Math.min(maxW / img.width, maxH / img.height, 1);
-                        canvas.width = img.width * ratio;
-                        canvas.height = img.height * ratio;
+                        canvas.width = Math.round(img.width * ratio);
+                        canvas.height = Math.round(img.height * ratio);
                         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
                         setProfileEmp(prev => ({...prev, biodata: {...(prev.biodata||{}), [field]: canvas.toDataURL('image/jpeg', 0.82)}}));
                     };
@@ -1979,7 +1979,6 @@
                 if (!profileEmp) return;
                 const now = new Date().toISOString();
                 setEmployees(prev => prev.map(emp => String(emp.id) === String(profileEmp.id) ? { ...profileEmp, _syncUpdatedAt: now } : emp));
-                setProfileEmp(prev => prev ? { ...prev } : null);
                 showToast("Data pribadi karyawan disimpan!", "success");
             };
 
