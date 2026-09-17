@@ -1983,23 +1983,23 @@
             };
 
             const printBiodata = (emp) => {
+                const safe = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const b = emp.biodata || {};
                 const tmpl = templates || {};
-                const coName = tmpl.companyName || 'SIMPATI KONVEKSI';
-                const coSub = tmpl.companySubtitle || 'Konveksi & Garment';
-                const coContact = tmpl.companyContact || '';
+                const coName = safe(tmpl.companyName || 'SIMPATI KONVEKSI');
+                const coSub = safe(tmpl.companySubtitle || 'Konveksi & Garment');
+                const coContact = safe(tmpl.companyContact || '');
                 const logoHtml = tmpl.companyLogo
                     ? `<img src="${tmpl.companyLogo}" style="max-height:56px;max-width:160px;object-fit:contain;display:block" alt="logo"/>`
                     : '';
-                const alamat = [b.alamat?.jalan, b.alamat?.kelurahan, b.alamat?.kecamatan, b.alamat?.kota, b.alamat?.kodePos].filter(Boolean).join(', ');
-                const keahlianStr = (b.keahlian || []).join(' · ');
-                const lahir = [b.tempatLahir, b.tanggalLahir ? new Date(b.tanggalLahir + 'T00:00:00').toLocaleDateString('id-ID', {day:'2-digit',month:'long',year:'numeric'}) : ''].filter(Boolean).join(', ');
+                const alamat = safe([b.alamat?.jalan, b.alamat?.kelurahan, b.alamat?.kecamatan, b.alamat?.kota, b.alamat?.kodePos].filter(Boolean).join(', '));
+                const lahir = safe([b.tempatLahir, b.tanggalLahir ? new Date(b.tanggalLahir + 'T00:00:00').toLocaleDateString('id-ID', {day:'2-digit',month:'long',year:'numeric'}) : ''].filter(Boolean).join(', '));
                 const tglBergabung = b.tanggalBergabung ? new Date(b.tanggalBergabung + 'T00:00:00').toLocaleDateString('id-ID', {day:'2-digit',month:'long',year:'numeric'}) : '-';
-                const divisi = getEmployeeDivisions(emp).join(', ') || '-';
+                const divisi = safe(getEmployeeDivisions(emp).join(', ') || '-');
                 const tglCetak = new Date().toLocaleDateString('id-ID', {day:'2-digit', month:'long', year:'numeric'});
                 const statusColor = (emp.status||'Aktif') === 'Aktif' ? '#166534' : '#9CA3AF';
                 const statusBg = (emp.status||'Aktif') === 'Aktif' ? '#DCFCE7' : '#F3F4F6';
-                const row = (label, val) => val && val !== '-' ? `<tr><td class="lbl">${label}</td><td class="col">:</td><td class="val">${val}</td></tr>` : '';
+                const row = (label, val) => val && val !== '-' ? `<tr><td class="lbl">${safe(label)}</td><td class="col">:</td><td class="val">${safe(val)}</td></tr>` : '';
                 const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Biodata — ${emp.name}</title>
 <style>
@@ -2045,7 +2045,6 @@ td.val{color:#111827;font-weight:500}
 .rek-bank{font-size:9pt;font-weight:700;color:#166534;letter-spacing:.5px;text-transform:uppercase}
 .rek-no{font-size:14pt;font-weight:900;color:#14532D;letter-spacing:2.5px;font-family:'Courier New',monospace;line-height:1.1}
 .rek-an{font-size:8.5pt;color:#166534;margin-top:2px}
-.rek-divider{width:1.5px;height:40px;background:#86EFAC;flex-shrink:0}
 /* ── KTP foto ── */
 .ktp-box{border:1.5px solid #E5E7EB;border-radius:8px;overflow:hidden;background:#F3F4F6;display:flex;align-items:center;justify-content:center;height:80px}
 .ktp-box img{width:100%;height:100%;object-fit:cover}
@@ -2079,9 +2078,9 @@ td.val{color:#111827;font-weight:500}
 <div class="name-hero">
   <div class="photo-profil">${b.foto ? `<img src="${b.foto}" alt="Foto">` : '<div class="photo-empty">Tidak ada<br>foto</div>'}</div>
   <div>
-    <div class="name-main">${emp.name || '-'}</div>
-    <div class="name-sub">${divisi}${b.noKontrak ? ' &nbsp;·&nbsp; No. ' + b.noKontrak : ''}</div>
-    <div class="status-chip">${emp.status || 'Aktif'}</div>
+    <div class="name-main">${safe(emp.name || '-')}</div>
+    <div class="name-sub">${divisi}${b.noKontrak ? ' &nbsp;·&nbsp; No. ' + safe(b.noKontrak) : ''}</div>
+    <div class="status-chip">${safe(emp.status || 'Aktif')}</div>
   </div>
 </div>
 
@@ -2114,7 +2113,7 @@ td.val{color:#111827;font-weight:500}
         ${row('Tgl Bergabung', tglBergabung)}
         ${row('No. Kontrak', b.noKontrak)}
       </table>
-      ${keahlianStr ? `<div style="margin-top:6px"><div style="font-size:8pt;color:#6B7280;font-weight:600;margin-bottom:4px">Keahlian</div><div class="skills">${(b.keahlian||[]).map(k=>`<span class="skill-chip">${k}</span>`).join('')}</div></div>` : ''}
+      ${(b.keahlian||[]).length > 0 ? `<div style="margin-top:6px"><div style="font-size:8pt;color:#6B7280;font-weight:600;margin-bottom:4px">Keahlian</div><div class="skills">${(b.keahlian||[]).map(k=>`<span class="skill-chip">${safe(k)}</span>`).join('')}</div></div>` : ''}
     </div>
     ${b.kontakDarurat?.nama ? `<div class="section">
       <div class="section-head">Kontak Darurat</div>
@@ -2135,9 +2134,9 @@ ${b.rekening?.noRekening ? `<div class="section">
   <div class="section-head">Rekening Bank Aktif</div>
   <div class="rek-box">
     <div>
-      <div class="rek-bank">${b.rekening.bank || 'Bank'}</div>
-      <div class="rek-no">${b.rekening.noRekening}</div>
-      <div class="rek-an">a.n. ${b.rekening.atasNama || emp.name}</div>
+      <div class="rek-bank">${safe(b.rekening.bank || 'Bank')}</div>
+      <div class="rek-no">${safe(b.rekening.noRekening)}</div>
+      <div class="rek-an">a.n. ${safe(b.rekening.atasNama || emp.name)}</div>
     </div>
   </div>
 </div>` : ''}
