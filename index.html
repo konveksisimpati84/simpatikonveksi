@@ -11499,7 +11499,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [], bagiHasilDireksi = [] }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [] }) => {
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
@@ -11696,21 +11696,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return s + (type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value);
             }, 0);
 
-            // Bagi Hasil Direksi — dibayarkan ke direktur/komisaris (basis kas, dicatat manual)
-            const totalBagiHasilDireksiPaid = safeArray(bagiHasilDireksi).filter(isVisibleRecord).filter(p => isInPeriod(p.date)).reduce((s, p) => s + safeMoney(p.amount), 0);
+            // Bagi Hasil Direksi — sekarang tercatat dalam rekap kinerja (grossSalary sudah termasuk bagiHasilDireksiAmount)
+            // Untuk tampilan breakdown L/R, kita ekstrak dari rekap
+            const totalBagiHasilDireksiPaid = safeArray(rekapKinerja).filter(isVisibleRecord).filter(r => isInPeriod(r.dateProcessed) && safeMoney(r.bagiHasilDireksiAmount) > 0).reduce((s, r) => s + safeMoney(r.bagiHasilDireksiAmount), 0);
 
             // Beban L/R: kasbon = piutang karyawan (aset), bukan biaya — tidak masuk beban.
             // totalWage menggunakan grossSalary (biaya tenaga kerja penuh, sebelum potongan kasbon).
-            const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiPaid;
+            // bagiHasilDireksi sudah termasuk dalam totalWage (via grossSalary rekap) — tidak perlu ditambahkan lagi
+            const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
             // Buku Kas = arus kas keluar nyata: pakai totalCashWage (netSalary) + kasbon yang diberikan
-            const totalBebanKas = totalMaterialPaid + totalCashWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid + totalBagiHasilDireksiPaid;
+            const totalBebanKas = totalMaterialPaid + totalCashWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
             // Piutang kasbon all-time (neraca) — kasbon yang belum terpotong dari rekap manapun
             const totalKasbonOutstanding = allCashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
             // HPP = bahan baku + upah produksi murni (komisi TIDAK masuk HPP)
             const totalHPP = totalMaterialPaid + totalProductionWage;
             const labaKotor = totalPendapatan - totalHPP;
-            // Beban Usaha = operasional + komisi dibayar (via rekap) + komisi belum dibayar + bagi hasil
-            const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiPaid;
+            // Beban Usaha = operasional + komisi dibayar (via rekap) + komisi belum dibayar + bagi hasil promosi
+            const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid;
             const labaBersih = totalPendapatan - totalBeban; // = labaKotor - totalBebanUsaha
 
             // Piutang (for balance sheet)
@@ -12040,13 +12042,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         ket: b.nama || '-',
                         nominal: safeMoney(p.amount)
                     }))),
-                    ...safeArray(bagiHasilDireksi).filter(isVisibleRecord).filter(p => isInPeriod(p.date)).map(p => ({
-                        date: p.date || '-',
-                        ref: p.id || '-',
-                        sumber: 'Bagi Hasil Direksi',
-                        ket: p.empName || '-',
-                        nominal: safeMoney(p.amount)
-                    })),
                 ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
                 const totalKasMasuk = kasmasukRows.reduce((s, r) => s + r.nominal, 0);
                 const totalKasKeluar = kaskeluarRows.reduce((s, r) => s + r.nominal, 0);
@@ -12481,8 +12476,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                                 ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                                                 ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) })),
-                                                ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) }))),
-                                                ...safeArray(bagiHasilDireksi).filter(isVisibleRecord).filter(p => isInPeriod(p.date)).map(p => ({ date: p.date || '-', ref: p.id || '-', sumber: 'Bagi Hasil Direksi', ket: p.empName || '-', nominal: safeMoney(p.amount) }))
+                                                ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
                                             ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                                                     <td className="p-3">{r.date}</td>
@@ -12508,8 +12502,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                         ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                                         ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) })),
-                                        ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) }))),
-                                        ...safeArray(bagiHasilDireksi).filter(isVisibleRecord).filter(p => isInPeriod(p.date)).map(p => ({ date: p.date || '-', ref: p.id || '-', sumber: 'Bagi Hasil Direksi', ket: p.empName || '-', nominal: safeMoney(p.amount) }))
+                                        ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
                                     ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
                                         <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
                                             <div className="flex-1 min-w-0">
@@ -13032,7 +13025,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilDireksi = [], updateBagiHasilDireksi }) => {
+        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [] }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
@@ -13144,7 +13137,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const fpToday = new Date().toISOString().split('T')[0];
                         hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
                     }
-                    if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd || hasFingerPending) ids.add(String(emp.id));
+                    const isDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+                    const currentBHMonth = new Date().toISOString().slice(0,7);
+                    const hasBagiHasil = isDireksi && safeMoney(emp.bagiHasilNilai) > 0 && !safeRekapForReport.filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === currentBHMonth);
+                    if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd || hasFingerPending || hasBagiHasil) ids.add(String(emp.id));
                 });
                 return ids;
             }, [employees, safeOrdersForReport, invoices, rekapKinerja, absensiRawLogs]);
@@ -13376,6 +13372,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         ${dailyRows.length > 0 ? sectionRows('Gaji Harian', dailyRows) : ''}
                         ${overtimeRows.length > 0 ? sectionRows('Lembur', overtimeRows) : ''}
                         ${safeMoney(data.bonusSalary) > 0 ? sectionRows('Bonus Kinerja', [`<div class="item-row"><span><b>${data.bonusNote || 'Bonus Kinerja'}</b></span><span style="color:#92400e;font-weight:700">${formatReceiptMoney(data.bonusSalary || 0)}</span></div>`]) : ''}
+                        ${safeMoney(data.bagiHasilDireksiAmount) > 0 ? sectionRows('Bagi Hasil Direksi', [`<div class="item-row"><span><b>Periode ${data.bagiHasilDireksiMonth || '-'}</b></span><span style="color:#b45309;font-weight:700">${formatReceiptMoney(data.bagiHasilDireksiAmount || 0)}</span></div>`]) : ''}
                         ${safeMoney(data.cashAdvanceDeduction) > 0 ? sectionRows('Potongan - Kasbon', [`<div class="item-row"><span><b>Bayar kasbon sekarang</b><small>Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</small></span><span>${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>`]) : ''}
 
                         <div class="total-box">
@@ -13757,7 +13754,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (log.workDays > 0) selectedDailyKeys.add(String(log.id));
                     if (getDailySalaryLogTotal(log).overtime > 0) selectedOvertimeKeys.add(String(log.id));
                 });
-                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings });
+                const isDireksiEmp = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+                const bhMonth = new Date().toISOString().slice(0,7);
+                const bhAmtRaw = isDireksiEmp ? getBagiHasilDireksi(emp, safeInvoicesForReport, bhMonth) : 0;
+                const bhAlreadyRekaped = isDireksiEmp && safeRekapForReport.filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === bhMonth);
+                const totalInvoiceBulanBH = isDireksiEmp ? safeInvoicesForReport.filter(inv => !inv.isDeleted && (inv.date||'').slice(0,7) === bhMonth).reduce((s, inv) => s + getInvoiceTotals(inv).total, 0) : 0;
+                const bagiHasilDireksiAmount = (isDireksiEmp && !bhAlreadyRekaped) ? bhAmtRaw : 0;
+                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount, bagiHasilDireksiMonth: bhMonth, totalInvoiceBulan: totalInvoiceBulanBH });
                 setSelectedItemKeys(new Set());
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
@@ -13815,7 +13818,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const hasAnyDailySelected = (modalData?.selectedDailyKeys?.size || 0) > 0;
                 const hasAnyOvertimeSelected = (modalData?.selectedOvertimeKeys?.size || 0) > 0;
                 const hasAnyMarketingSelected = (modalData?.selectedMarketingKeys?.size || 0) > 0;
-                if (selectedItems.length === 0 && !hasAnyDailySelected && !hasAnyOvertimeSelected && !hasAnyMarketingSelected) {
+                const hasAnyBagiHasilDireksi = safeMoney(modalData?.bagiHasilDireksiAmount || 0) > 0;
+                if (selectedItems.length === 0 && !hasAnyDailySelected && !hasAnyOvertimeSelected && !hasAnyMarketingSelected && !hasAnyBagiHasilDireksi) {
                     showToast("Pilih minimal 1 item untuk direkap.", "error");
                     setIsRekapProcessing(false);
                     return;
@@ -13870,7 +13874,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const marketingInvoicesForRekap = allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
                 const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
                 const bonusSal = safeMoney(bonusSalary);
-                const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission + bonusSal;
+                const bagiHasilDireksiAmt = safeMoney(modalData?.bagiHasilDireksiAmount || 0);
+                const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission + bonusSal + bagiHasilDireksiAmt;
                 const empCashAdvanceSummary = getEmployeeCashAdvanceSummary(empForRekap);
                 const deduction = Math.min(safeMoney(cashAdvanceDeduction), grossSalary, empCashAdvanceSummary.remaining);
                 if (safeMoney(cashAdvanceDeduction) > grossSalary) {
@@ -13900,6 +13905,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     dailySalaryLogs: allLogsForRekap,
                     marketingCommission,
                     marketingInvoiceIds: marketingInvoicesForRekap.map(inv => inv.id),
+                    bagiHasilDireksiAmount: bagiHasilDireksiAmt,
+                    bagiHasilDireksiMonth: modalData?.bagiHasilDireksiMonth || '',
                     bonusSalary: bonusSal,
                     bonusNote: bonusNote || '',
                     cashAdvanceDeduction: deduction,
@@ -14249,11 +14256,12 @@ ${getRekapShareLink(rekap)}
             const modalMarketingCommission = selectedMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
             const modalBonusSalary = safeMoney(bonusSalary);
-            const modalPrintableGross = modalSelectedWage + modalDailySalary + modalOvertimeSalary + modalMarketingCommission + modalBonusSalary;
+            const modalBagiHasilDireksiAmount = safeMoney(modalData?.bagiHasilDireksiAmount || 0);
+            const modalPrintableGross = modalSelectedWage + modalDailySalary + modalOvertimeSalary + modalMarketingCommission + modalBonusSalary + modalBagiHasilDireksiAmount;
             const modalGrossSalary = modalPrintableGross;
             const modalDeduction = Math.min(safeMoney(cashAdvanceDeduction), modalGrossSalary, modalCashAdvanceSummary.remaining);
             const modalHasPrintableIncome = modalPrintableGross > 0;
-            const modalHasAnySelected = modalSelectedItems.length > 0 || (modalData?.selectedDailyKeys?.size || 0) > 0 || (modalData?.selectedOvertimeKeys?.size || 0) > 0 || (modalData?.selectedMarketingKeys?.size || 0) > 0;
+            const modalHasAnySelected = modalSelectedItems.length > 0 || (modalData?.selectedDailyKeys?.size || 0) > 0 || (modalData?.selectedOvertimeKeys?.size || 0) > 0 || (modalData?.selectedMarketingKeys?.size || 0) > 0 || modalBagiHasilDireksiAmount > 0;
             const visibleRekaps = safeRekapForReport
                 .filter(isVisibleRecord)
                 .filter(rekap => {
@@ -14538,7 +14546,6 @@ ${getRekapShareLink(rekap)}
                         <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Input Kinerja</button>
                         <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
                         <button onClick={() => setActiveReportTab('ranking')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'ranking' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🏆 Ranking Produksi</button>
-                        <button onClick={() => setActiveReportTab('direksi')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'direksi' ? 'border-amber-600 text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Bagi Hasil Direksi</button>
                     </div>
                     <Card>
                         <div className="flex flex-col sm:flex-row gap-3">
@@ -15116,44 +15123,7 @@ ${getRekapShareLink(rekap)}
                             ✅ Direkap = dari Rekap Kinerja yang sudah disimpan (filter bulan berlaku) · ⏳ Pending = workLog sudah dicek admin tapi belum direkap gaji (semua periode)
                         </div>
                     </div>
-                    ) : activeReportTab === 'direksi' ? (() => {
-                        const direksiEmps = visibleEmployees.filter(emp => {
-                            const divs = getEmployeeDivisions(emp);
-                            return divs.includes('Direktur') || divs.includes('Komisaris');
-                        });
-                        const bulanDireksi = rankMonth || new Date().toISOString().slice(0,7);
-                        const safeBHD = safeArray(bagiHasilDireksi).filter(isVisibleRecord);
-                        const totalInvoiceBulan = safeInvoicesForReport.filter(inv => !inv.isDeleted && (inv.date||'').slice(0,7) === bulanDireksi).reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
-                        return (
-                        <div className="space-y-4">
-                            <Card>
-                                <div className="flex flex-wrap gap-3 items-center">
-                                    <div className="flex items-center gap-2">
-                                        <label className="text-xs font-semibold text-gray-500">Periode:</label>
-                                        <input type="month" value={rankMonth} onChange={e => setRankMonth(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-2 py-1.5" />
-                                    </div>
-                                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
-                                        <span className="text-amber-600 font-semibold">Total Invoice {bulanDireksi}: </span>
-                                        <span className="font-black text-amber-800">{formatRupiah(totalInvoiceBulan)}</span>
-                                    </div>
-                                </div>
-                            </Card>
-                            {direksiEmps.length === 0 ? (
-                                <Card>
-                                    <div className="text-center py-8 text-gray-400">
-                                        <div className="text-4xl mb-3">👤</div>
-                                        <div className="font-bold text-gray-500">Belum ada karyawan divisi Direktur/Komisaris</div>
-                                        <div className="text-sm mt-1">Tambahkan karyawan dengan divisi Direktur atau Komisaris di menu Data Karyawan.</div>
-                                    </div>
-                                </Card>
-                            ) : direksiEmps.map(emp => {
-                                const calculated = getBagiHasilDireksi(emp, safeInvoicesForReport, bulanDireksi);
-                                const payments = safeBHD.filter(p => String(p.empId) === String(emp.id) && p.bulan === bulanDireksi);
-                                return <DireksiEmpCard key={emp.id} emp={emp} calculated={calculated} payments={payments} bulan={bulanDireksi} updateBagiHasilDireksi={updateBagiHasilDireksi} showToast={showToast} />;
-                            })}
-                        </div>
-                        );
-                    })() : null}
+                    ) : null}
 
                     {selectionConfirm && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
@@ -15236,6 +15206,7 @@ ${getRekapShareLink(rekap)}
                                             {modalAllDailyLogs.length > 0 && (() => { const allSel=modalAllDailyLogs.every(l=>modalData?.selectedDailyKeys?.has(String(l.id||l.date))); const hasSome=(modalData?.selectedDailyKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-indigo-100 border-indigo-400 text-indigo-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalDailyItems(modalAllDailyLogs)}/>Gaji Harian {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
                                             {modalAllOvertimeLogs.length > 0 && (() => { const allSel=modalAllOvertimeLogs.every(l=>modalData?.selectedOvertimeKeys?.has(String(l.id||l.date))); const hasSome=(modalData?.selectedOvertimeKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-sky-100 border-sky-400 text-sky-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalOvertimeItems(modalAllOvertimeLogs)}/>Lembur {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
                                             {modalMarketingInvoices.length > 0 && (() => { const allSel=modalMarketingInvoices.every(i=>modalData?.selectedMarketingKeys?.has(String(i.id))); const hasSome=(modalData?.selectedMarketingKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-purple-100 border-purple-400 text-purple-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalMarketingItems(modalMarketingInvoices)}/>Komisi Marketing {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
+                                            {modalBagiHasilDireksiAmount > 0 && <span className="flex items-center gap-2 border border-amber-400 bg-amber-100 rounded-lg px-3 py-2 text-sm font-bold text-amber-800">✓ Bagi Hasil Direksi (Otomatis)</span>}
                                         </div>
                                     </div>
 
@@ -15337,6 +15308,28 @@ ${getRekapShareLink(rekap)}
                                         </div>
                                     )}
 
+                                    {/* Bagi Hasil Direksi/Komisaris */}
+                                    {modalBagiHasilDireksiAmount > 0 && (
+                                        <div className="border border-amber-200 rounded-lg overflow-hidden">
+                                            <div className="bg-amber-600 text-white px-4 py-2 flex items-center justify-between">
+                                                <span className="font-black text-sm">Bagi Hasil Direksi/Komisaris</span>
+                                                <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalBagiHasilDireksiAmount)}</span>
+                                            </div>
+                                            <div className="p-4 bg-amber-50 space-y-2">
+                                                <div className="flex flex-wrap gap-4 text-sm text-amber-800">
+                                                    <div><span className="font-semibold">Periode:</span> {modalData?.bagiHasilDireksiMonth}</div>
+                                                    <div><span className="font-semibold">Total Invoice:</span> {formatRupiah(modalData?.totalInvoiceBulan || 0)}</div>
+                                                </div>
+                                                <div className="text-xs text-amber-600">
+                                                    {modalEmployee?.bagiHasilTipe === 'Nominal' ? `Nominal tetap per bulan` : `${modalEmployee?.bagiHasilNilai}% dari total invoice bulan ${modalData?.bagiHasilDireksiMonth}`}
+                                                </div>
+                                                <div className="bg-amber-100 rounded-lg px-3 py-2 text-xs text-amber-700 font-semibold">
+                                                    ✓ Otomatis masuk ke rekap — tidak perlu pilih manual
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Kasbon & Total Akhir */}
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                         <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
@@ -15368,6 +15361,7 @@ ${getRekapShareLink(rekap)}
                                                 {modalDailySalary>0 && <div className="flex justify-between"><span className="text-gray-600">Gaji Harian</span><span className="font-bold text-indigo-700">{formatRupiah(modalDailySalary)}</span></div>}
                                                 {modalOvertimeSalary>0 && <div className="flex justify-between"><span className="text-gray-600">Gaji Lembur</span><span className="font-bold text-sky-700">{formatRupiah(modalOvertimeSalary)}</span></div>}
                                                 {modalMarketingCommission>0 && <div className="flex justify-between"><span className="text-gray-600">Komisi Marketing</span><span className="font-bold text-purple-700">{formatRupiah(modalMarketingCommission)}</span></div>}
+                                                {modalBagiHasilDireksiAmount>0 && <div className="flex justify-between"><span className="text-gray-600">Bagi Hasil Direksi</span><span className="font-bold text-amber-700">{formatRupiah(modalBagiHasilDireksiAmount)}</span></div>}
                                                 {modalBonusSalary>0 && <div className="flex justify-between"><span className="text-gray-600">Bonus Kinerja</span><span className="font-bold text-yellow-700">{formatRupiah(modalBonusSalary)}</span></div>}
                                                 <div className="flex justify-between border-t border-blue-200 pt-1.5"><span className="font-bold">Total Bruto</span><span className="font-black">{formatRupiah(modalGrossSalary)}</span></div>
                                                 {modalDeduction>0 && <div className="flex justify-between"><span className="text-gray-600">Potongan Kasbon</span><span className="font-bold text-red-600">- {formatRupiah(modalDeduction)}</span></div>}
@@ -21256,7 +21250,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [investors, setInvestors] = useState([]);
             const [investorBagiHasil, setInvestorBagiHasil] = useState([]);
             const [bagiHasilPromosi, setBagiHasilPromosi] = useState([]);
-            const [bagiHasilDireksi, setBagiHasilDireksi] = useState([]);
             const [drivers, setDrivers] = useState([]);
             const [driverTarifs, setDriverTarifs] = useState([]);
             const [driverTransactions, setDriverTransactions] = useState([]);
@@ -22031,7 +22024,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const applyRemoteDataSnapshotInner = async () => {
                 const remoteTsMap = await fetchRemoteTimestamps();
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi, remoteBagiHasilDireksi, remoteLabelTemplates] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi, remoteLabelTemplates] = await Promise.all([
                     fetchStoreDataCached('accounts', initialAccounts, remoteTsMap),
                     fetchStoreDataCached('employees', initialEmployees, remoteTsMap),
                     fetchStoreDataCached('orders', initialOrders, remoteTsMap),
@@ -22057,7 +22050,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreDataCached('purchaseNotes', [], remoteTsMap),
                     fetchStoreDataCached('danaOperasional', [], remoteTsMap),
                     fetchStoreDataCached('bagiHasilPromosi', [], remoteTsMap),
-                    fetchStoreDataCached('bagiHasilDireksi', [], remoteTsMap),
                     fetchStoreDataCached('labelTemplates', [], remoteTsMap)
                 ]);
 
@@ -22181,14 +22173,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const merged = mergeRecordLists(prev || [], remoteBagiHasilPromosi);
                         safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', merged), 0);
-                        return merged;
-                    });
-                }
-                if (Array.isArray(remoteBagiHasilDireksi)) {
-                    setBagiHasilDireksi(prev => {
-                        const merged = mergeRecordLists(prev || [], remoteBagiHasilDireksi);
-                        safeLocalSet('simpati_bagi_hasil_direksi_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteBagiHasilDireksi)) setTimeout(() => saveToSupabase('bagiHasilDireksi', merged), 0);
                         return merged;
                     });
                 }
@@ -22413,7 +22397,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), isMobile ? 25000 : 10000)
                             );
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi, remBagiHasilDireksiInit, remLabelTemplates] = await Promise.race([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi, remLabelTemplates] = await Promise.race([
                                 Promise.all([
                                     fetchStoreDataCached('accounts', initialAccounts, initTsMap),
                                     fetchStoreDataCached('employees', initialEmployees, initTsMap),
@@ -22440,7 +22424,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     fetchStoreDataCached('purchaseNotes', [], initTsMap),
                                     fetchStoreDataCached('danaOperasional', [], initTsMap),
                                     fetchStoreDataCached('bagiHasilPromosi', [], initTsMap),
-                                    fetchStoreDataCached('bagiHasilDireksi', [], initTsMap),
                                     fetchStoreDataCached('labelTemplates', [], initTsMap)
                                 ]),
                                 _fetchTimeout
@@ -22530,11 +22513,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 setBagiHasilPromosi(next); safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(next));
                                 if (JSON.stringify(next) !== JSON.stringify(remBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', next), 0);
                             }
-                            if (Array.isArray(remBagiHasilDireksiInit)) {
-                                const next = mergeRecordLists(loadLocalData('simpati_bagi_hasil_direksi_sync', []), remBagiHasilDireksiInit);
-                                setBagiHasilDireksi(next); safeLocalSet('simpati_bagi_hasil_direksi_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remBagiHasilDireksiInit)) setTimeout(() => saveToSupabase('bagiHasilDireksi', next), 0);
-                            }
                             if (Array.isArray(remDrivers)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_drivers_sync', []), remDrivers);
                                 setDrivers(next); safeLocalSet('simpati_drivers_sync', JSON.stringify(next));
@@ -22585,7 +22563,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 if (JSON.stringify(next) !== JSON.stringify(initTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', next), 0);
                             }
                             supabaseLoadedRef.current = true;
-                            setTimeout(() => seedRemoteTimestamps(['accounts','employees','orders','rekapKinerja','riwayatPengiriman','expenses','invoices','clients','templates','manualPurchases','investors','investorBagiHasil','drivers','driverTarifs','driverTransactions','driverRekapGaji','driverKasbon','stockItems','absensiEdits','absensiRawLogs','kartu_kredit','transaksi_kartu','purchaseNotes','danaOperasional','bagiHasilPromosi','bagiHasilDireksi']), 2000);
+                            setTimeout(() => seedRemoteTimestamps(['accounts','employees','orders','rekapKinerja','riwayatPengiriman','expenses','invoices','clients','templates','manualPurchases','investors','investorBagiHasil','drivers','driverTarifs','driverTransactions','driverRekapGaji','driverKasbon','stockItems','absensiEdits','absensiRawLogs','kartu_kredit','transaksi_kartu','purchaseNotes','danaOperasional','bagiHasilPromosi']), 2000);
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });
                         } catch (error) {
                             console.error("Gagal memuat dari Supabase, memakai data lokal.");
@@ -23020,23 +22998,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
-            const updateBagiHasilDireksi = (updater) => {
-                setBagiHasilDireksi(prev => {
-                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
-                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
-                    setTimeout(async () => {
-                        const merged = await mergeRemoteRecordsForSave('bagiHasilDireksi', valid);
-                        safeLocalSet('simpati_bagi_hasil_direksi_sync', JSON.stringify(merged));
-                        saveToSupabase('bagiHasilDireksi', merged);
-                        setBagiHasilDireksi(current => {
-                            const m = mergeRecordLists(current || [], merged);
-                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
-                        });
-                    }, 0);
-                    return valid;
-                });
-            };
-
             const updateDrivers = (updater) => {
                 setDrivers(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -23459,11 +23420,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'input_order' && canOpen('input_order') && <InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} />}
                                 {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilDireksi={bagiHasilDireksi} updateBagiHasilDireksi={updateBagiHasilDireksi} />}
+                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} bagiHasilDireksi={bagiHasilDireksi} />}
+                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} />}
