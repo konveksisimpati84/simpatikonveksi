@@ -13763,7 +13763,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const bhAlreadyRekaped = isDireksiEmp && safeRekapForReport.filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === bhMonth);
                 const totalInvoiceBulanBH = isDireksiEmp ? safeInvoicesForReport.filter(inv => !inv.isDeleted && (inv.date||'').slice(0,7) === bhMonth).reduce((s, inv) => s + getInvoiceTotals(inv).total, 0) : 0;
                 const bagiHasilDireksiAmount = (isDireksiEmp && !bhAlreadyRekaped) ? bhAmtRaw : 0;
-                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount, bagiHasilDireksiMonth: bhMonth, totalInvoiceBulan: totalInvoiceBulanBH });
+                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount, bagiHasilDireksiSelected: bagiHasilDireksiAmount > 0, bagiHasilDireksiMonth: bhMonth, totalInvoiceBulan: totalInvoiceBulanBH });
                 setSelectedItemKeys(new Set());
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
@@ -13812,6 +13812,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const toggleAllModalMarketingItems = (invs) => {
                 setModalData(prev => { if (!prev) return prev; const keys = invs.map(i => String(i.id)); const allSel = keys.every(k => prev.selectedMarketingKeys?.has(k)); return { ...prev, selectedMarketingKeys: allSel ? new Set([...prev.selectedMarketingKeys].filter(k => !keys.includes(k))) : new Set([...(prev.selectedMarketingKeys || []), ...keys]) }; });
             };
+            const toggleBagiHasilDireksi = () => {
+                setModalData(prev => prev ? { ...prev, bagiHasilDireksiSelected: !prev.bagiHasilDireksiSelected } : prev);
+            };
 
             const executeRekapAndPrint = () => {
                 if(!modalData) return;
@@ -13821,7 +13824,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const hasAnyDailySelected = (modalData?.selectedDailyKeys?.size || 0) > 0;
                 const hasAnyOvertimeSelected = (modalData?.selectedOvertimeKeys?.size || 0) > 0;
                 const hasAnyMarketingSelected = (modalData?.selectedMarketingKeys?.size || 0) > 0;
-                const hasAnyBagiHasilDireksi = safeMoney(modalData?.bagiHasilDireksiAmount || 0) > 0;
+                const hasAnyBagiHasilDireksi = !!modalData?.bagiHasilDireksiSelected && safeMoney(modalData?.bagiHasilDireksiAmount || 0) > 0;
                 if (selectedItems.length === 0 && !hasAnyDailySelected && !hasAnyOvertimeSelected && !hasAnyMarketingSelected && !hasAnyBagiHasilDireksi) {
                     showToast("Pilih minimal 1 item untuk direkap.", "error");
                     setIsRekapProcessing(false);
@@ -13877,7 +13880,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const marketingInvoicesForRekap = allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
                 const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
                 const bonusSal = safeMoney(bonusSalary);
-                const bagiHasilDireksiAmt = safeMoney(modalData?.bagiHasilDireksiAmount || 0);
+                const bagiHasilDireksiAmt = (modalData?.bagiHasilDireksiSelected ? safeMoney(modalData?.bagiHasilDireksiAmount || 0) : 0);
                 const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission + bonusSal + bagiHasilDireksiAmt;
                 const empCashAdvanceSummary = getEmployeeCashAdvanceSummary(empForRekap);
                 const deduction = Math.min(safeMoney(cashAdvanceDeduction), grossSalary, empCashAdvanceSummary.remaining);
@@ -14259,7 +14262,7 @@ ${getRekapShareLink(rekap)}
             const modalMarketingCommission = selectedMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
             const modalBonusSalary = safeMoney(bonusSalary);
-            const modalBagiHasilDireksiAmount = safeMoney(modalData?.bagiHasilDireksiAmount || 0);
+            const modalBagiHasilDireksiAmount = modalData?.bagiHasilDireksiSelected ? safeMoney(modalData?.bagiHasilDireksiAmount || 0) : 0;
             const modalPrintableGross = modalSelectedWage + modalDailySalary + modalOvertimeSalary + modalMarketingCommission + modalBonusSalary + modalBagiHasilDireksiAmount;
             const modalGrossSalary = modalPrintableGross;
             const modalDeduction = Math.min(safeMoney(cashAdvanceDeduction), modalGrossSalary, modalCashAdvanceSummary.remaining);
@@ -15209,7 +15212,7 @@ ${getRekapShareLink(rekap)}
                                             {modalAllDailyLogs.length > 0 && (() => { const allSel=modalAllDailyLogs.every(l=>modalData?.selectedDailyKeys?.has(String(l.id||l.date))); const hasSome=(modalData?.selectedDailyKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-indigo-100 border-indigo-400 text-indigo-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalDailyItems(modalAllDailyLogs)}/>Gaji Harian {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
                                             {modalAllOvertimeLogs.length > 0 && (() => { const allSel=modalAllOvertimeLogs.every(l=>modalData?.selectedOvertimeKeys?.has(String(l.id||l.date))); const hasSome=(modalData?.selectedOvertimeKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-sky-100 border-sky-400 text-sky-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalOvertimeItems(modalAllOvertimeLogs)}/>Lembur {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
                                             {modalMarketingInvoices.length > 0 && (() => { const allSel=modalMarketingInvoices.every(i=>modalData?.selectedMarketingKeys?.has(String(i.id))); const hasSome=(modalData?.selectedMarketingKeys?.size||0)>0; return (<label className={`flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-bold cursor-pointer transition-colors ${hasSome?'bg-purple-100 border-purple-400 text-purple-800':'bg-white border-slate-200 text-slate-500'}`}><input type="checkbox" className="w-4 h-4 rounded" checked={allSel} onChange={()=>toggleAllModalMarketingItems(modalMarketingInvoices)}/>Komisi Marketing {hasSome&&!allSel&&<span className="text-xs font-normal">(sebagian)</span>}</label>); })()}
-                                            {modalBagiHasilDireksiAmount > 0 && <span className="flex items-center gap-2 border border-amber-400 bg-amber-100 rounded-lg px-3 py-2 text-sm font-bold text-amber-800">✓ Bagi Hasil Direksi (Otomatis)</span>}
+                                            {modalBagiHasilDireksiAmount > 0 && <span className="flex items-center gap-2 border border-amber-400 bg-amber-100 rounded-lg px-3 py-2 text-sm font-bold text-amber-800">✓ Bagi Hasil Direksi</span>}
                                         </div>
                                     </div>
 
@@ -15312,13 +15315,16 @@ ${getRekapShareLink(rekap)}
                                     )}
 
                                     {/* Bagi Hasil Direksi/Komisaris */}
-                                    {modalBagiHasilDireksiAmount > 0 && (
-                                        <div className="border border-amber-200 rounded-lg overflow-hidden">
-                                            <div className="bg-amber-600 text-white px-4 py-2 flex items-center justify-between">
-                                                <span className="font-black text-sm">Bagi Hasil Direksi/Komisaris</span>
-                                                <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalBagiHasilDireksiAmount)}</span>
+                                    {safeMoney(modalData?.bagiHasilDireksiAmount || 0) > 0 && (
+                                        <div className={`border rounded-lg overflow-hidden ${modalData?.bagiHasilDireksiSelected ? 'border-amber-200' : 'border-gray-200 opacity-60'}`}>
+                                            <div className={`text-white px-4 py-2 flex items-center justify-between ${modalData?.bagiHasilDireksiSelected ? 'bg-amber-600' : 'bg-gray-400'}`}>
+                                                <label className="flex items-center gap-2 cursor-pointer font-black text-sm select-none">
+                                                    <input type="checkbox" className="w-4 h-4 rounded cursor-pointer" checked={!!modalData?.bagiHasilDireksiSelected} onChange={toggleBagiHasilDireksi}/>
+                                                    Bagi Hasil Direksi/Komisaris
+                                                </label>
+                                                <span className={`text-sm font-bold bg-white/20 px-2 py-0.5 rounded ${!modalData?.bagiHasilDireksiSelected ? 'line-through' : ''}`}>{formatRupiah(safeMoney(modalData?.bagiHasilDireksiAmount || 0))}</span>
                                             </div>
-                                            <div className="p-4 bg-amber-50 space-y-2">
+                                            <div className={`p-4 space-y-2 ${modalData?.bagiHasilDireksiSelected ? 'bg-amber-50' : 'bg-gray-50'}`}>
                                                 <div className="flex flex-wrap gap-4 text-sm text-amber-800">
                                                     <div><span className="font-semibold">Periode:</span> {modalData?.bagiHasilDireksiMonth}</div>
                                                     <div><span className="font-semibold">Total Invoice:</span> {formatRupiah(modalData?.totalInvoiceBulan || 0)}</div>
@@ -15326,9 +15332,11 @@ ${getRekapShareLink(rekap)}
                                                 <div className="text-xs text-amber-600">
                                                     {modalEmployee?.bagiHasilTipe === 'Nominal' ? `Nominal tetap per bulan` : `${modalEmployee?.bagiHasilNilai}% dari total invoice bulan ${modalData?.bagiHasilDireksiMonth}`}
                                                 </div>
-                                                <div className="bg-amber-100 rounded-lg px-3 py-2 text-xs text-amber-700 font-semibold">
-                                                    ✓ Otomatis masuk ke rekap — tidak perlu pilih manual
-                                                </div>
+                                                {!modalData?.bagiHasilDireksiSelected && (
+                                                    <div className="bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-500 font-semibold">
+                                                        ○ Tidak disertakan dalam rekap ini — centang untuk menyertakan
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}
