@@ -15553,12 +15553,16 @@ ${getRekapShareLink(rekap)}
                         const dDailySalaryRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                         const dOvertimeRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                         const dCashAdvanceRows = safeArray(getEmployeeCashAdvances(dEmp));
-                        const dMarketingRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(dEmp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0).map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
+                        const dEmpIsDireksi = getEmployeeDivisions(dEmp).some(d => d === 'Direktur' || d === 'Komisaris');
+                        const dMarketingRows = dEmpIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(dEmp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0).map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
                         const dTotalDailySalary = dDailySalaryRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                         const dTotalOvertimeSalary = dOvertimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                         const dTotalMarketingCommission = dMarketingRows.reduce((s, inv) => s + safeNumber(inv.commissionTotal), 0);
                         const dCashAdvanceSummary = getEmployeeCashAdvanceSummary(dEmp);
-                        const dTotalIncome = dTotalUnsettledWage + dTotalMarketingCommission + dTotalDailySalary + dTotalOvertimeSalary;
+                        const dBHMonth = new Date().toISOString().slice(0,7);
+                        const dBHAlreadyRekaped = dEmpIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(dEmp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === dBHMonth);
+                        const dBagiHasil = (dEmpIsDireksi && !dBHAlreadyRekaped) ? getBagiHasilDireksi(dEmp, safeInvoicesForReport, dBHMonth) : 0;
+                        const dTotalIncome = dTotalUnsettledWage + dTotalMarketingCommission + dTotalDailySalary + dTotalOvertimeSalary + dBagiHasil;
                         const dEmpPin = String(dEmp.fingerPin || '').trim();
                         const dEmpIsHarian = getEmployeeSalaryTypes(dEmp).includes('Harian');
                         let dHasAbsensiPending = false;
@@ -15567,7 +15571,7 @@ ${getRekapShareLink(rekap)}
                             const dAbsTodayStr = new Date().toISOString().split('T')[0];
                             dHasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === dEmpPin && l.tanggal > (dAbsCutoff || '0000-00-00') && l.tanggal <= dAbsTodayStr);
                         }
-                        const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || dHasAbsensiPending;
+                        const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || dHasAbsensiPending || dBagiHasil > 0;
                         const dPreviewResult = (dEmpPin && dEmpIsHarian) ? computeAutoAbsensiForEmp(dEmp) : { previewLogs: [] };
                         const dPreviewDailyRows = safeArray(dPreviewResult.previewLogs).filter(log => getDailySalaryLogTotal(log).daily > 0);
                         const dPreviewOvertimeRows = safeArray(dPreviewResult.previewLogs).filter(log => getDailySalaryLogTotal(log).overtime > 0);
