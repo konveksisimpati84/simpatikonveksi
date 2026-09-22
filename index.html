@@ -13747,7 +13747,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const allDailyLogs = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                 const selectedDailyKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0).map(log => String(log.id || log.date)));
                 const selectedOvertimeKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => String(log.id || log.date)));
-                const mktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                const empIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+                const mktInvoices = empIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const selectedMarketingKeys = new Set(mktInvoices.map(inv => String(inv.id)));
                 const { previewLogs, warnings } = emp ? computeAutoAbsensiForEmp(emp) : { previewLogs: [], warnings: [] };
                 const existingManualDates = new Set(allDailyLogs.map(l => String(l.date)));
@@ -14258,7 +14259,8 @@ ${getRekapShareLink(rekap)}
             const selectedOvertimeLogs = modalAllOvertimeLogs.filter(log => modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
             const modalDailySalary = selectedDailyLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
             const modalOvertimeSalary = selectedOvertimeLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
-            const modalMarketingInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(modalEmployee?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+            const modalEmployeeIsDireksi = getEmployeeDivisions(modalEmployee).some(d => d === 'Direktur' || d === 'Komisaris');
+            const modalMarketingInvoices = modalEmployeeIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(modalEmployee?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
             const selectedMarketingInvoices = modalMarketingInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
             const modalMarketingCommission = selectedMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
@@ -15330,36 +15332,49 @@ ${getRekapShareLink(rekap)}
                                                     ○ Tidak disertakan dalam rekap ini — centang untuk menyertakan
                                                 </div>
                                             )}
-                                            <table className="w-full text-xs">
-                                                <thead className={modalData?.bagiHasilDireksiSelected ? 'bg-amber-50 text-amber-900' : 'bg-gray-50 text-gray-500'}>
-                                                    <tr>
-                                                        <th className="py-2 px-3 text-left">Invoice / Order</th>
-                                                        <th className="py-2 px-3 text-left">Klien</th>
-                                                        <th className="py-2 px-3 text-center">Status</th>
-                                                        <th className="py-2 px-3 text-right">Nilai Invoice</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {(modalData?.bagiHasilDireksiInvoices || []).map((inv, idx) => {
-                                                        const ps = getInvoicePaymentStatus(inv);
-                                                        const psBadge = ps === 'Lunas' ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span> : ps === 'Termin' ? <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span> : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;
-                                                        return (
-                                                            <tr key={idx} className="border-t border-amber-100">
-                                                                <td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-400 font-normal">{inv.date||'-'}</div></td>
-                                                                <td className="py-2 px-3">{inv.customer||'-'}</td>
-                                                                <td className="py-2 px-3 text-center">{psBadge}</td>
-                                                                <td className="py-2 px-3 text-right font-black text-amber-700">{formatRupiah(getInvoiceTotals(inv).total)}</td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                    <tr className={`font-bold border-t-2 ${modalData?.bagiHasilDireksiSelected ? 'bg-amber-100 border-amber-300' : 'bg-gray-100 border-gray-300'}`}>
-                                                        <td colSpan="3" className="py-2 px-3 text-right">
-                                                            {modalEmployee?.bagiHasilTipe === 'Nominal' ? 'Nominal Tetap' : `${modalEmployee?.bagiHasilNilai}% × Total Invoice`}
-                                                        </td>
-                                                        <td className={`py-2 px-3 text-right ${modalData?.bagiHasilDireksiSelected ? 'text-amber-800' : 'text-gray-500 line-through'}`}>{formatRupiah(safeMoney(modalData?.bagiHasilDireksiAmount || 0))}</td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+                                            {(() => {
+                                                const bhTipe = modalEmployee?.bagiHasilTipe;
+                                                const bhNilai = safeMoney(modalEmployee?.bagiHasilNilai);
+                                                const isPersen = bhTipe !== 'Nominal';
+                                                const bhInvoices = modalData?.bagiHasilDireksiInvoices || [];
+                                                const isSel = modalData?.bagiHasilDireksiSelected;
+                                                return (
+                                                <table className="w-full text-xs">
+                                                    <thead className={isSel ? 'bg-amber-50 text-amber-900' : 'bg-gray-50 text-gray-500'}>
+                                                        <tr>
+                                                            <th className="py-2 px-3 text-left">Invoice / Order</th>
+                                                            <th className="py-2 px-3 text-left">Klien</th>
+                                                            <th className="py-2 px-3 text-center">Status</th>
+                                                            <th className="py-2 px-3 text-right">Nilai Invoice</th>
+                                                            {isPersen && <th className="py-2 px-3 text-right">Bagi Hasil</th>}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {bhInvoices.map((inv, idx) => {
+                                                            const ps = getInvoicePaymentStatus(inv);
+                                                            const psBadge = ps === 'Lunas' ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span> : ps === 'Termin' ? <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span> : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;
+                                                            const invTotal = getInvoiceTotals(inv).total;
+                                                            const invBH = isPersen ? Math.round(invTotal * bhNilai / 100) : 0;
+                                                            return (
+                                                                <tr key={idx} className="border-t border-amber-100">
+                                                                    <td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-400 font-normal">{inv.date||'-'}</div></td>
+                                                                    <td className="py-2 px-3">{inv.customer||'-'}</td>
+                                                                    <td className="py-2 px-3 text-center">{psBadge}</td>
+                                                                    <td className="py-2 px-3 text-right">{formatRupiah(invTotal)}</td>
+                                                                    {isPersen && <td className="py-2 px-3 text-right font-black text-amber-700">{formatRupiah(invBH)}</td>}
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                        <tr className={`font-bold border-t-2 ${isSel ? 'bg-amber-100 border-amber-300' : 'bg-gray-100 border-gray-300'}`}>
+                                                            <td colSpan={isPersen ? 4 : 3} className="py-2 px-3 text-right">
+                                                                {bhTipe === 'Nominal' ? 'Nominal Tetap per Bulan' : `Total ${bhNilai}% dari semua invoice`}
+                                                            </td>
+                                                            <td className={`py-2 px-3 text-right font-black ${isSel ? 'text-amber-800' : 'text-gray-500 line-through'}`}>{formatRupiah(safeMoney(modalData?.bagiHasilDireksiAmount || 0))}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                                );
+                                            })()}
                                         </div>
                                     )}
 
