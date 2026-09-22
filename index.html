@@ -1999,153 +1999,192 @@
                 const tglCetak = new Date().toLocaleDateString('id-ID', {day:'2-digit', month:'long', year:'numeric'});
                 const statusColor = (emp.status||'Aktif') === 'Aktif' ? '#166534' : '#9CA3AF';
                 const statusBg = (emp.status||'Aktif') === 'Aktif' ? '#DCFCE7' : '#F3F4F6';
-                const row = (label, val) => val && val !== '-' ? `<tr><td class="lbl">${safe(label)}</td><td class="col">:</td><td class="val">${safe(val)}</td></tr>` : '';
+                const li = (label, val) => val && val !== '-' ? `<li><span class="lbl">${safe(label)}</span><span class="sep">:</span><span class="val">${safe(val)}</span></li>` : '';
                 const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Biodata — ${emp.name}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Arial',sans-serif;font-size:10.5pt;color:#1C1C2E;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-@page{size:A4;margin:14mm 16mm 16mm 16mm}
-/* ── Header bar ── */
-.header{display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;margin-bottom:0;border-bottom:3px solid #1C1C2E}
-.brand{display:flex;align-items:center;gap:12px}
-.brand-text{}
-.co-name{font-size:16pt;font-weight:900;color:#1C1C2E;letter-spacing:-.3px;line-height:1}
-.co-sub{font-size:8pt;color:#6B7280;margin-top:2px;letter-spacing:.3px}
-.co-contact{font-size:8pt;color:#9CA3AF;margin-top:1px}
+body{font-family:'Arial',sans-serif;font-size:10pt;color:#1C1C2E;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+@page{size:A4;margin:0}
+
+/* ── CV Header ── */
+.cv-header{background:#1C1C2E;color:#fff;padding:22px 28px 20px;position:relative;overflow:hidden}
+.cv-header-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+.brand-area{display:flex;align-items:center;gap:10px}
+.brand-logo{max-height:40px;max-width:120px;object-fit:contain;display:block;filter:brightness(0) invert(1)}
+.co-name{font-size:11pt;font-weight:900;color:#fff;letter-spacing:.3px;line-height:1}
+.co-sub{font-size:7.5pt;color:rgba(255,255,255,.55);margin-top:2px;letter-spacing:.2px}
+.co-contact{font-size:7pt;color:rgba(255,255,255,.4);margin-top:1px}
 .doc-badge{text-align:right}
-.doc-title{font-size:9pt;font-weight:700;letter-spacing:2px;color:#6B7280;text-transform:uppercase}
-.doc-date{font-size:8pt;color:#9CA3AF;margin-top:3px}
-/* ── Accent bar ── */
-.accent-bar{height:4px;background:linear-gradient(90deg,#4F46E5,#7C3AED,#DB2777);border-radius:0 0 3px 3px;margin-bottom:16px}
-/* ── Name hero ── */
-.name-hero{display:flex;align-items:center;gap:14px;background:#F8F7FF;border-left:4px solid #4F46E5;border-radius:0 10px 10px 0;padding:12px 16px;margin-bottom:16px}
-.name-main{font-size:17pt;font-weight:900;color:#1C1C2E;letter-spacing:-.3px;line-height:1.1}
-.name-sub{font-size:9pt;color:#6B7280;margin-top:4px}
-.status-chip{display:inline-block;padding:3px 10px;border-radius:20px;font-size:8pt;font-weight:700;background:${statusBg};color:${statusColor};margin-top:5px}
-/* ── Photos ── */
-.photo-profil{width:82px;height:102px;border:2px solid #E5E7EB;border-radius:8px;overflow:hidden;background:#F3F4F6;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.photo-profil img{width:100%;height:100%;object-fit:cover}
-.photo-empty{font-size:7.5pt;color:#D1D5DB;text-align:center;padding:4px;line-height:1.3}
-/* ── Body layout ── */
-.body-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.doc-label{font-size:7pt;color:rgba(255,255,255,.45);letter-spacing:2px;text-transform:uppercase}
+.doc-date{font-size:7pt;color:rgba(255,255,255,.35);margin-top:2px}
+/* ── Name row in header ── */
+.cv-name-row{display:flex;align-items:center;gap:18px}
+.cv-photo-wrap{flex-shrink:0}
+.cv-photo-circle{width:76px;height:76px;border-radius:50%;border:3px solid #4F46E5;overflow:hidden;background:#374151;display:flex;align-items:center;justify-content:center}
+.cv-photo-circle img{width:100%;height:100%;object-fit:cover}
+.cv-photo-placeholder{font-size:8pt;color:rgba(255,255,255,.35);text-align:center;line-height:1.3;padding:4px}
+.cv-name-block{}
+.cv-name{font-size:19pt;font-weight:900;color:#fff;letter-spacing:-.3px;line-height:1.05}
+.cv-position{font-size:9.5pt;color:#818CF8;margin-top:4px;font-weight:600;letter-spacing:.2px}
+.cv-status-chip{display:inline-block;margin-top:7px;padding:3px 12px;border-radius:20px;font-size:7.5pt;font-weight:700;background:#4F46E5;color:#fff;letter-spacing:.3px}
+/* ── Header decorative circles ── */
+.deco{position:absolute;border-radius:50%;opacity:.12;background:#4F46E5}
+.deco-1{width:140px;height:140px;right:-28px;top:-45px}
+.deco-2{width:80px;height:80px;right:80px;bottom:-30px}
+.deco-3{width:50px;height:50px;right:160px;top:10px}
+
+/* ── Body ── */
+.cv-body{padding:20px 28px 0}
+
+/* ── Section pill header ── */
+.pill-head{display:inline-block;background:#1C1C2E;color:#fff;font-size:7.5pt;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:4px 16px;border-radius:20px;margin-bottom:9px}
+
+/* ── Data list ── */
+ul.data-list{list-style:none;padding:0}
+ul.data-list li{font-size:9pt;color:#374151;padding:2.5px 0;display:flex;gap:0;align-items:flex-start;line-height:1.4}
+ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:0;margin-right:7px;margin-top:.5px}
+.lbl{color:#6B7280;font-size:8.5pt;white-space:nowrap;margin-right:2px}
+.sep{color:#9CA3AF;margin-right:4px}
+.val{color:#111827;font-weight:600;word-break:break-word}
+
 /* ── Section ── */
-.section{margin-bottom:14px}
-.section-head{font-size:7.5pt;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#4F46E5;border-bottom:1.5px solid #E0E7FF;padding-bottom:4px;margin-bottom:8px}
-table.data{width:100%;border-collapse:collapse}
-table.data td{padding:3.5px 0;font-size:9.5pt;vertical-align:top}
-td.lbl{color:#6B7280;font-weight:600;width:42%;white-space:nowrap;padding-right:4px}
-td.col{color:#9CA3AF;width:6px;padding-right:6px}
-td.val{color:#111827;font-weight:500}
+.section{margin-bottom:16px}
+
+/* ── Two-column grid ── */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:4px}
+
 /* ── Skills chips ── */
 .skills{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
-.skill-chip{background:#EEF2FF;color:#4338CA;font-size:8pt;font-weight:600;padding:2px 8px;border-radius:20px}
-/* ── Rekening ── */
-.rek-box{background:#F0FDF4;border:1.5px solid #86EFAC;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:16px}
-.rek-bank{font-size:9pt;font-weight:700;color:#166534;letter-spacing:.5px;text-transform:uppercase}
-.rek-no{font-size:14pt;font-weight:900;color:#14532D;letter-spacing:2.5px;font-family:'Courier New',monospace;line-height:1.1}
-.rek-an{font-size:8.5pt;color:#166534;margin-top:2px}
-/* ── KTP foto ── */
-.ktp-box{border:1.5px solid #E5E7EB;border-radius:8px;overflow:hidden;background:#F3F4F6;display:flex;align-items:center;justify-content:center;height:80px}
-.ktp-box img{width:100%;height:100%;object-fit:cover}
+.skill-chip{background:#EEF2FF;color:#4338CA;font-size:8pt;font-weight:600;padding:2px 10px;border-radius:20px;border:1px solid #C7D2FE}
+
+/* ── Rekening box ── */
+.rek-box{background:#1C1C2E;border-radius:10px;padding:12px 18px;color:#fff;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.rek-left{}
+.rek-bank{font-size:8pt;color:#818CF8;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
+.rek-no{font-size:13pt;font-weight:900;color:#fff;letter-spacing:2.5px;font-family:'Courier New',monospace;line-height:1.2;margin-top:3px}
+.rek-an{font-size:8pt;color:rgba(255,255,255,.55);margin-top:3px}
+.rek-badge{background:#4F46E5;color:#fff;font-size:7pt;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;letter-spacing:.3px}
+
+/* ── KTP photo ── */
+.ktp-wrap{border:1.5px solid #E5E7EB;border-radius:8px;overflow:hidden;background:#F3F4F6;height:76px;margin-bottom:16px}
+.ktp-wrap img{width:100%;height:100%;object-fit:cover}
+
 /* ── Footer ── */
-.footer{margin-top:14px;border-top:1px solid #E5E7EB;padding-top:12px;display:flex;justify-content:space-between;align-items:flex-end}
+.cv-footer{padding:12px 28px 20px;border-top:2px solid #1C1C2E;display:flex;justify-content:space-between;align-items:flex-end;margin-top:8px}
 .footer-left{font-size:8pt;color:#9CA3AF;line-height:1.6}
+.footer-co{font-size:8.5pt;font-weight:700;color:#1C1C2E;margin-bottom:3px}
+.confidential{background:#EEF2FF;border:1px solid #C7D2FE;border-radius:4px;padding:3px 10px;font-size:7pt;color:#4338CA;font-weight:700;letter-spacing:.3px;display:inline-block;margin-top:5px}
 .sign-col{text-align:center;min-width:150px}
-.sign-title{font-size:8.5pt;color:#6B7280;margin-bottom:44px}
+.sign-title{font-size:8.5pt;color:#6B7280;margin-bottom:40px}
 .sign-line{border-top:1px solid #374151;margin-bottom:4px}
 .sign-name{font-size:9pt;font-weight:700;color:#1C1C2E}
 .sign-role{font-size:8pt;color:#9CA3AF}
-.confidential{background:#FFF7ED;border:1px solid #FED7AA;border-radius:4px;padding:4px 10px;font-size:7.5pt;color:#92400E;text-align:center;margin-top:10px;letter-spacing:.3px}
 </style></head><body>
 
-<div class="header">
-  <div class="brand">
-    ${logoHtml}
-    <div class="brand-text">
-      <div class="co-name">${coName}</div>
-      <div class="co-sub">${coSub}</div>
-      ${coContact ? `<div class="co-contact">${coContact}</div>` : ''}
+<!-- ══ CV HEADER ══ -->
+<div class="cv-header">
+  <div class="deco deco-1"></div>
+  <div class="deco deco-2"></div>
+  <div class="deco deco-3"></div>
+  <div class="cv-header-top">
+    <div class="brand-area">
+      ${tmpl.companyLogo ? `<img class="brand-logo" src="${tmpl.companyLogo}" alt="logo"/>` : ''}
+      <div>
+        <div class="co-name">${coName}</div>
+        <div class="co-sub">${coSub}</div>
+        ${coContact ? `<div class="co-contact">${coContact}</div>` : ''}
+      </div>
+    </div>
+    <div class="doc-badge">
+      <div class="doc-label">Biodata Karyawan</div>
+      <div class="doc-date">Dicetak: ${tglCetak}</div>
     </div>
   </div>
-  <div class="doc-badge">
-    <div class="doc-title">Biodata Karyawan</div>
-    <div class="doc-date">Dicetak: ${tglCetak}</div>
-  </div>
-</div>
-<div class="accent-bar"></div>
-
-<div class="name-hero">
-  <div class="photo-profil">${b.foto ? `<img src="${b.foto}" alt="Foto">` : '<div class="photo-empty">Tidak ada<br>foto</div>'}</div>
-  <div>
-    <div class="name-main">${safe(emp.name || '-')}</div>
-    <div class="name-sub">${divisi}${b.noKontrak ? ' &nbsp;·&nbsp; No. ' + safe(b.noKontrak) : ''}</div>
-    <div class="status-chip">${safe(emp.status || 'Aktif')}</div>
-  </div>
-</div>
-
-<div class="body-grid">
-  <div>
-    <div class="section">
-      <div class="section-head">Identitas Diri</div>
-      <table class="data">
-        ${row('NIK', b.nik)}
-        ${row('Tempat, Tgl Lahir', lahir)}
-        ${row('Jenis Kelamin', b.jenisKelamin)}
-        ${row('Status Nikah', b.statusNikah)}
-        ${row('Agama', b.agama)}
-      </table>
+  <div class="cv-name-row">
+    <div class="cv-photo-wrap">
+      <div class="cv-photo-circle">
+        ${b.foto ? `<img src="${b.foto}" alt="Foto"/>` : `<div class="cv-photo-placeholder">Tidak ada foto</div>`}
+      </div>
     </div>
-    <div class="section">
-      <div class="section-head">Kontak</div>
-      <table class="data">
-        ${row('No. HP', emp.phone)}
-        ${row('Email', b.email)}
-        ${row('Alamat', alamat)}
-      </table>
+    <div class="cv-name-block">
+      <div class="cv-name">${safe(emp.name || '-')}</div>
+      <div class="cv-position">${divisi}${b.noKontrak ? ' &nbsp;·&nbsp; #' + safe(b.noKontrak) : ''}</div>
+      <div class="cv-status-chip">${safe(emp.status || 'Aktif')}</div>
     </div>
-  </div>
-  <div>
-    <div class="section">
-      <div class="section-head">Data Pekerjaan</div>
-      <table class="data">
-        ${row('Divisi', divisi)}
-        ${row('Tgl Bergabung', tglBergabung)}
-        ${row('No. Kontrak', b.noKontrak)}
-      </table>
-      ${(b.keahlian||[]).length > 0 ? `<div style="margin-top:6px"><div style="font-size:8pt;color:#6B7280;font-weight:600;margin-bottom:4px">Keahlian</div><div class="skills">${(b.keahlian||[]).map(k=>`<span class="skill-chip">${safe(k)}</span>`).join('')}</div></div>` : ''}
-    </div>
-    ${b.kontakDarurat?.nama ? `<div class="section">
-      <div class="section-head">Kontak Darurat</div>
-      <table class="data">
-        ${row('Nama', b.kontakDarurat.nama)}
-        ${row('Hubungan', b.kontakDarurat.hubungan)}
-        ${row('No. HP', b.kontakDarurat.hp)}
-      </table>
-    </div>` : ''}
-    ${b.fotoKtp ? `<div class="section">
-      <div class="section-head">Foto KTP</div>
-      <div class="ktp-box"><img src="${b.fotoKtp}" alt="Foto KTP"/></div>
-    </div>` : ''}
   </div>
 </div>
 
-${b.rekening?.noRekening ? `<div class="section">
-  <div class="section-head">Rekening Bank Aktif</div>
-  <div class="rek-box">
-    <div>
-      <div class="rek-bank">${safe(b.rekening.bank || 'Bank')}</div>
-      <div class="rek-no">${safe(b.rekening.noRekening)}</div>
-      <div class="rek-an">a.n. ${safe(b.rekening.atasNama || emp.name)}</div>
+<!-- ══ BODY ══ -->
+<div class="cv-body">
+
+  <!-- Row 1: Data Pribadi + Data Pekerjaan -->
+  <div class="two-col">
+    <div class="section">
+      <div class="pill-head">Data Pribadi</div>
+      <ul class="data-list">
+        ${li('NIK', b.nik)}
+        ${li('Tempat, Tgl Lahir', lahir)}
+        ${li('Jenis Kelamin', b.jenisKelamin)}
+        ${li('Status Nikah', b.statusNikah)}
+        ${li('Agama', b.agama)}
+      </ul>
+    </div>
+    <div class="section">
+      <div class="pill-head">Data Pekerjaan</div>
+      <ul class="data-list">
+        ${li('Divisi', divisi)}
+        ${li('Tgl Bergabung', tglBergabung)}
+        ${li('No. Kontrak', b.noKontrak)}
+      </ul>
+      ${(b.keahlian||[]).length > 0 ? `<div style="margin-top:8px"><div style="font-size:7.5pt;color:#6B7280;font-weight:600;letter-spacing:.5px;margin-bottom:5px;text-transform:uppercase">Keahlian</div><div class="skills">${(b.keahlian||[]).map(k=>`<span class="skill-chip">${safe(k)}</span>`).join('')}</div></div>` : ''}
     </div>
   </div>
-</div>` : ''}
 
-<div class="footer">
+  <!-- Row 2: Kontak + Kontak Darurat (or KTP) -->
+  <div class="two-col">
+    <div class="section">
+      <div class="pill-head">Kontak</div>
+      <ul class="data-list">
+        ${li('No. HP', emp.phone)}
+        ${li('Email', b.email)}
+        ${li('Alamat', alamat)}
+      </ul>
+    </div>
+    <div class="section">
+      ${b.kontakDarurat?.nama ? `
+      <div class="pill-head">Kontak Darurat</div>
+      <ul class="data-list">
+        ${li('Nama', b.kontakDarurat.nama)}
+        ${li('Hubungan', b.kontakDarurat.hubungan)}
+        ${li('No. HP', b.kontakDarurat.hp)}
+      </ul>` : ''}
+      ${b.fotoKtp ? `<div style="margin-top:${b.kontakDarurat?.nama ? '12px' : '0'}"><div style="font-size:7.5pt;color:#6B7280;font-weight:600;letter-spacing:.5px;margin-bottom:5px;text-transform:uppercase">Foto KTP</div><div class="ktp-wrap"><img src="${b.fotoKtp}" alt="Foto KTP"/></div></div>` : ''}
+    </div>
+  </div>
+
+  <!-- Rekening Bank -->
+  ${b.rekening?.noRekening ? `
+  <div class="section">
+    <div class="pill-head">Rekening Bank Aktif</div>
+    <div class="rek-box">
+      <div class="rek-left">
+        <div class="rek-bank">${safe(b.rekening.bank || 'Bank')}</div>
+        <div class="rek-no">${safe(b.rekening.noRekening)}</div>
+        <div class="rek-an">a.n. ${safe(b.rekening.atasNama || emp.name)}</div>
+      </div>
+      <div class="rek-badge">AKTIF</div>
+    </div>
+  </div>` : ''}
+
+</div><!-- /cv-body -->
+
+<!-- ══ FOOTER ══ -->
+<div class="cv-footer">
   <div class="footer-left">
-    <div>${coName}</div>
+    <div class="footer-co">${coName}</div>
     ${coContact ? `<div>${coContact}</div>` : ''}
-    <div class="confidential">DOKUMEN RAHASIA — HANYA UNTUK KEPERLUAN INTERNAL</div>
+    <div class="confidential">DOKUMEN RAHASIA &mdash; HANYA UNTUK KEPERLUAN INTERNAL</div>
   </div>
   <div class="sign-col">
     <div class="sign-title">Mengetahui,</div>
