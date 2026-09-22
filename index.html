@@ -854,6 +854,14 @@
             return { subtotal, lineDiscount, globalDiscount, discount: lineDiscount + globalDiscount, productionTotal, shippingCost, total };
         };
 
+        const getBagiHasilDireksi = (emp, invoices, bulan) => {
+            const nilai = safeMoney(emp?.bagiHasilNilai);
+            if (!nilai || nilai <= 0) return 0;
+            if (emp?.bagiHasilTipe === 'Nominal') return nilai;
+            const total = safeArray(invoices).filter(inv => !inv.isDeleted && (inv.date || '').slice(0,7) === bulan).reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+            return Math.round(total * nilai / 100);
+        };
+
         const getInvoiceDp = (invoice) => {
             if (!invoice?.invoiceDp) return {};
             // Legacy: invoiceDp tersimpan sebagai angka (bukan objek)
@@ -2352,7 +2360,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                 <div>
                                     <label className="block text-sm mb-1 font-semibold">Divisi</label>
                                     <div className="flex flex-wrap gap-2 mb-2">{(newEmp.divisions||['Cutting']).map(div => (<span key={div} className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">{div}{(newEmp.divisions||[]).length > 1 && <button type="button" onClick={() => setNewEmp({...newEmp, divisions: (newEmp.divisions||[]).filter(d => d !== div)})} className="ml-1 text-green-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>
-                                    {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi'].filter(d => !(newEmp.divisions||['Cutting']).includes(d)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setNewEmp({...newEmp, divisions: [...(newEmp.divisions||['Cutting']), e.target.value]}); }}><option value="">+ Tambah Divisi</option>{['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi'].filter(d => !(newEmp.divisions||['Cutting']).includes(d)).map(d => <option key={d} value={d}>{d}</option>)}</select>}
+                                    {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(newEmp.divisions||['Cutting']).includes(d)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setNewEmp({...newEmp, divisions: [...(newEmp.divisions||['Cutting']), e.target.value]}); }}><option value="">+ Tambah Divisi</option>{['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(newEmp.divisions||['Cutting']).includes(d)).map(d => <option key={d} value={d}>{d}</option>)}</select>}
                                 </div>
                                 <div><label className="block text-sm mb-1 font-semibold">No HP</label><input type="text" className="w-full p-2 border rounded" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Status</label><select className="w-full p-2 border rounded" value={newEmp.status} onChange={e => setNewEmp({...newEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
@@ -2373,6 +2381,19 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                       <input type="number" min="0" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={newEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={newEmp.commissionValue || ''} onChange={e => setNewEmp({ ...newEmp, commissionValue: e.target.value })}/>
                                     </div>
                                     <p className="text-xs text-purple-600 mt-2">{newEmp.commissionType === 'Nominal' ? 'Komisi tetap per pcs (jumlah pcs × nilai komisi)' : 'Persentase dari nilai total invoice yang ditangani'}</p>
+                                  </div>
+                                )}
+                                {(getEmployeeDivisions(newEmp).includes('Direktur') || getEmployeeDivisions(newEmp).includes('Komisaris')) && (
+                                  <div className="md:col-span-2 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                                    <div className="text-sm font-bold text-amber-800 mb-1">Pengaturan Bagi Hasil Invoice</div>
+                                    <p className="text-xs text-amber-600 mb-3">Dihitung dari total nilai invoice seluruh bulan berjalan. Bisa dikombinasikan dengan gaji harian/bulanan.</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                      <select className="p-2 border border-amber-300 rounded bg-white" value={newEmp.bagiHasilTipe || 'Persen'} onChange={e => setNewEmp({ ...newEmp, bagiHasilTipe: e.target.value })}>
+                                        <option value="Persen">Persentase dari total invoice (%)</option>
+                                        <option value="Nominal">Nominal Tetap per bulan (Rp)</option>
+                                      </select>
+                                      <input type="number" min="0" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={newEmp.bagiHasilNilai || ''} onChange={e => setNewEmp({ ...newEmp, bagiHasilNilai: e.target.value })}/>
+                                    </div>
                                   </div>
                                 )}
                                 <div className="md:col-span-2 flex justify-end"><button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded">Simpan Data</button></div>
@@ -2745,7 +2766,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                     <div>
                                         <label className="block text-sm mb-1 font-semibold">Divisi</label>
                                         <div className="flex flex-wrap gap-2 mb-2">{(editEmp.divisions||getEmployeeDivisions(editEmp)).map(div => (<span key={div} className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">{div}{(editEmp.divisions||[]).length > 1 && <button type="button" onClick={() => setEditEmp({...editEmp, divisions: (editEmp.divisions||[]).filter(d => d !== div)})} className="ml-1 text-green-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>
-                                        {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi'].filter(d => !(editEmp.divisions||getEmployeeDivisions(editEmp)).includes(d)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, divisions: [...(editEmp.divisions||getEmployeeDivisions(editEmp)), e.target.value]}); }}><option value="">+ Tambah Divisi</option>{['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi'].filter(d => !(editEmp.divisions||getEmployeeDivisions(editEmp)).includes(d)).map(d => <option key={d} value={d}>{d}</option>)}</select>}
+                                        {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(editEmp.divisions||getEmployeeDivisions(editEmp)).includes(d)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, divisions: [...(editEmp.divisions||getEmployeeDivisions(editEmp)), e.target.value]}); }}><option value="">+ Tambah Divisi</option>{['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(editEmp.divisions||getEmployeeDivisions(editEmp)).includes(d)).map(d => <option key={d} value={d}>{d}</option>)}</select>}
                                     </div>
                                     <div><label className="block text-sm mb-1 font-semibold">Nomor HP</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.phone} onChange={e => setEditEmp({...editEmp, phone: e.target.value})} /></div>
                                     <div><label className="block text-sm mb-1 font-semibold">Status Pekerja</label><select className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.status} onChange={e => setEditEmp({...editEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
@@ -2766,6 +2787,19 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                           <input type="number" min="0" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={editEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={editEmp.commissionValue || ''} onChange={e => setEditEmp({ ...editEmp, commissionValue: e.target.value })}/>
                                         </div>
                                         <p className="text-xs text-purple-600 mt-2">{editEmp.commissionType === 'Nominal' ? 'Komisi tetap per pcs (jumlah pcs × nilai komisi)' : 'Persentase dari nilai total invoice yang ditangani'}</p>
+                                      </div>
+                                    )}
+                                    {(getEmployeeDivisions(editEmp).includes('Direktur') || getEmployeeDivisions(editEmp).includes('Komisaris')) && (
+                                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                                        <div className="text-sm font-bold text-amber-800 mb-1">Pengaturan Bagi Hasil Invoice</div>
+                                        <p className="text-xs text-amber-600 mb-3">Dihitung dari total nilai invoice seluruh bulan berjalan. Bisa dikombinasikan dengan gaji harian/bulanan.</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                          <select className="p-2 border border-amber-300 rounded bg-white" value={editEmp.bagiHasilTipe || 'Persen'} onChange={e => setEditEmp({ ...editEmp, bagiHasilTipe: e.target.value })}>
+                                            <option value="Persen">Persentase dari total invoice (%)</option>
+                                            <option value="Nominal">Nominal Tetap per bulan (Rp)</option>
+                                          </select>
+                                          <input type="number" min="0" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={editEmp.bagiHasilNilai || ''} onChange={e => setEditEmp({ ...editEmp, bagiHasilNilai: e.target.value })}/>
+                                        </div>
                                       </div>
                                     )}
                                     <div className="flex justify-end space-x-3 pt-4 border-t">
@@ -11465,7 +11499,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [] }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [], bagiHasilDireksi = [] }) => {
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
@@ -11662,18 +11696,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return s + (type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value);
             }, 0);
 
+            // Bagi Hasil Direksi — dibayarkan ke direktur/komisaris (basis kas, dicatat manual)
+            const totalBagiHasilDireksiPaid = safeArray(bagiHasilDireksi).filter(isVisibleRecord).filter(p => isInPeriod(p.date)).reduce((s, p) => s + safeMoney(p.amount), 0);
+
             // Beban L/R: kasbon = piutang karyawan (aset), bukan biaya — tidak masuk beban.
             // totalWage menggunakan grossSalary (biaya tenaga kerja penuh, sebelum potongan kasbon).
-            const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
+            const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiPaid;
             // Buku Kas = arus kas keluar nyata: pakai totalCashWage (netSalary) + kasbon yang diberikan
-            const totalBebanKas = totalMaterialPaid + totalCashWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
+            const totalBebanKas = totalMaterialPaid + totalCashWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid + totalBagiHasilDireksiPaid;
             // Piutang kasbon all-time (neraca) — kasbon yang belum terpotong dari rekap manapun
             const totalKasbonOutstanding = allCashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
             // HPP = bahan baku + upah produksi murni (komisi TIDAK masuk HPP)
             const totalHPP = totalMaterialPaid + totalProductionWage;
             const labaKotor = totalPendapatan - totalHPP;
             // Beban Usaha = operasional + komisi dibayar (via rekap) + komisi belum dibayar + bagi hasil
-            const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid;
+            const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiPaid;
             const labaBersih = totalPendapatan - totalBeban; // = labaKotor - totalBebanUsaha
 
             // Piutang (for balance sheet)
@@ -11924,6 +11961,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 ${totalCommissionWage > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Dibayar (via rekap kinerja)</td><td class="text-right">${formatRupiah(totalCommissionWage)}</td></tr>` : ''}
                                 ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Belum Dibayar (akrual)</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
                                 ${totalBagiHasilPromosiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Promosi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilPromosiPaid)}</td></tr>` : ''}
+                                ${totalBagiHasilDireksiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Direksi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilDireksiPaid)}</td></tr>` : ''}
                                 <tr class="total-row"><td>TOTAL BEBAN USAHA</td><td class="text-right">${formatRupiah(totalBebanUsaha)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
@@ -12002,6 +12040,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         ket: b.nama || '-',
                         nominal: safeMoney(p.amount)
                     }))),
+                    ...safeArray(bagiHasilDireksi).filter(isVisibleRecord).filter(p => isInPeriod(p.date)).map(p => ({
+                        date: p.date || '-',
+                        ref: p.id || '-',
+                        sumber: 'Bagi Hasil Direksi',
+                        ket: p.empName || '-',
+                        nominal: safeMoney(p.amount)
+                    })),
                 ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
                 const totalKasMasuk = kasmasukRows.reduce((s, r) => s + r.nominal, 0);
                 const totalKasKeluar = kaskeluarRows.reduce((s, r) => s + r.nominal, 0);
@@ -12235,6 +12280,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-xs text-gray-500 mt-1">Dibayar · Total kewajiban {formatRupiah(totalBagiHasilPromosiNominal)}</p>
                                     </Card>
                                     )}
+                                    {totalBagiHasilDireksiPaid > 0 && (
+                                    <Card className="border-l-4 border-l-amber-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Bagi Hasil Direksi</h3>
+                                        <p className="text-2xl font-black text-amber-700 mt-2">{formatRupiah(totalBagiHasilDireksiPaid)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Dibayar · Direktur &amp; Komisaris</p>
+                                    </Card>
+                                    )}
                                     <Card className="border-l-4 border-l-orange-700 bg-orange-100">
                                         <h3 className="text-xs font-black text-orange-800">TOTAL BEBAN USAHA</h3>
                                         <p className="text-2xl font-black text-orange-800 mt-2">{formatRupiah(totalBebanUsaha)}</p>
@@ -12331,6 +12383,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {totalCommissionWage > 0 && <div className="flex justify-between px-3 py-1 text-violet-700"><span>Komisi Dibayar (via rekap kinerja)</span><span className="font-bold">{formatRupiah(totalCommissionWage)}</span></div>}
                                 {totalMarketingCommission > 0 && <div className="flex justify-between px-3 py-1 text-purple-700"><span>Komisi Belum Dibayar (akrual)</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>}
                                 {totalBagiHasilPromosiPaid > 0 && <div className="flex justify-between px-3 py-1"><span>Bagi Hasil Promosi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilPromosiPaid)}</span></div>}
+                                {totalBagiHasilDireksiPaid > 0 && <div className="flex justify-between px-3 py-1 text-amber-700"><span>Bagi Hasil Direksi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilDireksiPaid)}</span></div>}
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-orange-800 bg-orange-50 rounded"><span>TOTAL BEBAN USAHA</span><span>{formatRupiah(totalBebanUsaha)}</span></div>
                                 <div className="py-1"></div>
                                 <div className={`flex justify-between px-3 py-2 border-t-4 border-double border-gray-600 font-black text-lg rounded ${labaBersih >= 0 ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'}`}><span>LABA BERSIH</span><span>{formatRupiah(labaBersih)}</span></div>
@@ -12428,7 +12481,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                                 ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                                                 ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) })),
-                                                ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
+                                                ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) }))),
+                                                ...safeArray(bagiHasilDireksi).filter(isVisibleRecord).filter(p => isInPeriod(p.date)).map(p => ({ date: p.date || '-', ref: p.id || '-', sumber: 'Bagi Hasil Direksi', ket: p.empName || '-', nominal: safeMoney(p.amount) }))
                                             ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                                                     <td className="p-3">{r.date}</td>
@@ -12454,7 +12508,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
                                         ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                                         ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) })),
-                                        ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
+                                        ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) }))),
+                                        ...safeArray(bagiHasilDireksi).filter(isVisibleRecord).filter(p => isInPeriod(p.date)).map(p => ({ date: p.date || '-', ref: p.id || '-', sumber: 'Bagi Hasil Direksi', ket: p.empName || '-', nominal: safeMoney(p.amount) }))
                                     ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
                                         <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
                                             <div className="flex-1 min-w-0">
@@ -12889,7 +12944,95 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [] }) => {
+        const DireksiEmpCard = ({ emp, calculated, payments, bulan, updateBagiHasilDireksi, showToast }) => {
+            const [showPayForm, setShowPayForm] = useState(false);
+            const [payAmt, setPayAmt] = useState('');
+            const [payDate, setPayDate] = useState(new Date().toISOString().slice(0,10));
+            const [payNote, setPayNote] = useState('');
+            const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
+            const sisaTagihan = Math.max(0, calculated - totalPaid);
+            const lunas = calculated > 0 && sisaTagihan <= 0;
+            const handleCatatPembayaran = () => {
+                const amt = safeMoney(payAmt);
+                if (!amt || amt <= 0) { showToast('Nominal harus lebih dari 0', 'error'); return; }
+                const rec = { id: 'bhd_' + Date.now() + '_' + Math.random().toString(36).slice(2,7), empId: emp.id, empName: emp.name, bulan, amount: amt, date: payDate, note: payNote, isDeleted: false };
+                updateBagiHasilDireksi(prev => [...(prev||[]), rec]);
+                showToast('Pembayaran bagi hasil direksi berhasil dicatat', 'success');
+                setShowPayForm(false); setPayAmt(''); setPayNote('');
+            };
+            return (
+            <Card className="border border-amber-100">
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                    <div>
+                        <div className="font-black text-gray-900 text-base">{emp.name}</div>
+                        <div className="text-xs text-amber-700 font-semibold">{getEmployeeDivisions(emp).filter(d => d === 'Direktur' || d === 'Komisaris').join(', ')}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {calculated <= 0 ? (
+                            <span className="text-xs bg-gray-100 text-gray-500 font-bold px-2 py-1 rounded-full">Belum Dikonfigurasi</span>
+                        ) : lunas ? (
+                            <span className="text-xs bg-green-100 text-green-700 font-bold px-2 py-1 rounded-full">✓ Lunas</span>
+                        ) : (
+                            <span className="text-xs bg-amber-100 text-amber-700 font-bold px-2 py-1 rounded-full">Belum Dibayar</span>
+                        )}
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div className="bg-amber-50 rounded-lg p-2.5">
+                        <div className="text-xs text-amber-600 font-semibold">Tipe Bagi Hasil</div>
+                        <div className="font-bold text-amber-900 text-sm">{emp.bagiHasilTipe === 'Nominal' ? 'Nominal Tetap' : 'Persentase'}</div>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-2.5">
+                        <div className="text-xs text-amber-600 font-semibold">Nilai</div>
+                        <div className="font-bold text-amber-900 text-sm">{emp.bagiHasilTipe === 'Nominal' ? formatRupiah(safeMoney(emp.bagiHasilNilai)) : `${emp.bagiHasilNilai || 0}%`}</div>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-2.5">
+                        <div className="text-xs text-amber-600 font-semibold">Bagi Hasil Bulan Ini</div>
+                        <div className="font-black text-amber-900">{formatRupiah(calculated)}</div>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-2.5">
+                        <div className="text-xs text-amber-600 font-semibold">Sisa Tagihan</div>
+                        <div className={`font-black ${sisaTagihan > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatRupiah(sisaTagihan)}</div>
+                    </div>
+                </div>
+                {payments.length > 0 && (
+                    <div className="mb-3">
+                        <div className="text-xs font-bold text-gray-500 mb-1">Riwayat Pembayaran:</div>
+                        <div className="space-y-1">
+                            {payments.map(p => (
+                                <div key={p.id} className="flex items-center gap-2 text-xs bg-green-50 border border-green-100 rounded-lg px-3 py-1.5">
+                                    <span className="text-green-700 font-bold">{formatRupiah(p.amount)}</span>
+                                    <span className="text-gray-400">·</span>
+                                    <span className="text-gray-600">{p.date}</span>
+                                    {p.note && <><span className="text-gray-400">·</span><span className="text-gray-500 italic">{p.note}</span></>}
+                                    <button onClick={() => { if(!window.confirm('Hapus pembayaran ini?')) return; updateBagiHasilDireksi(prev => prev.map(r => r.id === p.id ? {...r, isDeleted: true} : r)); showToast('Pembayaran dihapus', 'success'); }} className="ml-auto text-red-300 hover:text-red-500 font-bold text-base leading-none">×</button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                {calculated > 0 && !lunas && !showPayForm && (
+                    <button onClick={() => setShowPayForm(true)} className="text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors">+ Catat Pembayaran</button>
+                )}
+                {showPayForm && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                        <div className="text-xs font-bold text-amber-800">Catat Pembayaran Bagi Hasil</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <input type="number" min="0" placeholder="Nominal (Rp)" value={payAmt} onChange={e => setPayAmt(e.target.value)} className="p-2 border border-amber-300 rounded text-sm text-right bg-white" />
+                            <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)} className="p-2 border border-amber-300 rounded text-sm bg-white" />
+                            <input type="text" placeholder="Catatan (opsional)" value={payNote} onChange={e => setPayNote(e.target.value)} className="p-2 border border-amber-300 rounded text-sm bg-white" />
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={handleCatatPembayaran} className="text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg">Simpan</button>
+                            <button onClick={() => setShowPayForm(false)} className="text-xs font-bold text-gray-600 bg-white border border-gray-300 px-4 py-2 rounded-lg">Batal</button>
+                        </div>
+                    </div>
+                )}
+            </Card>
+            );
+        };
+
+        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilDireksi = [], updateBagiHasilDireksi }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
@@ -14395,7 +14538,7 @@ ${getRekapShareLink(rekap)}
                         <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Input Kinerja</button>
                         <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
                         <button onClick={() => setActiveReportTab('ranking')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'ranking' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🏆 Ranking Produksi</button>
-                        
+                        <button onClick={() => setActiveReportTab('direksi')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'direksi' ? 'border-amber-600 text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Bagi Hasil Direksi</button>
                     </div>
                     <Card>
                         <div className="flex flex-col sm:flex-row gap-3">
@@ -14973,7 +15116,44 @@ ${getRekapShareLink(rekap)}
                             ✅ Direkap = dari Rekap Kinerja yang sudah disimpan (filter bulan berlaku) · ⏳ Pending = workLog sudah dicek admin tapi belum direkap gaji (semua periode)
                         </div>
                     </div>
-                    ) : null}
+                    ) : activeReportTab === 'direksi' ? (() => {
+                        const direksiEmps = visibleEmployees.filter(emp => {
+                            const divs = getEmployeeDivisions(emp);
+                            return divs.includes('Direktur') || divs.includes('Komisaris');
+                        });
+                        const bulanDireksi = rankMonth || new Date().toISOString().slice(0,7);
+                        const safeBHD = safeArray(bagiHasilDireksi).filter(isVisibleRecord);
+                        const totalInvoiceBulan = safeInvoicesForReport.filter(inv => !inv.isDeleted && (inv.date||'').slice(0,7) === bulanDireksi).reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+                        return (
+                        <div className="space-y-4">
+                            <Card>
+                                <div className="flex flex-wrap gap-3 items-center">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs font-semibold text-gray-500">Periode:</label>
+                                        <input type="month" value={rankMonth} onChange={e => setRankMonth(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-2 py-1.5" />
+                                    </div>
+                                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
+                                        <span className="text-amber-600 font-semibold">Total Invoice {bulanDireksi}: </span>
+                                        <span className="font-black text-amber-800">{formatRupiah(totalInvoiceBulan)}</span>
+                                    </div>
+                                </div>
+                            </Card>
+                            {direksiEmps.length === 0 ? (
+                                <Card>
+                                    <div className="text-center py-8 text-gray-400">
+                                        <div className="text-4xl mb-3">👤</div>
+                                        <div className="font-bold text-gray-500">Belum ada karyawan divisi Direktur/Komisaris</div>
+                                        <div className="text-sm mt-1">Tambahkan karyawan dengan divisi Direktur atau Komisaris di menu Data Karyawan.</div>
+                                    </div>
+                                </Card>
+                            ) : direksiEmps.map(emp => {
+                                const calculated = getBagiHasilDireksi(emp, safeInvoicesForReport, bulanDireksi);
+                                const payments = safeBHD.filter(p => String(p.empId) === String(emp.id) && p.bulan === bulanDireksi);
+                                return <DireksiEmpCard key={emp.id} emp={emp} calculated={calculated} payments={payments} bulan={bulanDireksi} updateBagiHasilDireksi={updateBagiHasilDireksi} showToast={showToast} />;
+                            })}
+                        </div>
+                        );
+                    })() : null}
 
                     {selectionConfirm && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
@@ -21076,6 +21256,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [investors, setInvestors] = useState([]);
             const [investorBagiHasil, setInvestorBagiHasil] = useState([]);
             const [bagiHasilPromosi, setBagiHasilPromosi] = useState([]);
+            const [bagiHasilDireksi, setBagiHasilDireksi] = useState([]);
             const [drivers, setDrivers] = useState([]);
             const [driverTarifs, setDriverTarifs] = useState([]);
             const [driverTransactions, setDriverTransactions] = useState([]);
@@ -21850,7 +22031,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const applyRemoteDataSnapshotInner = async () => {
                 const remoteTsMap = await fetchRemoteTimestamps();
-                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi, remoteLabelTemplates] = await Promise.all([
+                const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi, remoteBagiHasilDireksi, remoteLabelTemplates] = await Promise.all([
                     fetchStoreDataCached('accounts', initialAccounts, remoteTsMap),
                     fetchStoreDataCached('employees', initialEmployees, remoteTsMap),
                     fetchStoreDataCached('orders', initialOrders, remoteTsMap),
@@ -21876,6 +22057,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreDataCached('purchaseNotes', [], remoteTsMap),
                     fetchStoreDataCached('danaOperasional', [], remoteTsMap),
                     fetchStoreDataCached('bagiHasilPromosi', [], remoteTsMap),
+                    fetchStoreDataCached('bagiHasilDireksi', [], remoteTsMap),
                     fetchStoreDataCached('labelTemplates', [], remoteTsMap)
                 ]);
 
@@ -21999,6 +22181,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const merged = mergeRecordLists(prev || [], remoteBagiHasilPromosi);
                         safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(merged));
                         if (JSON.stringify(merged) !== JSON.stringify(remoteBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', merged), 0);
+                        return merged;
+                    });
+                }
+                if (Array.isArray(remoteBagiHasilDireksi)) {
+                    setBagiHasilDireksi(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteBagiHasilDireksi);
+                        safeLocalSet('simpati_bagi_hasil_direksi_sync', JSON.stringify(merged));
+                        if (JSON.stringify(merged) !== JSON.stringify(remoteBagiHasilDireksi)) setTimeout(() => saveToSupabase('bagiHasilDireksi', merged), 0);
                         return merged;
                     });
                 }
@@ -22223,7 +22413,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), isMobile ? 25000 : 10000)
                             );
-                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi, remLabelTemplates] = await Promise.race([
+                            const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi, remBagiHasilDireksiInit, remLabelTemplates] = await Promise.race([
                                 Promise.all([
                                     fetchStoreDataCached('accounts', initialAccounts, initTsMap),
                                     fetchStoreDataCached('employees', initialEmployees, initTsMap),
@@ -22250,6 +22440,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     fetchStoreDataCached('purchaseNotes', [], initTsMap),
                                     fetchStoreDataCached('danaOperasional', [], initTsMap),
                                     fetchStoreDataCached('bagiHasilPromosi', [], initTsMap),
+                                    fetchStoreDataCached('bagiHasilDireksi', [], initTsMap),
                                     fetchStoreDataCached('labelTemplates', [], initTsMap)
                                 ]),
                                 _fetchTimeout
@@ -22339,6 +22530,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 setBagiHasilPromosi(next); safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(next));
                                 if (JSON.stringify(next) !== JSON.stringify(remBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', next), 0);
                             }
+                            if (Array.isArray(remBagiHasilDireksiInit)) {
+                                const next = mergeRecordLists(loadLocalData('simpati_bagi_hasil_direksi_sync', []), remBagiHasilDireksiInit);
+                                setBagiHasilDireksi(next); safeLocalSet('simpati_bagi_hasil_direksi_sync', JSON.stringify(next));
+                                if (JSON.stringify(next) !== JSON.stringify(remBagiHasilDireksiInit)) setTimeout(() => saveToSupabase('bagiHasilDireksi', next), 0);
+                            }
                             if (Array.isArray(remDrivers)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_drivers_sync', []), remDrivers);
                                 setDrivers(next); safeLocalSet('simpati_drivers_sync', JSON.stringify(next));
@@ -22389,7 +22585,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 if (JSON.stringify(next) !== JSON.stringify(initTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', next), 0);
                             }
                             supabaseLoadedRef.current = true;
-                            setTimeout(() => seedRemoteTimestamps(['accounts','employees','orders','rekapKinerja','riwayatPengiriman','expenses','invoices','clients','templates','manualPurchases','investors','investorBagiHasil','drivers','driverTarifs','driverTransactions','driverRekapGaji','driverKasbon','stockItems','absensiEdits','absensiRawLogs','kartu_kredit','transaksi_kartu','purchaseNotes','danaOperasional','bagiHasilPromosi']), 2000);
+                            setTimeout(() => seedRemoteTimestamps(['accounts','employees','orders','rekapKinerja','riwayatPengiriman','expenses','invoices','clients','templates','manualPurchases','investors','investorBagiHasil','drivers','driverTarifs','driverTransactions','driverRekapGaji','driverKasbon','stockItems','absensiEdits','absensiRawLogs','kartu_kredit','transaksi_kartu','purchaseNotes','danaOperasional','bagiHasilPromosi','bagiHasilDireksi']), 2000);
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });
                         } catch (error) {
                             console.error("Gagal memuat dari Supabase, memakai data lokal.");
@@ -22824,6 +23020,23 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
+            const updateBagiHasilDireksi = (updater) => {
+                setBagiHasilDireksi(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('bagiHasilDireksi', valid);
+                        safeLocalSet('simpati_bagi_hasil_direksi_sync', JSON.stringify(merged));
+                        saveToSupabase('bagiHasilDireksi', merged);
+                        setBagiHasilDireksi(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             const updateDrivers = (updater) => {
                 setDrivers(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -23246,11 +23459,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'input_order' && canOpen('input_order') && <InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} />}
                                 {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} />}
+                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilDireksi={bagiHasilDireksi} updateBagiHasilDireksi={updateBagiHasilDireksi} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} />}
+                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} bagiHasilDireksi={bagiHasilDireksi} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} />}
