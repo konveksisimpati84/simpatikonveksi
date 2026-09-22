@@ -858,7 +858,7 @@
             const nilai = safeMoney(emp?.bagiHasilNilai);
             if (!nilai || nilai <= 0) return 0;
             if (emp?.bagiHasilTipe === 'Nominal') return nilai;
-            const total = safeArray(invoices).filter(inv => !inv.isDeleted && (inv.date || '').slice(0,7) === bulan).reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+            const total = safeArray(invoices).filter(inv => !inv.isDeleted && (inv.date || '').slice(0,7) === bulan).reduce((s, inv) => s + getInvoiceTotals(inv).productionTotal, 0);
             return Math.round(total * nilai / 100);
         };
 
@@ -11699,10 +11699,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return s + (type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value);
             }, 0);
 
-            // Bagi Hasil Direksi — sekarang tercatat dalam rekap kinerja (grossSalary sudah termasuk bagiHasilDireksiAmount)
-            // Untuk tampilan breakdown L/R, kita ekstrak dari rekap
-            const totalBagiHasilDireksiPaid = safeArray(rekapKinerja).filter(isVisibleRecord).filter(r => isInPeriod(r.dateProcessed) && safeMoney(r.bagiHasilDireksiAmount) > 0).reduce((s, r) => s + safeMoney(r.bagiHasilDireksiAmount), 0);
-
             // Beban L/R: kasbon = piutang karyawan (aset), bukan biaya — tidak masuk beban.
             // totalWage menggunakan grossSalary (biaya tenaga kerja penuh, sebelum potongan kasbon).
             // bagiHasilDireksi sudah termasuk dalam totalWage (via grossSalary rekap) — tidak perlu ditambahkan lagi
@@ -13843,7 +13839,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const hasAnyDailySelected = (modalData?.selectedDailyKeys?.size || 0) > 0;
                 const hasAnyOvertimeSelected = (modalData?.selectedOvertimeKeys?.size || 0) > 0;
                 const hasAnyMarketingSelected = (modalData?.selectedMarketingKeys?.size || 0) > 0;
-                const hasAnyBagiHasilDireksi = !!modalData?.bagiHasilDireksiSelected && safeMoney(modalData?.bagiHasilDireksiAmount || 0) > 0;
+                const hasAnyBagiHasilDireksi = modalBagiHasilDireksiAmount > 0;
                 if (selectedItems.length === 0 && !hasAnyDailySelected && !hasAnyOvertimeSelected && !hasAnyMarketingSelected && !hasAnyBagiHasilDireksi) {
                     showToast("Pilih minimal 1 item untuk direkap.", "error");
                     setIsRekapProcessing(false);
@@ -13906,7 +13902,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (bhTipe === 'Nominal') return safeMoney(modalData?.bagiHasilDireksiAmount || 0);
                     const bhInvs = modalData?.bagiHasilDireksiInvoices || [];
                     const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
-                    return bhInvs.filter(inv => selKeys.has(String(inv.id))).reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).total * bhNilai / 100), 0);
+                    return bhInvs.filter(inv => selKeys.has(String(inv.id))).reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).productionTotal * bhNilai / 100), 0);
                 })();
                 const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission + bonusSal + bagiHasilDireksiAmt;
                 const empCashAdvanceSummary = getEmployeeCashAdvanceSummary(empForRekap);
@@ -14297,7 +14293,7 @@ ${getRekapShareLink(rekap)}
                 if (bhTipe === 'Nominal') return safeMoney(modalData?.bagiHasilDireksiAmount || 0);
                 const bhInvs = modalData?.bagiHasilDireksiInvoices || [];
                 const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
-                return bhInvs.filter(inv => selKeys.has(String(inv.id))).reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).total * bhNilai / 100), 0);
+                return bhInvs.filter(inv => selKeys.has(String(inv.id))).reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).productionTotal * bhNilai / 100), 0);
             })();
             const modalPrintableGross = modalSelectedWage + modalDailySalary + modalOvertimeSalary + modalMarketingCommission + modalBonusSalary + modalBagiHasilDireksiAmount;
             const modalGrossSalary = modalPrintableGross;
@@ -19326,7 +19322,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 // Rumus: P = HPP×(1+m) / [1-(k+e)×(1+m)]
                 // Komisi & entertain sudah masuk HPP — harga jual dihitung agar semua biaya+margin tertutup
                 const markup    = 1 + marginPct / 100;
-                const keDenom   = 1 - ((komisiPct + entertainPct) / 100) * markup;
+                const keDenom   = 1 - (komisiPct + entertainPct) / 100;
                 const isKeDenomWarn = keDenom <= 0.05; // total biaya penjualan terlalu besar
                 const recPriceRaw = keDenom > 0.05 ? (hppPcs * markup) / keDenom : hppPcs * markup;
                 const recPrice  = Math.ceil(recPriceRaw / 500) * 500;
