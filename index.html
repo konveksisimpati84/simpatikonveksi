@@ -11966,7 +11966,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 ${totalCommissionWage > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Dibayar (via rekap kinerja)</td><td class="text-right">${formatRupiah(totalCommissionWage)}</td></tr>` : ''}
                                 ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Belum Dibayar (akrual)</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
                                 ${totalBagiHasilPromosiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Promosi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilPromosiPaid)}</td></tr>` : ''}
-                                ${totalBagiHasilDireksiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Direksi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilDireksiPaid)}</td></tr>` : ''}
+                                ${totalBagiHasilDireksiWage > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Direksi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilDireksiWage)}</td></tr>` : ''}
                                 <tr class="total-row"><td>TOTAL BEBAN USAHA</td><td class="text-right">${formatRupiah(totalBebanUsaha)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
@@ -12278,10 +12278,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-xs text-gray-500 mt-1">Dibayar · Total kewajiban {formatRupiah(totalBagiHasilPromosiNominal)}</p>
                                     </Card>
                                     )}
-                                    {totalBagiHasilDireksiPaid > 0 && (
+                                    {totalBagiHasilDireksiWage > 0 && (
                                     <Card className="border-l-4 border-l-amber-500">
                                         <h3 className="text-xs font-bold text-gray-500">Bagi Hasil Direksi</h3>
-                                        <p className="text-2xl font-black text-amber-700 mt-2">{formatRupiah(totalBagiHasilDireksiPaid)}</p>
+                                        <p className="text-2xl font-black text-amber-700 mt-2">{formatRupiah(totalBagiHasilDireksiWage)}</p>
                                         <p className="text-xs text-gray-500 mt-1">Dibayar · Direktur &amp; Komisaris</p>
                                     </Card>
                                     )}
@@ -12381,7 +12381,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {totalCommissionWage > 0 && <div className="flex justify-between px-3 py-1 text-violet-700"><span>Komisi Dibayar (via rekap kinerja)</span><span className="font-bold">{formatRupiah(totalCommissionWage)}</span></div>}
                                 {totalMarketingCommission > 0 && <div className="flex justify-between px-3 py-1 text-purple-700"><span>Komisi Belum Dibayar (akrual)</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>}
                                 {totalBagiHasilPromosiPaid > 0 && <div className="flex justify-between px-3 py-1"><span>Bagi Hasil Promosi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilPromosiPaid)}</span></div>}
-                                {totalBagiHasilDireksiPaid > 0 && <div className="flex justify-between px-3 py-1 text-amber-700"><span>Bagi Hasil Direksi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilDireksiPaid)}</span></div>}
+                                {totalBagiHasilDireksiWage > 0 && <div className="flex justify-between px-3 py-1 text-amber-700"><span>Bagi Hasil Direksi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilDireksiWage)}</span></div>}
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-orange-800 bg-orange-50 rounded"><span>TOTAL BEBAN USAHA</span><span>{formatRupiah(totalBebanUsaha)}</span></div>
                                 <div className="py-1"></div>
                                 <div className={`flex justify-between px-3 py-2 border-t-4 border-double border-gray-600 font-black text-lg rounded ${labaBersih >= 0 ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'}`}><span>LABA BERSIH</span><span>{formatRupiah(labaBersih)}</span></div>
