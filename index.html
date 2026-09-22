@@ -13765,7 +13765,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const bhInvoices = isDireksiEmp ? safeInvoicesForReport.filter(inv => !inv.isDeleted && (inv.date||'').slice(0,7) === bhMonth) : [];
                 const totalInvoiceBulanBH = bhInvoices.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
                 const bagiHasilDireksiAmount = (isDireksiEmp && !bhAlreadyRekaped) ? bhAmtRaw : 0;
-                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount, bagiHasilDireksiSelected: bagiHasilDireksiAmount > 0, bagiHasilDireksiMonth: bhMonth, totalInvoiceBulan: totalInvoiceBulanBH, bagiHasilDireksiInvoices: bhInvoices });
+                const bagiHasilDireksiSelectedKeys = new Set(bhInvoices.map(inv => String(inv.id)));
+                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount, bagiHasilDireksiSelected: bagiHasilDireksiAmount > 0, bagiHasilDireksiSelectedKeys, bagiHasilDireksiMonth: bhMonth, totalInvoiceBulan: totalInvoiceBulanBH, bagiHasilDireksiInvoices: bhInvoices });
                 setSelectedItemKeys(new Set());
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
@@ -13815,7 +13816,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setModalData(prev => { if (!prev) return prev; const keys = invs.map(i => String(i.id)); const allSel = keys.every(k => prev.selectedMarketingKeys?.has(k)); return { ...prev, selectedMarketingKeys: allSel ? new Set([...prev.selectedMarketingKeys].filter(k => !keys.includes(k))) : new Set([...(prev.selectedMarketingKeys || []), ...keys]) }; });
             };
             const toggleBagiHasilDireksi = () => {
-                setModalData(prev => prev ? { ...prev, bagiHasilDireksiSelected: !prev.bagiHasilDireksiSelected } : prev);
+                setModalData(prev => {
+                    if (!prev) return prev;
+                    const newSel = !prev.bagiHasilDireksiSelected;
+                    const allKeys = new Set((prev.bagiHasilDireksiInvoices || []).map(inv => String(inv.id)));
+                    return { ...prev, bagiHasilDireksiSelected: newSel, bagiHasilDireksiSelectedKeys: newSel ? allKeys : new Set() };
+                });
+            };
+            const toggleBagiHasilDireksiInvoice = (invId) => {
+                const key = String(invId);
+                setModalData(prev => {
+                    if (!prev) return prev;
+                    const next = new Set(prev.bagiHasilDireksiSelectedKeys || []);
+                    next.has(key) ? next.delete(key) : next.add(key);
+                    const allInvIds = (prev.bagiHasilDireksiInvoices || []).map(inv => String(inv.id));
+                    const anySelected = allInvIds.some(k => next.has(k));
+                    return { ...prev, bagiHasilDireksiSelectedKeys: next, bagiHasilDireksiSelected: anySelected };
+                });
             };
 
             const executeRekapAndPrint = () => {
@@ -13882,7 +13899,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const marketingInvoicesForRekap = allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
                 const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
                 const bonusSal = safeMoney(bonusSalary);
-                const bagiHasilDireksiAmt = (modalData?.bagiHasilDireksiSelected ? safeMoney(modalData?.bagiHasilDireksiAmount || 0) : 0);
+                const bagiHasilDireksiAmt = (() => {
+                    if (!modalData?.bagiHasilDireksiSelected) return 0;
+                    const bhTipe = empForRekap?.bagiHasilTipe;
+                    const bhNilai = safeMoney(empForRekap?.bagiHasilNilai);
+                    if (bhTipe === 'Nominal') return safeMoney(modalData?.bagiHasilDireksiAmount || 0);
+                    const bhInvs = modalData?.bagiHasilDireksiInvoices || [];
+                    const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
+                    return bhInvs.filter(inv => selKeys.has(String(inv.id))).reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).total * bhNilai / 100), 0);
+                })();
                 const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission + bonusSal + bagiHasilDireksiAmt;
                 const empCashAdvanceSummary = getEmployeeCashAdvanceSummary(empForRekap);
                 const deduction = Math.min(safeMoney(cashAdvanceDeduction), grossSalary, empCashAdvanceSummary.remaining);
@@ -14265,7 +14290,15 @@ ${getRekapShareLink(rekap)}
             const modalMarketingCommission = selectedMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
             const modalBonusSalary = safeMoney(bonusSalary);
-            const modalBagiHasilDireksiAmount = modalData?.bagiHasilDireksiSelected ? safeMoney(modalData?.bagiHasilDireksiAmount || 0) : 0;
+            const modalBagiHasilDireksiAmount = (() => {
+                if (!modalData?.bagiHasilDireksiSelected) return 0;
+                const bhTipe = modalEmployee?.bagiHasilTipe;
+                const bhNilai = safeMoney(modalEmployee?.bagiHasilNilai);
+                if (bhTipe === 'Nominal') return safeMoney(modalData?.bagiHasilDireksiAmount || 0);
+                const bhInvs = modalData?.bagiHasilDireksiInvoices || [];
+                const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
+                return bhInvs.filter(inv => selKeys.has(String(inv.id))).reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).total * bhNilai / 100), 0);
+            })();
             const modalPrintableGross = modalSelectedWage + modalDailySalary + modalOvertimeSalary + modalMarketingCommission + modalBonusSalary + modalBagiHasilDireksiAmount;
             const modalGrossSalary = modalPrintableGross;
             const modalDeduction = Math.min(safeMoney(cashAdvanceDeduction), modalGrossSalary, modalCashAdvanceSummary.remaining);
@@ -15325,7 +15358,7 @@ ${getRekapShareLink(rekap)}
                                                     <input type="checkbox" className="w-4 h-4 rounded cursor-pointer" checked={!!modalData?.bagiHasilDireksiSelected} onChange={toggleBagiHasilDireksi}/>
                                                     Bagi Hasil Direksi/Komisaris
                                                 </label>
-                                                <span className={`text-sm font-bold bg-white/20 px-2 py-0.5 rounded ${!modalData?.bagiHasilDireksiSelected ? 'line-through' : ''}`}>{formatRupiah(safeMoney(modalData?.bagiHasilDireksiAmount || 0))}</span>
+                                                <span className={`text-sm font-bold bg-white/20 px-2 py-0.5 rounded ${!modalData?.bagiHasilDireksiSelected ? 'line-through' : ''}`}>{formatRupiah(modalBagiHasilDireksiAmount)}</span>
                                             </div>
                                             {!modalData?.bagiHasilDireksiSelected && (
                                                 <div className="px-4 py-2 bg-gray-50 text-xs text-gray-500 font-semibold">
@@ -15338,10 +15371,13 @@ ${getRekapShareLink(rekap)}
                                                 const isPersen = bhTipe !== 'Nominal';
                                                 const bhInvoices = modalData?.bagiHasilDireksiInvoices || [];
                                                 const isSel = modalData?.bagiHasilDireksiSelected;
+                                                const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
+                                                const totalCols = isPersen ? 5 : 4; // +1 for checkbox col (% only)
                                                 return (
                                                 <table className="w-full text-xs">
                                                     <thead className={isSel ? 'bg-amber-50 text-amber-900' : 'bg-gray-50 text-gray-500'}>
                                                         <tr>
+                                                            {isPersen && <th className="py-2 px-3 text-center w-8"></th>}
                                                             <th className="py-2 px-3 text-left">Invoice / Order</th>
                                                             <th className="py-2 px-3 text-left">Klien</th>
                                                             <th className="py-2 px-3 text-center">Status</th>
@@ -15355,21 +15391,27 @@ ${getRekapShareLink(rekap)}
                                                             const psBadge = ps === 'Lunas' ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span> : ps === 'Termin' ? <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span> : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;
                                                             const invTotal = getInvoiceTotals(inv).total;
                                                             const invBH = isPersen ? Math.round(invTotal * bhNilai / 100) : 0;
+                                                            const isInvSel = selKeys.has(String(inv.id));
                                                             return (
-                                                                <tr key={idx} className="border-t border-amber-100">
+                                                                <tr key={idx} className={`border-t border-amber-100 ${isPersen && !isInvSel ? 'opacity-40' : ''}`}>
+                                                                    {isPersen && (
+                                                                        <td className="py-2 px-3 text-center">
+                                                                            <input type="checkbox" className="w-3.5 h-3.5 cursor-pointer" checked={isInvSel} onChange={() => toggleBagiHasilDireksiInvoice(inv.id)}/>
+                                                                        </td>
+                                                                    )}
                                                                     <td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-400 font-normal">{inv.date||'-'}</div></td>
                                                                     <td className="py-2 px-3">{inv.customer||'-'}</td>
                                                                     <td className="py-2 px-3 text-center">{psBadge}</td>
                                                                     <td className="py-2 px-3 text-right">{formatRupiah(invTotal)}</td>
-                                                                    {isPersen && <td className="py-2 px-3 text-right font-black text-amber-700">{formatRupiah(invBH)}</td>}
+                                                                    {isPersen && <td className={`py-2 px-3 text-right font-black ${isInvSel ? 'text-amber-700' : 'text-gray-400 line-through'}`}>{formatRupiah(invBH)}</td>}
                                                                 </tr>
                                                             );
                                                         })}
                                                         <tr className={`font-bold border-t-2 ${isSel ? 'bg-amber-100 border-amber-300' : 'bg-gray-100 border-gray-300'}`}>
-                                                            <td colSpan={isPersen ? 4 : 3} className="py-2 px-3 text-right">
-                                                                {bhTipe === 'Nominal' ? 'Nominal Tetap per Bulan' : `Total ${bhNilai}% dari semua invoice`}
+                                                            <td colSpan={totalCols - 1} className="py-2 px-3 text-right">
+                                                                {bhTipe === 'Nominal' ? 'Nominal Tetap per Bulan' : `Total ${bhNilai}% dari invoice terpilih`}
                                                             </td>
-                                                            <td className={`py-2 px-3 text-right font-black ${isSel ? 'text-amber-800' : 'text-gray-500 line-through'}`}>{formatRupiah(safeMoney(modalData?.bagiHasilDireksiAmount || 0))}</td>
+                                                            <td className={`py-2 px-3 text-right font-black ${isSel ? 'text-amber-800' : 'text-gray-500 line-through'}`}>{formatRupiah(modalBagiHasilDireksiAmount)}</td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
