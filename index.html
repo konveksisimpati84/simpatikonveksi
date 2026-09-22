@@ -15389,7 +15389,7 @@ ${getRekapShareLink(rekap)}
                                                 const bhInvoices = modalData?.bagiHasilDireksiInvoices || [];
                                                 const isSel = modalData?.bagiHasilDireksiSelected;
                                                 const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
-                                                const totalCols = isPersen ? 5 : 4; // +1 for checkbox col (% only)
+                                                const totalCols = isPersen ? 6 : 4; // checkbox+Invoice+Klien+Status+NilaiInvoice+BagiHasil
                                                 return (
                                                 <table className="w-full text-xs">
                                                     <thead className={isSel ? 'bg-amber-50 text-amber-900' : 'bg-gray-50 text-gray-500'}>
