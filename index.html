@@ -262,6 +262,7 @@
             { id: 'stock_barang', label: 'Stock Barang' },
             { id: 'absensi_finger', label: 'Absensi Finger' },
             { id: 'hpp_kalkulator', label: 'Kalkulator HPP' },
+            { id: 'laporan_sensitif', label: 'Laporan Direksi & Marketing' },
         ];
 
         const getDefaultMenuAccess = (role) => {
@@ -13121,7 +13122,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
             const safeInvoicesForReport = Array.isArray(invoices) ? invoices : [];
             const visibleEmployees = safeEmployeesForReport.filter(isVisibleRecord);
-            const isSuperAdmin = authUser?.role === 'Admin';
+            const isSuperAdmin = authUser?.role === 'Admin' || getAccountMenuAccess(authUser).includes('laporan_sensitif');
             const SENSITIVE_DIVISIONS = ['Direktur', 'Komisaris', 'Marketing'];
             const isSensitiveEmp = (emp) => getEmployeeDivisions(emp).some(d => SENSITIVE_DIVISIONS.includes(d));
 
