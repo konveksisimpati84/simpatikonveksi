@@ -13033,7 +13033,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilPromosi = [] }) => {
+        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilPromosi = [], authUser = null }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
@@ -13121,6 +13121,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
             const safeInvoicesForReport = Array.isArray(invoices) ? invoices : [];
             const visibleEmployees = safeEmployeesForReport.filter(isVisibleRecord);
+            const isSuperAdmin = authUser?.role === 'Admin';
+            const SENSITIVE_DIVISIONS = ['Direktur', 'Komisaris', 'Marketing'];
+            const isSensitiveEmp = (emp) => getEmployeeDivisions(emp).some(d => SENSITIVE_DIVISIONS.includes(d));
 
             const empIdsWithPendingSalary = React.useMemo(() => {
                 const ids = new Set();
@@ -13154,6 +13157,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             }, [employees, safeOrdersForReport, invoices, rekapKinerja, absensiRawLogs]);
 
             const filteredReportEmployees = visibleEmployees.filter(emp => {
+                if (!isSuperAdmin && isSensitiveEmp(emp)) return false;
                 if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
                 return matchesSearch([emp.name, ...getEmployeeDivisions(emp), emp.phone, emp.status], searchTerm);
             });
@@ -14313,6 +14317,7 @@ ${getRekapShareLink(rekap)}
                 .filter(isVisibleRecord)
                 .filter(rekap => {
                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
+                    if (!isSuperAdmin && emp && isSensitiveEmp(emp)) return false;
                     const itemText = (rekap.items || []).map(item => `${item.orderId} ${item.client} ${item.type} ${item.stageLabel || item.stage} ${item.sizes} ${item.qty} ${item.wageTotal}`).join(' ');
                     const statusText = rekap.paymentStatus === 'lunas' ? 'Sudah Dibayar' : rekap.paymentStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
                     return matchesSearch([
@@ -23579,7 +23584,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'input_order' && canOpen('input_order') && <InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} />}
                                 {activeTab === 'pembelian_bahan' && canOpen('pembelian_bahan') && <PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} />}
                                 {activeTab === 'produksi' && canOpen('produksi') && <ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} />}
+                                {activeTab === 'laporan' && canOpen('laporan') && <LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} />}
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
