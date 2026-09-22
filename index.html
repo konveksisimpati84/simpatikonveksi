@@ -4304,10 +4304,11 @@ window.addEventListener('load',function(){
             };
 
             const printSuratJalan = (client, items, sjId, note = '', date = null) => {
+                const safe = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const currentDate = (date ? new Date(date) : new Date()).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
                 const totalBarang = items.reduce((sum, item) => sum + item.total, 0);
 
-                const printContent = `<!DOCTYPE html><html><head><title>SJ - ${client}</title><style>
+                const printContent = `<!DOCTYPE html><html><head><title>SJ - ${safe(client)}</title><style>
 @page{size:A4;margin:0}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -4356,26 +4357,26 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <div class="brand">
     ${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : ''}
     <div class="brand-text">
-      <div class="co-name">${templates?.companyName || 'SIMPATI KONVEKSI'}</div>
-      ${templates?.companySubtitle ? `<div class="co-sub">${templates.companySubtitle}</div>` : ''}
-      ${templates?.companyContact ? `<div class="co-contact">${templates.companyContact}</div>` : ''}
+      <div class="co-name">${safe(templates?.companyName || 'SIMPATI KONVEKSI')}</div>
+      ${templates?.companySubtitle ? `<div class="co-sub">${safe(templates.companySubtitle)}</div>` : ''}
+      ${templates?.companyContact ? `<div class="co-contact">${safe(templates.companyContact)}</div>` : ''}
     </div>
   </div>
   <div class="sj-right">
     <div class="sj-label">SURAT JALAN</div>
-    <div class="sj-num">No: ${sjId}</div>
+    <div class="sj-num">No: ${safe(sjId)}</div>
     <div class="sj-date">Tanggal: ${currentDate}</div>
   </div>
 </div>
 <div class="parties">
   <div class="party-box">
     <div class="party-label">Dari / Pengirim</div>
-    <div class="party-name">${templates?.companyName || 'Simpati Konveksi'}</div>
-    ${templates?.companyContact ? `<div class="party-detail">${templates.companyContact}</div>` : ''}
+    <div class="party-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
+    ${templates?.companyContact ? `<div class="party-detail">${safe(templates.companyContact)}</div>` : ''}
   </div>
   <div class="party-box">
     <div class="party-label">Kepada / Penerima</div>
-    <div class="party-name">${client}</div>
+    <div class="party-name">${safe(client)}</div>
     <div class="party-detail">Di Tempat</div>
   </div>
 </div>
@@ -4383,23 +4384,23 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <table>
     <thead><tr><th style="width:34px" class="c">No.</th><th style="width:110px">ID Order</th><th style="width:110px">Jenis Produksi</th><th>Rincian Ukuran</th><th style="width:80px" class="c">Total (Pcs)</th></tr></thead>
     <tbody>
-      ${items.map((item, idx) => { const rows = (item.details||'').split(', ').map(p=>{const m=p.match(/^(.+?)\s*\((\d+)\)$/);return m?`<div class="sz-row"><span class="sz-lbl">${m[1].trim()}</span><span class="sz-sep">:</span><span class="sz-qty">${m[2]} pcs</span></div>`:(p?`<div class="sz-row"><span class="sz-lbl">${p}</span></div>`:'');}).join(''); return `<tr><td class="c">${idx + 1}</td><td class="b">${item.orderId}</td><td>${item.type}</td><td>${rows}</td><td class="c b">${item.total}</td></tr>`; }).join('')}
+      ${items.map((item, idx) => { const rows = (item.details||'').split(', ').map(p=>{const m=p.match(/^(.+?)\s*\((\d+)\)$/);return m?`<div class="sz-row"><span class="sz-lbl">${safe(m[1].trim())}</span><span class="sz-sep">:</span><span class="sz-qty">${m[2]} pcs</span></div>`:(p?`<div class="sz-row"><span class="sz-lbl">${safe(p)}</span></div>`:'');}).join(''); return `<tr><td class="c">${idx + 1}</td><td class="b">${safe(item.orderId)}</td><td>${safe(item.type)}</td><td>${rows}</td><td class="c b">${item.total}</td></tr>`; }).join('')}
       <tr><td colspan="4" style="background:#1e3a5f;color:#fff;font-size:11px;font-weight:700;padding:9px 10px;text-align:right">Total Keseluruhan</td><td class="c b" style="background:#1e3a5f;color:#fff;padding:9px 10px">${totalBarang} pcs</td></tr>
     </tbody>
   </table>
 </div>
-${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Catatan</div><div class="note-text">${templates.suratJalanNote}</div></div>` : ''}
-${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">Catatan Pengiriman</div><div class="note-text">${note}</div></div>` : ''}
+${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Catatan</div><div class="note-text">${safe(templates.suratJalanNote)}</div></div>` : ''}
+${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">Catatan Pengiriman</div><div class="note-text">${safe(note)}</div></div>` : ''}
 <div class="footer-section">
   <div class="sign-box">
-    <div class="sign-title">${templates?.sjSignatureLeft || 'Penerima,'}</div>
+    <div class="sign-title">${safe(templates?.sjSignatureLeft || 'Penerima,')}</div>
     <div class="sign-space"></div>
     <div class="sign-name">(________________)</div>
   </div>
   <div class="sign-box">
-    <div class="sign-title">${templates?.sjSignatureRight || 'Hormat Kami,'}</div>
+    <div class="sign-title">${safe(templates?.sjSignatureRight || 'Hormat Kami,')}</div>
     ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div><div class="sign-line"></div>'}
-    <div class="sign-name">${templates?.companyName || 'Simpati Konveksi'}</div>
+    <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
     <div class="sign-sub">Administration</div>
   </div>
 </div>
@@ -4986,10 +4987,11 @@ ${clientBlocks}
             };
 
             const printSuratJalan = (client, items, sjId, dateStr, note = '') => {
-                const formattedDate = new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                const safe = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                const formattedDate = new Date(dateStr + (dateStr?.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
                 const totalBarang = items.reduce((sum, item) => sum + (parseInt(item.total) || 0), 0);
 
-                const printContent = `<!DOCTYPE html><html><head><title>SJ - ${client}</title><style>
+                const printContent = `<!DOCTYPE html><html><head><title>SJ - ${safe(client)}</title><style>
 @page{size:A4;margin:0}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -5038,26 +5040,26 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <div class="brand">
     ${templates?.companyLogo ? `<img src="${templates.companyLogo}" alt="logo"/>` : ''}
     <div class="brand-text">
-      <div class="co-name">${templates?.companyName || 'SIMPATI KONVEKSI'}</div>
-      ${templates?.companySubtitle ? `<div class="co-sub">${templates.companySubtitle}</div>` : ''}
-      ${templates?.companyContact ? `<div class="co-contact">${templates.companyContact}</div>` : ''}
+      <div class="co-name">${safe(templates?.companyName || 'SIMPATI KONVEKSI')}</div>
+      ${templates?.companySubtitle ? `<div class="co-sub">${safe(templates.companySubtitle)}</div>` : ''}
+      ${templates?.companyContact ? `<div class="co-contact">${safe(templates.companyContact)}</div>` : ''}
     </div>
   </div>
   <div class="sj-right">
     <div class="sj-label">SURAT JALAN</div>
-    <div class="sj-num">No: ${sjId}</div>
+    <div class="sj-num">No: ${safe(sjId)}</div>
     <div class="sj-date">Tanggal: ${formattedDate}</div>
   </div>
 </div>
 <div class="parties">
   <div class="party-box">
     <div class="party-label">Dari / Pengirim</div>
-    <div class="party-name">${templates?.companyName || 'Simpati Konveksi'}</div>
-    ${templates?.companyContact ? `<div class="party-detail">${templates.companyContact}</div>` : ''}
+    <div class="party-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
+    ${templates?.companyContact ? `<div class="party-detail">${safe(templates.companyContact)}</div>` : ''}
   </div>
   <div class="party-box">
     <div class="party-label">Kepada / Penerima</div>
-    <div class="party-name">${client}</div>
+    <div class="party-name">${safe(client)}</div>
     <div class="party-detail">Di Tempat</div>
   </div>
 </div>
@@ -5065,23 +5067,23 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <table>
     <thead><tr><th style="width:34px" class="c">No.</th><th style="width:110px">ID Order</th><th style="width:100px">Jenis Produksi</th><th>Rincian Ukuran</th><th style="width:80px" class="c">Total (Pcs)</th></tr></thead>
     <tbody>
-      ${items.map((item, idx) => { const rows = (item.details||'').split(', ').map(p=>{const m=p.match(/^(.+?)\s*\((\d+)\)$/);return m?`<div class="sz-row"><span class="sz-lbl">${m[1].trim()}</span><span class="sz-sep">:</span><span class="sz-qty">${m[2]} pcs</span></div>`:(p?`<div class="sz-row"><span class="sz-lbl">${p}</span></div>`:'');}).join(''); return `<tr><td class="c">${idx + 1}</td><td class="b">${item.orderId}</td><td>${item.type}</td><td>${rows}</td><td class="c b">${item.total}</td></tr>`; }).join('')}
+      ${items.map((item, idx) => { const rows = (item.details||'').split(', ').map(p=>{const m=p.match(/^(.+?)\s*\((\d+)\)$/);return m?`<div class="sz-row"><span class="sz-lbl">${safe(m[1].trim())}</span><span class="sz-sep">:</span><span class="sz-qty">${m[2]} pcs</span></div>`:(p?`<div class="sz-row"><span class="sz-lbl">${safe(p)}</span></div>`:'');}).join(''); return `<tr><td class="c">${idx + 1}</td><td class="b">${safe(item.orderId)}</td><td>${safe(item.type)}</td><td>${rows}</td><td class="c b">${item.total}</td></tr>`; }).join('')}
       <tr><td colspan="4" style="background:#1e3a5f;color:#fff;font-size:11px;font-weight:700;padding:9px 10px;text-align:right">Total Keseluruhan</td><td class="c b" style="background:#1e3a5f;color:#fff;padding:9px 10px">${totalBarang} pcs</td></tr>
     </tbody>
   </table>
 </div>
-${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Catatan</div><div class="note-text">${templates.suratJalanNote}</div></div>` : ''}
-${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">Catatan Pengiriman</div><div class="note-text">${note}</div></div>` : ''}
+${templates?.suratJalanNote ? `<div class="note-box"><div class="note-label">Catatan</div><div class="note-text">${safe(templates.suratJalanNote)}</div></div>` : ''}
+${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">Catatan Pengiriman</div><div class="note-text">${safe(note)}</div></div>` : ''}
 <div class="footer-section">
   <div class="sign-box">
-    <div class="sign-title">${templates?.sjSignatureLeft || 'Penerima,'}</div>
+    <div class="sign-title">${safe(templates?.sjSignatureLeft || 'Penerima,')}</div>
     <div class="sign-space"></div>
     <div class="sign-name">(________________)</div>
   </div>
   <div class="sign-box">
-    <div class="sign-title">${templates?.sjSignatureRight || 'Hormat Kami,'}</div>
+    <div class="sign-title">${safe(templates?.sjSignatureRight || 'Hormat Kami,')}</div>
     ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sign-img" src="${templates.signatureImage}" alt="ttd"/>` : '<div class="sign-space"></div><div class="sign-line"></div>'}
-    <div class="sign-name">${templates?.companyName || 'Simpati Konveksi'}</div>
+    <div class="sign-name">${safe(templates?.companyName || 'Simpati Konveksi')}</div>
     <div class="sign-sub">Administration</div>
   </div>
 </div>
