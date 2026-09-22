@@ -1989,19 +1989,14 @@
                 const coName = safe(tmpl.companyName || 'SIMPATI KONVEKSI');
                 const coSub = safe(tmpl.companySubtitle || 'Konveksi & Garment');
                 const coContact = safe(tmpl.companyContact || '');
-                const logoHtml = tmpl.companyLogo
-                    ? `<img src="${tmpl.companyLogo}" style="max-height:56px;max-width:160px;object-fit:contain;display:block" alt="logo"/>`
-                    : '';
-                const alamat = safe([b.alamat?.jalan, b.alamat?.kelurahan, b.alamat?.kecamatan, b.alamat?.kota, b.alamat?.kodePos].filter(Boolean).join(', '));
-                const lahir = safe([b.tempatLahir, b.tanggalLahir ? new Date(b.tanggalLahir + 'T00:00:00').toLocaleDateString('id-ID', {day:'2-digit',month:'long',year:'numeric'}) : ''].filter(Boolean).join(', '));
+                const alamat = [b.alamat?.jalan, b.alamat?.kelurahan, b.alamat?.kecamatan, b.alamat?.kota, b.alamat?.kodePos].filter(Boolean).join(', ');
+                const lahir = [b.tempatLahir, b.tanggalLahir ? new Date(b.tanggalLahir + 'T00:00:00').toLocaleDateString('id-ID', {day:'2-digit',month:'long',year:'numeric'}) : ''].filter(Boolean).join(', ');
                 const tglBergabung = b.tanggalBergabung ? new Date(b.tanggalBergabung + 'T00:00:00').toLocaleDateString('id-ID', {day:'2-digit',month:'long',year:'numeric'}) : '-';
                 const divisi = safe(getEmployeeDivisions(emp).join(', ') || '-');
                 const tglCetak = new Date().toLocaleDateString('id-ID', {day:'2-digit', month:'long', year:'numeric'});
-                const statusColor = (emp.status||'Aktif') === 'Aktif' ? '#166534' : '#9CA3AF';
-                const statusBg = (emp.status||'Aktif') === 'Aktif' ? '#DCFCE7' : '#F3F4F6';
                 const li = (label, val) => val && val !== '-' ? `<li><span class="lbl">${safe(label)}</span><span class="sep">:</span><span class="val">${safe(val)}</span></li>` : '';
                 const html = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Biodata — ${emp.name}</title>
+<html><head><meta charset="UTF-8"><title>Biodata — ${safe(emp.name || '')}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Arial',sans-serif;font-size:10pt;color:#1C1C2E;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -2133,7 +2128,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
     <div class="section">
       <div class="pill-head">Data Pekerjaan</div>
       <ul class="data-list">
-        ${li('Divisi', divisi)}
+        ${li('Divisi', getEmployeeDivisions(emp).join(', ') || '-')}
         ${li('Tgl Bergabung', tglBergabung)}
         ${li('No. Kontrak', b.noKontrak)}
       </ul>
