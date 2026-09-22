@@ -13130,7 +13130,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         });
                     });
                     const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
-                    const hasMarketing = safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                    const isDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+                    const hasMarketing = !isDireksi && safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                     const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
                     const fpPin = String(emp.fingerPin || '').trim();
                     const fpIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
@@ -13140,7 +13141,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const fpToday = new Date().toISOString().split('T')[0];
                         hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
                     }
-                    const isDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
                     const currentBHMonth = new Date().toISOString().slice(0,7);
                     const hasBagiHasil = isDireksi && safeMoney(emp.bagiHasilNilai) > 0 && !safeRekapForReport.filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === currentBHMonth);
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd || hasFingerPending || hasBagiHasil) ids.add(String(emp.id));
@@ -14470,7 +14470,8 @@ ${getRekapShareLink(rekap)}
                 const totalProdWage = prodWage + manualProdWage;
                 const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                 const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
-                const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                const rIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+                const mktRows = rIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                 const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                 const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
@@ -14487,9 +14488,12 @@ ${getRekapShareLink(rekap)}
                         rPreviewLembur = safeArray(rResult.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                     }
                 }
-                const total = totalProdWage + harian + lembur + komisi + rPreviewHarian + rPreviewLembur;
-                return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian + rPreviewHarian, lembur: acc.lembur + lembur + rPreviewLembur, komisi: acc.komisi + komisi, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
-            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, total: 0, karyawan: 0 }), [filteredReportEmployees, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs, absensiEdits]);
+                const rBHMonth = new Date().toISOString().slice(0,7);
+                const rBHAlreadyRekaped = rIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === rBHMonth);
+                const rBagiHasil = (rIsDireksi && !rBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, rBHMonth) : 0;
+                const total = totalProdWage + harian + lembur + komisi + rPreviewHarian + rPreviewLembur + rBagiHasil;
+                return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian + rPreviewHarian, lembur: acc.lembur + lembur + rPreviewLembur, komisi: acc.komisi + komisi, bagiHasil: acc.bagiHasil + rBagiHasil, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
+            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, bagiHasil: 0, total: 0, karyawan: 0 }), [filteredReportEmployees, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs, absensiEdits]);
 
             const pinnedSummary = React.useMemo(() => pinnedEmpIds.size === 0 ? { net: 0, count: 0 } : visibleEmployees
                 .filter(emp => pinnedEmpIds.has(emp.id))
@@ -14512,7 +14516,8 @@ ${getRekapShareLink(rekap)}
                     const totalProdWage = prodWage + manualProdWage;
                     const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                     const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
-                    const mktRows = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                    const pIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+                    const mktRows = pIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                     const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                     const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                     const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
@@ -14529,7 +14534,10 @@ ${getRekapShareLink(rekap)}
                             pPreviewLembur = safeArray(pResult.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                         }
                     }
-                    const total = totalProdWage + harian + lembur + komisi + pPreviewHarian + pPreviewLembur;
+                    const pBHMonth = new Date().toISOString().slice(0,7);
+                    const pBHAlreadyRekaped = pIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === pBHMonth);
+                    const pBagiHasil = (pIsDireksi && !pBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, pBHMonth) : 0;
+                    const total = totalProdWage + harian + lembur + komisi + pPreviewHarian + pPreviewLembur + pBagiHasil;
                     const kasbon = getEmployeeCashAdvanceSummary(emp).remaining;
                     const net = Math.max(0, total - Math.min(kasbon, total));
                     return { net: acc.net + net, count: acc.count + 1 };
@@ -14608,7 +14616,7 @@ ${getRekapShareLink(rekap)}
                     </Card>
                     {activeReportTab === 'input' ? (
                     <div className="space-y-6">
-                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
                             <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-sm">
                                 <div className="text-xs font-bold text-green-100 mb-1 uppercase tracking-wide">Gaji Produksi</div>
                                 <div className="text-base font-black leading-tight">{formatRupiah(readyToRekapSummary.produksi)}</div>
@@ -14628,6 +14636,11 @@ ${getRekapShareLink(rekap)}
                                 <div className="text-xs font-bold text-purple-100 mb-1 uppercase tracking-wide">Komisi Marketing</div>
                                 <div className="text-base font-black leading-tight">{formatRupiah(readyToRekapSummary.komisi)}</div>
                                 <div className="text-xs text-purple-200 mt-1">Siap Direkap</div>
+                            </div>
+                            <div className="bg-gradient-to-br from-amber-500 to-amber-700 rounded-xl p-4 text-white shadow-sm">
+                                <div className="text-xs font-bold text-amber-100 mb-1 uppercase tracking-wide">Bagi Hasil Direksi</div>
+                                <div className="text-base font-black leading-tight">{formatRupiah(readyToRekapSummary.bagiHasil)}</div>
+                                <div className="text-xs text-amber-200 mt-1">Siap Direkap</div>
                             </div>
                             <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-xl p-4 text-white shadow-sm">
                                 <div className="text-xs font-bold text-blue-100 mb-1 uppercase tracking-wide">Total Gaji</div>
@@ -14721,7 +14734,8 @@ ${getRekapShareLink(rekap)}
                                 const dailySalaryRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                                 const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                                 const cashAdvanceRows = safeArray(getEmployeeCashAdvances(emp));
-                                const mainMktRows = safeArray(safeInvoicesForReport)
+                                const cardEmpIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+                                const mainMktRows = cardEmpIsDireksi ? [] : safeArray(safeInvoicesForReport)
                                     .filter(isVisibleRecord)
                                     .filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0)
                                     .map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), paidTotal: safeNumber(getInvoicePaidTotal(inv)), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
@@ -14730,7 +14744,10 @@ ${getRekapShareLink(rekap)}
                                 const totalOvertimeSalary = overtimeRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).overtime), 0);
                                 const totalMarketingCommission = marketingRows.reduce((sum, inv) => sum + safeNumber(inv.commissionTotal), 0);
                                 const cashAdvanceSummary = getEmployeeCashAdvanceSummary(emp);
-                                const totalIncome = safeNumber(totalUnsettledWage) + safeNumber(totalMarketingCommission) + safeNumber(totalDailySalary) + safeNumber(totalOvertimeSalary);
+                                const cardBHMonth = new Date().toISOString().slice(0,7);
+                                const cardBHAlreadyRekaped = cardEmpIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === cardBHMonth);
+                                const cardBagiHasil = (cardEmpIsDireksi && !cardBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, cardBHMonth) : 0;
+                                const totalIncome = safeNumber(totalUnsettledWage) + safeNumber(totalMarketingCommission) + safeNumber(totalDailySalary) + safeNumber(totalOvertimeSalary) + safeNumber(cardBagiHasil);
                                 const empSelectedItems = unsettledItems.filter(item => selectedItemKeys.has(`${item.orderId}-${item.stage}`));
                                 const empSelectedTotal = empSelectedItems.reduce((sum, item) => sum + item.qty, 0);
                                 const empSelectedWage = empSelectedItems.reduce((sum, item) => sum + (Math.round(item.wageTotal) || 0), 0);
@@ -14752,7 +14769,7 @@ ${getRekapShareLink(rekap)}
                                 const effectiveTotalIncome = totalIncome + listPreviewDailyTotal + listPreviewOvertimeTotal;
                                 const effectiveCashAdvDeduction = Math.min(safeNumber(cashAdvanceSummary.remaining), effectiveTotalIncome);
                                 const effectiveNetSalary = Math.max(0, effectiveTotalIncome - effectiveCashAdvDeduction);
-                                const hasUnsettled = unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || hasAbsensiPending;
+                                const hasUnsettled = unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || hasAbsensiPending || cardBagiHasil > 0;
                                 const isPinned = pinnedEmpIds.has(emp.id);
                                 return (
                                     <div key={emp.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 transition-colors border-l-4 ${isPinned ? 'bg-orange-100/60 border-l-orange-400 hover:bg-orange-100/80' : hasUnsettled ? 'bg-yellow-50/70 border-l-yellow-400 hover:bg-yellow-100/60' : 'bg-green-50/50 border-l-green-300 hover:bg-green-50/80'}`}>
