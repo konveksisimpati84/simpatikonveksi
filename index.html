@@ -19182,6 +19182,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const DB_KEY_PRICE_LIST_NOTE  = 'hpp_price_list_note';
             const DB_KEY_PRICE_LIST_DATE  = 'hpp_price_list_date';
             const DB_KEY_SAVED_PRICE_LISTS = 'hpp_saved_price_lists';
+            const DB_KEY_PANDUAN_BAHAN = 'hpp_panduan_bahan';
 
             const DEFAULT_MASTER_MATERIALS = [
                 { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
@@ -19271,6 +19272,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const initializedRef = React.useRef(false);
             const [pendingPrint, setPendingPrint] = React.useState(false);
             const printMetaRef = React.useRef({ clientName: '' });
+            const [panduanBahan, setPanduanBahan] = React.useState([]);
+            const [showPanduanForm, setShowPanduanForm] = React.useState(false);
+            const [editingPanduanId, setEditingPanduanId] = React.useState(null);
+            const [panduanForm, setPanduanForm] = React.useState({ kat: '', bahan: '', qty: '', sat: 'meter', ket: '' });
+            const [panduanKatFilter, setPanduanKatFilter] = React.useState('Semua');
+            const [panduanSearch, setPanduanSearch] = React.useState('');
 
             const formatRp = (v) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(v || 0);
 
@@ -19291,7 +19298,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // ── Load on mount ─────────────────────────────────────────────────────
             React.useEffect(() => {
                 (async () => {
-                    const [mm, ml, cp, so, sq, hbp, pli, plt, pln, pld, spl] = await Promise.all([
+                    const [mm, ml, cp, so, sq, hbp, pli, plt, pln, pld, spl, pb] = await Promise.all([
                         sbGet(DB_KEY_MATERIALS,  DEFAULT_MASTER_MATERIALS),
                         sbGet(DB_KEY_LABOR,      DEFAULT_MASTER_LABOR),
                         sbGet(DB_KEY_PRESETS,    []),
@@ -19303,6 +19310,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         sbGet(DB_KEY_PRICE_LIST_NOTE,  ''),
                         sbGet(DB_KEY_PRICE_LIST_DATE,  ''),
                         sbGet(DB_KEY_SAVED_PRICE_LISTS, []),
+                        sbGet(DB_KEY_PANDUAN_BAHAN, []),
                     ]);
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
@@ -19315,6 +19323,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setPriceListNote(pln);
                     setPriceListDate(pld);
                     setSavedPriceLists(spl);
+                    setPanduanBahan(pb);
                     initializedRef.current = true;
                 })();
             }, []);
@@ -19331,6 +19340,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_NOTE,  priceListNote);  }, [priceListNote]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_DATE,  priceListDate);  }, [priceListDate]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_SAVED_PRICE_LISTS, savedPriceLists); }, [savedPriceLists]);
+            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PANDUAN_BAHAN, panduanBahan); }, [panduanBahan]);
 
             // ── Derived HPP calculation ───────────────────────────────────────────
             const calc = React.useMemo(() => {
@@ -19884,6 +19894,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </button>
                             <button onClick={() => setActiveSection('price_list')} className={activeSection === 'price_list' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
                                 <i className="fa-solid fa-list-check mr-1.5"></i>Price List {priceListItems.length > 0 && `(${priceListItems.length})`}
+                            </button>
+                            <button onClick={() => setActiveSection('panduan_bahan')} className={activeSection === 'panduan_bahan' ? TAB_CLASS_ACTIVE : TAB_CLASS_INACTIVE}>
+                                <i className="fa-solid fa-book-open mr-1.5"></i>Panduan Bahan {panduanBahan.length > 0 && `(${panduanBahan.length})`}
                             </button>
                         </div>
                     </div>
@@ -21371,6 +21384,157 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </div>
                         </div>
                     )}
+
+                    {/* ── SECTION: PANDUAN BAHAN ───────────────────────────────── */}
+                    {activeSection === 'panduan_bahan' && (() => {
+                        const PANDUAN_CATS = ['SD', 'SMP', 'SMA', 'Dewasa', 'Kaos', 'Jaket', 'Almamater', 'Seragam', 'Olahraga', 'Lainnya'];
+                        const PANDUAN_SATS = ['meter', 'kg', 'gram', 'pcs', 'lembar', 'roll', 'lusin', 'gross', 'liter', 'set'];
+                        const filteredPanduan = panduanBahan.filter(p => {
+                            if (panduanKatFilter !== 'Semua' && p.kat !== panduanKatFilter) return false;
+                            if (panduanSearch) {
+                                const s = panduanSearch.toLowerCase();
+                                return p.bahan.toLowerCase().includes(s) || p.kat.toLowerCase().includes(s) || (p.ket||'').toLowerCase().includes(s);
+                            }
+                            return true;
+                        });
+                        const katList = ['Semua', ...([...new Set(panduanBahan.map(p => p.kat))].sort())];
+                        const openAddForm = () => {
+                            setEditingPanduanId(null);
+                            setPanduanForm({ kat: panduanKatFilter !== 'Semua' ? panduanKatFilter : '', bahan: '', qty: '', sat: 'meter', ket: '' });
+                            setShowPanduanForm(true);
+                        };
+                        const openEditForm = (p) => {
+                            setEditingPanduanId(p.id);
+                            setPanduanForm({ kat: p.kat, bahan: p.bahan, qty: String(p.qty), sat: p.sat, ket: p.ket || '' });
+                            setShowPanduanForm(true);
+                        };
+                        const savePanduan = () => {
+                            if (!panduanForm.kat || !panduanForm.bahan.trim() || !panduanForm.qty || parseFloat(panduanForm.qty) <= 0) {
+                                showToast('Kategori, nama bahan, dan kebutuhan wajib diisi.', 'error');
+                                return;
+                            }
+                            const entry = { id: editingPanduanId || genId('PB-'), kat: panduanForm.kat, bahan: panduanForm.bahan.trim(), qty: parseFloat(panduanForm.qty), sat: panduanForm.sat, ket: panduanForm.ket.trim() };
+                            setPanduanBahan(prev => editingPanduanId ? prev.map(p => p.id === editingPanduanId ? entry : p) : [...prev, entry]);
+                            setShowPanduanForm(false);
+                            setEditingPanduanId(null);
+                            showToast(editingPanduanId ? 'Panduan diperbarui.' : 'Panduan ditambahkan.', 'success');
+                        };
+                        const deletePanduan = (id) => {
+                            setPanduanBahan(prev => prev.filter(p => p.id !== id));
+                            showToast('Panduan dihapus.', 'success');
+                        };
+                        const CAT_COLORS = { SD:'bg-blue-100 text-blue-700', SMP:'bg-emerald-100 text-emerald-700', SMA:'bg-amber-100 text-amber-700', Dewasa:'bg-purple-100 text-purple-700', Kaos:'bg-pink-100 text-pink-700', Jaket:'bg-violet-100 text-violet-700', Almamater:'bg-red-100 text-red-700', Seragam:'bg-cyan-100 text-cyan-700', Olahraga:'bg-orange-100 text-orange-700', Lainnya:'bg-slate-100 text-slate-600' };
+                        return (
+                            <div className="space-y-5">
+                                {/* Header */}
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <div className="flex-1">
+                                        <h3 className="font-bold text-slate-800 text-base"><i className="fa-solid fa-book-open mr-2 text-indigo-600"></i>Panduan Kebutuhan Bahan per Kategori</h3>
+                                        <p className="text-xs text-slate-500 mt-0.5">Catat standar kebutuhan bahan per produk sebagai referensi tim produksi. Data ini tidak mempengaruhi kalkulator HPP.</p>
+                                    </div>
+                                    <button onClick={openAddForm} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow transition">
+                                        <i className="fa-solid fa-plus"></i>Tambah Panduan
+                                    </button>
+                                </div>
+
+                                {/* Form tambah/edit */}
+                                {showPanduanForm && (
+                                    <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
+                                        <h4 className="font-bold text-indigo-800 text-sm mb-4"><i className={`fa-solid ${editingPanduanId ? 'fa-pen' : 'fa-plus'} mr-1.5`}></i>{editingPanduanId ? 'Edit Panduan Bahan' : 'Tambah Panduan Bahan'}</h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Kategori Produk <span className="text-red-500">*</span></label>
+                                                <select value={panduanForm.kat} onChange={e => setPanduanForm(f => ({...f, kat: e.target.value}))} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition">
+                                                    <option value="">— Pilih kategori —</option>
+                                                    {PANDUAN_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Nama Bahan <span className="text-red-500">*</span></label>
+                                                <input type="text" value={panduanForm.bahan} onChange={e => setPanduanForm(f => ({...f, bahan: e.target.value}))} placeholder="cth: American Drill" className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Kebutuhan per Baju <span className="text-red-500">*</span></label>
+                                                <input type="number" value={panduanForm.qty} onChange={e => setPanduanForm(f => ({...f, qty: e.target.value}))} placeholder="cth: 1.5" step="0.01" min="0" className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Satuan</label>
+                                                <select value={panduanForm.sat} onChange={e => setPanduanForm(f => ({...f, sat: e.target.value}))} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition">
+                                                    {PANDUAN_SATS.map(s => <option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="sm:col-span-2">
+                                                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Keterangan (opsional)</label>
+                                                <input type="text" value={panduanForm.ket} onChange={e => setPanduanForm(f => ({...f, ket: e.target.value}))} placeholder="cth: Untuk kemeja panjang lengan, warna gelap butuh lebih" className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-700 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition" />
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-3 justify-end">
+                                            <button onClick={() => { setShowPanduanForm(false); setEditingPanduanId(null); }} className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition">Batal</button>
+                                            <button onClick={savePanduan} className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow transition"><i className="fa-solid fa-check mr-1.5"></i>Simpan</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Filter & search */}
+                                <div className="flex flex-col sm:flex-row gap-3">
+                                    <div className="flex-1 relative">
+                                        <i className="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                        <input type="text" value={panduanSearch} onChange={e => setPanduanSearch(e.target.value)} placeholder="Cari bahan, kategori, keterangan..." className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 bg-white focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 outline-none transition" />
+                                    </div>
+                                    <div className="flex gap-1.5 flex-wrap">
+                                        {katList.map(k => (
+                                            <button key={k} onClick={() => setPanduanKatFilter(k)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${panduanKatFilter === k ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'}`}>{k}</button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Table */}
+                                {filteredPanduan.length === 0 ? (
+                                    <div className="text-center py-12 text-slate-400">
+                                        <i className="fa-solid fa-book-open text-3xl mb-3 block text-slate-300"></i>
+                                        <p className="font-bold text-slate-500 text-sm">{panduanBahan.length === 0 ? 'Belum ada panduan bahan' : 'Tidak ada data untuk filter ini'}</p>
+                                        <p className="text-xs mt-1">{panduanBahan.length === 0 ? 'Klik "+ Tambah Panduan" untuk mulai mencatat standar kebutuhan bahan.' : 'Coba ubah filter atau kata kunci pencarian.'}</p>
+                                        {panduanBahan.length === 0 && <button onClick={openAddForm} className="mt-4 text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-bold transition"><i className="fa-solid fa-plus mr-1.5"></i>Tambah Panduan</button>}
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
+                                                    <th className="px-4 py-3">Kategori</th>
+                                                    <th className="px-4 py-3">Nama Bahan</th>
+                                                    <th className="px-4 py-3 text-right">Kebutuhan/Baju</th>
+                                                    <th className="px-4 py-3">Satuan</th>
+                                                    <th className="px-4 py-3">Keterangan</th>
+                                                    <th className="px-4 py-3 text-center w-20">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {filteredPanduan.map(p => (
+                                                    <tr key={p.id} className="hover:bg-indigo-50/40 transition">
+                                                        <td className="px-4 py-3"><span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold ${CAT_COLORS[p.kat] || 'bg-slate-100 text-slate-600'}`}>{p.kat}</span></td>
+                                                        <td className="px-4 py-3 font-bold text-slate-800">{p.bahan}</td>
+                                                        <td className="px-4 py-3 text-right font-extrabold text-indigo-700 tabular-nums">{p.qty}</td>
+                                                        <td className="px-4 py-3"><span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-semibold text-[11px]">{p.sat}</span></td>
+                                                        <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">{p.ket || '—'}</td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            <div className="flex gap-1.5 justify-center">
+                                                                <button onClick={() => openEditForm(p)} className="p-1.5 rounded-lg text-indigo-400 hover:text-indigo-700 hover:bg-indigo-100 transition" title="Edit"><i className="fa-solid fa-pen text-xs"></i></button>
+                                                                <button onClick={() => deletePanduan(p.id)} className="p-1.5 rounded-lg text-rose-300 hover:text-rose-600 hover:bg-rose-50 transition" title="Hapus"><i className="fa-solid fa-trash text-xs"></i></button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                        <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 font-semibold">
+                                            Menampilkan {filteredPanduan.length} dari {panduanBahan.length} panduan
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </div>
             );
         };
