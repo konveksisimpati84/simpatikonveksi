@@ -2306,13 +2306,19 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 e.preventDefault();
                 if (!activeDailySalaryEmp) return;
                 const now = new Date().toISOString();
+                const _wd = safeMoney(dailySalaryForm.workDays);
+                const _ds = safeMoney(dailySalaryForm.dailySalary);
+                const _oc = safeMoney(dailySalaryForm.overtimeCount);
+                const _or = safeMoney(dailySalaryForm.overtimeRate);
+                const _logTotal = _wd * _ds + _oc * _or;
+                if (_logTotal === 0 && !window.confirm('Total log ini Rp 0 (hari kerja dan lembur kosong). Tetap simpan?')) return;
                 const row = {
                     id: editingDailySalaryId || genId('DAY-'),
                     date: dailySalaryForm.date || now.slice(0, 10),
-                    workDays: safeMoney(dailySalaryForm.workDays),
-                    dailySalary: safeMoney(dailySalaryForm.dailySalary),
-                    overtimeCount: safeMoney(dailySalaryForm.overtimeCount),
-                    overtimeRate: safeMoney(dailySalaryForm.overtimeRate),
+                    workDays: _wd,
+                    dailySalary: _ds,
+                    overtimeCount: _oc,
+                    overtimeRate: _or,
                     note: String(dailySalaryForm.note || '').trim(),
                     updatedAt: now
                 };
@@ -11509,7 +11515,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [] }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [], isSuperAdmin = false }) => {
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
@@ -11562,6 +11568,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const allWageRows = safeFinanceRekaps
                 .filter(isVisibleRecord)
+                .filter(rekap => {
+                    if (isSuperAdmin) return true;
+                    const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
+                    if (!emp) return true;
+                    const SENSITIVE_DIV = ['Direktur', 'Komisaris', 'Marketing'];
+                    return !getEmployeeDivisions(emp).some(d => SENSITIVE_DIV.includes(d));
+                })
                 .map(rekap => {
                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                     return {
@@ -13703,7 +13716,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin).trim() === pin);
                     // Untuk shift malam yang melewati tengah malam, ambil scan dari tanggal berikutnya sebagai kandidat pulang
                     const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
-                    const nextDayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === nextDate && !l.isDeleted && String(l.pin).trim() === pin);
+                    // Hanya scan dari tanggal berikutnya yang terjadi SEBELUM jam masuk normal (cegah scan pagi hari kerja dihitung sebagai jam pulang lembur)
+                    const nextDayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === nextDate && !l.isDeleted && String(l.pin).trim() === pin && (ttm(l.jam) == null || ttm(l.jam) < mMasukCfg));
                     const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
                     // Untuk shift malam: konversi jam dari tanggal berikutnya ke menit > 1440 agar bisa dibandingkan
                     const nextDayLogsShifted = nextDayLogs.map(l => ({ ...l, _shiftedJam: l.jam, _shiftedMinutes: (ttm(l.jam) ?? 0) + 1440 }));
@@ -13713,8 +13727,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const lembFloorBase = mShift3Masuk !== null ? mShift3Masuk : mLM;
                     const mAktifBoundary = mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase;
                     const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mAktifBoundary);
-                    const masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
-                    const pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
+                    let masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
+                    let pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
+                    // Konsisten dengan computeDayMetrics: scan tunggal di pulangZone diperlakukan sebagai masuk
+                    if (masukZone.length === 0 && pulangZone.length > 0) {
+                        masukZone = [pulangZone[0]];
+                        pulangZone = pulangZone.slice(1);
+                    }
                     const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
                     const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
                     const jamMasuk = override?.jamMasuk || rawMasuk;
@@ -13748,7 +13767,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length - 1].jam : null;
                     // Jika tidak ada scan pulang lembur di hari yang sama, cari di tanggal berikutnya (shift malam crossing midnight)
                     const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0)
-                        ? nextDayLogsShifted.sort((a, b) => a._shiftedMinutes - b._shiftedMinutes)[0]
+                        ? [...nextDayLogsShifted].sort((a, b) => a._shiftedMinutes - b._shiftedMinutes)[0]
                         : null;
                     const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
                     const jlPulang = override?.jamLemburPulang || rawLPulang;
@@ -19312,6 +19331,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         sbGet(DB_KEY_SAVED_PRICE_LISTS, []),
                         sbGet(DB_KEY_PANDUAN_BAHAN, []),
                     ]);
+                    initializedRef.current = true;
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
                     setCustomPresets(cp);
@@ -19324,7 +19344,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setPriceListDate(pld);
                     setSavedPriceLists(spl);
                     setPanduanBahan(pb);
-                    initializedRef.current = true;
                 })();
             }, []);
 
@@ -19341,6 +19360,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_DATE,  priceListDate);  }, [priceListDate]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_SAVED_PRICE_LISTS, savedPriceLists); }, [savedPriceLists]);
             React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PANDUAN_BAHAN, panduanBahan); }, [panduanBahan]);
+            React.useEffect(() => {
+                if (activeSection !== 'panduan_bahan') {
+                    setShowPanduanForm(false);
+                    setEditingPanduanId(null);
+                    setPanduanForm({ kat: '', bahan: '', qty: '', sat: 'meter', ket: '' });
+                    setPanduanSearch('');
+                }
+            }, [activeSection]);
 
             // ── Derived HPP calculation ───────────────────────────────────────────
             const calc = React.useMemo(() => {
@@ -21420,6 +21447,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             showToast(editingPanduanId ? 'Panduan diperbarui.' : 'Panduan ditambahkan.', 'success');
                         };
                         const deletePanduan = (id) => {
+                            if (!window.confirm('Hapus panduan ini? Tindakan tidak bisa dibatalkan.')) return;
                             setPanduanBahan(prev => prev.filter(p => p.id !== id));
                             showToast('Panduan dihapus.', 'success');
                         };
@@ -21446,7 +21474,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Kategori Produk <span className="text-red-500">*</span></label>
                                                 <select value={panduanForm.kat} onChange={e => setPanduanForm(f => ({...f, kat: e.target.value}))} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition">
                                                     <option value="">— Pilih kategori —</option>
-                                                    {PANDUAN_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                                                    {[...new Set([...PANDUAN_CATS, ...(panduanForm.kat && !PANDUAN_CATS.includes(panduanForm.kat) ? [panduanForm.kat] : [])])].map(c => <option key={c} value={c}>{c}</option>)}
                                                 </select>
                                             </div>
                                             <div>
@@ -23779,7 +23807,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {activeTab === 'biaya' && canOpen('biaya') && <BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} />}
                                 {activeTab === 'invoice' && canOpen('invoice') && <EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />}
                                 {activeTab === 'klien_instansi' && canOpen('klien_instansi') && <ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} />}
-                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} />}
+                                {activeTab === 'laporan_keuangan' && canOpen('laporan_keuangan') && <LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} isSuperAdmin={isSuperAdmin} />}
                                 {activeTab === 'laporan_order' && canOpen('laporan_order') && <LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} />}
                                 {activeTab === 'investor' && canOpen('investor') && <InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} />}
                                 {activeTab === 'ekspedisi' && canOpen('ekspedisi') && <EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} />}
