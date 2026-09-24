@@ -13805,30 +13805,27 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (getDailySalaryLogTotal(log).overtime > 0) selectedOvertimeKeys.add(String(log.id));
                 });
                 const isDireksiEmp = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                // Gunakan bulan invoice terbaru yang belum direkap bagi hasilnya, agar rekap terlambat tetap pakai bulan yang benar
-                const bhMonth = (() => {
-                    if (!isDireksiEmp) return new Date().toISOString().slice(0,7);
+                // Kumpulkan SEMUA invoice yang belum direkap bagi hasilnya, dikelompokkan per bulan (Pilihan C: multi-bulan)
+                let bhInvoicesByMonth = {};
+                let bagiHasilDireksiSelectedKeys = new Set();
+                if (isDireksiEmp && safeMoney(emp?.bagiHasilNilai) > 0) {
                     const rekapedBHMonths = new Set(
                         safeRekapForReport.filter(isVisibleRecord)
                             .filter(rk => String(rk.empId) === String(empId) && safeMoney(rk.bagiHasilDireksiAmount) > 0)
-                            .map(rk => (rk.dateProcessed || '').slice(0, 7))
+                            .flatMap(rk => rk.bagiHasilDireksiMonths || (rk.bagiHasilDireksiMonth ? [rk.bagiHasilDireksiMonth] : [(rk.dateProcessed || '').slice(0, 7)].filter(Boolean)))
                     );
-                    const unrekapedMonths = safeInvoicesForReport
-                        .filter(inv => !inv.isDeleted && inv.date)
-                        .map(inv => (inv.date || '').slice(0, 7))
-                        .filter(m => m && !rekapedBHMonths.has(m))
-                        .sort();
-                    return unrekapedMonths.length > 0
-                        ? unrekapedMonths[unrekapedMonths.length - 1]
-                        : new Date().toISOString().slice(0, 7);
-                })();
-                const bhAmtRaw = isDireksiEmp ? getBagiHasilDireksi(emp, safeInvoicesForReport, bhMonth) : 0;
-                const bhAlreadyRekaped = isDireksiEmp && safeRekapForReport.filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === bhMonth);
-                const bhInvoices = isDireksiEmp ? safeInvoicesForReport.filter(inv => !inv.isDeleted && (inv.date||'').slice(0,7) === bhMonth) : [];
-                const totalInvoiceBulanBH = bhInvoices.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
-                const bagiHasilDireksiAmount = (isDireksiEmp && !bhAlreadyRekaped) ? bhAmtRaw : 0;
-                const bagiHasilDireksiSelectedKeys = new Set(bhInvoices.map(inv => String(inv.id)));
-                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount, bagiHasilDireksiSelected: bagiHasilDireksiAmount > 0, bagiHasilDireksiSelectedKeys, bagiHasilDireksiMonth: bhMonth, totalInvoiceBulan: totalInvoiceBulanBH, bagiHasilDireksiInvoices: bhInvoices });
+                    const unprocessedBHInvoices = safeInvoicesForReport.filter(inv => !inv.isDeleted && inv.date && !rekapedBHMonths.has((inv.date || '').slice(0, 7)));
+                    unprocessedBHInvoices.forEach(inv => {
+                        const m = (inv.date || '').slice(0, 7);
+                        if (!m) return;
+                        if (!bhInvoicesByMonth[m]) bhInvoicesByMonth[m] = [];
+                        bhInvoicesByMonth[m].push(inv);
+                    });
+                    bagiHasilDireksiSelectedKeys = new Set(unprocessedBHInvoices.map(inv => String(inv.id)));
+                }
+                const flatBHInvoices = Object.values(bhInvoicesByMonth).flat();
+                const hasBHData = flatBHInvoices.length > 0;
+                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount: 0, bagiHasilDireksiSelected: hasBHData, bagiHasilDireksiSelectedKeys, bagiHasilDireksiMonth: '', bagiHasilDireksiMonths: [], bagiHasilDireksiInvoicesByMonth: bhInvoicesByMonth, bagiHasilDireksiInvoices: flatBHInvoices, totalInvoiceBulan: flatBHInvoices.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0) });
                 setSelectedItemKeys(new Set());
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
@@ -13883,6 +13880,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const newSel = !prev.bagiHasilDireksiSelected;
                     const allKeys = new Set((prev.bagiHasilDireksiInvoices || []).map(inv => String(inv.id)));
                     return { ...prev, bagiHasilDireksiSelected: newSel, bagiHasilDireksiSelectedKeys: newSel ? allKeys : new Set() };
+                });
+            };
+            const toggleBagiHasilDireksiMonth = (month) => {
+                setModalData(prev => {
+                    if (!prev) return prev;
+                    const monthInvs = (prev.bagiHasilDireksiInvoicesByMonth || {})[month] || [];
+                    const monthKeys = monthInvs.map(inv => String(inv.id));
+                    const allSel = monthKeys.length > 0 && monthKeys.every(k => (prev.bagiHasilDireksiSelectedKeys || new Set()).has(k));
+                    const next = new Set(prev.bagiHasilDireksiSelectedKeys || []);
+                    if (allSel) { monthKeys.forEach(k => next.delete(k)); }
+                    else { monthKeys.forEach(k => next.add(k)); }
+                    const allInvIds = (prev.bagiHasilDireksiInvoices || []).map(inv => String(inv.id));
+                    const anySelected = allInvIds.some(k => next.has(k));
+                    return { ...prev, bagiHasilDireksiSelectedKeys: next, bagiHasilDireksiSelected: anySelected };
                 });
             };
             const toggleBagiHasilDireksiInvoice = (invId) => {
@@ -13975,11 +13986,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (!modalData?.bagiHasilDireksiSelected) return 0;
                     const bhTipe = empForRekap?.bagiHasilTipe;
                     const bhNilai = safeMoney(empForRekap?.bagiHasilNilai);
-                    if (bhTipe === 'Nominal') return safeMoney(modalData?.bagiHasilDireksiAmount || 0);
-                    const bhInvs = modalData?.bagiHasilDireksiInvoices || [];
+                    if (!bhNilai) return 0;
                     const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
-                    return bhInvs.filter(inv => selKeys.has(String(inv.id))).reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).productionTotal * bhNilai / 100), 0);
+                    const bhInvsByMonth = modalData?.bagiHasilDireksiInvoicesByMonth || {};
+                    if (bhTipe === 'Nominal') {
+                        const selectedMonthCount = Object.entries(bhInvsByMonth)
+                            .filter(([, invs]) => invs.some(inv => selKeys.has(String(inv.id)))).length;
+                        return bhNilai * selectedMonthCount;
+                    }
+                    return Object.values(bhInvsByMonth).flat()
+                        .filter(inv => selKeys.has(String(inv.id)))
+                        .reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).productionTotal * bhNilai / 100), 0);
                 })();
+                const selectedBHMonths = Object.entries(modalData?.bagiHasilDireksiInvoicesByMonth || {})
+                    .filter(([, invs]) => invs.some(inv => (modalData?.bagiHasilDireksiSelectedKeys || new Set()).has(String(inv.id))))
+                    .map(([m]) => m).sort();
                 const grossSalary = selectedWage + dailySalary + overtimeSalary + marketingCommission + bonusSal + bagiHasilDireksiAmt;
                 if (grossSalary === 0 && !window.confirm(`Rekap ini bernilai Rp 0 untuk ${empForRekap.name}. Tetap simpan?`)) {
                     setIsRekapProcessing(false);
@@ -14015,7 +14036,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     marketingCommission,
                     marketingInvoiceIds: marketingInvoicesForRekap.map(inv => inv.id),
                     bagiHasilDireksiAmount: bagiHasilDireksiAmt,
-                    bagiHasilDireksiMonth: modalData?.bagiHasilDireksiMonth || '',
+                    bagiHasilDireksiMonths: selectedBHMonths,
+                    bagiHasilDireksiMonth: selectedBHMonths[0] || '',
                     bonusSalary: bonusSal,
                     bonusNote: bonusNote || '',
                     cashAdvanceDeduction: deduction,
@@ -14370,10 +14392,17 @@ ${getRekapShareLink(rekap)}
                 if (!modalData?.bagiHasilDireksiSelected) return 0;
                 const bhTipe = modalEmployee?.bagiHasilTipe;
                 const bhNilai = safeMoney(modalEmployee?.bagiHasilNilai);
-                if (bhTipe === 'Nominal') return safeMoney(modalData?.bagiHasilDireksiAmount || 0);
-                const bhInvs = modalData?.bagiHasilDireksiInvoices || [];
+                if (!bhNilai) return 0;
                 const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
-                return bhInvs.filter(inv => selKeys.has(String(inv.id))).reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).productionTotal * bhNilai / 100), 0);
+                const bhInvsByMonth = modalData?.bagiHasilDireksiInvoicesByMonth || {};
+                if (bhTipe === 'Nominal') {
+                    const selectedMonthCount = Object.entries(bhInvsByMonth)
+                        .filter(([, invs]) => invs.some(inv => selKeys.has(String(inv.id)))).length;
+                    return bhNilai * selectedMonthCount;
+                }
+                return Object.values(bhInvsByMonth).flat()
+                    .filter(inv => selKeys.has(String(inv.id)))
+                    .reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).productionTotal * bhNilai / 100), 0);
             })();
             const modalPrintableGross = modalSelectedWage + modalDailySalary + modalOvertimeSalary + modalMarketingCommission + modalBonusSalary + modalBagiHasilDireksiAmount;
             const modalGrossSalary = modalPrintableGross;
@@ -15447,8 +15476,8 @@ ${getRekapShareLink(rekap)}
                                         </div>
                                     )}
 
-                                    {/* Bagi Hasil Direksi/Komisaris */}
-                                    {safeMoney(modalData?.bagiHasilDireksiAmount || 0) > 0 && (
+                                    {/* Bagi Hasil Direksi/Komisaris — multi-bulan */}
+                                    {Object.keys(modalData?.bagiHasilDireksiInvoicesByMonth || {}).length > 0 && (
                                         <div className={`border rounded-lg overflow-hidden ${modalData?.bagiHasilDireksiSelected ? 'border-amber-200' : 'border-gray-200 opacity-60'}`}>
                                             <div className={`text-white px-4 py-2 flex items-center justify-between ${modalData?.bagiHasilDireksiSelected ? 'bg-amber-600' : 'bg-gray-400'}`}>
                                                 <label className="flex items-center gap-2 cursor-pointer font-black text-sm select-none">
@@ -15466,52 +15495,67 @@ ${getRekapShareLink(rekap)}
                                                 const bhTipe = modalEmployee?.bagiHasilTipe;
                                                 const bhNilai = safeMoney(modalEmployee?.bagiHasilNilai);
                                                 const isPersen = bhTipe !== 'Nominal';
-                                                const bhInvoices = modalData?.bagiHasilDireksiInvoices || [];
+                                                const bhInvsByMonth = modalData?.bagiHasilDireksiInvoicesByMonth || {};
                                                 const isSel = modalData?.bagiHasilDireksiSelected;
                                                 const selKeys = modalData?.bagiHasilDireksiSelectedKeys || new Set();
-                                                const totalCols = isPersen ? 6 : 4; // checkbox+Invoice+Klien+Status+NilaiInvoice+BagiHasil
+                                                const sortedMonths = Object.keys(bhInvsByMonth).sort();
+                                                const bulanNames = ['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
                                                 return (
-                                                <table className="w-full text-xs">
-                                                    <thead className={isSel ? 'bg-amber-50 text-amber-900' : 'bg-gray-50 text-gray-500'}>
-                                                        <tr>
-                                                            {isPersen && <th className="py-2 px-3 text-center w-8"></th>}
-                                                            <th className="py-2 px-3 text-left">Invoice / Order</th>
-                                                            <th className="py-2 px-3 text-left">Klien</th>
-                                                            <th className="py-2 px-3 text-center">Status</th>
-                                                            <th className="py-2 px-3 text-right">Nilai Invoice</th>
-                                                            {isPersen && <th className="py-2 px-3 text-right">Bagi Hasil</th>}
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {bhInvoices.map((inv, idx) => {
-                                                            const ps = getInvoicePaymentStatus(inv);
-                                                            const psBadge = ps === 'Lunas' ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span> : ps === 'Termin' ? <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span> : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;
-                                                            const invTotal = getInvoiceTotals(inv).total;
-                                                            const invBH = isPersen ? Math.round(invTotal * bhNilai / 100) : 0;
-                                                            const isInvSel = selKeys.has(String(inv.id));
-                                                            return (
-                                                                <tr key={idx} className={`border-t border-amber-100 ${isPersen && !isInvSel ? 'opacity-40' : ''}`}>
-                                                                    {isPersen && (
-                                                                        <td className="py-2 px-3 text-center">
-                                                                            <input type="checkbox" className="w-3.5 h-3.5 cursor-pointer" checked={isInvSel} onChange={() => toggleBagiHasilDireksiInvoice(inv.id)}/>
-                                                                        </td>
-                                                                    )}
-                                                                    <td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-400 font-normal">{inv.date||'-'}</div></td>
-                                                                    <td className="py-2 px-3">{inv.customer||'-'}</td>
-                                                                    <td className="py-2 px-3 text-center">{psBadge}</td>
-                                                                    <td className="py-2 px-3 text-right">{formatRupiah(invTotal)}</td>
-                                                                    {isPersen && <td className={`py-2 px-3 text-right font-black ${isInvSel ? 'text-amber-700' : 'text-gray-400 line-through'}`}>{formatRupiah(invBH)}</td>}
-                                                                </tr>
-                                                            );
-                                                        })}
-                                                        <tr className={`font-bold border-t-2 ${isSel ? 'bg-amber-100 border-amber-300' : 'bg-gray-100 border-gray-300'}`}>
-                                                            <td colSpan={totalCols - 1} className="py-2 px-3 text-right">
-                                                                {bhTipe === 'Nominal' ? 'Nominal Tetap per Bulan' : `Total ${bhNilai}% dari invoice terpilih`}
-                                                            </td>
-                                                            <td className={`py-2 px-3 text-right font-black ${isSel ? 'text-amber-800' : 'text-gray-500 line-through'}`}>{formatRupiah(modalBagiHasilDireksiAmount)}</td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
+                                                <div>
+                                                    {sortedMonths.map(month => {
+                                                        const monthInvs = bhInvsByMonth[month];
+                                                        const allMonthSel = monthInvs.length > 0 && monthInvs.every(inv => selKeys.has(String(inv.id)));
+                                                        const someMonthSel = monthInvs.some(inv => selKeys.has(String(inv.id)));
+                                                        const monthBH = isPersen
+                                                            ? monthInvs.filter(inv => selKeys.has(String(inv.id))).reduce((s, inv) => s + Math.round(getInvoiceTotals(inv).productionTotal * bhNilai / 100), 0)
+                                                            : (someMonthSel ? bhNilai : 0);
+                                                        const [yr, mo] = month.split('-');
+                                                        const monthLabel = `${bulanNames[parseInt(mo)] || mo} ${yr}`;
+                                                        return (
+                                                            <div key={month} className="border-t border-amber-100">
+                                                                <div className={`px-4 py-2 flex items-center justify-between ${isSel && someMonthSel ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                                                                    <label className="flex items-center gap-2 cursor-pointer font-bold text-sm select-none">
+                                                                        <input type="checkbox" className="w-4 h-4 cursor-pointer" checked={allMonthSel} onChange={() => toggleBagiHasilDireksiMonth(month)}/>
+                                                                        <span className={isSel && someMonthSel ? 'text-amber-900' : 'text-gray-600'}>{monthLabel}</span>
+                                                                        <span className="text-xs font-normal text-gray-400">{monthInvs.length} invoice</span>
+                                                                    </label>
+                                                                    <span className={`text-sm font-bold ${someMonthSel && isSel ? 'text-amber-700' : 'text-gray-400 line-through'}`}>{formatRupiah(monthBH)}</span>
+                                                                </div>
+                                                                <table className="w-full text-xs">
+                                                                    <tbody>
+                                                                        {monthInvs.map((inv, idx) => {
+                                                                            const ps = getInvoicePaymentStatus(inv);
+                                                                            const psBadge = ps === 'Lunas' ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span> : ps === 'Termin' ? <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span> : <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;
+                                                                            const invTotal = getInvoiceTotals(inv).total;
+                                                                            const invBH = isPersen ? Math.round(getInvoiceTotals(inv).productionTotal * bhNilai / 100) : 0;
+                                                                            const isInvSel = selKeys.has(String(inv.id));
+                                                                            return (
+                                                                                <tr key={idx} className={`border-t border-amber-50 ${!isInvSel ? 'opacity-40' : ''}`}>
+                                                                                    <td className="py-1.5 px-3 text-center w-8">
+                                                                                        <input type="checkbox" className="w-3.5 h-3.5 cursor-pointer" checked={isInvSel} onChange={() => toggleBagiHasilDireksiInvoice(inv.id)}/>
+                                                                                    </td>
+                                                                                    <td className="py-1.5 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-400 font-normal">{inv.date||'-'}</div></td>
+                                                                                    <td className="py-1.5 px-3">{inv.customer||'-'}</td>
+                                                                                    <td className="py-1.5 px-3 text-center">{psBadge}</td>
+                                                                                    <td className="py-1.5 px-3 text-right">{formatRupiah(invTotal)}</td>
+                                                                                    {isPersen && <td className={`py-1.5 px-3 text-right font-black ${isInvSel ? 'text-amber-700' : 'text-gray-400 line-through'}`}>{formatRupiah(invBH)}</td>}
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    <div className={`px-4 py-2 flex items-center justify-between border-t-2 ${isSel ? 'bg-amber-100 border-amber-300' : 'bg-gray-100 border-gray-300'}`}>
+                                                        <span className="text-xs font-bold text-gray-700">
+                                                            {isPersen
+                                                                ? `Total ${bhNilai}% dari invoice terpilih`
+                                                                : `${formatRupiah(bhNilai)} × ${sortedMonths.filter(m => bhInvsByMonth[m].some(inv => selKeys.has(String(inv.id)))).length} bulan terpilih`}
+                                                        </span>
+                                                        <span className={`text-sm font-black ${isSel ? 'text-amber-800' : 'text-gray-500 line-through'}`}>{formatRupiah(modalBagiHasilDireksiAmount)}</span>
+                                                    </div>
+                                                </div>
                                                 );
                                             })()}
                                         </div>
