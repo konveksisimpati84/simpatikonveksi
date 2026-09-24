@@ -808,7 +808,7 @@
             const base = safeMoney(log?.workDays) * safeMoney(log?.dailySalary);
             const adj = (log?.hourAdjustment != null) ? safeMoney(log.hourAdjustment) : 0;
             const daily = Math.max(0, base + adj);
-            const overtime = safeMoney(log?.overtimeCount) * safeMoney(log?.overtimeRate);
+            const overtime = Math.max(0, safeMoney(log?.overtimeCount) * safeMoney(log?.overtimeRate));
             return { daily, base, adj, overtime, total: daily + overtime };
         };
 
@@ -12508,7 +12508,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <td className="p-3 text-right font-black text-red-700">{formatRupiah(r.nominal)}</td>
                                                 </tr>
                                             ))}
-                                            {materialRows.filter(r => !r.isHutang).length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
+                                            {materialRows.filter(r => !r.isHutang).length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && safeBagiHasilPromosi.flatMap(b => safeArray(b.payments)).length === 0 && (
                                                 <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas keluar pada periode ini.</td></tr>
                                             )}
                                             <tr className="bg-red-50 font-black border-t-2 border-red-400">
@@ -12538,7 +12538,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div className="text-sm font-black text-red-700 shrink-0">{formatRupiah(r.nominal)}</div>
                                         </div>
                                     ))}
-                                    {materialRows.filter(r => !r.isHutang).length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && (
+                                    {materialRows.filter(r => !r.isHutang).length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && safeBagiHasilPromosi.flatMap(b => safeArray(b.payments)).length === 0 && (
                                         <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas keluar pada periode ini.</div>
                                     )}
                                     <div className="px-4 py-3 bg-red-50 border-t-2 border-red-400 flex justify-between items-center">
@@ -13717,7 +13717,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     // Untuk shift malam yang melewati tengah malam, ambil scan dari tanggal berikutnya sebagai kandidat pulang
                     const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
                     // Hanya scan dari tanggal berikutnya yang terjadi SEBELUM jam masuk normal (cegah scan pagi hari kerja dihitung sebagai jam pulang lembur)
-                    const nextDayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === nextDate && !l.isDeleted && String(l.pin).trim() === pin && (ttm(l.jam) == null || ttm(l.jam) < mMasukCfg));
+                    const nextDayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === nextDate && !l.isDeleted && String(l.pin).trim() === pin && (ttm(l.jam) == null || mMasukCfg == null || ttm(l.jam) < mMasukCfg));
                     const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
                     // Untuk shift malam: konversi jam dari tanggal berikutnya ke menit > 1440 agar bisa dibandingkan
                     const nextDayLogsShifted = nextDayLogs.map(l => ({ ...l, _shiftedJam: l.jam, _shiftedMinutes: (ttm(l.jam) ?? 0) + 1440 }));
@@ -13766,15 +13766,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
                     const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length - 1].jam : null;
                     // Jika tidak ada scan pulang lembur di hari yang sama, cari di tanggal berikutnya (shift malam crossing midnight)
+                    // Ambil scan TERAKHIR (terlate) sebelum jam masuk pagi — itulah jam pulang lembur yang benar
                     const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0)
-                        ? [...nextDayLogsShifted].sort((a, b) => a._shiftedMinutes - b._shiftedMinutes)[0]
+                        ? [...nextDayLogsShifted].sort((a, b) => b._shiftedMinutes - a._shiftedMinutes)[0]
                         : null;
                     const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
                     const jlPulang = override?.jamLemburPulang || rawLPulang;
                     const mLMasuk = ttm(jlMasuk);
                     const mLPulang = jlPulang ? ttm(jlPulang) : (crossMidnightPulang ? crossMidnightPulang._shiftedMinutes : null);
                     const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
-                    if (shouldCalcLembur && lemburMenit >= 60) { const lemburJam = Math.round(lemburMenit / 60 * 10) / 10; previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: `Lembur ${date}`, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: safeMoney(emp.overtimeRate) || 0 }); }
+                    if (shouldCalcLembur && lemburMenit >= 60) {
+                        const lemburJam = Math.round(lemburMenit / 60 * 10) / 10;
+                        const lemburRate = safeMoney(emp.overtimeRate) || 0;
+                        if (lemburRate === 0) warnings.push({ date, type: 'lembur_rate_kosong', jam: jlMasuk });
+                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: `Lembur ${date}`, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
+                    }
                 });
                 if (previewLogs.length === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
                 return { previewLogs, warnings, startDate, endDate: today };
@@ -13798,7 +13804,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (getDailySalaryLogTotal(log).overtime > 0) selectedOvertimeKeys.add(String(log.id));
                 });
                 const isDireksiEmp = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                const bhMonth = new Date().toISOString().slice(0,7);
+                // Gunakan bulan invoice terbaru yang belum direkap bagi hasilnya, agar rekap terlambat tetap pakai bulan yang benar
+                const bhMonth = (() => {
+                    if (!isDireksiEmp) return new Date().toISOString().slice(0,7);
+                    const rekapedBHMonths = new Set(
+                        safeRekapForReport.filter(isVisibleRecord)
+                            .filter(rk => String(rk.empId) === String(empId) && safeMoney(rk.bagiHasilDireksiAmount) > 0)
+                            .map(rk => (rk.dateProcessed || '').slice(0, 7))
+                    );
+                    const unrekapedMonths = safeInvoicesForReport
+                        .filter(inv => !inv.isDeleted && inv.date)
+                        .map(inv => (inv.date || '').slice(0, 7))
+                        .filter(m => m && !rekapedBHMonths.has(m))
+                        .sort();
+                    return unrekapedMonths.length > 0
+                        ? unrekapedMonths[unrekapedMonths.length - 1]
+                        : new Date().toISOString().slice(0, 7);
+                })();
                 const bhAmtRaw = isDireksiEmp ? getBagiHasilDireksi(emp, safeInvoicesForReport, bhMonth) : 0;
                 const bhAlreadyRekaped = isDireksiEmp && safeRekapForReport.filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === bhMonth);
                 const bhInvoices = isDireksiEmp ? safeInvoicesForReport.filter(inv => !inv.isDeleted && (inv.date||'').slice(0,7) === bhMonth) : [];
@@ -14370,11 +14392,11 @@ ${getRekapShareLink(rekap)}
                         rekap.cashAdvanceDeductionNote, statusText, itemText
                     ], searchTerm);
                 })
-                .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+                .sort((a, b) => (b.dateProcessed || '').localeCompare(a.dateProcessed || '') || String(b.id).localeCompare(String(a.id)));
             const deletedRekaps = safeRekapForReport
                 .filter(r => r.isDeleted && !r.restoredForEdit)
                 .filter(r => matchesSearch([r.id, r.empName, r.division, r.dateProcessed], searchTerm))
-                .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+                .sort((a, b) => (b.dateProcessed || '').localeCompare(a.dateProcessed || '') || String(b.id).localeCompare(String(a.id)));
             const getRekapNet = (r) => {
                 if (r.netSalary != null) return safeMoney(r.netSalary);
                 return Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
@@ -14387,7 +14409,7 @@ ${getRekapShareLink(rekap)}
                 if (rekapSortBy === 'gaji_asc') return getRekapNet(a) - getRekapNet(b);
                 if (rekapSortBy === 'nama') return (a.empName || '').localeCompare(b.empName || '');
                 if (rekapSortBy === 'tanggal') return (b.dateProcessed || '').localeCompare(a.dateProcessed || '');
-                return String(b.id).localeCompare(String(a.id));
+                return (b.dateProcessed || '').localeCompare(a.dateProcessed || '') || String(b.id).localeCompare(String(a.id));
             });
             const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
             const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, count: 0 } : visibleRekaps
@@ -14483,10 +14505,11 @@ ${getRekapShareLink(rekap)}
                     .filter(([, entries]) => entries.length > 1)
                     .map(([, entries]) => entries);
 
-                // 7. Invoice ghost — commissionRekapId menunjuk rekap yang tidak ada/sudah dihapus
-                const rekapIdSet = new Set(allRekaps.map(r => String(r.id)));
+                // 7. Invoice ghost — commissionRekapId menunjuk rekap yang tidak ada sama sekali (bukan hanya yang dihapus)
+                // Sertakan rekap yang sudah dihapus (soft-delete) agar tidak ada false positive
+                const rekapIdSetAll = new Set(safeRekapForReport.map(r => String(r.id)));
                 const ghostInvoices = allInvoices.filter(inv =>
-                    inv.commissionRekapId && !rekapIdSet.has(String(inv.commissionRekapId))
+                    inv.commissionRekapId && !rekapIdSetAll.has(String(inv.commissionRekapId))
                 );
 
                 // 8. Rekap belum dibayar lebih dari 30 hari
@@ -19331,7 +19354,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         sbGet(DB_KEY_SAVED_PRICE_LISTS, []),
                         sbGet(DB_KEY_PANDUAN_BAHAN, []),
                     ]);
-                    initializedRef.current = true;
                     setMasterMaterials(mm);
                     setMasterLabor(ml);
                     setCustomPresets(cp);
@@ -19344,6 +19366,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setPriceListDate(pld);
                     setSavedPriceLists(spl);
                     setPanduanBahan(pb);
+                    // Flag ditetapkan SETELAH semua setState agar React effects tidak menulis ke Supabase sebelum data load selesai
+                    initializedRef.current = true;
                 })();
             }, []);
 
