@@ -13729,7 +13729,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     // Shift 2 (jamPulang > lemburMulai, mis. 22:30 > 18:00) & tidak ada Shift 3:
                     // zona pulang diperluas sampai tengah malam agar scan lewat jadwal tetap tercatat
                     // Shift 1 (jamPulang ≤ lemburMulai, mis. 16:30 ≤ 18:00): gunakan lemburMulai sebagai batas
-                    const isLateShift = mPrimPulang != null && mLM != null && mPrimPulang > mLM && !empHasShift3;
+                    const isLateShift = hasEmpShiftAssignment && mPrimPulang != null && mLM != null && mPrimPulang > mLM && !empHasShift3;
                     const mAktifBoundary = isLateShift ? 1440 : (mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase);
                     const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mAktifBoundary);
                     let masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
