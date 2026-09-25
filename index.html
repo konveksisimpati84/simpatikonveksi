@@ -13766,15 +13766,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
                     const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
                     const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length - 1].jam : null;
-                    // Jika tidak ada scan pulang lembur di hari yang sama, cari di tanggal berikutnya HANYA untuk shift malam (shift3)
-                    // Karyawan non-shift3 yang lupa scan pulang lembur tidak boleh scan pagi berikutnya dihitung sebagai pulang lembur
-                    const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0 && empShift3obj != null)
+                    // Cross-midnight hanya untuk shift3 yang BENAR-BENAR melewati tengah malam
+                    // (jamPulang secara menit < jamMasuk, artinya pulang di hari berikutnya)
+                    const isShift3CrossMidnight = empShift3obj != null && mShift3Pulang != null && mShift3Pulang < mAktifBoundary;
+                    const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0 && isShift3CrossMidnight)
                         ? [...nextDayLogsShifted].sort((a, b) => b._shiftedMinutes - a._shiftedMinutes)[0]
                         : null;
                     const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
                     const jlPulang = override?.jamLemburPulang || rawLPulang;
                     const mLMasuk = ttm(jlMasuk);
-                    const mLPulang = jlPulang ? ttm(jlPulang) : (crossMidnightPulang ? crossMidnightPulang._shiftedMinutes : null);
+                    // Cap lembur di jam pulang shift3 agar tidak bisa melebihi batas shift
+                    let mLPulang = jlPulang ? ttm(jlPulang) : (crossMidnightPulang ? crossMidnightPulang._shiftedMinutes : null);
+                    if (mLPulang != null && empShift3obj != null && mShift3Pulang != null) {
+                        const cappedPulang = isShift3CrossMidnight ? mShift3Pulang + 1440 : mShift3Pulang;
+                        mLPulang = Math.min(mLPulang, cappedPulang);
+                    }
                     const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
                     if (shouldCalcLembur && lemburMenit >= 60) {
                         const lemburJam = Math.round(lemburMenit / 60 * 10) / 10;
