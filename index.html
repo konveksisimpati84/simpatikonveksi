@@ -13775,10 +13775,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
                     const jlPulang = override?.jamLemburPulang || rawLPulang;
                     const mLMasuk = ttm(jlMasuk);
-                    // Cap lembur di jam pulang shift3 agar tidak bisa melebihi batas shift
+                    // Cap lembur: shift3 sama-hari → max jam 00:00 tengah malam (1440 menit)
+                    // shift3 cross-midnight → max jam pulang shift (misal 06:00 = 360+1440)
                     let mLPulang = jlPulang ? ttm(jlPulang) : (crossMidnightPulang ? crossMidnightPulang._shiftedMinutes : null);
-                    if (mLPulang != null && empShift3obj != null && mShift3Pulang != null) {
-                        const cappedPulang = isShift3CrossMidnight ? mShift3Pulang + 1440 : mShift3Pulang;
+                    if (mLPulang != null && empShift3obj != null) {
+                        const cappedPulang = isShift3CrossMidnight ? (mShift3Pulang != null ? mShift3Pulang + 1440 : 1440) : 1440;
                         mLPulang = Math.min(mLPulang, cappedPulang);
                     }
                     const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
