@@ -13766,9 +13766,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
                     const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
                     const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length - 1].jam : null;
-                    // Jika tidak ada scan pulang lembur di hari yang sama, cari di tanggal berikutnya (shift malam crossing midnight)
-                    // Ambil scan TERAKHIR (terlate) sebelum jam masuk pagi — itulah jam pulang lembur yang benar
-                    const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0)
+                    // Jika tidak ada scan pulang lembur di hari yang sama, cari di tanggal berikutnya HANYA untuk shift malam (shift3)
+                    // Karyawan non-shift3 yang lupa scan pulang lembur tidak boleh scan pagi berikutnya dihitung sebagai pulang lembur
+                    const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0 && empShift3obj != null)
                         ? [...nextDayLogsShifted].sort((a, b) => b._shiftedMinutes - a._shiftedMinutes)[0]
                         : null;
                     const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
