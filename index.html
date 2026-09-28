@@ -1791,9 +1791,11 @@
                                     {order.type} &bull; <span className="font-bold">{order.total} pcs</span>
                                 </p>
                                 {order.notes && (
-                                    <p className={`mt-2 text-sm italic border-l-2 pl-2 py-0.5 ${isDark ? 'border-slate-500 text-slate-400' : 'border-gray-300 text-gray-500'}`}>
-                                        "{order.notes}"
-                                    </p>
+                                    <div className={`mt-2 border-l-2 pl-2 py-0.5 ${isDark ? 'border-slate-500 text-slate-400' : 'border-gray-300 text-gray-500'}`}>
+                                        {order.notes.split('\n').map(l => l.trim()).filter(Boolean).map((line, i) => (
+                                            <div key={i} className="text-xs italic">- {line.replace(/^[-•]\s*/,'')}</div>
+                                        ))}
+                                    </div>
                                 )}
                                 {((order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)) > 0 && (
                                     <div className="mt-2 inline-flex items-center gap-1.5 bg-orange-100 border border-orange-300 text-orange-800 text-xs font-bold px-2.5 py-1 rounded-full">
@@ -3609,7 +3611,11 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
 
 <div class="notes-box">
   <div class="lbl">Catatan Tambahan &amp; Spesifikasi</div>
-  <div style="font-size:13px;white-space:pre-wrap;margin-top:4px;color:#374151">${order.notes || '- Tidak ada catatan -'}</div>
+  ${(() => {
+    const lines = (order.notes || '').split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return '<div style="font-size:12px;color:#374151;margin-top:4px">- Tidak ada catatan -</div>';
+    return `<ul style="margin:4px 0 0;padding-left:14px;color:#374151;line-height:1.5">${lines.map(l => `<li style="font-size:12px;margin-bottom:1px">${l.replace(/^[-•]\s*/,'')}</li>`).join('')}</ul>`;
+  })()}
 </div>
 
 ${(Array.isArray(order.revisiItems) && order.revisiItems.length > 0) ? `
@@ -3856,7 +3862,13 @@ window.addEventListener('load',function(){
                                     <p className="text-sm"><b>Klien:</b> {order.client}</p>
                                     <p className="text-sm"><b>Barang:</b> {order.type} ({order.total} pcs)</p>
                                     <p className="text-sm text-red-600"><b>Deadline:</b> {order.deadline}</p>
-                                    {order.notes && <p className="text-xs bg-white p-2 rounded mt-2 border border-blue-100 italic">"{order.notes}"</p>}
+                                    {order.notes && (
+                                        <div className="text-xs bg-white p-2 rounded mt-2 border border-blue-100 italic">
+                                            {order.notes.split('\n').map(l => l.trim()).filter(Boolean).map((line, i) => (
+                                                <div key={i}>- {line.replace(/^[-•]\s*/,'')}</div>
+                                            ))}
+                                        </div>
+                                    )}
                                     <div className="mt-4 space-y-2">
                                         {isKaryawanMode ? (
                                             <div className="bg-blue-600 text-white px-4 py-3 rounded-lg text-sm font-bold shadow-inner">
@@ -4280,7 +4292,11 @@ window.addEventListener('load',function(){
                                             {order.notes && (
                                                 <div className="mt-3 p-2 bg-white/60 rounded border border-black/5 text-[11px] text-gray-700 leading-tight">
                                                     <span className="font-bold text-gray-800 block mb-0.5">Catatan:</span>
-                                                    <span className="line-clamp-2">{order.notes}</span>
+                                                    <div className="line-clamp-3">
+                                                        {order.notes.split('\n').map(l => l.trim()).filter(Boolean).map((line, i) => (
+                                                            <div key={i}>- {line.replace(/^[-•]\s*/,'')}</div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
