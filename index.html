@@ -19349,6 +19349,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [bopSewa,     setBopSewa]     = React.useState(1000);
             const [bopTransport,setBopTransport]= React.useState(500);
             const [bopLain,     setBopLain]     = React.useState(300);
+            const [bopMode,     setBopMode]     = React.useState('manual'); // 'manual' | 'auto'
+            const [bopBulananListrik,  setBopBulananListrik]  = React.useState(500000);
+            const [bopBulananSewa,     setBopBulananSewa]     = React.useState(1000000);
+            const [bopBulananTransport,setBopBulananTransport]= React.useState(500000);
+            const [bopBulananLain,     setBopBulananLain]     = React.useState(300000);
+            const [bopBulananBBBTKL,   setBopBulananBBBTKL]  = React.useState(50000000);
             const [marginPct,   setMarginPct]   = React.useState(35);
             const [komisiPct,   setKomisiPct]   = React.useState(0);
             const [entertainPct,setEntertainPct]= React.useState(0);
@@ -19489,7 +19495,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     return { lab, rowCost };
                 });
 
-                const bopPerPcs = (bopListrik || 0) + (bopSewa || 0) + (bopTransport || 0) + (bopLain || 0);
+                const bopTotalBulanan = (bopBulananListrik||0)+(bopBulananSewa||0)+(bopBulananTransport||0)+(bopBulananLain||0);
+                const bopRatePct = (bopMode === 'auto' && bopBulananBBBTKL > 0) ? (bopTotalBulanan / bopBulananBBBTKL * 100) : 0;
+                const bopPerPcs = bopMode === 'auto'
+                    ? Math.round((bbbTotal + btklTotal) * bopRatePct / 100)
+                    : (bopListrik || 0) + (bopSewa || 0) + (bopTransport || 0) + (bopLain || 0);
                 const bopTotal  = bopPerPcs * qty;
                 const hppTotal  = bbbTotal + btklTotal + bopTotal;
                 const hppPcs    = hppTotal / qty;
@@ -19510,8 +19520,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const hppAllInTotal = hppAllInPcs * qty;
                 const profitPcs   = sellPrice - hppAllInPcs;
                 const profitTotal = profitPcs * qty;
-                return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, hppTotal, hppPcs, hppAllInPcs, hppAllInTotal, recPrice, sellPrice, turnover, komisiPerPcs, komisiTotal, entertainPerPcs, entertainTotal, profitTotal, profitPcs, isKeDenomWarn };
-            }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, marginPct, komisiPct, entertainPct, customPrice, isPriceManual]);
+                return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, bopRatePct, hppTotal, hppPcs, hppAllInPcs, hppAllInTotal, recPrice, sellPrice, turnover, komisiPerPcs, komisiTotal, entertainPerPcs, entertainTotal, profitTotal, profitPcs, isKeDenomWarn };
+            }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopBulananListrik, bopBulananSewa, bopBulananTransport, bopBulananLain, bopBulananBBBTKL, marginPct, komisiPct, entertainPct, customPrice, isPriceManual]);
 
             // Sync recommended price only when user has NOT manually overridden the price
             React.useEffect(() => {
@@ -19578,6 +19588,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (preset.bopSewa !== undefined)      setBopSewa(preset.bopSewa);
                 if (preset.bopTransport !== undefined) setBopTransport(preset.bopTransport);
                 if (preset.bopLain !== undefined)      setBopLain(preset.bopLain);
+                if (preset.bopMode !== undefined)      setBopMode(preset.bopMode);
+                if (preset.bopBulananListrik !== undefined)   setBopBulananListrik(preset.bopBulananListrik);
+                if (preset.bopBulananSewa !== undefined)      setBopBulananSewa(preset.bopBulananSewa);
+                if (preset.bopBulananTransport !== undefined) setBopBulananTransport(preset.bopBulananTransport);
+                if (preset.bopBulananLain !== undefined)      setBopBulananLain(preset.bopBulananLain);
+                if (preset.bopBulananBBBTKL !== undefined)    setBopBulananBBBTKL(preset.bopBulananBBBTKL);
                 if (preset.marginPct !== undefined)    setMarginPct(preset.marginPct);
                 if (preset.komisiPct !== undefined)    setKomisiPct(preset.komisiPct);    else setKomisiPct(0);
                 if (preset.entertainPct !== undefined) setEntertainPct(preset.entertainPct); else setEntertainPct(0);
@@ -19586,7 +19602,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
             const saveCurrentAsPreset = () => {
                 const title = (orderName || 'Preset Baru').trim();
-                const newPreset = { id:'PRESET-'+Date.now(), title, orderName:title, waste:orderWaste, materials:JSON.parse(JSON.stringify(activeMaterials)), labor:JSON.parse(JSON.stringify(activeLabor)), bopListrik, bopSewa, bopTransport, bopLain, marginPct, komisiPct, entertainPct };
+                const newPreset = { id:'PRESET-'+Date.now(), title, orderName:title, waste:orderWaste, materials:JSON.parse(JSON.stringify(activeMaterials)), labor:JSON.parse(JSON.stringify(activeLabor)), bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopBulananListrik, bopBulananSewa, bopBulananTransport, bopBulananLain, bopBulananBBBTKL, marginPct, komisiPct, entertainPct };
                 setCustomPresets(prev => [...prev, newPreset]);
                 showToast(`Preset "${title}" disimpan!`, 'success');
             };
@@ -19613,7 +19629,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         kategori: orderKategori === 'Custom' ? (orderKategoriCustom.trim() || '') : orderKategori,
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
-                        bopListrik, bopSewa, bopTransport, bopLain, marginPct, komisiPct, entertainPct,
+                        bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopBulananListrik, bopBulananSewa, bopBulananTransport, bopBulananLain, bopBulananBBBTKL, marginPct, komisiPct, entertainPct,
                     }));
                     setEditingOrderId(null);
                     showToast(`Perhitungan "${name}" diperbarui!`, 'success');
@@ -19629,7 +19645,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         kategori: orderKategori === 'Custom' ? (orderKategoriCustom.trim() || '') : orderKategori,
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
-                        bopListrik, bopSewa, bopTransport, bopLain, marginPct, komisiPct, entertainPct,
+                        bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopBulananListrik, bopBulananSewa, bopBulananTransport, bopBulananLain, bopBulananBBBTKL, marginPct, komisiPct, entertainPct,
                     };
                     setSavedOrders(prev => [newOrder, ...prev]);
                     showToast(`Perhitungan "${name}" disimpan!`, 'success');
@@ -19643,6 +19659,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (item.bopSewa !== undefined)      setBopSewa(item.bopSewa);
                 if (item.bopTransport !== undefined) setBopTransport(item.bopTransport);
                 if (item.bopLain !== undefined)      setBopLain(item.bopLain);
+                if (item.bopMode !== undefined)      setBopMode(item.bopMode);
+                if (item.bopBulananListrik !== undefined)   setBopBulananListrik(item.bopBulananListrik);
+                if (item.bopBulananSewa !== undefined)      setBopBulananSewa(item.bopBulananSewa);
+                if (item.bopBulananTransport !== undefined) setBopBulananTransport(item.bopBulananTransport);
+                if (item.bopBulananLain !== undefined)      setBopBulananLain(item.bopBulananLain);
+                if (item.bopBulananBBBTKL !== undefined)    setBopBulananBBBTKL(item.bopBulananBBBTKL);
                 if (item.marginPct !== undefined)    setMarginPct(item.marginPct);
                 if (item.komisiPct !== undefined)    setKomisiPct(item.komisiPct); else setKomisiPct(0);
                 if (item.entertainPct !== undefined) setEntertainPct(item.entertainPct); else setEntertainPct(0);
@@ -20264,7 +20286,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                                     {/* BOP */}
                                     <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-                                        <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+                                        <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-100">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center font-bold text-sm">3</div>
                                                 <div>
@@ -20273,22 +20295,75 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            {[
-                                                ['Biaya Listrik, Jarum, & Minyak (per pcs)', bopListrik, setBopListrik],
-                                                ['Penyusutan Mesin & Sewa Tempat (per pcs)',  bopSewa,    setBopSewa],
-                                                ['Transport, Bensin, & Handling (per pcs)',   bopTransport,setBopTransport],
-                                                ['Overhead Lainnya / Cadangan Risk (per pcs)', bopLain,   setBopLain],
-                                            ].map(([label, val, setter]) => (
-                                                <div key={label}>
-                                                    <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+                                        {/* Mode toggle */}
+                                        <div className="flex gap-2 mb-4">
+                                            <button onClick={() => setBopMode('manual')} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all ${bopMode==='manual' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-amber-300'}`}>
+                                                Manual (Rp/pcs)
+                                            </button>
+                                            <button onClick={() => setBopMode('auto')} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all ${bopMode==='auto' ? 'bg-amber-500 text-white border-amber-500' : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-amber-300'}`}>
+                                                Otomatis (% BBB+BTKL)
+                                            </button>
+                                        </div>
+
+                                        {bopMode === 'manual' ? (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                {[
+                                                    ['Biaya Listrik, Jarum, & Minyak (per pcs)', bopListrik, setBopListrik],
+                                                    ['Penyusutan Mesin & Sewa Tempat (per pcs)',  bopSewa,    setBopSewa],
+                                                    ['Transport, Bensin, & Handling (per pcs)',   bopTransport,setBopTransport],
+                                                    ['Overhead Lainnya / Cadangan Risk (per pcs)', bopLain,   setBopLain],
+                                                ].map(([label, val, setter]) => (
+                                                    <div key={label}>
+                                                        <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+                                                        <div className="relative">
+                                                            <span className="absolute left-3 top-2.5 text-slate-400 font-medium text-xs">Rp</span>
+                                                            <input type="number" value={val} onChange={e => setter(parseFloat(e.target.value) || 0)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500" />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <p className="text-xs text-slate-500 mb-3 bg-amber-50 border border-amber-100 rounded-lg p-2.5">
+                                                    Isi total overhead pabrik & total BBB+BTKL per bulan. BOP per produk dihitung otomatis proporsional — produk mahal menanggung lebih banyak overhead.
+                                                </p>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                                    {[
+                                                        ['Listrik, Jarum & Minyak (per bulan)', bopBulananListrik, setBopBulananListrik],
+                                                        ['Penyusutan Mesin & Sewa (per bulan)',  bopBulananSewa,    setBopBulananSewa],
+                                                        ['Transport & Handling (per bulan)',      bopBulananTransport,setBopBulananTransport],
+                                                        ['Overhead Lainnya (per bulan)',           bopBulananLain,   setBopBulananLain],
+                                                    ].map(([label, val, setter]) => (
+                                                        <div key={label}>
+                                                            <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+                                                            <div className="relative">
+                                                                <span className="absolute left-3 top-2.5 text-slate-400 font-medium text-xs">Rp</span>
+                                                                <input type="number" value={val} onChange={e => setter(parseFloat(e.target.value) || 0)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500" />
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="mb-3">
+                                                    <label className="block text-xs font-semibold text-slate-600 mb-1">Total BBB+BTKL Seluruh Produksi per Bulan</label>
                                                     <div className="relative">
                                                         <span className="absolute left-3 top-2.5 text-slate-400 font-medium text-xs">Rp</span>
-                                                        <input type="number" value={val} onChange={e => setter(parseFloat(e.target.value) || 0)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500" />
+                                                        <input type="number" value={bopBulananBBBTKL} onChange={e => setBopBulananBBBTKL(parseFloat(e.target.value) || 0)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-amber-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500" />
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-400 mt-1">Estimasi total biaya bahan + upah seluruh produk dalam sebulan</p>
+                                                </div>
+                                                <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl p-3">
+                                                    <div>
+                                                        <span className="text-xs font-bold text-amber-800">BOP Rate:</span>
+                                                        <span className="text-lg font-extrabold text-amber-700 ml-2">{calc.bopRatePct > 0 ? calc.bopRatePct.toFixed(2) : '—'}%</span>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-xs text-slate-500">BOP produk ini</span>
+                                                        <div className="text-sm font-extrabold text-amber-700">{formatRp(calc.bopPerPcs)}/pcs</div>
                                                     </div>
                                                 </div>
-                                            ))}
-                                        </div>
+                                            </div>
+                                        )}
+
                                         <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center bg-amber-50/50 p-3 rounded-xl">
                                             <span className="text-xs font-bold text-slate-700">Subtotal Biaya Overhead (BOP):</span>
                                             <span className="text-base font-extrabold text-amber-700">{formatRp(calc.bopTotal)}</span>
