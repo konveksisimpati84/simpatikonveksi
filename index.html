@@ -11728,6 +11728,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const monthlyFinanceKeluar = React.useMemo(() => {
                 const totals = Array(12).fill(0);
+                // 1. Biaya operasional (menu Biaya → Uang Keluar)
                 (expenses||[]).filter(isVisibleRecord).forEach(e => {
                     if (!e.date || e.type !== 'Uang Keluar') return;
                     const parts = String(e.date).split('-');
@@ -11735,8 +11736,26 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const m = parseInt(parts[1], 10) - 1;
                     if (m >= 0 && m < 12) totals[m] += safeMoney(e.amount);
                 });
+                // 2. Pembelian bahan baku (nota yang sudah dibayar)
+                safeArray(purchaseNotes).filter(isVisibleRecord).forEach(note => {
+                    const paid = notePaid(note);
+                    if (!note.date || paid <= 0) return;
+                    const parts = String(note.date).split('-');
+                    if (parts[0] !== finChartYear) return;
+                    const m = parseInt(parts[1], 10) - 1;
+                    if (m >= 0 && m < 12) totals[m] += paid;
+                });
+                // 3. Gaji karyawan (rekap kinerja, pakai netSalary)
+                (Array.isArray(rekapKinerja) ? rekapKinerja : []).filter(isVisibleRecord).forEach(rekap => {
+                    const wage = safeMoney(rekap.netSalary ?? rekap.totalWage);
+                    if (!rekap.dateProcessed || wage <= 0) return;
+                    const parts = String(rekap.dateProcessed).split('-');
+                    if (parts[0] !== finChartYear) return;
+                    const m = parseInt(parts[1], 10) - 1;
+                    if (m >= 0 && m < 12) totals[m] += wage;
+                });
                 return totals;
-            }, [expenses, finChartYear]);
+            }, [expenses, purchaseNotes, rekapKinerja, finChartYear]);
 
             // Komisi dari invoice yang di-rekap sudah masuk totalWage; kecuali rekapnya sudah dihapus
             const deletedRekapIds = new Set(safeFinanceRekaps.filter(r => !isVisibleRecord(r)).map(r => String(r.id)));
@@ -12482,8 +12501,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </div>
                                             <div className="flex flex-wrap gap-4 mt-2 pt-3 border-t border-gray-100 text-xs text-gray-500">
                                                 <span>Total {finChartYear}: <strong className={finChartMode==='masuk' ? 'text-green-700' : 'text-red-700'}>{formatRupiah(totalYear)}</strong></span>
-                                                {totalYear > 0 && <span>Bulan terbaik: <strong className={finChartMode==='masuk' ? 'text-green-700' : 'text-red-700'}>{monthNames[peakIdx]} ({formatRupiah(Math.max(...activeData))})</strong></span>}
+                                                {totalYear > 0 && <span>Bulan terbesar: <strong className={finChartMode==='masuk' ? 'text-green-700' : 'text-red-700'}>{monthNames[peakIdx]} ({formatRupiah(Math.max(...activeData))})</strong></span>}
                                             </div>
+                                            <p className="text-[10px] text-gray-400 mt-1.5">
+                                                {finChartMode === 'masuk'
+                                                    ? 'Sumber: pembayaran invoice + pemasukan manual (menu Biaya)'
+                                                    : 'Sumber: pembelian bahan baku (nota dibayar) + gaji karyawan (rekap kinerja) + biaya operasional (menu Biaya)'}
+                                            </p>
                                         </div>
                                     );
                                 })()}
