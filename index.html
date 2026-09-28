@@ -12430,7 +12430,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     };
                                     const barColor = finChartMode === 'masuk' ? '#16a34a' : '#dc2626';
                                     const peakColor = finChartMode === 'masuk' ? '#15803d' : '#b91c1c';
-                                    const accentLight = finChartMode === 'masuk' ? '#dcfce7' : '#fee2e2';
                                     return (
                                         <div>
                                             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -20670,18 +20669,23 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         const hppProduksi = calc.hppPcs;
                                         const negoKomisiPcs    = negoHargaTawar * (komisiPct / 100);
                                         const negoEntertainPcs = negoHargaTawar * (entertainPct / 100);
-                                        const hppFloor = hppProduksi; // floor = HPP produksi saja
+                                        // BEP sejati: harga minimum agar profit = 0, dengan komisi/entertain % dari harga jual
+                                        // Formula: BEP = hppProduksi / (1 - (komisi+entertain)%)
+                                        const keDenomNego = 1 - (komisiPct + entertainPct) / 100;
+                                        const negoBEP = keDenomNego > 0.01
+                                            ? Math.ceil(hppProduksi / keDenomNego / 500) * 500
+                                            : hppProduksi;
                                         const negoProfit = negoHargaTawar - hppProduksi - negoKomisiPcs - negoEntertainPcs;
                                         // Markup % = metrik sama dengan "Target Margin" di ringkasan HPP
                                         const negoMarkupPct = hppProduksi > 0 ? (negoProfit / hppProduksi * 100) : 0;
                                         // Revenue margin % = profit / harga jual (untuk referensi)
                                         const negoMarginPct = negoHargaTawar > 0 ? (negoProfit / negoHargaTawar * 100) : 0;
                                         const recP = calc.recPrice;
-                                        const sliderMin = Math.floor(hppFloor * 0.9 / 500) * 500;
+                                        const sliderMin = Math.floor(negoBEP * 0.85 / 500) * 500;
                                         const sliderMax = Math.ceil(recP * 1.5 / 500) * 500;
                                         const isRugi = negoProfit < 0;
                                         const isImpas = Math.abs(negoProfit) < 1;
-                                        const hppPct = sliderMax > sliderMin ? ((hppFloor - sliderMin) / (sliderMax - sliderMin) * 100) : 0;
+                                        const bepPct = sliderMax > sliderMin ? ((negoBEP - sliderMin) / (sliderMax - sliderMin) * 100) : 0;
                                         const recPct = sliderMax > sliderMin ? ((recP - sliderMin) / (sliderMax - sliderMin) * 100) : 100;
                                         const baseQty = calc.qty;
                                         const qtyVariants = [
@@ -20716,11 +20720,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             <div className="relative h-7 mb-1">
                                                                 <div className="absolute inset-y-2 left-0 right-0 bg-slate-100 rounded-full"></div>
                                                                 {/* Zona rugi (merah) */}
-                                                                <div className="absolute inset-y-2 left-0 rounded-full bg-red-200" style={{width: Math.max(0, Math.min(hppPct, 100)) + '%'}}></div>
+                                                                <div className="absolute inset-y-2 left-0 rounded-full bg-red-200" style={{width: Math.max(0, Math.min(bepPct, 100)) + '%'}}></div>
                                                                 {/* Zona untung (hijau) */}
-                                                                <div className="absolute inset-y-2 bg-emerald-200 rounded-r-full" style={{left: Math.max(0, Math.min(hppPct, 100)) + '%', width: Math.max(0, Math.min(recPct - hppPct, 100 - hppPct)) + '%'}}></div>
-                                                                {/* Marker HPP */}
-                                                                <div className="absolute top-0 bottom-0 flex flex-col items-center" style={{left: Math.max(0,Math.min(hppPct,100)) + '%', transform:'translateX(-50%)'}}>
+                                                                <div className="absolute inset-y-2 bg-emerald-200 rounded-r-full" style={{left: Math.max(0, Math.min(bepPct, 100)) + '%', width: Math.max(0, Math.min(recPct - bepPct, 100 - bepPct)) + '%'}}></div>
+                                                                {/* Marker BEP */}
+                                                                <div className="absolute top-0 bottom-0 flex flex-col items-center" style={{left: Math.max(0,Math.min(bepPct,100)) + '%', transform:'translateX(-50%)'}}>
                                                                     <div className="w-0.5 h-full bg-red-500"></div>
                                                                 </div>
                                                                 {/* Marker Rekomendasi */}
@@ -20729,7 +20733,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                 </div>
                                                             </div>
                                                             <div className="flex justify-between text-[10px] text-slate-400 mb-3 px-0.5">
-                                                                <span className="text-red-500 font-semibold">HPP Produksi {formatRp(hppFloor)}</span>
+                                                                <span className="text-red-500 font-semibold">BEP {formatRp(negoBEP)}</span>
                                                                 <span className="text-indigo-500 font-semibold">Rekomen {formatRp(recP)}</span>
                                                             </div>
                                                             <input type="range" min={sliderMin} max={sliderMax} step={500} value={negoHargaTawar}
@@ -20778,7 +20782,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                 )}
                                                                 {isRugi && (
                                                                     <p className="text-[11px] text-red-600 font-bold mt-2 text-center border-t border-red-200 pt-2">
-                                                                        Min. harga BEP: {formatRp(Math.ceil(hppFloor/500)*500)}/pcs
+                                                                        Min. harga BEP: {formatRp(negoBEP)}/pcs
                                                                     </p>
                                                                 )}
                                                             </div>
