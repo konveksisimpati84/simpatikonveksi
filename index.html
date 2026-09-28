@@ -20547,15 +20547,21 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                                     {/* ── SIMULASI NEGO ── */}
                                     {(() => {
-                                        const hppFloor = calc.hppAllInPcs;
+                                        // Recalculate komisi+entertain at nego price (bukan di harga lama)
+                                        const hppProduksi = calc.hppPcs;
+                                        const negoKomisiPcs    = negoHargaTawar * (komisiPct / 100);
+                                        const negoEntertainPcs = negoHargaTawar * (entertainPct / 100);
+                                        const hppFloor = hppProduksi; // floor = HPP produksi saja
+                                        const negoProfit = negoHargaTawar - hppProduksi - negoKomisiPcs - negoEntertainPcs;
+                                        // Markup % = metrik sama dengan "Target Margin" di ringkasan HPP
+                                        const negoMarkupPct = hppProduksi > 0 ? (negoProfit / hppProduksi * 100) : 0;
+                                        // Revenue margin % = profit / harga jual (untuk referensi)
+                                        const negoMarginPct = negoHargaTawar > 0 ? (negoProfit / negoHargaTawar * 100) : 0;
                                         const recP = calc.recPrice;
                                         const sliderMin = Math.floor(hppFloor * 0.9 / 500) * 500;
                                         const sliderMax = Math.ceil(recP * 1.5 / 500) * 500;
-                                        const negoProfit = negoHargaTawar - hppFloor;
-                                        const negoMargin = hppFloor > 0 ? (negoProfit / negoHargaTawar * 100) : 0;
                                         const isRugi = negoProfit < 0;
-                                        const isImpas = negoProfit === 0;
-                                        const pct = sliderMax > sliderMin ? ((negoHargaTawar - sliderMin) / (sliderMax - sliderMin) * 100) : 50;
+                                        const isImpas = Math.abs(negoProfit) < 1;
                                         const hppPct = sliderMax > sliderMin ? ((hppFloor - sliderMin) / (sliderMax - sliderMin) * 100) : 0;
                                         const recPct = sliderMax > sliderMin ? ((recP - sliderMin) / (sliderMax - sliderMin) * 100) : 100;
                                         const baseQty = calc.qty;
@@ -20604,7 +20610,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                 </div>
                                                             </div>
                                                             <div className="flex justify-between text-[10px] text-slate-400 mb-3 px-0.5">
-                                                                <span className="text-red-500 font-semibold">HPP {formatRp(hppFloor)}</span>
+                                                                <span className="text-red-500 font-semibold">HPP Produksi {formatRp(hppFloor)}</span>
                                                                 <span className="text-indigo-500 font-semibold">Rekomen {formatRp(recP)}</span>
                                                             </div>
                                                             <input type="range" min={sliderMin} max={sliderMax} step={500} value={negoHargaTawar}
@@ -20634,8 +20640,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                         <div className={`font-extrabold text-base ${isRugi ? 'text-red-600' : 'text-emerald-700'}`}>{isRugi ? '−' : ''}{formatRp(Math.abs(negoProfit))}</div>
                                                                     </div>
                                                                     <div>
-                                                                        <span className="text-slate-500">Margin:</span>
-                                                                        <div className={`font-extrabold text-base ${isRugi ? 'text-red-600' : 'text-emerald-700'}`}>{negoMargin.toFixed(1)}%</div>
+                                                                        <span className="text-slate-500">Markup % <span className="font-normal text-slate-400">(sama dgn ringkasan)</span>:</span>
+                                                                        <div className={`font-extrabold text-base ${isRugi ? 'text-red-600' : 'text-emerald-700'}`}>{negoMarkupPct.toFixed(1)}%</div>
                                                                     </div>
                                                                     <div>
                                                                         <span className="text-slate-500">Total profit ({calc.qty} pcs):</span>
@@ -20646,6 +20652,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                         <div className="font-bold text-slate-600">{formatRp(negoHargaTawar - recP)}/pcs</div>
                                                                     </div>
                                                                 </div>
+                                                                {(komisiPct > 0 || entertainPct > 0) && (
+                                                                    <p className="text-[11px] text-slate-500 mt-2 border-t border-slate-200 pt-2">
+                                                                        Komisi+entertain dihitung ulang di harga nego: {formatRp(negoKomisiPcs + negoEntertainPcs)}/pcs
+                                                                    </p>
+                                                                )}
                                                                 {isRugi && (
                                                                     <p className="text-[11px] text-red-600 font-bold mt-2 text-center border-t border-red-200 pt-2">
                                                                         Min. harga BEP: {formatRp(Math.ceil(hppFloor/500)*500)}/pcs
@@ -20665,7 +20676,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                             <th className="text-left px-3 py-2 font-semibold text-slate-600">Qty (pcs)</th>
                                                                             <th className="text-right px-3 py-2 font-semibold text-slate-600">Omset</th>
                                                                             <th className="text-right px-3 py-2 font-semibold text-slate-600">Total Profit</th>
-                                                                            <th className="text-right px-3 py-2 font-semibold text-slate-600">Margin</th>
+                                                                            <th className="text-right px-3 py-2 font-semibold text-slate-600">Markup %</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
@@ -20683,8 +20694,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                                     <td className={`px-3 py-2 text-right font-bold ${totalProfit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
                                                                                         {totalProfit < 0 ? '−' : ''}{formatRp(Math.abs(totalProfit))}
                                                                                     </td>
-                                                                                    <td className={`px-3 py-2 text-right font-semibold ${negoMargin < 0 ? 'text-red-500' : 'text-slate-600'}`}>
-                                                                                        {negoMargin.toFixed(1)}%
+                                                                                    <td className={`px-3 py-2 text-right font-semibold ${negoMarkupPct < 0 ? 'text-red-500' : 'text-slate-600'}`}>
+                                                                                        {negoMarkupPct.toFixed(1)}%
                                                                                     </td>
                                                                                 </tr>
                                                                             );
