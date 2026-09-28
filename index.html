@@ -11539,6 +11539,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [divisionFilter, setDivisionFilter] = useState('Semua');
             const [cashAdvanceStatusFilter, setCashAdvanceStatusFilter] = useState('Semua');
             const [activeFinanceTab, setActiveFinanceTab] = useState('dashboard');
+            const [finChartYear, setFinChartYear] = React.useState(() => String(new Date().getFullYear()));
+            const [finChartMode, setFinChartMode] = React.useState('masuk');
             const safeOrders = (Array.isArray(orders) ? orders : []).filter(isVisibleOrder);
             const safeFinanceEmployees = Array.isArray(employees) ? employees : [];
             const safeFinanceRekaps = Array.isArray(rekapKinerja) ? rekapKinerja : [];
@@ -11695,6 +11697,47 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalClientDpIncome = clientDpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalManualIncome = expenseRows.filter(row => row.type === 'Uang Masuk').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
+
+            // Chart keuangan bulanan
+            const finChartYears = React.useMemo(() => {
+                const years = new Set();
+                safeFinanceInvoices.filter(isVisibleRecord).forEach(inv => { if (inv.date) years.add(String(inv.date).slice(0,4)); });
+                (expenses||[]).filter(isVisibleRecord).forEach(e => { if (e.date) years.add(String(e.date).slice(0,4)); });
+                years.add(String(new Date().getFullYear()));
+                return [...years].filter(y => y && y.length === 4).sort((a,b) => Number(b)-Number(a));
+            }, [safeFinanceInvoices, expenses]);
+
+            const monthlyFinanceMasuk = React.useMemo(() => {
+                const totals = Array(12).fill(0);
+                safeFinanceInvoices.filter(isVisibleRecord).forEach(inv => {
+                    if (!inv.date) return;
+                    const parts = String(inv.date).split('-');
+                    if (parts[0] !== finChartYear) return;
+                    const m = parseInt(parts[1], 10) - 1;
+                    if (m >= 0 && m < 12) totals[m] += getInvoiceCashInflow(inv);
+                });
+                (expenses||[]).filter(isVisibleRecord).forEach(e => {
+                    if (!e.date || e.type !== 'Uang Masuk') return;
+                    const parts = String(e.date).split('-');
+                    if (parts[0] !== finChartYear) return;
+                    const m = parseInt(parts[1], 10) - 1;
+                    if (m >= 0 && m < 12) totals[m] += safeMoney(e.amount);
+                });
+                return totals;
+            }, [safeFinanceInvoices, expenses, finChartYear]);
+
+            const monthlyFinanceKeluar = React.useMemo(() => {
+                const totals = Array(12).fill(0);
+                (expenses||[]).filter(isVisibleRecord).forEach(e => {
+                    if (!e.date || e.type !== 'Uang Keluar') return;
+                    const parts = String(e.date).split('-');
+                    if (parts[0] !== finChartYear) return;
+                    const m = parseInt(parts[1], 10) - 1;
+                    if (m >= 0 && m < 12) totals[m] += safeMoney(e.amount);
+                });
+                return totals;
+            }, [expenses, finChartYear]);
+
             // Komisi dari invoice yang di-rekap sudah masuk totalWage; kecuali rekapnya sudah dihapus
             const deletedRekapIds = new Set(safeFinanceRekaps.filter(r => !isVisibleRecord(r)).map(r => String(r.id)));
             // Filter komisi marketing konsisten dengan filter karyawan/divisi yang aktif
@@ -12370,6 +12413,82 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Grafik Arus Kas Bulanan */}
+                            <Card>
+                                {(() => {
+                                    const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agt','Sep','Okt','Nov','Des'];
+                                    const activeData = finChartMode === 'masuk' ? monthlyFinanceMasuk : monthlyFinanceKeluar;
+                                    const peakIdx = activeData.indexOf(Math.max(...activeData));
+                                    const maxVal = Math.max(...activeData, 1);
+                                    const totalYear = activeData.reduce((a, b) => a + b, 0);
+                                    const formatShort = (v) => {
+                                        if (v >= 1e9) return (v/1e9).toFixed(1).replace(/\.0$/,'') + 'M';
+                                        if (v >= 1e6) return (v/1e6).toFixed(1).replace(/\.0$/,'') + 'jt';
+                                        if (v >= 1e3) return (v/1e3).toFixed(0) + 'rb';
+                                        return String(v);
+                                    };
+                                    const barColor = finChartMode === 'masuk' ? '#16a34a' : '#dc2626';
+                                    const peakColor = finChartMode === 'masuk' ? '#15803d' : '#b91c1c';
+                                    const accentLight = finChartMode === 'masuk' ? '#dcfce7' : '#fee2e2';
+                                    return (
+                                        <div>
+                                            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                                                <h3 className="text-base font-bold text-gray-800">Arus Kas per Bulan</h3>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <div className="flex gap-1 p-0.5 bg-gray-100 rounded-lg text-xs font-semibold">
+                                                        {[['masuk','Uang Masuk'],['keluar','Uang Keluar']].map(([m,label]) => (
+                                                            <button key={m} onClick={() => setFinChartMode(m)}
+                                                                className={`px-3 py-1.5 rounded-md transition-all ${finChartMode===m ? (m==='masuk' ? 'bg-green-600 text-white shadow-sm' : 'bg-red-600 text-white shadow-sm') : 'text-gray-500 hover:text-gray-700'}`}>
+                                                                {label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    <select value={finChartYear} onChange={e => setFinChartYear(e.target.value)}
+                                                        className="text-xs font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                                                        {finChartYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div className="overflow-x-auto">
+                                                <svg viewBox="0 0 540 160" style={{width:'100%',minWidth:'320px',display:'block'}}>
+                                                    {activeData.map((val, i) => {
+                                                        const barH = maxVal > 0 ? Math.max(2, Math.round((val / maxVal) * 110)) : 2;
+                                                        const x = 10 + i * 43;
+                                                        const isPeak = i === peakIdx && val > 0;
+                                                        return (
+                                                            <g key={i}>
+                                                                <rect x={x} y={130 - barH} width={33} height={barH}
+                                                                    rx="3"
+                                                                    fill={isPeak ? peakColor : barColor}
+                                                                    opacity={val > 0 ? 1 : 0.15}
+                                                                />
+                                                                {val > 0 && (
+                                                                    <text x={x+16.5} y={130 - barH - 4} textAnchor="middle"
+                                                                        fontSize="8" fontWeight="600"
+                                                                        fill={isPeak ? peakColor : '#374151'}>
+                                                                        {formatShort(val)}
+                                                                    </text>
+                                                                )}
+                                                                <text x={x+16.5} y={148} textAnchor="middle"
+                                                                    fontSize="9" fontWeight={isPeak ? '700' : '500'}
+                                                                    fill={isPeak ? peakColor : '#6b7280'}>
+                                                                    {monthNames[i]}
+                                                                </text>
+                                                            </g>
+                                                        );
+                                                    })}
+                                                    <line x1="8" y1="130" x2="532" y2="130" stroke="#e5e7eb" strokeWidth="1"/>
+                                                </svg>
+                                            </div>
+                                            <div className="flex flex-wrap gap-4 mt-2 pt-3 border-t border-gray-100 text-xs text-gray-500">
+                                                <span>Total {finChartYear}: <strong className={finChartMode==='masuk' ? 'text-green-700' : 'text-red-700'}>{formatRupiah(totalYear)}</strong></span>
+                                                {totalYear > 0 && <span>Bulan terbaik: <strong className={finChartMode==='masuk' ? 'text-green-700' : 'text-red-700'}>{monthNames[peakIdx]} ({formatRupiah(Math.max(...activeData))})</strong></span>}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </Card>
 
                             {/* Grafik */}
                             <Card>
