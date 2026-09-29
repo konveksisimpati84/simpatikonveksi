@@ -19651,12 +19651,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const bopTotal  = bopPerPcs * qty;
                 const hppTotal  = bbbTotal + btklTotal + bopTotal;
                 const hppPcs    = hppTotal / qty;
-                // Rumus: P = HPP×(1+m) / [1-(k+e)×(1+m)]
-                // Komisi & entertain sudah masuk HPP — harga jual dihitung agar semua biaya+margin tertutup
-                const markup    = 1 + marginPct / 100;
-                const keDenom   = 1 - (komisiPct + entertainPct) / 100;
-                const isKeDenomWarn = keDenom <= 0.05; // total biaya penjualan terlalu besar
-                const recPriceRaw = keDenom > 0.05 ? (hppPcs * markup) / keDenom : hppPcs * markup;
+                // Rumus Margin: P = HPP / (1 - margin% - komisi% - entertain%)
+                // margin dihitung dari harga jual (revenue margin), bukan dari HPP (markup)
+                const keDenom       = 1 - (komisiPct + entertainPct) / 100;
+                const combinedDenom = keDenom - marginPct / 100;
+                const isKeDenomWarn = combinedDenom <= 0.05; // margin+komisi+entertain terlalu besar
+                const recPriceRaw   = combinedDenom > 0.05 ? hppPcs / combinedDenom : hppPcs / 0.05;
                 const recPrice  = Math.ceil(recPriceRaw / 500) * 500;
                 const sellPrice = isPriceManual ? customPrice : recPrice;
                 const turnover  = sellPrice * qty;
@@ -20647,7 +20647,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     <label className="text-xs font-bold text-slate-700">Target Margin Keuntungan</label>
                                                     <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">{marginPct}%</span>
                                                 </div>
-                                                <input type="range" min="10" max="100" value={marginPct} onChange={e => setMarginPct(parseInt(e.target.value))} className="w-full accent-indigo-600 h-2 bg-slate-200 rounded-lg cursor-pointer" />
+                                                <input type="range" min="5" max="80" value={marginPct} onChange={e => setMarginPct(parseInt(e.target.value))} className="w-full accent-indigo-600 h-2 bg-slate-200 rounded-lg cursor-pointer" />
+                                                <p className="text-[10px] text-slate-400 mt-0.5">% dari harga jual — contoh: margin 30% → dari tiap Rp 100 masuk, Rp 30 adalah profit</p>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -20700,9 +20701,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             ? Math.ceil(hppProduksi / keDenomNego / 500) * 500
                                             : hppProduksi;
                                         const negoProfit = negoHargaTawar - hppProduksi - negoKomisiPcs - negoEntertainPcs;
-                                        // Markup % = metrik sama dengan "Target Margin" di ringkasan HPP
-                                        const negoMarkupPct = hppProduksi > 0 ? (negoProfit / hppProduksi * 100) : 0;
-                                        // Revenue margin % = profit / harga jual (untuk referensi)
+                                        // Revenue margin % = profit / harga jual (konsisten dengan ringkasan HPP)
                                         const negoMarginPct = negoHargaTawar > 0 ? (negoProfit / negoHargaTawar * 100) : 0;
                                         const recP = calc.recPrice;
                                         const sliderMin = Math.floor(negoBEP * 0.85 / 500) * 500;
@@ -20787,8 +20786,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                         <div className={`font-extrabold text-base ${isRugi ? 'text-red-600' : 'text-emerald-700'}`}>{isRugi ? '−' : ''}{formatRp(Math.abs(negoProfit))}</div>
                                                                     </div>
                                                                     <div>
-                                                                        <span className="text-slate-500">Markup % <span className="font-normal text-slate-400">(sama dgn ringkasan)</span>:</span>
-                                                                        <div className={`font-extrabold text-base ${isRugi ? 'text-red-600' : 'text-emerald-700'}`}>{negoMarkupPct.toFixed(1)}%</div>
+                                                                        <span className="text-slate-500">Margin % <span className="font-normal text-slate-400">(dari harga jual)</span>:</span>
+                                                                        <div className={`font-extrabold text-base ${isRugi ? 'text-red-600' : 'text-emerald-700'}`}>{negoMarginPct.toFixed(1)}%</div>
                                                                     </div>
                                                                     <div>
                                                                         <span className="text-slate-500">Total profit ({calc.qty} pcs):</span>
@@ -20823,7 +20822,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                             <th className="text-left px-3 py-2 font-semibold text-slate-600">Qty (pcs)</th>
                                                                             <th className="text-right px-3 py-2 font-semibold text-slate-600">Omset</th>
                                                                             <th className="text-right px-3 py-2 font-semibold text-slate-600">Total Profit</th>
-                                                                            <th className="text-right px-3 py-2 font-semibold text-slate-600">Markup %</th>
+                                                                            <th className="text-right px-3 py-2 font-semibold text-slate-600">Margin %</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
@@ -20841,8 +20840,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                                     <td className={`px-3 py-2 text-right font-bold ${totalProfit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
                                                                                         {totalProfit < 0 ? '−' : ''}{formatRp(Math.abs(totalProfit))}
                                                                                     </td>
-                                                                                    <td className={`px-3 py-2 text-right font-semibold ${negoMarkupPct < 0 ? 'text-red-500' : 'text-slate-600'}`}>
-                                                                                        {negoMarkupPct.toFixed(1)}%
+                                                                                    <td className={`px-3 py-2 text-right font-semibold ${negoMarginPct < 0 ? 'text-red-500' : 'text-slate-600'}`}>
+                                                                                        {negoMarginPct.toFixed(1)}%
                                                                                     </td>
                                                                                 </tr>
                                                                             );
@@ -20850,7 +20849,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     </tbody>
                                                                 </table>
                                                             </div>
-                                                            <p className="text-[11px] text-slate-400 mt-2">Catatan: margin % tetap sama — tambah qty meningkatkan total profit, bukan margin.</p>
+                                                            <p className="text-[11px] text-slate-400 mt-2">Catatan: margin % (dari harga jual) tetap sama — tambah qty meningkatkan total profit, bukan margin.</p>
                                                         </div>
 
                                                     </div>
