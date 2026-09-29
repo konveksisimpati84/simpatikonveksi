@@ -11737,13 +11737,26 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (m >= 0 && m < 12) totals[m] += safeMoney(e.amount);
                 });
                 // 2. Pembelian bahan baku (nota yang sudah dibayar)
+                // Kelompokkan by payment.date (tgl bayar aktual), bukan note.date (tgl nota)
+                // Nota legacy tanpa payments[] fallback ke note.date
                 safeArray(purchaseNotes).filter(isVisibleRecord).forEach(note => {
-                    const paid = notePaid(note);
-                    if (!note.date || paid <= 0) return;
-                    const parts = String(note.date).split('-');
-                    if (parts[0] !== finChartYear) return;
-                    const m = parseInt(parts[1], 10) - 1;
-                    if (m >= 0 && m < 12) totals[m] += paid;
+                    if (safeArray(note.payments).length > 0) {
+                        safeArray(note.payments).forEach(p => {
+                            const amount = parseFloat(p.amount) || 0;
+                            if (!p.date || amount <= 0) return;
+                            const parts = String(p.date).split('-');
+                            if (parts[0] !== finChartYear) return;
+                            const m = parseInt(parts[1], 10) - 1;
+                            if (m >= 0 && m < 12) totals[m] += amount;
+                        });
+                    } else {
+                        const paid = notePaid(note);
+                        if (!note.date || paid <= 0) return;
+                        const parts = String(note.date).split('-');
+                        if (parts[0] !== finChartYear) return;
+                        const m = parseInt(parts[1], 10) - 1;
+                        if (m >= 0 && m < 12) totals[m] += paid;
+                    }
                 });
                 // 3. Gaji karyawan (rekap kinerja, pakai netSalary)
                 (Array.isArray(rekapKinerja) ? rekapKinerja : []).filter(isVisibleRecord).forEach(rekap => {
