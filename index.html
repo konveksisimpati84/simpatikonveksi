@@ -19644,7 +19644,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const bopJamRatePerJam = bopJamTotalJam > 0 ? (bopJamOverhead||0) / bopJamTotalJam : 0;
                 const bopRatePct = bopMode === 'pct' ? (bopPctRate||0) : 0;
                 const bopPerPcs = bopMode === 'pct'
-                    ? Math.round((bbbTotal + btklTotal) * bopRatePct / 100)
+                    ? Math.round((bbbTotal + btklTotal) / qty * bopRatePct / 100)
                     : bopMode === 'jam'
                         ? Math.round(bopJamRatePerJam * (bopJamMenitPerPcs||0) / 60)
                         : (bopListrik || 0) + (bopSewa || 0) + (bopTransport || 0) + (bopLain || 0);
@@ -20495,7 +20495,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                         </div>
                                                         <span className="text-xs text-amber-700 font-bold whitespace-nowrap">{formatRp(calc.bopPerPcs)}/pcs</span>
                                                     </div>
-                                                    <p className="text-[11px] text-slate-400 mt-1">BBB+BTKL produk ini: {formatRp(calc.bbbTotal + calc.btklTotal)} → BOP = {bopPctRate}% × {formatRp(calc.bbbTotal + calc.btklTotal)}</p>
+                                                    <p className="text-[11px] text-slate-400 mt-1">BBB+BTKL/pcs: {formatRp(Math.round((calc.bbbTotal + calc.btklTotal) / Math.max(1, orderQty||1)))} → BOP = {bopPctRate}% × {formatRp(Math.round((calc.bbbTotal + calc.btklTotal) / Math.max(1, orderQty||1)))}</p>
                                                 </div>
                                                 <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl p-3">
                                                     <span className="text-xs font-bold text-amber-800">BOP Rate: {bopPctRate}%</span>
