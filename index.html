@@ -10755,7 +10755,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             React.useEffect(() => {
                 fetchData();
-                const interval = setInterval(fetchData, 5 * 60 * 1000);
+                const interval = setInterval(fetchData, 60 * 60 * 1000);
                 return () => clearInterval(interval);
             }, [fetchData]);
 
@@ -10878,7 +10878,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             React.useEffect(() => {
                 fetchData();
-                const interval = setInterval(fetchData, 5 * 60 * 1000);
+                const interval = setInterval(fetchData, 60 * 60 * 1000);
                 return () => clearInterval(interval);
             }, [fetchData]);
 
@@ -13424,7 +13424,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     pinnedInitialized.current = true;
                 };
                 fetchPins();
-                const interval = setInterval(fetchPins, 300000);
+                const interval = setInterval(fetchPins, 3600000);
                 return () => clearInterval(interval);
             }, []);
             React.useEffect(() => {
@@ -13449,7 +13449,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     pinnedRekapInitialized.current = true;
                 };
                 fetchRPins();
-                const interval = setInterval(fetchRPins, 300000);
+                const interval = setInterval(fetchRPins, 3600000);
                 return () => clearInterval(interval);
             }, []);
             React.useEffect(() => {
@@ -22437,6 +22437,19 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const [isRefreshing, setIsRefreshing] = useState(false);
+            const [lastSyncTime, setLastSyncTime] = useState(null);
+            const [, setSyncTicker] = React.useState(0);
+            React.useEffect(() => {
+                const t = setInterval(() => setSyncTicker(n => n + 1), 30000);
+                return () => clearInterval(t);
+            }, []);
+            const formatSyncAgo = (ts) => {
+                if (!ts) return null;
+                const diff = Math.floor((Date.now() - ts) / 1000);
+                if (diff < 60) return 'Baru saja';
+                if (diff < 3600) return `${Math.floor(diff / 60)} mnt lalu`;
+                return `${Math.floor(diff / 3600)} jam lalu`;
+            };
             const handleManualRefresh = async () => {
                 if (isRefreshing) return;
                 setIsRefreshing(true);
@@ -22444,6 +22457,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     // Hapus timestamp cache supaya semua dataset di-fetch ulang dari Supabase
                     setTsCache({});
                     await applyRemoteDataSnapshot();
+                    setLastSyncTime(Date.now());
                     showToast('Data berhasil diperbarui dari server.', 'success');
                 } catch (err) {
                     console.error('Manual refresh gagal:', err);
@@ -23706,7 +23720,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                 const refresh = () => {
                     lastRefreshRef.current = Date.now();
-                    applyRemoteDataSnapshot().catch(err => console.error('Gagal refresh data Supabase:', err));
+                    applyRemoteDataSnapshot()
+                        .then(() => setLastSyncTime(Date.now()))
+                        .catch(err => console.error('Gagal refresh data Supabase:', err));
                 };
 
                 // Realtime: sync langsung saat _timestamps berubah (ada data baru dari PC lain)
@@ -23717,8 +23733,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     })
                     .subscribe();
 
-                // Fallback polling 5 menit (jika Realtime terputus)
-                const intervalId = setInterval(refresh, 300000);
+                // Fallback polling 60 menit (jika Realtime terputus)
+                const intervalId = setInterval(refresh, 3600000);
 
                 const handleFocus = () => {
                     const now = Date.now();
@@ -24464,9 +24480,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 <span className="text-slate-400 text-xs hidden xs:inline truncate max-w-[120px]">{navItems.find(n => n.id === activeTab)?.label}</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button onClick={handleManualRefresh} disabled={isRefreshing} className="text-blue-400 p-2 bg-slate-800 rounded border border-slate-700 disabled:opacity-50" title="Refresh data">
-                                    <IconRefresh spinning={isRefreshing} />
-                                </button>
+                                <div className="flex flex-col items-center gap-0.5">
+                                    <button onClick={handleManualRefresh} disabled={isRefreshing} className="text-blue-400 p-2 bg-slate-800 rounded border border-slate-700 disabled:opacity-50" title={formatSyncAgo(lastSyncTime) ? `Terakhir sync: ${formatSyncAgo(lastSyncTime)}` : 'Refresh data'}>
+                                        <IconRefresh spinning={isRefreshing} />
+                                    </button>
+                                    {formatSyncAgo(lastSyncTime) && (
+                                        <span className="text-[9px] text-slate-400 leading-none">{formatSyncAgo(lastSyncTime)}</span>
+                                    )}
+                                </div>
                                 <button onClick={handleLogout} className="text-red-400 p-2 bg-slate-800 rounded border border-slate-700"><IconLogout /></button>
                             </div>
                         </div>
@@ -24525,10 +24546,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
                                     {authUser.name.charAt(0).toUpperCase()}
                                 </div>
-                                <button onClick={handleManualRefresh} disabled={isRefreshing} className="flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-blue-100 disabled:opacity-60" title="Refresh data dari server">
-                                    <IconRefresh spinning={isRefreshing} />
-                                    {isRefreshing ? 'Memuat...' : 'Refresh'}
-                                </button>
+                                <div className="flex flex-col items-end gap-0.5">
+                                    <button onClick={handleManualRefresh} disabled={isRefreshing} className="flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-blue-100 disabled:opacity-60" title="Refresh data dari server">
+                                        <IconRefresh spinning={isRefreshing} />
+                                        {isRefreshing ? 'Memuat...' : 'Refresh'}
+                                    </button>
+                                    {formatSyncAgo(lastSyncTime) && (
+                                        <span className="text-[10px] text-gray-400 leading-none pr-1">⏱ {formatSyncAgo(lastSyncTime)}</span>
+                                    )}
+                                </div>
                                 <button onClick={handleLogout} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors ml-2" title="Keluar"><IconLogout /></button>
                             </div>
                         </header>
