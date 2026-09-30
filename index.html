@@ -13459,16 +13459,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const safeEmployeesForReport = Array.isArray(employees) ? employees : [];
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
             const safeInvoicesForReport = Array.isArray(invoices) ? invoices : [];
-            const visibleEmployees = safeEmployeesForReport.filter(isVisibleRecord);
+            const visibleEmployees = React.useMemo(() => safeEmployeesForReport.filter(isVisibleRecord), [employees]);
+            const visibleRekaps = React.useMemo(() => safeRekapForReport.filter(isVisibleRecord), [rekapKinerja]);
+            const visibleInvoicesForPending = React.useMemo(() => safeInvoicesForReport.filter(isVisibleRecord), [invoices]);
+            const visibleOrdersForPending = React.useMemo(() => safeOrdersForReport.filter(isVisibleOrder), [orders]);
             const isSuperAdmin = authUser?.role === 'Admin' || getAccountMenuAccess(authUser).includes('laporan_sensitif');
             const SENSITIVE_DIVISIONS = ['Direktur', 'Komisaris', 'Marketing'];
             const isSensitiveEmp = (emp) => getEmployeeDivisions(emp).some(d => SENSITIVE_DIVISIONS.includes(d));
 
             const empIdsWithPendingSalary = React.useMemo(() => {
                 const ids = new Set();
+                const visibleRekapIds = new Set(visibleRekaps.map(rk => String(rk.id)));
+                const currentBHMonth = new Date().toISOString().slice(0,7);
                 visibleEmployees.forEach(emp => {
                     let hasProd = false;
-                    safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
+                    visibleOrdersForPending.forEach(order => {
                         if (hasProd || !order.progress) return;
                         Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
                             if (hasProd || !getActiveProductionStageIds(order).includes(stage)) return;
@@ -13476,10 +13481,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             if (logs.length > 0) hasProd = true;
                         });
                     });
-                    const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
+                    const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !visibleRekapIds.has(String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
                     const isDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                    const hasMarketing = !isDireksi && safeArray(safeInvoicesForReport).filter(isVisibleRecord).some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
-                    const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => (!log.rekapId || !safeArray(safeRekapForReport).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
+                    const hasMarketing = !isDireksi && visibleInvoicesForPending.some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                    const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => (!log.rekapId || !visibleRekapIds.has(String(log.rekapId))) && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
                     const fpPin = String(emp.fingerPin || '').trim();
                     const fpIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
                     let hasFingerPending = false;
@@ -13488,28 +13493,33 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const fpToday = new Date().toISOString().split('T')[0];
                         hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
                     }
-                    const currentBHMonth = new Date().toISOString().slice(0,7);
-                    const hasBagiHasil = isDireksi && safeMoney(emp.bagiHasilNilai) > 0 && !safeRekapForReport.filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === currentBHMonth);
+                    const hasBagiHasil = isDireksi && safeMoney(emp.bagiHasilNilai) > 0 && !visibleRekaps.some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === currentBHMonth);
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd || hasFingerPending || hasBagiHasil) ids.add(String(emp.id));
                 });
                 return ids;
-            }, [employees, safeOrdersForReport, invoices, rekapKinerja, absensiRawLogs]);
+            }, [visibleEmployees, visibleOrdersForPending, visibleInvoicesForPending, visibleRekaps, absensiRawLogs]);
 
-            const filteredReportEmployees = visibleEmployees.filter(emp => {
+            const [searchInput, setSearchInput] = React.useState('');
+            React.useEffect(() => {
+                const t = setTimeout(() => setSearchTerm(searchInput), 300);
+                return () => clearTimeout(t);
+            }, [searchInput]);
+
+            const filteredReportEmployees = React.useMemo(() => visibleEmployees.filter(emp => {
                 if (!isSuperAdmin && isSensitiveEmp(emp)) return false;
                 if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
                 return matchesSearch([emp.name, ...getEmployeeDivisions(emp), emp.phone, emp.status], searchTerm);
-            });
-            const sortedReportEmployees = [...filteredReportEmployees].sort((a, b) => {
+            }), [visibleEmployees, isSuperAdmin, showOnlyReady, empIdsWithPendingSalary, searchTerm]);
+            const sortedReportEmployees = React.useMemo(() => [...filteredReportEmployees].sort((a, b) => {
                 const aPinned = pinnedEmpIds.has(a.id) ? 0 : 1;
                 const bPinned = pinnedEmpIds.has(b.id) ? 0 : 1;
                 return aPinned - bPinned;
-            });
+            }), [filteredReportEmployees, pinnedEmpIds]);
             const [empColorFilter, setEmpColorFilter] = useState(null);
-            const colorFilteredEmp = empColorFilter === 'pinned' ? sortedReportEmployees.filter(e => pinnedEmpIds.has(e.id))
+            const colorFilteredEmp = React.useMemo(() => empColorFilter === 'pinned' ? sortedReportEmployees.filter(e => pinnedEmpIds.has(e.id))
                 : empColorFilter === 'pending' ? sortedReportEmployees.filter(e => empIdsWithPendingSalary.has(String(e.id)))
                 : empColorFilter === 'bersih' ? sortedReportEmployees.filter(e => !empIdsWithPendingSalary.has(String(e.id)))
-                : sortedReportEmployees;
+                : sortedReportEmployees, [sortedReportEmployees, empColorFilter, empIdsWithPendingSalary, pinnedEmpIds]);
             const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedReportEmployees, total: empTotal } = usePagination(colorFilteredEmp, 10);
 
             const toggleSelection = (key) => {
@@ -15044,7 +15054,7 @@ ${getRekapShareLink(rekap)}
                     <Card>
                         <div className="flex flex-col sm:flex-row gap-3">
                             <div className="flex-1">
-                                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari karyawan, divisi, order, instansi, jenis produksi, tahap, tanggal, status, kasbon, catatan..." />
+                                <SearchField value={searchInput} onChange={setSearchInput} placeholder="Cari karyawan, divisi, order, instansi, jenis produksi, tahap, tanggal, status, kasbon, catatan..." />
                             </div>
                             <button
                                 onClick={() => setShowOnlyReady(prev => !prev)}
