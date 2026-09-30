@@ -1088,11 +1088,13 @@
         };
 
         const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman }) => {
-            const safeOrders = (orders || []).filter(isVisibleOrder);
-            const totalOrders = safeOrders.filter(o => !o?.isArchived).length;
-            const activeOrders = safeOrders.filter(o => !o?.isArchived && o?.status !== 'Terkirim' && o?.status !== 'Siap Kirim').length;
-            const doneOrders = safeOrders.filter(o => !o?.isArchived && o?.status === 'Siap Kirim').length;
-            const shippedOrders = safeOrders.filter(o => !o?.isArchived && o?.status === 'Terkirim').length;
+            const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
+            const { totalOrders, activeOrders, doneOrders, shippedOrders } = React.useMemo(() => ({
+                totalOrders: safeOrders.filter(o => !o?.isArchived).length,
+                activeOrders: safeOrders.filter(o => !o?.isArchived && o?.status !== 'Terkirim' && o?.status !== 'Siap Kirim').length,
+                doneOrders: safeOrders.filter(o => !o?.isArchived && o?.status === 'Siap Kirim').length,
+                shippedOrders: safeOrders.filter(o => !o?.isArchived && o?.status === 'Terkirim').length,
+            }), [safeOrders]);
 
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [editOrder, setEditOrder] = useState(null);
@@ -1100,9 +1102,11 @@
             const [insight, setInsight] = useState("");
             const [isInsightLoading, setIsInsightLoading] = useState(false);
             const [searchTerm, setSearchTerm] = useState('');
+            const [searchInput, setSearchInput] = React.useState('');
+            React.useEffect(() => { const t = setTimeout(() => setSearchTerm(searchInput), 300); return () => clearTimeout(t); }, [searchInput]);
             const [currentPage, setCurrentPage] = useState(1);
             const ITEMS_PER_PAGE = 10;
-            const dashboardOrders = safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm));
+            const dashboardOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
 
             // ── Grafik PCS Bulanan ──
             const chartYears = React.useMemo(() => {
@@ -1416,7 +1420,7 @@
                         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-4">
                             <h3 className="text-lg font-bold text-gray-800">Progress Produksi Berjalan</h3>
                             <div className="w-full md:w-80">
-                                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID, klien, barang, status..." />
+                                <SearchField value={searchInput} onChange={setSearchInput} placeholder="Cari ID, klien, barang, status..." />
                             </div>
                         </div>
                         <div className="overflow-x-auto hidden md:block">
@@ -8752,6 +8756,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [form, setForm] = useState(emptyInvoice);
             const [editId, setEditId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
+            const [searchInput, setSearchInput] = React.useState('');
+            React.useEffect(() => { const t = setTimeout(() => setSearchTerm(searchInput), 300); return () => clearTimeout(t); }, [searchInput]);
             const [statusFilter, setStatusFilter] = useState('Semua');
             const [invSortBy, setInvSortBy] = useState('terbaru');
             const [expandedIds, setExpandedIds] = useState({});
@@ -8767,10 +8773,10 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
-            const marketingEmployees = safeEmployeeRows.filter(isVisibleRecord).filter(emp => getEmployeeDivisions(emp).includes('Marketing') || emp.salaryType === 'Marketing' || getEmployeeSalaryTypes(emp).includes('Marketing'));
+            const marketingEmployees = React.useMemo(() => safeEmployeeRows.filter(isVisibleRecord).filter(emp => getEmployeeDivisions(emp).includes('Marketing') || emp.salaryType === 'Marketing' || getEmployeeSalaryTypes(emp).includes('Marketing')), [employees]);
             const _defaultProdTypes = ['Kaos', 'Kemeja', 'Jaket', 'Wearpack', 'Wangki / Polo Shirt', 'Celana', 'Topi'];
-            const uniqueInvoiceTypes = [...new Set([..._defaultProdTypes, ...safeInvoiceRows.filter(isVisibleRecord).flatMap(inv => getInvoiceItems(inv).map(item => item.productionType)).filter(Boolean)])].sort();
-            const clientAddressSuggestions = [...new Set(safeClientRows.filter(isVisibleRecord).map(c => String(c.address || '').trim()).filter(Boolean))].sort();
+            const uniqueInvoiceTypes = React.useMemo(() => [...new Set([..._defaultProdTypes, ...safeInvoiceRows.filter(isVisibleRecord).flatMap(inv => getInvoiceItems(inv).map(item => item.productionType)).filter(Boolean)])].sort(), [invoices]);
+            const clientAddressSuggestions = React.useMemo(() => [...new Set(safeClientRows.filter(isVisibleRecord).map(c => String(c.address || '').trim()).filter(Boolean))].sort(), [clients]);
             // Hitung saldo DP tersedia dari pool klien (exclude DP yg punya invoiceId lama, exclude invoice yg sedang diedit)
             const getFormAvailableDp = (customerName, currentEditId) => {
                 if (!customerName) return 0;
@@ -8782,7 +8788,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             };
             const availableDpForForm = getFormAvailableDp(form.customer, editId);
             const currentInvoiceTotal = getInvoiceTotals(form).total;
-            const visibleInvoices = safeInvoiceRows.filter(isVisibleRecord).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(inv => {
+            const visibleInvoices = React.useMemo(() => safeInvoiceRows.filter(isVisibleRecord).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.address, inv.marketing, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)], searchTerm);
             }).sort((a, b) => {
@@ -8791,7 +8797,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 if (invSortBy === 'terkecil')      return getInvoiceTotals(a).total - getInvoiceTotals(b).total;
                 if (invSortBy === 'sisa_terbesar') return Math.max(0, getInvoiceTotals(b).total - getInvoicePaidTotal(b)) - Math.max(0, getInvoiceTotals(a).total - getInvoicePaidTotal(a));
                 return new Date(b.date || 0) - new Date(a.date || 0);
-            });
+            }), [invoices, statusFilter, searchTerm, invSortBy]);
             const { page: invPage, setPage: setInvPage, totalPages: invTotalPages, paged: pagedInvoices, total: invTotal } = usePagination(visibleInvoices, 20);
             const totalInvoice = visibleInvoices.reduce((sum, inv) => sum + getInvoiceTotals(inv).total, 0);
             const totalPaid = visibleInvoices.reduce((sum, inv) => sum + getInvoicePaidTotal(inv), 0);
@@ -9558,7 +9564,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                             </div>
                             <div className="flex flex-col md:flex-row gap-2 md:items-center">
-                                <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari customer, marketing, jenis, status..." />
+                                <SearchField value={searchInput} onChange={setSearchInput} placeholder="Cari customer, marketing, jenis, status..." />
                                 <select className="p-2.5 border border-slate-600 bg-slate-700 text-white rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setInvPage(1); }}>
                                     <option>Semua</option><option>Belum Dibayar</option><option>Termin</option><option>Lunas</option>
                                 </select>
@@ -11688,17 +11694,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const isSuperAdmin = authUser?.role === 'Admin' || getAccountMenuAccess(authUser).includes('laporan_sensitif');
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
+            const [searchInput, setSearchInput] = React.useState('');
+            React.useEffect(() => { const t = setTimeout(() => setSearchTerm(searchInput), 300); return () => clearTimeout(t); }, [searchInput]);
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
             const [divisionFilter, setDivisionFilter] = useState('Semua');
             const [cashAdvanceStatusFilter, setCashAdvanceStatusFilter] = useState('Semua');
             const [activeFinanceTab, setActiveFinanceTab] = useState('dashboard');
             const [finChartYear, setFinChartYear] = React.useState(() => String(new Date().getFullYear()));
             const [finChartMode, setFinChartMode] = React.useState('masuk');
-            const safeOrders = (Array.isArray(orders) ? orders : []).filter(isVisibleOrder);
+            const safeOrders = React.useMemo(() => (Array.isArray(orders) ? orders : []).filter(isVisibleOrder), [orders]);
             const safeFinanceEmployees = Array.isArray(employees) ? employees : [];
             const safeFinanceRekaps = Array.isArray(rekapKinerja) ? rekapKinerja : [];
             const safeFinanceInvoices = Array.isArray(invoices) ? invoices : [];
-            const visibleEmployees = safeFinanceEmployees.filter(isVisibleRecord);
+            const visibleEmployees = React.useMemo(() => safeFinanceEmployees.filter(isVisibleRecord), [employees]);
             const normalizedSearch = searchTerm.trim().toLowerCase();
 
             const formatDate = (value) => {
@@ -11738,7 +11746,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const allMaterialRows = buildMaterialRows(allUnifiedNotes);
 
-            const allWageRows = safeFinanceRekaps
+            const allWageRows = React.useMemo(() => safeFinanceRekaps
                 .filter(isVisibleRecord)
                 .filter(rekap => {
                     if (isSuperAdmin) return true;
@@ -11764,8 +11772,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         bagiHasilDireksiSalary: safeMoney(rekap.bagiHasilDireksiAmount || 0),
                         items: rekap.items || []
                     };
-                });
-            const allCashAdvanceRows = visibleEmployees.flatMap(emp => getEmployeeCashAdvances(emp).map(item => ({
+                }), [rekapKinerja, employees, isSuperAdmin]);
+            const allCashAdvanceRows = React.useMemo(() => visibleEmployees.flatMap(emp => getEmployeeCashAdvances(emp).map(item => ({
                 id: `${emp.id}-${item.id}`,
                 empId: emp.id,
                 empName: emp.name || '-',
@@ -11776,7 +11784,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 remaining: getCashAdvanceRemaining(item),
                 status: normalizeCashAdvanceStatus(item),
                 note: item.note || ''
-            })));
+            }))), [employees]);
 
             const materialRows = allMaterialRows.filter(row => {
                 if (!isInPeriod(row.date)) return false;
@@ -11815,11 +11823,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalCashAdvanceDeductionInPeriod = wageRows.reduce((sum, row) => sum + row.cashAdvanceDeduction, 0);
             const totalCashAdvanceGiven = cashAdvanceRows.reduce((sum, row) => sum + row.amount, 0);
             // Potongan kasbon yang terjadi dalam periode ini (berdasarkan tanggal rekap di deductionHistory)
-            const totalCashAdvanceDeducted = visibleEmployees
+            const totalCashAdvanceDeducted = React.useMemo(() => visibleEmployees
                 .flatMap(emp => getEmployeeCashAdvances(emp))
                 .flatMap(item => Array.isArray(item.deductionHistory) ? item.deductionHistory : [])
                 .filter(entry => isInPeriod(entry.date))
-                .reduce((sum, entry) => sum + safeMoney(entry.amount), 0);
+                .reduce((sum, entry) => sum + safeMoney(entry.amount), 0), [employees, period]);
             const totalCashAdvanceRemaining = cashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
             const expenseRows = (expenses || []).filter(isVisibleRecord).filter(row => {
                 if (!isInPeriod(row.date)) return false;
@@ -12404,9 +12412,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                             <div className="md:col-span-2">
                                 <label className="block text-xs font-bold text-gray-600 mb-1">Cari Data</label>
-                                <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="Cari order, instansi, vendor, karyawan..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="Cari order, instansi, vendor, karyawan..." value={searchInput} onChange={e => setSearchInput(e.target.value)} />
                             </div>
-                            <button type="button" onClick={() => { setPeriod(''); setSearchTerm(''); setEmployeeFilter('Semua'); setDivisionFilter('Semua'); setCashAdvanceStatusFilter('Semua'); }} className="p-3 border border-gray-300 rounded-lg font-bold text-gray-700 hover:bg-gray-50">Reset Filter</button>
+                            <button type="button" onClick={() => { setPeriod(''); setSearchTerm(''); setSearchInput(''); setEmployeeFilter('Semua'); setDivisionFilter('Semua'); setCashAdvanceStatusFilter('Semua'); }} className="p-3 border border-gray-300 rounded-lg font-bold text-gray-700 hover:bg-gray-50">Reset Filter</button>
                             <div>
                                 <label className="block text-xs font-bold text-gray-600 mb-1">Karyawan</label>
                                 <select className="w-full p-3 border border-gray-300 rounded-lg text-sm" value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)}>
@@ -16446,13 +16454,15 @@ ${getRekapShareLink(rekap)}
 
         const RiwayatRekapKinerjaView = ({ orders, setOrders, employees, rekapKinerja, setRekapKinerja, showToast, authUser }) => {
             const [searchTerm, setSearchTerm] = useState('');
+            const [searchInput, setSearchInput] = React.useState('');
+            React.useEffect(() => { const t = setTimeout(() => setSearchTerm(searchInput), 300); return () => clearTimeout(t); }, [searchInput]);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [detailRekapId, setDetailRekapId] = useState(null);
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const toggleRekapExpand = (id) => setExpandedRekapIds(prev => ({ ...prev, [id]: !prev[id] }));
-            const visibleEmployees = (employees || []).filter(isVisibleRecord);
+            const visibleEmployees = React.useMemo(() => (employees || []).filter(isVisibleRecord), [employees]);
             const getRekapShareLink = (rekap) => `${window.location.href.split('#')[0]}#rekap-gaji=${encodeURIComponent(rekap.id)}`;
-            const visibleRekaps = (rekapKinerja || [])
+            const visibleRekaps = React.useMemo(() => (rekapKinerja || [])
                 .filter(isVisibleRecord)
                 .filter(rekap => authUser?.role !== 'Karyawan' || String(rekap.empId) === String(authUser.linkedEmpId || '') || (!authUser.linkedEmpId && normalizeText(rekap.empName) === normalizeText(authUser.name)))
                 .filter(rekap => {
@@ -16460,7 +16470,8 @@ ${getRekapShareLink(rekap)}
                     const itemText = (rekap.items || []).map(item => `${item.orderId} ${item.client} ${item.type} ${item.stageLabel || item.stage} ${item.sizes}`).join(' ');
                     return matchesSearch([rekap.id, rekap.empName, emp?.name, rekap.division, rekap.dateProcessed, rekap.total, rekap.totalWage, itemText], searchTerm);
                 })
-                .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+                .sort((a, b) => String(b.id).localeCompare(String(a.id))),
+            [rekapKinerja, visibleEmployees, searchTerm, authUser]);
             const { page: rekapPage, setPage: setRekapPage, totalPages: rekapTotalPages, paged: pagedRekaps, total: rekapTotal } = usePagination(visibleRekaps, 12);
 
             const copyRekapShareLink = async (rekap) => {
@@ -16542,7 +16553,7 @@ ${getRekapShareLink(rekap)}
                         <p className="text-sm text-gray-500 mt-1">Daftar rekap gaji produksi yang sudah dicetak.</p>
                     </div>
                     <Card>
-                        <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID rekap, karyawan, order, instansi, tahap..." />
+                        <SearchField value={searchInput} onChange={setSearchInput} placeholder="Cari ID rekap, karyawan, order, instansi, tahap..." />
                     </Card>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         {pagedRekaps.map(rekap => {
