@@ -13468,7 +13468,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
             const safeInvoicesForReport = Array.isArray(invoices) ? invoices : [];
             const visibleEmployees = React.useMemo(() => safeEmployeesForReport.filter(isVisibleRecord), [employees]);
-            const visibleRekaps = React.useMemo(() => safeRekapForReport.filter(isVisibleRecord), [rekapKinerja]);
+            const visibleRekapsBase = React.useMemo(() => safeRekapForReport.filter(isVisibleRecord), [rekapKinerja]);
             const visibleInvoicesForPending = React.useMemo(() => safeInvoicesForReport.filter(isVisibleRecord), [invoices]);
             const visibleOrdersForPending = React.useMemo(() => safeOrdersForReport.filter(isVisibleOrder), [orders]);
             const isSuperAdmin = authUser?.role === 'Admin' || getAccountMenuAccess(authUser).includes('laporan_sensitif');
@@ -13477,7 +13477,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const empIdsWithPendingSalary = React.useMemo(() => {
                 const ids = new Set();
-                const visibleRekapIds = new Set(visibleRekaps.map(rk => String(rk.id)));
+                const visibleRekapIds = new Set(visibleRekapsBase.map(rk => String(rk.id)));
                 const currentBHMonth = new Date().toISOString().slice(0,7);
                 visibleEmployees.forEach(emp => {
                     let hasProd = false;
@@ -13501,11 +13501,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const fpToday = new Date().toISOString().split('T')[0];
                         hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
                     }
-                    const hasBagiHasil = isDireksi && safeMoney(emp.bagiHasilNilai) > 0 && !visibleRekaps.some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === currentBHMonth);
+                    const hasBagiHasil = isDireksi && safeMoney(emp.bagiHasilNilai) > 0 && !visibleRekapsBase.some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === currentBHMonth);
                     if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd || hasFingerPending || hasBagiHasil) ids.add(String(emp.id));
                 });
                 return ids;
-            }, [visibleEmployees, visibleOrdersForPending, visibleInvoicesForPending, visibleRekaps, absensiRawLogs]);
+            }, [visibleEmployees, visibleOrdersForPending, visibleInvoicesForPending, visibleRekapsBase, absensiRawLogs]);
 
             const [searchInput, setSearchInput] = React.useState('');
             React.useEffect(() => {
