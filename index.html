@@ -10996,6 +10996,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalKewajiban = modal + totalBH;
             const status = investor.isLunas ? 'LUNAS' : 'AKTIF';
             const today = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+            const invType = investor.bagiHasilType || 'per_pcs';
+            const isPersen = invType === 'persen';
+            const tarifLabel = isPersen ? `${investor.bagiHasilPersen || 0}% dari Total Invoice` : `${fmtRp(investor.bagiHasilPerPcs)} / pcs`;
+            const tarifJudul = isPersen ? 'Persentase Bagi Hasil' : 'Bagi Hasil Per Pcs';
+            const docSub = isPersen ? 'Bagi Hasil % dari Invoice' : 'Bagi Hasil Per Pcs Produksi';
+            const periodeStr = investor.tanggalMulai ? (investor.tanggalJatuhTempo ? `${investor.tanggalMulai} s/d ${investor.tanggalJatuhTempo}` : `Mulai ${investor.tanggalMulai}`) : '-';
+            const caraPerhitungan = isPersen
+                ? `Bagi hasil dihitung dari <strong>total nilai invoice × ${investor.bagiHasilPersen || 0}%</strong> untuk setiap invoice yang sudah lunas dan dilaporkan. Contoh: invoice Rp 10.000.000 → bagi hasil = Rp 10.000.000 × ${investor.bagiHasilPersen || 0}% = <strong>${fmtRp(Math.round(10000000 * (parseFloat(investor.bagiHasilPersen)||0) / 100))}</strong>`
+                : `Bagi hasil dihitung dari <strong>jumlah pcs × ${fmtRp(investor.bagiHasilPerPcs)}</strong> untuk setiap invoice yang sudah lunas dan dilaporkan. Contoh: 100 pcs → bagi hasil = 100 × ${fmtRp(investor.bagiHasilPerPcs)} = <strong>${fmtRp(100 * (parseFloat(investor.bagiHasilPerPcs)||0))}</strong>`;
             const rows = records.map((r, i) => `
                 <tr style="background:${i%2===0?'#f8fafc':'#fff'}">
                     <td style="padding:6px 8px;border:1px solid #e2e8f0">${r.tanggal || '-'}</td>
@@ -11003,7 +11012,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <td style="padding:6px 8px;border:1px solid #e2e8f0">${r.invoiceCustomer || '-'}</td>
                     <td style="padding:6px 8px;border:1px solid #e2e8f0">${r.invoiceType || '-'}</td>
                     <td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:center">${r.pcs || 0}</td>
-                    <td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:right">${fmtRp(r.bagiHasilPerPcs)}</td>
+                    <td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:right">${isPersen ? fmtRp(r.invoiceTotal||0) : fmtRp(r.bagiHasilPerPcs)}</td>
                     <td style="padding:6px 8px;border:1px solid #e2e8f0;text-align:right;font-weight:700;color:#16a34a">${fmtRp(r.totalBagiHasil)}</td>
                     <td style="padding:6px 8px;border:1px solid #e2e8f0;font-style:italic;color:#64748b">${r.note || '-'}</td>
                 </tr>`).join('');
@@ -11025,19 +11034,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 table{width:100%;border-collapse:collapse;font-size:10px;margin-top:8px}
                 th{background:#1e3a5f;color:#fff;padding:7px 8px;text-align:left;font-size:9px;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}
                 tfoot td{background:#f1f5f9;font-weight:900;padding:7px 8px;border:1px solid #e2e8f0}
-                .kewajiban-box{background:#fff7ed;border:2px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-top:10px;display:flex;justify-content:space-between;align-items:center}
+                .cara-box{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:10px;line-height:1.6;color:#78350f}
+                .cara-title{font-size:9px;font-weight:700;text-transform:uppercase;color:#92400e;margin-bottom:4px;letter-spacing:0.5px}
                 .footer{margin-top:12px;text-align:right;font-size:9px;color:#94a3b8}
             </style></head>
             <body><div class="page">
                 <div class="header">
                     <div><div class="co-name">${templates?.companyName || 'Simpati Konveksi'}</div><div style="font-size:10px;color:#64748b">${templates?.companyAddress || ''}</div></div>
-                    <div><div class="doc-title">LAPORAN INVESTOR</div><div class="doc-sub">Bagi Hasil Per Pcs Produksi</div><div class="doc-sub">Dicetak: ${today}</div></div>
+                    <div><div class="doc-title">LAPORAN INVESTOR</div><div class="doc-sub">${docSub}</div><div class="doc-sub">Dicetak: ${today}</div></div>
                 </div>
                 <div class="info-grid">
                     <div class="info-box"><div class="info-lbl">Nama Investor</div><div class="info-val">${investor.name}</div></div>
-                    <div class="info-box"><div class="info-lbl">Tanggal Mulai Investasi</div><div class="info-val">${investor.tanggalMulai || '-'}</div></div>
+                    <div class="info-box"><div class="info-lbl">Periode Investasi</div><div class="info-val" style="font-size:11px">${periodeStr}</div></div>
                     <div class="info-box"><div class="info-lbl">Modal Investasi</div><div class="info-val" style="color:#1e3a5f">${fmtRp(modal)}</div></div>
-                    <div class="info-box"><div class="info-lbl">Bagi Hasil Per Pcs</div><div class="info-val">${fmtRp(investor.bagiHasilPerPcs)} / pcs</div></div>
+                    <div class="info-box"><div class="info-lbl">${tarifJudul}</div><div class="info-val">${tarifLabel}</div></div>
                 </div>
                 <div class="stat-grid">
                     <div class="stat-box" style="background:#eef2ff;border:1px solid #c7d2fe"><div class="info-lbl" style="color:#3730a3">Modal Masuk</div><div style="font-size:16px;font-weight:900;color:#1e3a5f">${fmtRp(modal)}</div></div>
@@ -11048,10 +11058,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <span style="font-size:11px;font-weight:700;color:#64748b">STATUS INVESTASI</span>
                     <span style="font-size:14px;font-weight:900;color:${investor.isLunas?'#16a34a':'#1e3a5f'}">${status}${investor.isLunas && investor.tanggalLunas ? ' — ' + investor.tanggalLunas : ''}</span>
                 </div>
+                <div class="cara-box">
+                    <div class="cara-title">&#9432; Cara Perhitungan Bagi Hasil</div>
+                    ${caraPerhitungan}
+                </div>
                 <table>
                     <thead><tr>
                         <th>Tanggal</th><th>No Invoice</th><th>Klien</th><th>Jenis</th>
-                        <th style="text-align:center">Pcs</th><th style="text-align:right">BH/Pcs</th>
+                        <th style="text-align:center">Pcs</th><th style="text-align:right">${isPersen ? 'Total Invoice' : 'BH/Pcs'}</th>
                         <th style="text-align:right">Total BH</th><th>Catatan</th>
                     </tr></thead>
                     <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:12px;color:#94a3b8">Belum ada data bagi hasil</td></tr>'}</tbody>
@@ -11068,7 +11082,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <td></td>
                     </tr></tfoot>
                 </table>
-                <div class="footer">Laporan ini digenerate otomatis oleh sistem Simpati Konveksi</div>
+                <div class="footer">Laporan ini digenerate otomatis oleh sistem ${templates?.companyName || 'Simpati Konveksi'}</div>
             </div></body></html>`;
             const w = window.open('', '_blank');
             if (w) { w.document.open(); w.document.write(content); w.document.close(); w.focus(); setTimeout(() => w.print(), 300); }
@@ -11078,9 +11092,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const safe = (v) => String(v ?? '-').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
             const today = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
             const tglMulai = investor.tanggalMulai ? new Date(investor.tanggalMulai).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) : '-';
+            const tglTempo = investor.tanggalJatuhTempo ? new Date(investor.tanggalJatuhTempo).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) : null;
             const invType = investor.bagiHasilType || 'per_pcs';
             const tarifLabel = invType === 'persen' ? `${investor.bagiHasilPersen || 0}% dari Total Invoice` : `${formatRupiah(investor.bagiHasilPerPcs)} / pcs`;
             const tarifSub = invType === 'persen' ? 'Persentase per invoice' : 'Per unit produksi';
+            const clausePerhitungan = invType === 'persen'
+                ? `Bagi hasil dihitung sebesar <strong>${investor.bagiHasilPersen || 0}% dari total nilai setiap invoice</strong> yang telah lunas dan dilaporkan kepada investor. Semakin besar omset yang berhasil ditagih, semakin besar bagi hasil yang diterima.`
+                : `Bagi hasil dihitung sebesar <strong>${formatRupiah(investor.bagiHasilPerPcs)} untuk setiap pcs</strong> yang diproduksi dan tercatat dalam invoice yang telah lunas. Total bagi hasil = jumlah pcs terproduksi × ${formatRupiah(investor.bagiHasilPerPcs)}.`;
             const statusLabel = investor.isLunas ? 'Lunas ✦' : 'Aktif ✦';
             const logoHtml = (tmpl||{}).companyLogo
                 ? `<img src="${(tmpl||{}).companyLogo}" style="height:28px;max-width:90px;object-fit:contain"/>`
@@ -11151,9 +11169,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 <div class="details">
   <div class="detail-box"><div class="dl">Modal Investasi</div><div class="dv">${formatRupiah(investor.modalMasuk)}</div><div class="ds">${safe(terbilangRupiah(safeMoney(investor.modalMasuk)))}</div></div>
   <div class="detail-box"><div class="dl">Skema Bagi Hasil</div><div class="dv">${safe(tarifLabel)}</div><div class="ds">${safe(tarifSub)}</div></div>
-  <div class="detail-box"><div class="dl">Tanggal Investasi</div><div class="dv">${safe(tglMulai)}</div><div class="ds">Status: ${safe(statusLabel)}</div></div>
+  <div class="detail-box"><div class="dl">${tglTempo ? 'Periode Investasi' : 'Tanggal Mulai'}</div><div class="dv" style="font-size:${tglTempo?'11px':'14px'}">${safe(tglMulai)}${tglTempo ? ` s/d ${safe(tglTempo)}` : ''}</div><div class="ds">Status: ${safe(statusLabel)}</div></div>
 </div>
-<div class="clause-box">Telah menanamkan modal pada <strong>${coNm}</strong> sesuai perjanjian yang telah disepakati bersama.${investor.catatan ? ` <em>"${safe(investor.catatan)}"</em>` : ''}<br/>Bagi hasil dihitung dan dibayarkan berdasarkan skema di atas untuk setiap produksi yang telah diselesaikan.</div>
+<div class="clause-box">Telah menanamkan modal pada <strong>${coNm}</strong> sesuai perjanjian yang telah disepakati bersama.${investor.catatan ? ` <em>"${safe(investor.catatan)}"</em>` : ''}<br/><br/>${clausePerhitungan}</div>
 <div class="footer">
   <div class="seal-wrap">
     <div class="seal"><div class="seal-star">✦</div>${coNm.split(' ').map(w=>w[0]).join('')}<br/>RESMI</div>
