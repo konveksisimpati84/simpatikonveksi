@@ -25698,6 +25698,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <button onClick={() => {
                                                     if (!editShiftForm.jamMasuk || !editShiftForm.jamTelat || !editShiftForm.jamPulang) { showToast('Semua jam wajib diisi.', 'error'); return; }
                                                     if (timeToMinutes(editShiftForm.jamPulang) <= timeToMinutes(editShiftForm.jamMasuk)) { showToast('Jam pulang harus lebih dari jam masuk.', 'error'); return; }
+                                                    if (editShiftForm.scanMulai && editShiftForm.scanSelesai && timeToMinutes(editShiftForm.scanSelesai) <= timeToMinutes(editShiftForm.scanMulai)) { showToast('Akhir scan harus lebih dari mulai scan.', 'error'); return; }
                                                     saveShiftConfig(editShiftForm);
                                                 }} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700">Simpan</button>
                                             </div>
