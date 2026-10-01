@@ -16338,38 +16338,10 @@ ${getRekapShareLink(rekap)}
                                                             ))}
                                                         </div>
                                                     ) : (
-                                                        <div className="text-xs text-amber-700 space-y-2">
-                                                            <div className="bg-white border border-amber-200 rounded-lg px-3 py-2">
-                                                                <p>Rekap ini dibuat sebelum fitur rincian per-invoice tersedia. Selisih <b>{formatRupiah(detailKomisiSelisih)}</b> tidak bisa dideteksi per-invoice secara otomatis.</p>
-                                                                <p className="mt-1 text-amber-500">Komisi saat direkap: <b>{formatRupiah(safeMoney(rekap.marketingCommission))}</b> → Komisi terkini: <b>{formatRupiah(safeMoney(rekap.marketingCommission) + detailKomisiSelisih)}</b></p>
-                                                            </div>
-                                                            <div>
-                                                                <button onClick={() => setShowOldInvoiceList(v => !v)} className="text-xs font-bold bg-white border border-amber-300 text-amber-700 px-2.5 py-1.5 rounded-lg hover:bg-amber-50 w-full text-left">
-                                                                    {showOldInvoiceList ? '▲ Tutup Daftar Invoice' : '▼ Lihat Invoice Terkait'}
-                                                                </button>
-                                                                {showOldInvoiceList && (
-                                                                    <div className="bg-white border border-amber-200 rounded-lg overflow-hidden mt-1">
-                                                                        <div className="grid grid-cols-2 bg-amber-100 px-3 py-1.5 font-bold text-amber-800">
-                                                                            <span>Invoice / Customer</span>
-                                                                            <span className="text-right">Komisi Terkini</span>
-                                                                        </div>
-                                                                        {safeArray(rekap.marketingInvoiceIds).map(id => {
-                                                                            const inv = safeArray(safeInvoicesForReport).find(i => String(i.id) === String(id));
-                                                                            const komisi = inv ? getInvoiceCommissionTotal(inv) : 0;
-                                                                            return (
-                                                                                <div key={id} className="grid grid-cols-2 px-3 py-2 border-t border-amber-100 items-center">
-                                                                                    <span className="font-semibold text-gray-700 truncate pr-2">{inv ? (inv.client || inv.customerName || id) : id}</span>
-                                                                                    <span className="text-right font-bold text-amber-700">{formatRupiah(komisi)}</span>
-                                                                                </div>
-                                                                            );
-                                                                        })}
-                                                                        <div className="grid grid-cols-2 px-3 py-2 border-t border-amber-300 bg-amber-50 font-bold text-amber-800">
-                                                                            <span>Total Terkini</span>
-                                                                            <span className="text-right">{formatRupiah(safeMoney(rekap.marketingCommission) + detailKomisiSelisih)}</span>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
+                                                        <div className="bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                                                            <p>Rekap ini dibuat sebelum fitur rincian per-invoice tersedia. Sistem tidak bisa mendeteksi invoice mana yang berubah.</p>
+                                                            <p className="mt-1">Komisi saat direkap: <b>{formatRupiah(safeMoney(rekap.marketingCommission))}</b> → Terkini: <b>{formatRupiah(safeMoney(rekap.marketingCommission) + detailKomisiSelisih)}</b> · Selisih: <b>{formatRupiah(detailKomisiSelisih)}</b></p>
+                                                            <p className="mt-1 text-amber-500">Klik <b>Edit Rekap</b> untuk melihat rincian invoice dan memperbarui rekap.</p>
                                                         </div>
                                                     )}
                                                 </div>
