@@ -14812,16 +14812,27 @@ ${getRekapShareLink(rekap)}
             const getRekapKomisiSelisih = (rekap) => {
                 const invoiceIds = safeArray(rekap.marketingInvoiceIds);
                 if (invoiceIds.length === 0) return 0;
-                const snap = rekap.marketingInvoiceAmounts || {};
-                let selisih = 0;
-                invoiceIds.forEach(id => {
-                    const inv = safeArray(safeInvoicesForReport).find(i => String(i.id) === String(id));
-                    if (!inv) return;
-                    const storedAmt = snap[String(id)] != null ? safeMoney(snap[String(id)]) : safeMoney(rekap.marketingCommission);
-                    const liveAmt = getInvoiceCommissionTotal(inv);
-                    selisih += liveAmt - storedAmt;
-                });
-                return Math.round(selisih);
+                const snap = rekap.marketingInvoiceAmounts;
+                const hasSnap = snap && Object.keys(snap).length > 0;
+                if (hasSnap) {
+                    // Rekap baru: ada snapshot per-invoice → bandingkan satu per satu
+                    let selisih = 0;
+                    invoiceIds.forEach(id => {
+                        const inv = safeArray(safeInvoicesForReport).find(i => String(i.id) === String(id));
+                        if (!inv) return;
+                        const storedAmt = snap[String(id)] != null ? safeMoney(snap[String(id)]) : 0;
+                        selisih += getInvoiceCommissionTotal(inv) - storedAmt;
+                    });
+                    return Math.round(Math.max(0, selisih));
+                } else {
+                    // Rekap lama: tidak ada snapshot → bandingkan total tersimpan vs total live
+                    const storedTotal = safeMoney(rekap.marketingCommission);
+                    const liveTotal = invoiceIds.reduce((sum, id) => {
+                        const inv = safeArray(safeInvoicesForReport).find(i => String(i.id) === String(id));
+                        return sum + (inv ? getInvoiceCommissionTotal(inv) : 0);
+                    }, 0);
+                    return Math.round(Math.max(0, liveTotal - storedTotal));
+                }
             };
             const sortedRekaps = [...visibleRekaps].sort((a, b) => {
                 const ap = pinnedRekapIds.has(a.id) ? 1 : 0;
