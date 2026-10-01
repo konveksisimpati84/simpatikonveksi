@@ -327,7 +327,7 @@
         };
         const getActiveProductionStageIds = (order) => getActiveProductionStages(order).map(stage => stage.id);
         const orderNeedsMaterials = (order) => getOrderProcessFlow(order).materials !== false;
-        const getProductionUnitPrice = (order, stageId) => parseInt(order?.productionPrices?.[stageId]) || 0;
+        const getProductionUnitPrice = (order, stageId) => safeMoney(order?.productionPrices?.[stageId]);
         const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(parseInt(num) || 0);
 
         const terbilangRupiah = (n) => {
@@ -12068,11 +12068,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             });
             wageRows.forEach(row => {
                 const items = row.items || [];
-                const grossItemsTotal = items.reduce((s, it) => s + (parseInt(it.wageTotal) || 0), 0);
+                const grossItemsTotal = items.reduce((s, it) => s + safeMoney(it.wageTotal), 0);
                 let wageDistributed = 0;
                 items.forEach((item, idx) => {
                     const isLast = idx === items.length - 1;
-                    const itemGross = parseInt(item.wageTotal) || 0;
+                    const itemGross = safeMoney(item.wageTotal);
                     // Alokasi proporsional dari netSalary; koreksi rounding di baris terakhir
                     const allocated = grossItemsTotal > 0
                         ? (isLast ? row.netSalary - wageDistributed : Math.round(row.netSalary * itemGross / grossItemsTotal))
@@ -14333,6 +14333,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setIsRekapProcessing(false);
                     return;
                 }
+                // Cegah double-rekap: pastikan tidak ada rekap lain yang sedang dibuat untuk karyawan + tanggal yang sama
+                const todayStr = new Date().toISOString().split('T')[0];
+                const existingSameDay = safeArray(rekapKinerja).filter(isVisibleRecord).some(rk =>
+                    String(rk.empId) === String(modalData.empId) && rk.dateProcessed === todayStr
+                );
+                if (existingSameDay && !window.confirm(`Sudah ada rekap untuk ${empForRekap.name} hari ini. Tetap buat rekap baru?`)) {
+                    setIsRekapProcessing(false);
+                    return;
+                }
                 const allUnrekapedLogs = getEmployeeDailySalaryLogs(empForRekap).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                 const allPreviewLogs = safeArray(modalData?.autoPreviewLogs);
                 const dailySalaryLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id || log.date)));
@@ -14821,6 +14830,7 @@ ${getRekapShareLink(rekap)}
                 overtime: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.overtimeSalary), 0),
                 commission: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.marketingCommission), 0),
                 bonus: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.bonusSalary), 0),
+                bagiHasil: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.bagiHasilDireksiAmount), 0),
                 kasbon: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.cashAdvanceDeduction), 0),
                 net: visibleRekaps.reduce((sum, r) => sum + getRekapNet(r), 0)
             };
@@ -15293,6 +15303,7 @@ ${getRekapShareLink(rekap)}
                             <Card><h3 className="text-xs font-bold text-gray-500">Lembur Harian</h3><p className="text-xl font-black text-purple-700">{formatRupiah(rekapSummary.overtime)}</p></Card>
                             <Card><h3 className="text-xs font-bold text-gray-500">Komisi Marketing</h3><p className="text-xl font-black text-purple-700">{formatRupiah(rekapSummary.commission)}</p></Card>
                             {rekapSummary.bonus > 0 && <Card><h3 className="text-xs font-bold text-gray-500">Bonus Kinerja</h3><p className="text-xl font-black text-yellow-700">{formatRupiah(rekapSummary.bonus)}</p></Card>}
+                            {rekapSummary.bagiHasil > 0 && <Card><h3 className="text-xs font-bold text-gray-500">Bagi Hasil</h3><p className="text-xl font-black text-amber-700">{formatRupiah(rekapSummary.bagiHasil)}</p></Card>}
                             <Card><h3 className="text-xs font-bold text-gray-500">Kasbon Dipotong</h3><p className="text-xl font-black text-orange-700">{formatRupiah(rekapSummary.kasbon)}</p></Card>
                             <Card><h3 className="text-xs font-bold text-gray-500">Gaji Bersih</h3><p className="text-xl font-black text-blue-700">{formatRupiah(rekapSummary.net)}</p></Card>
                         </div>
