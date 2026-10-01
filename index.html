@@ -16356,7 +16356,7 @@ ${getRekapShareLink(rekap)}
                                     </div>
                                     <div className="flex border-b border-gray-200 bg-gray-50 flex-shrink-0">
                                         <button onClick={() => setDetailRekapTab('rincian')} className={`flex-1 py-2.5 text-sm font-bold transition-colors ${detailRekapTab === 'rincian' ? 'text-green-700 border-b-2 border-green-600 bg-white' : 'text-gray-500 hover:text-gray-700'}`}>Rincian</button>
-                                        <button onClick={() => setDetailRekapTab('pembayaran')} className={`flex-1 py-2.5 text-sm font-bold transition-colors ${detailRekapTab === 'pembayaran' ? 'text-green-700 border-b-2 border-green-600 bg-white' : 'text-gray-500 hover:text-gray-700'}`}>Pembayaran</button>
+                                        <button onClick={() => { setDetailRekapTab('pembayaran'); if (sisaBayar > 0 && !payFormAmount) setPayFormAmount(String(sisaBayar)); }} className={`flex-1 py-2.5 text-sm font-bold transition-colors ${detailRekapTab === 'pembayaran' ? 'text-green-700 border-b-2 border-green-600 bg-white' : 'text-gray-500 hover:text-gray-700'}`}>Pembayaran</button>
                                     </div>
                                     <div className="overflow-y-auto flex-1 p-5 space-y-4">
                                         {detailRekapTab === 'rincian' && (<>
