@@ -72,6 +72,11 @@
             #quotation-print-area .quo-spacer {
                 flex-grow: 1 !important;
             }
+            #quotation-print-area .quo-footer-block {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+                flex-shrink: 0 !important;
+            }
             #quotation-print-area * {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
@@ -21631,59 +21636,62 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     </table>
                                 </div>
 
-                                {/* catatan & syarat */}
-                                <div className="text-xs border-t border-slate-200 pt-5 mb-8 space-y-2">
-                                    <p className="font-bold text-slate-800">Syarat & Ketentuan:</p>
-                                    <ul className="list-disc list-inside text-slate-600 space-y-1 text-[11px]">
-                                        <li>DP 50% saat Order Disetujui (SPK terbit).</li>
-                                        <li>Pelunasan 50% dilakukan sebelum pengiriman barang.</li>
-                                    </ul>
-                                    {(bank1 || bank2) && (
-                                        <div className="mt-3 space-y-1">
-                                            <p className="font-bold text-slate-800">Rekening Pembayaran:</p>
-                                            {bank1 && <p className="text-[11px] text-slate-600">{bank1} – {bank1No} a.n. {bank1Name}</p>}
-                                            {bank2 && <p className="text-[11px] text-slate-600">{bank2} – {bank2No} a.n. {bank2Name}</p>}
-                                        </div>
-                                    )}
-                                    {qNotes && (
-                                        <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                                            <p className="font-bold text-amber-700 text-[10px] uppercase mb-1">Catatan:</p>
-                                            <p className="text-slate-700 text-[11px] whitespace-pre-wrap">{qNotes}</p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* spacer — mendorong penutup & TTD ke bawah halaman */}
+                                {/* spacer — mendorong blok bawah ke bawah halaman saat konten sedikit */}
                                 <div className="quo-spacer"></div>
 
-                                {/* kalimat penutup */}
-                                <div className="mb-6 text-xs text-slate-700 leading-relaxed space-y-1.5 border-t border-slate-100 pt-5">
-                                    <p>
-                                        Demikian penawaran ini kami sampaikan dengan sepenuh hati. Besar harapan kami dapat menjalin
-                                        kerja sama yang saling menguntungkan bersama{qClientName ? ` Bapak/Ibu/Sdr. ${qClientName}` : ' Bapak/Ibu/Sdr.'}.
-                                        Penawaran ini berlaku <span className="font-semibold">14 hari kerja</span> sejak tanggal terbit.
-                                    </p>
-                                    <p>
-                                        Untuk konfirmasi order, negosiasi, atau informasi lebih lanjut, jangan ragu untuk menghubungi kami
-                                        kapan saja. Kami siap melayani dengan sepenuh hati dan profesional.
-                                    </p>
-                                    <p className="font-semibold text-slate-800">Terima kasih atas kepercayaan dan perhatian Bapak/Ibu/Sdr.</p>
-                                </div>
-
-                                {/* TTD */}
-                                <div className="grid grid-cols-2 gap-6 text-center text-xs pt-4">
-                                    <div>
-                                        <p className="text-slate-500 mb-14">Disetujui Oleh (Pelanggan),</p>
-                                        <p className="font-bold text-slate-900">( ................................................ )</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-slate-500 mb-2">{sigRight}</p>
-                                        {sigImg ? (
-                                            <img src={sigImg} alt="TTD" style={{height: `${sigSize}px`, width:'auto', objectFit:'contain', margin:'0 auto 4px'}} />
-                                        ) : (
-                                            <div style={{height:'56px'}}></div>
+                                {/* blok bawah: syarat + penutup + TTD — tidak boleh terpotong antar halaman */}
+                                <div className="quo-footer-block" style={{pageBreakInside:'avoid', flexShrink:0}}>
+                                    {/* catatan & syarat */}
+                                    <div className="text-xs border-t border-slate-200 pt-5 mb-8 space-y-2">
+                                        <p className="font-bold text-slate-800">Syarat & Ketentuan:</p>
+                                        <ul className="list-disc list-inside text-slate-600 space-y-1 text-[11px]">
+                                            <li>DP 50% saat Order Disetujui (SPK terbit).</li>
+                                            <li>Pelunasan 50% dilakukan sebelum pengiriman barang.</li>
+                                        </ul>
+                                        {(bank1 || bank2) && (
+                                            <div className="mt-3 space-y-1">
+                                                <p className="font-bold text-slate-800">Rekening Pembayaran:</p>
+                                                {bank1 && <p className="text-[11px] text-slate-600">{bank1} – {bank1No} a.n. {bank1Name}</p>}
+                                                {bank2 && <p className="text-[11px] text-slate-600">{bank2} – {bank2No} a.n. {bank2Name}</p>}
+                                            </div>
                                         )}
-                                        <p className="font-bold text-slate-900">( {coName} )</p>
+                                        {qNotes && (
+                                            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                                                <p className="font-bold text-amber-700 text-[10px] uppercase mb-1">Catatan:</p>
+                                                <p className="text-slate-700 text-[11px] whitespace-pre-wrap">{qNotes}</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* kalimat penutup */}
+                                    <div className="mb-6 text-xs text-slate-700 leading-relaxed space-y-1.5 border-t border-slate-100 pt-5">
+                                        <p>
+                                            Demikian penawaran ini kami sampaikan dengan sepenuh hati. Besar harapan kami dapat menjalin
+                                            kerja sama yang saling menguntungkan bersama{qClientName ? ` Bapak/Ibu/Sdr. ${qClientName}` : ' Bapak/Ibu/Sdr.'}.
+                                            Penawaran ini berlaku <span className="font-semibold">14 hari kerja</span> sejak tanggal terbit.
+                                        </p>
+                                        <p>
+                                            Untuk konfirmasi order, negosiasi, atau informasi lebih lanjut, jangan ragu untuk menghubungi kami
+                                            kapan saja. Kami siap melayani dengan sepenuh hati dan profesional.
+                                        </p>
+                                        <p className="font-semibold text-slate-800">Terima kasih atas kepercayaan dan perhatian Bapak/Ibu/Sdr.</p>
+                                    </div>
+
+                                    {/* TTD */}
+                                    <div className="grid grid-cols-2 gap-6 text-center text-xs pt-4">
+                                        <div>
+                                            <p className="text-slate-500 mb-14">Disetujui Oleh (Pelanggan),</p>
+                                            <p className="font-bold text-slate-900">( ................................................ )</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-slate-500 mb-2">{sigRight}</p>
+                                            {sigImg ? (
+                                                <img src={sigImg} alt="TTD" style={{height: `${sigSize}px`, width:'auto', objectFit:'contain', margin:'0 auto 4px'}} />
+                                            ) : (
+                                                <div style={{height:'56px'}}></div>
+                                            )}
+                                            <p className="font-bold text-slate-900">( {coName} )</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
