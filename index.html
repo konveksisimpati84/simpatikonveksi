@@ -14808,6 +14808,21 @@ ${getRekapShareLink(rekap)}
                 if (r.netSalary != null) return safeMoney(r.netSalary);
                 return Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
             };
+            // Hitung selisih komisi: bandingkan snapshot tersimpan vs hitungan live saat ini
+            const getRekapKomisiSelisih = (rekap) => {
+                const invoiceIds = safeArray(rekap.marketingInvoiceIds);
+                if (invoiceIds.length === 0) return 0;
+                const snap = rekap.marketingInvoiceAmounts || {};
+                let selisih = 0;
+                invoiceIds.forEach(id => {
+                    const inv = safeArray(safeInvoicesForReport).find(i => String(i.id) === String(id));
+                    if (!inv) return;
+                    const storedAmt = snap[String(id)] != null ? safeMoney(snap[String(id)]) : safeMoney(rekap.marketingCommission);
+                    const liveAmt = getInvoiceCommissionTotal(inv);
+                    selisih += liveAmt - storedAmt;
+                });
+                return Math.round(selisih);
+            };
             const sortedRekaps = [...visibleRekaps].sort((a, b) => {
                 const ap = pinnedRekapIds.has(a.id) ? 1 : 0;
                 const bp = pinnedRekapIds.has(b.id) ? 1 : 0;
@@ -15475,8 +15490,10 @@ ${getRekapShareLink(rekap)}
                                         const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
                                         const totalPaidDesktop = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
                                         const sisaGajiDesktop = Math.max(0, netSalary - totalPaidDesktop);
+                                        const komisiSelisih = getRekapKomisiSelisih(rekap);
+                                        const hasSelisih = komisiSelisih > 0;
                                         return (
-                                            <tr key={rekap.id} className={`border-t border-gray-100 hover:brightness-95 transition-all ${isPinned ? 'bg-orange-100/75' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75' : 'bg-red-100/75'}`}>
+                                            <tr key={rekap.id} className={`border-t border-gray-100 hover:brightness-95 transition-all ${isPinned ? 'bg-orange-100/75' : hasSelisih ? 'bg-amber-50' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75' : 'bg-red-100/75'}`}>
                                                 <td className="p-3 text-center">
                                                     <button onClick={() => setPinnedRekapIds(prev => { const next = new Set(prev); isPinned ? next.delete(rekap.id) : next.add(rekap.id); return next; })} title={isPinned ? 'Lepas Sematan' : 'Sematkan'} className={`text-base leading-none transition-opacity ${isPinned ? 'opacity-100' : 'opacity-30 hover:opacity-70'}`}>📌</button>
                                                 </td>
@@ -15486,8 +15503,13 @@ ${getRekapShareLink(rekap)}
                                                 <td className="p-3 text-right">
                                                     <div className="font-black text-blue-700">{formatRupiah(netSalary)}</div>
                                                     {payBadge === 'Dibayar Sebagian' && <div className="text-xs font-semibold text-red-500 mt-0.5">Sisa: {formatRupiah(sisaGajiDesktop)}</div>}
+                                                    {hasSelisih && <div className="text-xs font-semibold text-amber-600 mt-0.5">+{formatRupiah(komisiSelisih)} belum direkap</div>}
                                                 </td>
-                                                <td className="p-3 text-center"><Badge status={payBadge} /></td>
+                                                <td className="p-3 text-center">
+                                                    {hasSelisih
+                                                        ? <span className="px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-700 border border-amber-300">⚠ Ada Selisih</span>
+                                                        : <Badge status={payBadge} />}
+                                                </td>
                                                 <td className="p-3">
                                                     <div className="flex justify-center gap-1.5">
                                                         <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg"><IconEye /></button>
@@ -15514,8 +15536,10 @@ ${getRekapShareLink(rekap)}
                                     const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
                                     const totalPaidMobile = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
                                     const sisaGajiMobile = Math.max(0, netSalary - totalPaidMobile);
+                                    const komisiSelisihMobile = getRekapKomisiSelisih(rekap);
+                                    const hasSelisihMobile = komisiSelisihMobile > 0;
                                     return (
-                                        <div key={rekap.id} className={`px-4 py-3 border-l-4 ${isPinned ? 'bg-orange-100/75 border-l-orange-500' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75 border-l-green-600' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75 border-l-amber-500' : 'bg-red-100/75 border-l-red-500'}`}>
+                                        <div key={rekap.id} className={`px-4 py-3 border-l-4 ${isPinned ? 'bg-orange-100/75 border-l-orange-500' : hasSelisihMobile ? 'bg-amber-50 border-l-amber-400' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75 border-l-green-600' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75 border-l-amber-500' : 'bg-red-100/75 border-l-red-500'}`}>
                                             <div className="flex items-start gap-2 mb-1.5">
                                                 <button onClick={() => setPinnedRekapIds(prev => { const next = new Set(prev); isPinned ? next.delete(rekap.id) : next.add(rekap.id); return next; })} className={`text-sm leading-none transition-opacity shrink-0 mt-0.5 ${isPinned ? 'opacity-100' : 'opacity-30'}`}>📌</button>
                                                 <div className="flex-1 min-w-0">
@@ -15525,8 +15549,11 @@ ${getRekapShareLink(rekap)}
                                                         <div>
                                                             <span className="text-sm font-black text-blue-700">{formatRupiah(netSalary)}</span>
                                                             {payBadge === 'Dibayar Sebagian' && <div className="text-xs font-semibold text-red-500">Sisa: {formatRupiah(sisaGajiMobile)}</div>}
+                                                            {hasSelisihMobile && <div className="text-xs font-semibold text-amber-600">+{formatRupiah(komisiSelisihMobile)} belum direkap</div>}
                                                         </div>
-                                                        <Badge status={payBadge} />
+                                                        {hasSelisihMobile
+                                                            ? <span className="px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-700 border border-amber-300 whitespace-nowrap">⚠ Ada Selisih</span>
+                                                            : <Badge status={payBadge} />}
                                                     </div>
                                                 </div>
                                             </div>
@@ -16213,9 +16240,20 @@ ${getRekapShareLink(rekap)}
                         const payStatus = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'belum' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary - 1 ? 'lunas' : 'sebagian';
                         const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
                         const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); };
+                        const detailKomisiSelisih = getRekapKomisiSelisih(rekap);
                         return (
                             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={closeModal}>
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                                    {detailKomisiSelisih > 0 && (
+                                        <div className="bg-amber-50 border-b border-amber-200 px-5 py-3 flex items-start gap-3">
+                                            <span className="text-amber-500 text-lg flex-shrink-0">⚠</span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-amber-800 font-bold text-sm">Ada selisih komisi {formatRupiah(detailKomisiSelisih)}</div>
+                                                <div className="text-amber-700 text-xs mt-0.5">Invoice komisi bertambah setelah rekap ini dibuat. Selisih belum masuk ke rekap ini. Klik <b>Edit Rekap</b> untuk tindak lanjut.</div>
+                                            </div>
+                                            <button onClick={() => { closeModal(); restoreRekapToInput(rekap); }} className="text-xs font-bold bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 flex-shrink-0">Edit Rekap</button>
+                                        </div>
+                                    )}
                                     <div className="bg-gradient-to-r from-green-600 to-teal-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
                                         <div>
                                             <div className="text-white font-black text-base">{rekap.empName || '-'}</div>
