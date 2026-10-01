@@ -16284,17 +16284,65 @@ ${getRekapShareLink(rekap)}
                         const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
                         const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); };
                         const detailKomisiSelisih = getRekapKomisiSelisih(rekap);
+                        const snap = rekap.marketingInvoiceAmounts;
+                        const hasSnap = snap && Object.keys(snap).length > 0;
+                        const selisihDetail = (() => {
+                            if (detailKomisiSelisih <= 0) return [];
+                            const invoiceIds = safeArray(rekap.marketingInvoiceIds);
+                            if (hasSnap) {
+                                return invoiceIds.map(id => {
+                                    const inv = safeArray(safeInvoicesForReport).find(i => String(i.id) === String(id));
+                                    if (!inv) return null;
+                                    const stored = safeMoney(snap[String(id)]);
+                                    const live = getInvoiceCommissionTotal(inv);
+                                    const diff = live - stored;
+                                    if (diff <= 0) return null;
+                                    return { id, client: inv.client || inv.customerName || id, stored, live, diff };
+                                }).filter(Boolean);
+                            }
+                            return null; // rekap lama, tidak bisa deteksi per-invoice
+                        })();
+                        const [showSelisihDetail, setShowSelisihDetail] = React.useState(false);
                         return (
                             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={closeModal}>
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                                     {detailKomisiSelisih > 0 && (
-                                        <div className="bg-amber-50 border-b border-amber-200 px-5 py-3 flex items-start gap-3">
-                                            <span className="text-amber-500 text-lg flex-shrink-0">⚠</span>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="text-amber-800 font-bold text-sm">Ada selisih komisi {formatRupiah(detailKomisiSelisih)}</div>
-                                                <div className="text-amber-700 text-xs mt-0.5">Invoice komisi bertambah setelah rekap ini dibuat. Selisih belum masuk ke rekap ini. Klik <b>Edit Rekap</b> untuk tindak lanjut.</div>
+                                        <div className="bg-amber-50 border-b border-amber-200 flex-shrink-0">
+                                            <div className="px-4 py-3 flex items-center gap-3">
+                                                <span className="text-amber-500 text-base flex-shrink-0">⚠</span>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-amber-800 font-bold text-sm">Ada selisih komisi {formatRupiah(detailKomisiSelisih)}</div>
+                                                    <div className="text-amber-600 text-xs mt-0.5">Invoice bertambah setelah rekap dibuat. Selisih belum masuk rekap ini.</div>
+                                                </div>
+                                                <div className="flex gap-1.5 flex-shrink-0">
+                                                    <button onClick={() => setShowSelisihDetail(v => !v)} className="text-xs font-bold bg-amber-100 text-amber-700 border border-amber-300 px-2.5 py-1.5 rounded-lg hover:bg-amber-200">{showSelisihDetail ? '▲ Tutup' : '▼ Detail'}</button>
+                                                    <button onClick={() => { closeModal(); restoreRekapToInput(rekap); }} className="text-xs font-bold bg-amber-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-amber-700">Edit Rekap</button>
+                                                </div>
                                             </div>
-                                            <button onClick={() => { closeModal(); restoreRekapToInput(rekap); }} className="text-xs font-bold bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 flex-shrink-0">Edit Rekap</button>
+                                            {showSelisihDetail && (
+                                                <div className="px-4 pb-3">
+                                                    {hasSnap && selisihDetail && selisihDetail.length > 0 ? (
+                                                        <div className="bg-white border border-amber-200 rounded-lg overflow-hidden text-xs">
+                                                            <div className="grid grid-cols-4 bg-amber-100 px-3 py-1.5 font-bold text-amber-800">
+                                                                <span className="col-span-2">Invoice / Customer</span>
+                                                                <span className="text-right">Saat Rekap</span>
+                                                                <span className="text-right">Sekarang</span>
+                                                            </div>
+                                                            {selisihDetail.map(row => (
+                                                                <div key={row.id} className="grid grid-cols-4 px-3 py-2 border-t border-amber-100 items-center">
+                                                                    <span className="col-span-2 font-semibold text-gray-700 truncate pr-2">{row.client}</span>
+                                                                    <span className="text-right text-gray-500 line-through">{formatRupiah(row.stored)}</span>
+                                                                    <span className="text-right font-bold text-amber-700">{formatRupiah(row.live)} <span className="text-green-600">(+{formatRupiah(row.diff)})</span></span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                                                            <b>Rekap lama</b> — tidak ada data snapshot per invoice. Total komisi tersimpan: <b>{formatRupiah(safeMoney(rekap.marketingCommission))}</b> · Total sekarang: <b>{formatRupiah(safeMoney(rekap.marketingCommission) + detailKomisiSelisih)}</b>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                     <div className="bg-gradient-to-r from-green-600 to-teal-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
