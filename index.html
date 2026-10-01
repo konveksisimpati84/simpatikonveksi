@@ -13411,6 +13411,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [rankDivFilter, setRankDivFilter] = useState('Semua');
             const [rankSortBy, setRankSortBy] = useState('total');
             const [rekapSortBy, setRekapSortBy] = useState('terbaru');
+            const [rekapStatusFilter, setRekapStatusFilter] = useState('semua');
             const [cashAdvanceDeduction, setCashAdvanceDeduction] = useState('');
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             const [bonusSalary, setBonusSalary] = useState('');
@@ -14834,7 +14835,20 @@ ${getRekapShareLink(rekap)}
                     return Math.round(Math.max(0, liveTotal - storedTotal));
                 }
             };
-            const sortedRekaps = [...visibleRekaps].sort((a, b) => {
+            const getRekapPayBadge = (r) => {
+                const net = r.netSalary != null ? safeMoney(r.netSalary) : Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
+                if (!Array.isArray(r.payments) || r.payments.length === 0) return 'Belum Dibayar';
+                const paid = r.payments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                if (paid <= 0) return 'Belum Dibayar';
+                return paid >= net - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian';
+            };
+            const filteredRekaps = rekapStatusFilter === 'semua' ? visibleRekaps
+                : rekapStatusFilter === 'selisih' ? visibleRekaps.filter(r => getRekapKomisiSelisih(r) > 0)
+                : rekapStatusFilter === 'belum' ? visibleRekaps.filter(r => getRekapPayBadge(r) === 'Belum Dibayar')
+                : rekapStatusFilter === 'sebagian' ? visibleRekaps.filter(r => getRekapPayBadge(r) === 'Dibayar Sebagian')
+                : rekapStatusFilter === 'lunas' ? visibleRekaps.filter(r => getRekapPayBadge(r) === 'Sudah Dibayar')
+                : visibleRekaps;
+            const sortedRekaps = [...filteredRekaps].sort((a, b) => {
                 const ap = pinnedRekapIds.has(a.id) ? 1 : 0;
                 const bp = pinnedRekapIds.has(b.id) ? 1 : 0;
                 if (ap !== bp) return bp - ap;
@@ -14844,6 +14858,10 @@ ${getRekapShareLink(rekap)}
                 if (rekapSortBy === 'tanggal') return (b.dateProcessed || '').localeCompare(a.dateProcessed || '');
                 return (b.dateProcessed || '').localeCompare(a.dateProcessed || '') || String(b.id).localeCompare(String(a.id));
             });
+            const selisihCount = visibleRekaps.filter(r => getRekapKomisiSelisih(r) > 0).length;
+            const belumCount = visibleRekaps.filter(r => getRekapPayBadge(r) === 'Belum Dibayar').length;
+            const sebagianCount = visibleRekaps.filter(r => getRekapPayBadge(r) === 'Dibayar Sebagian').length;
+            const lunasCount = visibleRekaps.filter(r => getRekapPayBadge(r) === 'Sudah Dibayar').length;
             const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
             const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, count: 0 } : visibleRekaps
                 .filter(r => pinnedRekapIds.has(r.id))
@@ -15343,6 +15361,20 @@ ${getRekapShareLink(rekap)}
                                     <option value="nama">Nama A–Z</option>
                                     <option value="tanggal">Tanggal Rekap ↓</option>
                                 </select>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                {[
+                                    { key: 'semua', label: `Semua (${visibleRekaps.length})`, cls: 'bg-gray-100 text-gray-700 border-gray-300' },
+                                    { key: 'selisih', label: `⚠ Selisih (${selisihCount})`, cls: 'bg-amber-50 text-amber-700 border-amber-300' },
+                                    { key: 'belum', label: `Belum Dibayar (${belumCount})`, cls: 'bg-red-50 text-red-700 border-red-300' },
+                                    { key: 'sebagian', label: `Dibayar Sebagian (${sebagianCount})`, cls: 'bg-yellow-50 text-yellow-700 border-yellow-300' },
+                                    { key: 'lunas', label: `Lunas (${lunasCount})`, cls: 'bg-green-50 text-green-700 border-green-300' },
+                                ].map(f => (
+                                    <button key={f.key} onClick={() => { setRekapStatusFilter(f.key); setRekapListPage(1); }}
+                                        className={`text-xs font-semibold px-2.5 py-1 rounded-full border transition-all ${rekapStatusFilter === f.key ? f.cls + ' ring-2 ring-offset-1 ring-current font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                                        {f.label}
+                                    </button>
+                                ))}
                             </div>
                             <div className="text-xs text-gray-400 ml-auto">{rekapListTotal} rekap</div>
                             <button onClick={() => setShowAuditPanel(v => !v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${showAuditPanel ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
