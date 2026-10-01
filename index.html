@@ -22545,6 +22545,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [isReady, setIsReady] = useState(false);
             const syncInFlightRef = React.useRef(false);
             const supabaseLoadedRef = React.useRef(false);
+            const ordersSyncTimerRef = React.useRef(null);
+            const ordersPendingRef = React.useRef(null);
             const inMemorySessionRef = React.useRef(null);
             const [authUser, setAuthUser] = useState(null);
             const [activeTab, setActiveTab] = useState('dashboard');
@@ -24066,20 +24068,29 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
             };
 
+            const flushOrdersSync = async (patched) => {
+                const merged = await mergeRemoteOrdersForSave(patched);
+                safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
+                saveToSupabase('orders', merged);
+                setOrders(current => {
+                    const currentMerged = mergeOrderLists(current || [], merged);
+                    return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
+                });
+            };
+
             const updateOrders = (updater) => {
                 setOrders(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const patched = patchOrders(stampChangedOrders(prev || [], nextVal));
                     safeLocalSet('simpati_orders_sync', JSON.stringify(patched));
-                    setTimeout(async () => {
-                        const merged = await mergeRemoteOrdersForSave(patched);
-                        safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
-                        saveToSupabase('orders', merged);
-                        setOrders(current => {
-                            const currentMerged = mergeOrderLists(current || [], merged);
-                            return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
-                        });
-                    }, 0);
+                    // Simpan versi terbaru agar debounce selalu pakai data paling baru
+                    ordersPendingRef.current = patched;
+                    // Batalkan timer sebelumnya, mulai timer baru 3 detik
+                    if (ordersSyncTimerRef.current) clearTimeout(ordersSyncTimerRef.current);
+                    ordersSyncTimerRef.current = setTimeout(() => {
+                        const latest = ordersPendingRef.current;
+                        if (latest) flushOrdersSync(latest);
+                    }, 3000);
                     return patched;
                 });
             };
