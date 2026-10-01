@@ -13412,6 +13412,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [rankSortBy, setRankSortBy] = useState('total');
             const [rekapSortBy, setRekapSortBy] = useState('terbaru');
             const [rekapStatusFilter, setRekapStatusFilter] = useState('semua');
+            const [showSelisihDetail, setShowSelisihDetail] = useState(false);
             const [cashAdvanceDeduction, setCashAdvanceDeduction] = useState('');
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             const [bonusSalary, setBonusSalary] = useState('');
@@ -16282,7 +16283,7 @@ ${getRekapShareLink(rekap)}
                         const sisaBayar = Math.max(0, netSalary - totalPaid);
                         const payStatus = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'belum' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary - 1 ? 'lunas' : 'sebagian';
                         const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
-                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); };
+                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); setShowSelisihDetail(false); };
                         const detailKomisiSelisih = getRekapKomisiSelisih(rekap);
                         const snap = rekap.marketingInvoiceAmounts;
                         const hasSnap = snap && Object.keys(snap).length > 0;
@@ -16302,7 +16303,6 @@ ${getRekapShareLink(rekap)}
                             }
                             return null; // rekap lama, tidak bisa deteksi per-invoice
                         })();
-                        const [showSelisihDetail, setShowSelisihDetail] = React.useState(false);
                         return (
                             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={closeModal}>
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
