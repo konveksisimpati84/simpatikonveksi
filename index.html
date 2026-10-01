@@ -13413,7 +13413,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [rekapSortBy, setRekapSortBy] = useState('terbaru');
             const [rekapStatusFilter, setRekapStatusFilter] = useState('semua');
             const [showSelisihDetail, setShowSelisihDetail] = useState(false);
-            const [showOldInvoiceList, setShowOldInvoiceList] = useState(false);
             const [cashAdvanceDeduction, setCashAdvanceDeduction] = useState('');
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             const [bonusSalary, setBonusSalary] = useState('');
@@ -16284,7 +16283,7 @@ ${getRekapShareLink(rekap)}
                         const sisaBayar = Math.max(0, netSalary - totalPaid);
                         const payStatus = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'belum' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary - 1 ? 'lunas' : 'sebagian';
                         const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
-                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); setShowSelisihDetail(false); setShowOldInvoiceList(false); };
+                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); setShowSelisihDetail(false); };
                         const detailKomisiSelisih = getRekapKomisiSelisih(rekap);
                         const snap = rekap.marketingInvoiceAmounts;
                         const hasSnap = snap && Object.keys(snap).length > 0;
@@ -16299,7 +16298,7 @@ ${getRekapShareLink(rekap)}
                                     const live = getInvoiceCommissionTotal(inv);
                                     const diff = live - stored;
                                     if (diff <= 0) return null;
-                                    return { id, client: inv.client || inv.customerName || id, stored, live, diff };
+                                    return { id, client: inv.customer || inv.client || inv.customerName || id, stored, live, diff };
                                 }).filter(Boolean);
                             }
                             return null; // rekap lama, tidak bisa deteksi per-invoice
