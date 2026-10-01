@@ -65,6 +65,12 @@
                 font-size: 9.5pt !important;
                 line-height: 1.45 !important;
                 color: #1e293b !important;
+                display: flex !important;
+                flex-direction: column !important;
+                min-height: calc(297mm - 2.4cm) !important;
+            }
+            #quotation-print-area .quo-spacer {
+                flex-grow: 1 !important;
             }
             #quotation-print-area * {
                 -webkit-print-color-adjust: exact;
@@ -21646,6 +21652,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         </div>
                                     )}
                                 </div>
+
+                                {/* spacer — mendorong penutup & TTD ke bawah halaman */}
+                                <div className="quo-spacer"></div>
 
                                 {/* kalimat penutup */}
                                 <div className="mb-6 text-xs text-slate-700 leading-relaxed space-y-1.5 border-t border-slate-100 pt-5">
