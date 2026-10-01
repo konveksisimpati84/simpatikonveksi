@@ -24603,7 +24603,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} /></div>}
                                 {tabMounted('stock_barang', canOpen('stock_barang')) && <div hidden={!tabVisible('stock_barang')}><StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('absensi_finger', canOpen('absensi_finger')) && <div hidden={!tabVisible('absensi_finger')}><AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></div>}
-                                {tabMounted('hpp_kalkulator', canOpen('hpp_kalkulator')) && <div hidden={!tabVisible('hpp_kalkulator')}><HppKalkulatorView supabaseClient={supabaseClient} showToast={showToast} templates={templates} /></div>}
+                                {activeTab === 'hpp_kalkulator' && canOpen('hpp_kalkulator') && <HppKalkulatorView supabaseClient={supabaseClient} showToast={showToast} templates={templates} />}
                                 {activeMenuAllowed === false && (
                                     <Card>
                                         <div className="text-center py-10 text-gray-500 font-bold">Menu ini tidak tersedia untuk akun Anda.</div>
