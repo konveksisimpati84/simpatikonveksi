@@ -19864,16 +19864,22 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [quoValidDays, setQuoValidDays] = React.useState(() => { try { const v = localStorage.getItem('quo_validDays'); return v ? parseInt(v) : 14; } catch { return 14; } });
             const [quoOverflow, setQuoOverflow] = React.useState(false);
             const quoContentRef = React.useRef(null);
+            const quoFocusedRef = React.useRef(false);
             const saveQText = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+            const checkQuoOverflow = React.useCallback(() => {
+                const el = quoContentRef.current;
+                if (!el) return;
+                setQuoOverflow(el.scrollHeight > el.clientHeight + 4);
+            }, []);
             React.useEffect(() => {
                 const el = quoContentRef.current;
                 if (!el) return;
-                const check = () => setQuoOverflow(el.scrollHeight > el.clientHeight + 4);
+                const check = () => { if (!quoFocusedRef.current) checkQuoOverflow(); };
                 check();
                 const ro = new ResizeObserver(check);
                 ro.observe(el);
                 return () => ro.disconnect();
-            });
+            }, [checkQuoOverflow]);
             const [savedQuotations, setSavedQuotations] = React.useState([]);
             const [selectedHistoryIds, setSelectedHistoryIds] = React.useState(new Set());
             const [quotationItems, setQuotationItems] = React.useState([]);
@@ -21854,7 +21860,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 contentEditable suppressContentEditableWarning
                                                 className="quo-editable"
                                                 style={{fontSize:`${printFontSize*0.88}pt`, color:'#334155', lineHeight: printLineHeight, marginBottom:'10px', whiteSpace:'pre-wrap'}}
-                                                onBlur={e => { const v = e.currentTarget.innerText; setQuoOpening(v); saveQText('quo_opening', v); }}
+                                                onFocus={() => { quoFocusedRef.current = true; }}
+                                                onBlur={e => { quoFocusedRef.current = false; const v = e.currentTarget.innerText; setQuoOpening(v); saveQText('quo_opening', v); checkQuoOverflow(); }}
                                                 title="Klik untuk edit kalimat pembuka"
                                                 dangerouslySetInnerHTML={{__html: quoOpening.replace('{clientName}', qClientName || 'Bapak/Ibu/Sdr.').replace(/\n/g,'<br/>')}}
                                             />
@@ -21917,7 +21924,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                         contentEditable suppressContentEditableWarning
                                                         className="quo-editable"
                                                         style={{color:'#475569', whiteSpace:'pre-wrap', lineHeight: printLineHeight}}
-                                                        onBlur={e => { const v = e.currentTarget.innerText; setQuoTerms(v); saveQText('quo_terms', v); }}
+                                                        onFocus={() => { quoFocusedRef.current = true; }}
+                                                        onBlur={e => { quoFocusedRef.current = false; const v = e.currentTarget.innerText; setQuoTerms(v); saveQText('quo_terms', v); checkQuoOverflow(); }}
                                                         title="Klik untuk edit syarat & ketentuan"
                                                         dangerouslySetInnerHTML={{__html: quoTerms.replace(/\n/g,'<br/>')}}
                                                     />
@@ -21941,7 +21949,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     contentEditable suppressContentEditableWarning
                                                     className="quo-editable"
                                                     style={{fontSize:`${printFontSize*0.85}pt`, color:'#334155', lineHeight: printLineHeight, marginBottom:'10px', whiteSpace:'pre-wrap', borderTop:'1px solid #f1f5f9', paddingTop:'8px'}}
-                                                    onBlur={e => { const v = e.currentTarget.innerText; setQuoClosing(v); saveQText('quo_closing', v); }}
+                                                    onFocus={() => { quoFocusedRef.current = true; }}
+                                                    onBlur={e => { quoFocusedRef.current = false; const v = e.currentTarget.innerText; setQuoClosing(v); saveQText('quo_closing', v); checkQuoOverflow(); }}
                                                     title="Klik untuk edit kalimat penutup"
                                                     dangerouslySetInnerHTML={{__html: closingText.replace(/\n/g,'<br/>')}}
                                                 />
