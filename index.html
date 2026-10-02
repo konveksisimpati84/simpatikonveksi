@@ -19863,7 +19863,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [quoClosing, setQuoClosing] = React.useState(() => loadQText('quo_closing',  QUO_DEFAULT_CLOSING));
             const [quoValidDays, setQuoValidDays] = React.useState(() => { try { const v = localStorage.getItem('quo_validDays'); return v ? parseInt(v) : 14; } catch { return 14; } });
             const [quoOverflow, setQuoOverflow] = React.useState(false);
-            const quoA4Ref = React.useRef(null);
             const quoContentRef = React.useRef(null);
             const saveQText = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
             React.useEffect(() => {
