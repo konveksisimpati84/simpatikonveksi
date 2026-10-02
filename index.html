@@ -19912,7 +19912,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [panduanBahan, setPanduanBahan] = React.useState([]);
             const [showPanduanForm, setShowPanduanForm] = React.useState(false);
             const [editingPanduanId, setEditingPanduanId] = React.useState(null);
-            const [panduanForm, setPanduanForm] = React.useState({ kat: '', bahan: '', qty: '', sat: 'meter', ket: '' });
+            const [panduanForm, setPanduanForm] = React.useState({ jenisProduk: '', kat: '', bahan: '', lebarBahan: '', lebarSat: 'cm', qty: '', sat: 'meter', ket: '' });
             const [panduanKatFilter, setPanduanKatFilter] = React.useState('Semua');
             const [panduanSearch, setPanduanSearch] = React.useState('');
 
@@ -22545,23 +22545,24 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     {activeSection === 'panduan_bahan' && (() => {
                         const PANDUAN_CATS = ['SD', 'SMP', 'SMA', 'Dewasa', 'Kaos', 'Jaket', 'Almamater', 'Seragam', 'Olahraga', 'Lainnya'];
                         const PANDUAN_SATS = ['meter', 'kg', 'gram', 'pcs', 'lembar', 'roll', 'lusin', 'gross', 'liter', 'set'];
+                        const LEBAR_SATS = ['cm', 'inch', 'inchi'];
                         const filteredPanduan = panduanBahan.filter(p => {
                             if (panduanKatFilter !== 'Semua' && p.kat !== panduanKatFilter) return false;
                             if (panduanSearch) {
                                 const s = panduanSearch.toLowerCase();
-                                return p.bahan.toLowerCase().includes(s) || p.kat.toLowerCase().includes(s) || (p.ket||'').toLowerCase().includes(s);
+                                return p.bahan.toLowerCase().includes(s) || p.kat.toLowerCase().includes(s) || (p.ket||'').toLowerCase().includes(s) || (p.jenisProduk||'').toLowerCase().includes(s);
                             }
                             return true;
                         });
                         const katList = ['Semua', ...([...new Set(panduanBahan.map(p => p.kat))].sort())];
                         const openAddForm = () => {
                             setEditingPanduanId(null);
-                            setPanduanForm({ kat: panduanKatFilter !== 'Semua' ? panduanKatFilter : '', bahan: '', qty: '', sat: 'meter', ket: '' });
+                            setPanduanForm({ jenisProduk: '', kat: panduanKatFilter !== 'Semua' ? panduanKatFilter : '', bahan: '', lebarBahan: '', lebarSat: 'cm', qty: '', sat: 'meter', ket: '' });
                             setShowPanduanForm(true);
                         };
                         const openEditForm = (p) => {
                             setEditingPanduanId(p.id);
-                            setPanduanForm({ kat: p.kat, bahan: p.bahan, qty: String(p.qty), sat: p.sat, ket: p.ket || '' });
+                            setPanduanForm({ jenisProduk: p.jenisProduk || '', kat: p.kat, bahan: p.bahan, lebarBahan: p.lebarBahan ? String(p.lebarBahan) : '', lebarSat: p.lebarSat || 'cm', qty: String(p.qty), sat: p.sat, ket: p.ket || '' });
                             setShowPanduanForm(true);
                         };
                         const savePanduan = () => {
@@ -22569,7 +22570,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 showToast('Kategori, nama bahan, dan kebutuhan wajib diisi.', 'error');
                                 return;
                             }
-                            const entry = { id: editingPanduanId || genId('PB-'), kat: panduanForm.kat, bahan: panduanForm.bahan.trim(), qty: parseFloat(panduanForm.qty), sat: panduanForm.sat, ket: panduanForm.ket.trim() };
+                            const entry = { id: editingPanduanId || genId('PB-'), jenisProduk: panduanForm.jenisProduk.trim(), kat: panduanForm.kat, bahan: panduanForm.bahan.trim(), lebarBahan: panduanForm.lebarBahan ? parseFloat(panduanForm.lebarBahan) : null, lebarSat: panduanForm.lebarSat, qty: parseFloat(panduanForm.qty), sat: panduanForm.sat, ket: panduanForm.ket.trim() };
                             setPanduanBahan(prev => editingPanduanId ? prev.map(p => p.id === editingPanduanId ? entry : p) : [...prev, entry]);
                             setShowPanduanForm(false);
                             setEditingPanduanId(null);
@@ -22600,11 +22601,24 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <h4 className="font-bold text-indigo-800 text-sm mb-4"><i className={`fa-solid ${editingPanduanId ? 'fa-pen' : 'fa-plus'} mr-1.5`}></i>{editingPanduanId ? 'Edit Panduan Bahan' : 'Tambah Panduan Bahan'}</h4>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                                             <div>
+                                                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Jenis Produk</label>
+                                                <input type="text" value={panduanForm.jenisProduk} onChange={e => setPanduanForm(f => ({...f, jenisProduk: e.target.value}))} placeholder="cth: Kemeja, Kaos, Celana, Jaket" className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition" />
+                                            </div>
+                                            <div>
                                                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Kategori Produk <span className="text-red-500">*</span></label>
                                                 <select value={panduanForm.kat} onChange={e => setPanduanForm(f => ({...f, kat: e.target.value}))} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition">
                                                     <option value="">— Pilih kategori —</option>
                                                     {[...new Set([...PANDUAN_CATS, ...(panduanForm.kat && !PANDUAN_CATS.includes(panduanForm.kat) ? [panduanForm.kat] : [])])].map(c => <option key={c} value={c}>{c}</option>)}
                                                 </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Lebar Bahan (opsional)</label>
+                                                <div className="flex gap-2">
+                                                    <input type="number" value={panduanForm.lebarBahan} onChange={e => setPanduanForm(f => ({...f, lebarBahan: e.target.value}))} placeholder="cth: 150" step="1" min="0" className="flex-1 px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition" />
+                                                    <select value={panduanForm.lebarSat} onChange={e => setPanduanForm(f => ({...f, lebarSat: e.target.value}))} className="w-24 px-2 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white transition">
+                                                        {LEBAR_SATS.map(s => <option key={s} value={s}>{s}</option>)}
+                                                    </select>
+                                                </div>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Nama Bahan <span className="text-red-500">*</span></label>
@@ -22658,7 +22672,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <table className="w-full text-left text-xs">
                                             <thead>
                                                 <tr className="bg-slate-50 text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
+                                                    <th className="px-4 py-3">Jenis Produk</th>
                                                     <th className="px-4 py-3">Kategori</th>
+                                                    <th className="px-4 py-3">Lebar Bahan</th>
                                                     <th className="px-4 py-3">Nama Bahan</th>
                                                     <th className="px-4 py-3 text-right">Kebutuhan/Baju</th>
                                                     <th className="px-4 py-3">Satuan</th>
@@ -22669,11 +22685,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             <tbody className="divide-y divide-slate-100">
                                                 {filteredPanduan.map(p => (
                                                     <tr key={p.id} className="hover:bg-indigo-50/40 transition">
+                                                        <td className="px-4 py-3 text-slate-700 font-semibold">{p.jenisProduk || '—'}</td>
                                                         <td className="px-4 py-3"><span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold ${CAT_COLORS[p.kat] || 'bg-slate-100 text-slate-600'}`}>{p.kat}</span></td>
+                                                        <td className="px-4 py-3 tabular-nums text-slate-700 font-semibold">{p.lebarBahan ? `${p.lebarBahan} ${p.lebarSat}` : '—'}</td>
                                                         <td className="px-4 py-3 font-bold text-slate-800">{p.bahan}</td>
                                                         <td className="px-4 py-3 text-right font-extrabold text-indigo-700 tabular-nums">{p.qty}</td>
                                                         <td className="px-4 py-3"><span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-semibold text-[11px]">{p.sat}</span></td>
-                                                        <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">{p.ket || '—'}</td>
+                                                        <td className="px-4 py-3 text-slate-500 max-w-[180px] truncate">{p.ket || '—'}</td>
                                                         <td className="px-4 py-3 text-center">
                                                             <div className="flex gap-1.5 justify-center">
                                                                 <button onClick={() => openEditForm(p)} className="p-1.5 rounded-lg text-indigo-400 hover:text-indigo-700 hover:bg-indigo-100 transition" title="Edit"><i className="fa-solid fa-pen text-xs"></i></button>
