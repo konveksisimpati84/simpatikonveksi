@@ -19854,6 +19854,27 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [qClientName,  setQClientName]  = React.useState('');
             const [qClientContact, setQClientContact] = React.useState('');
             const [qNotes, setQNotes] = React.useState('');
+            const QUO_DEFAULT_OPENING = 'Dengan hormat,\n\nMenanggapi kebutuhan Bapak/Ibu/Sdr., dengan ini kami sampaikan penawaran harga pengerjaan produk konveksi dari kami. Kami berkomitmen menghadirkan produk berkualitas dengan jahitan rapi, bahan pilihan, pengiriman tepat waktu, dan harga yang kompetitif.\n\nAdapun rincian penawaran kami adalah sebagai berikut:';
+            const QUO_DEFAULT_TERMS = '- DP 50% saat Order Disetujui (SPK terbit).\n- Pelunasan 50% dilakukan sebelum pengiriman barang.';
+            const QUO_DEFAULT_CLOSING = 'Demikian penawaran ini kami sampaikan dengan sepenuh hati. Besar harapan kami dapat menjalin kerja sama yang saling menguntungkan. Penawaran ini berlaku {validDays} hari kerja sejak tanggal terbit.\n\nUntuk konfirmasi order, negosiasi, atau informasi lebih lanjut, jangan ragu untuk menghubungi kami kapan saja. Kami siap melayani dengan sepenuh hati dan profesional.\n\nTerima kasih atas kepercayaan dan perhatian Bapak/Ibu/Sdr.';
+            const loadQText = (k, def) => { try { const v = localStorage.getItem(k); return v !== null ? v : def; } catch { return def; } };
+            const [quoOpening, setQuoOpening] = React.useState(() => loadQText('quo_opening', QUO_DEFAULT_OPENING));
+            const [quoTerms,   setQuoTerms]   = React.useState(() => loadQText('quo_terms',   QUO_DEFAULT_TERMS));
+            const [quoClosing, setQuoClosing] = React.useState(() => loadQText('quo_closing',  QUO_DEFAULT_CLOSING));
+            const [quoValidDays, setQuoValidDays] = React.useState(() => { try { const v = localStorage.getItem('quo_validDays'); return v ? parseInt(v) : 14; } catch { return 14; } });
+            const [quoOverflow, setQuoOverflow] = React.useState(false);
+            const quoA4Ref = React.useRef(null);
+            const quoContentRef = React.useRef(null);
+            const saveQText = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+            React.useEffect(() => {
+                const el = quoContentRef.current;
+                if (!el) return;
+                const check = () => setQuoOverflow(el.scrollHeight > el.clientHeight + 4);
+                check();
+                const ro = new ResizeObserver(check);
+                ro.observe(el);
+                return () => ro.disconnect();
+            });
             const [savedQuotations, setSavedQuotations] = React.useState([]);
             const [selectedHistoryIds, setSelectedHistoryIds] = React.useState(new Set());
             const [quotationItems, setQuotationItems] = React.useState([]);
@@ -21740,178 +21761,304 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             {/* inject dynamic print CSS */}
                             <style>{`
                                 @media print {
-                                    @page { margin: ${printMargin.toFixed(1)}cm ${(printMargin * 1.25).toFixed(1)}cm; }
+                                    @page { size: A4 portrait; margin: ${printMargin.toFixed(1)}cm ${(printMargin*1.25).toFixed(1)}cm; }
                                     #quotation-print-area {
                                         font-size: ${printFontSize.toFixed(1)}pt !important;
                                         line-height: ${printLineHeight.toFixed(2)} !important;
-                                        padding: ${(printMargin * 0.5).toFixed(1)}cm 0 !important;
+                                        width: 100% !important; max-width: 100% !important;
+                                        box-shadow: none !important; border: none !important;
+                                        border-radius: 0 !important; margin: 0 !important;
+                                        padding: 0 !important; overflow: visible !important;
+                                        height: auto !important;
                                     }
-                                    #quotation-print-area table { font-size: ${(printFontSize * 0.88).toFixed(1)}pt !important; }
-                                    #quotation-print-area h1 { font-size: ${(printFontSize * 1.45).toFixed(1)}pt !important; }
-                                    #quotation-print-area h2 { font-size: ${(printFontSize * 1.15).toFixed(1)}pt !important; }
-                                    #quotation-print-area .text-xs { font-size: ${(printFontSize * 0.88).toFixed(1)}pt !important; }
-                                    #quotation-print-area .text-\\[11px\\] { font-size: ${(printFontSize * 0.83).toFixed(1)}pt !important; }
-                                    #quotation-print-area .text-base { font-size: ${(printFontSize * 1.15).toFixed(1)}pt !important; }
+                                    #quotation-print-area table { font-size: ${(printFontSize*0.88).toFixed(1)}pt !important; }
+                                    #quotation-print-area h1 { font-size: ${(printFontSize*1.45).toFixed(1)}pt !important; }
+                                    #quotation-print-area h2 { font-size: ${(printFontSize*1.15).toFixed(1)}pt !important; }
+                                    #quotation-print-area .quo-edit-hint { display: none !important; }
+                                    #quotation-print-area [contenteditable] { outline: none !important; border: none !important; background: transparent !important; }
+                                    .quo-a4-wrapper { box-shadow: none !important; }
+                                    .quo-overflow-bar { display: none !important; }
                                 }
-                                #quotation-print-area {
-                                    font-size: ${printFontSize.toFixed(1)}pt;
-                                    line-height: ${printLineHeight.toFixed(2)};
-                                }
+                                .quo-editable { cursor: text; border-radius: 4px; transition: background 0.15s; }
+                                .quo-editable:hover { background: rgba(99,102,241,0.06); }
+                                .quo-editable:focus { outline: 2px solid #6366f1; outline-offset: 2px; background: rgba(99,102,241,0.04); }
                             `}</style>
 
-                            {/* ── PRINT PREVIEW ── */}
-                            <div id="quotation-print-area" className="bg-white p-8 md:p-12 rounded-2xl shadow-xl max-w-4xl mx-auto text-slate-800 border border-slate-200">
-                                {/* kop surat */}
-                                <div className="flex justify-between items-start border-b-2 border-slate-800 pb-5 mb-6">
-                                    <div className="flex items-center gap-4">
-                                        {coLogo ? (
-                                            <img src={coLogo} alt="Logo" style={{height:'64px', width:'auto', objectFit:'contain'}} />
-                                        ) : (
-                                            <div className="w-16 h-16 bg-slate-800 rounded-xl flex items-center justify-center text-white text-2xl font-black">S</div>
+                            {/* ── STATUS BAR HALAMAN ── */}
+                            {(() => {
+                                const closingText = quoClosing.replace(/\{validDays\}/g, quoValidDays);
+                                return (
+                                <>
+                                {/* Status bar */}
+                                <div className={`print:hidden flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-semibold mb-2 transition-colors ${quoOverflow ? 'bg-rose-50 border border-rose-200 text-rose-700' : 'bg-emerald-50 border border-emerald-200 text-emerald-700'}`}>
+                                    <span className="flex items-center gap-2">
+                                        <span className={`w-2.5 h-2.5 rounded-full ${quoOverflow ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+                                        {quoOverflow ? '⚠ Konten melebihi 1 halaman A4 — kecilkan font atau kurangi teks' : '✓ Muat dalam 1 halaman A4'}
+                                    </span>
+                                    <span className="text-slate-400 font-normal">Klik teks di preview untuk mengedit · Slider untuk ukuran font & margin</span>
+                                </div>
+
+                                {/* ── PREVIEW A4 ── */}
+                                <div className="quo-a4-wrapper print:hidden" style={{background:'#e2e8f0', padding:'24px', borderRadius:'16px', overflowX:'auto'}}>
+                                    {/* Kertas A4 proporsional: 210mm × 297mm = ratio 1:1.414 */}
+                                    <div ref={quoA4Ref} style={{
+                                        width: '794px', height: '1123px', margin: '0 auto',
+                                        background: 'white', boxShadow: '0 4px 32px rgba(0,0,0,0.18)',
+                                        borderRadius: '2px', position: 'relative', overflow: 'hidden',
+                                        fontFamily: 'Arial, sans-serif',
+                                        fontSize: `${printFontSize}pt`, lineHeight: printLineHeight,
+                                        padding: `${printMargin * 37.8}px ${printMargin * 1.25 * 37.8}px`,
+                                        boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
+                                    }}>
+                                        {/* Konten bisa di-scroll untuk lihat overflow */}
+                                        <div ref={quoContentRef} style={{flex:1, overflow:'hidden', display:'flex', flexDirection:'column'}}>
+                                            {/* KOP SURAT */}
+                                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', borderBottom:'2px solid #1e293b', paddingBottom:'14px', marginBottom:'14px'}}>
+                                                <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
+                                                    {coLogo
+                                                        ? <img src={coLogo} alt="Logo" style={{height:'48px', width:'auto', objectFit:'contain'}} />
+                                                        : <div style={{width:'44px', height:'44px', background:'#1e293b', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:900, fontSize:'18px'}}>S</div>
+                                                    }
+                                                    <div>
+                                                        <div style={{fontWeight:800, fontSize:`${printFontSize*1.15}pt`, color:'#0f172a', lineHeight:1.2}}>{coName}</div>
+                                                        {coSub && <div style={{fontSize:`${printFontSize*0.85}pt`, color:'#64748b', marginTop:'2px'}}>{coSub}</div>}
+                                                        {coContact && <div style={{fontSize:`${printFontSize*0.85}pt`, color:'#64748b'}}>{coContact}</div>}
+                                                    </div>
+                                                </div>
+                                                <div style={{textAlign:'right'}}>
+                                                    <div style={{fontWeight:900, fontSize:`${printFontSize*1.3}pt`, color:'#0f172a', textTransform:'uppercase', letterSpacing:'0.05em'}}>Surat Penawaran</div>
+                                                    <div style={{fontSize:`${printFontSize*0.85}pt`, color:'#4f46e5', marginTop:'3px', fontWeight:600}}>{generateQuoNumber()}</div>
+                                                    <div style={{fontSize:`${printFontSize*0.85}pt`, color:'#64748b', marginTop:'2px'}}>Tanggal: {today}</div>
+                                                    <div style={{fontSize:`${printFontSize*0.85}pt`, color:'#94a3b8'}}>
+                                                        Berlaku:{' '}
+                                                        <span
+                                                            contentEditable suppressContentEditableWarning
+                                                            className="quo-editable"
+                                                            style={{display:'inline', minWidth:'20px'}}
+                                                            onBlur={e => { const v = parseInt(e.currentTarget.textContent)||14; setQuoValidDays(v); saveQText('quo_validDays', v); }}
+                                                            title="Klik untuk edit masa berlaku"
+                                                        >{quoValidDays}</span> Hari Kerja
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* KEPADA */}
+                                            <div style={{marginBottom:'10px', fontSize:`${printFontSize*0.88}pt`}}>
+                                                <div style={{fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.08em', fontSize:`${printFontSize*0.78}pt`, marginBottom:'3px'}}>Kepada Yth:</div>
+                                                <div style={{fontWeight:700, color:'#0f172a', fontSize:`${printFontSize}pt`}}>{qClientName || '___________________________'}</div>
+                                                {qClientContact && <div style={{color:'#475569'}}>{qClientContact}</div>}
+                                                <div style={{color:'#475569'}}>di Tempat</div>
+                                            </div>
+
+                                            {/* KALIMAT PEMBUKA — klik untuk edit */}
+                                            <div
+                                                contentEditable suppressContentEditableWarning
+                                                className="quo-editable"
+                                                style={{fontSize:`${printFontSize*0.88}pt`, color:'#334155', lineHeight: printLineHeight, marginBottom:'10px', whiteSpace:'pre-wrap'}}
+                                                onBlur={e => { const v = e.currentTarget.innerText; setQuoOpening(v); saveQText('quo_opening', v); }}
+                                                title="Klik untuk edit kalimat pembuka"
+                                                dangerouslySetInnerHTML={{__html: quoOpening.replace('{clientName}', qClientName || 'Bapak/Ibu/Sdr.').replace(/\n/g,'<br/>')}}
+                                            />
+
+                                            {/* TABEL ITEM */}
+                                            <table style={{width:'100%', borderCollapse:'collapse', marginBottom:'10px', fontSize:`${printFontSize*0.85}pt`}}>
+                                                <thead>
+                                                    <tr style={{background:'#1e293b', color:'white'}}>
+                                                        <th style={{padding:'5pt 6pt', textAlign:'left', width:'24px', borderRadius:'4px 0 0 4px'}}>No</th>
+                                                        <th style={{padding:'5pt 6pt', textAlign:'left'}}>Deskripsi Produk & Spesifikasi</th>
+                                                        <th style={{padding:'5pt 6pt', textAlign:'center', width:'72px'}}>Est. Jumlah</th>
+                                                        <th style={{padding:'5pt 6pt', textAlign:'right', width:'90px'}}>Harga Satuan</th>
+                                                        <th style={{padding:'5pt 6pt', textAlign:'right', width:'100px', borderRadius:'0 4px 4px 0'}}>Harga Net</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {quotationItems.length === 0
+                                                        ? <tr><td colSpan={5} style={{padding:'16px', textAlign:'center', color:'#94a3b8'}}>— Belum ada item —</td></tr>
+                                                        : quotationItems.map((qi, idx) => {
+                                                            const net = calcQuotationItemNet(qi);
+                                                            const hasDiscount = qi.discountValue > 0;
+                                                            return (
+                                                                <tr key={qi.id} style={{borderBottom:'1px solid #f1f5f9'}}>
+                                                                    <td style={{padding:'5pt 6pt', fontWeight:700, color:'#94a3b8'}}>{idx+1}</td>
+                                                                    <td style={{padding:'5pt 6pt'}}>
+                                                                        <span style={{fontWeight:700, color:'#0f172a', display:'block'}}>{qi.description||'—'}</span>
+                                                                        {qi.detail && qi.detail.split('\n').filter(l=>l.trim()).map((l,i)=>(
+                                                                            <span key={i} style={{display:'block', fontSize:`${printFontSize*0.78}pt`, color:'#94a3b8', fontStyle:'italic'}}>- {l.trim().replace(/^[-•]\s*/,'')}</span>
+                                                                        ))}
+                                                                    </td>
+                                                                    <td style={{padding:'5pt 6pt', textAlign:'center', fontWeight:700, color:'#334155'}}>
+                                                                        {qi.estQtyDisplay?.trim() || `~${(qi.estQty||0).toLocaleString('id-ID')} Pcs`}
+                                                                    </td>
+                                                                    <td style={{padding:'5pt 6pt', textAlign:'right', color:'#475569'}}>{formatRp(qi.unitPrice)}</td>
+                                                                    <td style={{padding:'5pt 6pt', textAlign:'right'}}>
+                                                                        {hasDiscount && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#f43f5e', textDecoration:'line-through', display:'block'}}>{formatRp(qi.unitPrice)}</span>}
+                                                                        {hasDiscount && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#94a3b8', display:'block'}}>Diskon {qi.discountType==='pct'?`${qi.discountValue}%`:formatRp(qi.discountValue)}</span>}
+                                                                        <span style={{fontWeight:800, color:'#0f172a'}}>{formatRp(net)}</span>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    }
+                                                    <tr style={{background:'#f8fafc', borderTop:'2px solid #e2e8f0'}}>
+                                                        <td colSpan={4} style={{padding:'6pt 6pt', textAlign:'right', fontWeight:700, color:'#475569', fontSize:`${printFontSize*0.88}pt`}}>Total Estimasi:</td>
+                                                        <td style={{padding:'6pt 6pt', textAlign:'right', fontWeight:900, color:'#0f172a', fontSize:`${printFontSize}pt`}}>{formatRp(grandTotal)}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+
+                                            {/* SPACER */}
+                                            <div style={{flex:1, minHeight:'4px'}}></div>
+
+                                            {/* FOOTER: SYARAT + PENUTUP + TTD */}
+                                            <div style={{pageBreakInside:'avoid'}}>
+                                                {/* Syarat & Ketentuan — klik untuk edit */}
+                                                <div style={{borderTop:'1px solid #e2e8f0', paddingTop:'10px', marginBottom:'8px', fontSize:`${printFontSize*0.85}pt`}}>
+                                                    <div style={{fontWeight:700, color:'#1e293b', marginBottom:'4px'}}>Syarat & Ketentuan:</div>
+                                                    <div
+                                                        contentEditable suppressContentEditableWarning
+                                                        className="quo-editable"
+                                                        style={{color:'#475569', whiteSpace:'pre-wrap', lineHeight: printLineHeight}}
+                                                        onBlur={e => { const v = e.currentTarget.innerText; setQuoTerms(v); saveQText('quo_terms', v); }}
+                                                        title="Klik untuk edit syarat & ketentuan"
+                                                        dangerouslySetInnerHTML={{__html: quoTerms.replace(/\n/g,'<br/>')}}
+                                                    />
+                                                    {(bank1||bank2) && (
+                                                        <div style={{marginTop:'6px'}}>
+                                                            <div style={{fontWeight:700, color:'#1e293b', marginBottom:'2px'}}>Rekening Pembayaran:</div>
+                                                            {bank1 && <div style={{color:'#475569'}}>{bank1} – {bank1No} a.n. {bank1Name}</div>}
+                                                            {bank2 && <div style={{color:'#475569'}}>{bank2} – {bank2No} a.n. {bank2Name}</div>}
+                                                        </div>
+                                                    )}
+                                                    {qNotes && (
+                                                        <div style={{marginTop:'6px', background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'6px', padding:'6px 8px'}}>
+                                                            <div style={{fontWeight:700, color:'#92400e', fontSize:`${printFontSize*0.78}pt`, marginBottom:'2px'}}>CATATAN:</div>
+                                                            <div style={{color:'#334155', whiteSpace:'pre-wrap'}}>{qNotes}</div>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Kalimat penutup — klik untuk edit */}
+                                                <div
+                                                    contentEditable suppressContentEditableWarning
+                                                    className="quo-editable"
+                                                    style={{fontSize:`${printFontSize*0.85}pt`, color:'#334155', lineHeight: printLineHeight, marginBottom:'10px', whiteSpace:'pre-wrap', borderTop:'1px solid #f1f5f9', paddingTop:'8px'}}
+                                                    onBlur={e => { const v = e.currentTarget.innerText; setQuoClosing(v); saveQText('quo_closing', v); }}
+                                                    title="Klik untuk edit kalimat penutup"
+                                                    dangerouslySetInnerHTML={{__html: closingText.replace(/\n/g,'<br/>')}}
+                                                />
+
+                                                {/* TTD */}
+                                                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'24px', textAlign:'center', fontSize:`${printFontSize*0.85}pt`}}>
+                                                    <div>
+                                                        <div style={{color:'#64748b', marginBottom:'40px'}}>Disetujui Oleh (Pelanggan),</div>
+                                                        <div style={{fontWeight:700, color:'#0f172a'}}>( ................................................ )</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style={{color:'#64748b', marginBottom:'4px'}}>{sigRight}</div>
+                                                        {sigImg
+                                                            ? <img src={sigImg} alt="TTD" style={{height:`${sigSize*0.7}px`, width:'auto', objectFit:'contain', margin:'0 auto 4px'}} />
+                                                            : <div style={{height:'40px'}}></div>
+                                                        }
+                                                        <div style={{fontWeight:700, color:'#0f172a'}}>( {coName} )</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Garis indikator overflow */}
+                                        {quoOverflow && (
+                                            <div className="quo-overflow-bar" style={{
+                                                position:'absolute', bottom:'0', left:'0', right:'0',
+                                                height:'4px', background:'#ef4444',
+                                                boxShadow:'0 -2px 8px rgba(239,68,68,0.5)'
+                                            }} title="Konten melebihi batas halaman" />
                                         )}
-                                        <div>
-                                            <h2 className="font-extrabold text-slate-900 text-xl leading-tight">{coName}</h2>
-                                            <p className="text-xs text-slate-500 mt-0.5">{coSub}</p>
-                                            {coContact && <p className="text-xs text-slate-500">{coContact}</p>}
+                                    </div>
+                                    <p className="print:hidden text-center text-[10px] text-slate-400 mt-3">Preview A4 (794 × 1123 px) · Klik teks untuk edit · Scroll untuk lihat konten lengkap</p>
+                                </div>
+
+                                {/* ── PRINT AREA TERSEMBUNYI — hanya muncul saat print ── */}
+                                <div id="quotation-print-area" style={{display:'none'}}>
+                                    {/* KOP */}
+                                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', borderBottom:'2.5px solid #1e293b', paddingBottom:'14px', marginBottom:'14px'}}>
+                                        <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
+                                            {coLogo ? <img src={coLogo} alt="Logo" style={{height:'52px', objectFit:'contain'}} /> : <div style={{width:'44px', height:'44px', background:'#1e293b', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:900, fontSize:'18px'}}>S</div>}
+                                            <div>
+                                                <div style={{fontWeight:800, fontSize:'13pt', color:'#0f172a'}}>{coName}</div>
+                                                {coSub && <div style={{fontSize:'9pt', color:'#64748b'}}>{coSub}</div>}
+                                                {coContact && <div style={{fontSize:'9pt', color:'#64748b'}}>{coContact}</div>}
+                                            </div>
+                                        </div>
+                                        <div style={{textAlign:'right'}}>
+                                            <div style={{fontWeight:900, fontSize:'15pt', color:'#0f172a', textTransform:'uppercase'}}>Surat Penawaran</div>
+                                            <div style={{fontSize:'9pt', color:'#4f46e5', marginTop:'3px', fontWeight:600}}>{generateQuoNumber()}</div>
+                                            <div style={{fontSize:'9pt', color:'#64748b', marginTop:'2px'}}>Tanggal: {today}</div>
+                                            <div style={{fontSize:'9pt', color:'#94a3b8'}}>Berlaku: {quoValidDays} Hari Kerja</div>
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <h1 className="text-xl font-black text-slate-900 tracking-tight uppercase">Surat Penawaran</h1>
-                                        <p className="text-xs font-semibold text-indigo-600 mt-1">{generateQuoNumber()}</p>
-                                        <p className="text-xs text-slate-500 mt-1">Tanggal: {today}</p>
-                                        <p className="text-xs text-slate-400">Berlaku: 14 Hari Kerja</p>
+                                    {/* KEPADA */}
+                                    <div style={{marginBottom:'10px', fontSize:'9pt'}}>
+                                        <div style={{fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.06em', fontSize:'8pt', marginBottom:'3px'}}>Kepada Yth:</div>
+                                        <div style={{fontWeight:700, color:'#0f172a', fontSize:'10pt'}}>{qClientName||'___________________________'}</div>
+                                        {qClientContact && <div style={{color:'#475569'}}>{qClientContact}</div>}
+                                        <div style={{color:'#475569'}}>di Tempat</div>
                                     </div>
-                                </div>
-
-                                {/* kepada */}
-                                <div className="mb-4 text-xs">
-                                    <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px] mb-1">Kepada Yth:</p>
-                                    <p className="font-bold text-slate-900 text-sm">{qClientName || '___________________________'}</p>
-                                    {qClientContact && <p className="text-slate-600">{qClientContact}</p>}
-                                    <p className="text-slate-600 mt-0.5">di Tempat</p>
-                                </div>
-
-                                {/* kalimat pembuka */}
-                                <div className="mb-5 text-xs text-slate-700 leading-relaxed space-y-1.5">
-                                    <p><span className="font-bold">Dengan hormat,</span></p>
-                                    <p>
-                                        Menanggapi kebutuhan{qClientName ? ` Bapak/Ibu/Sdr. ${qClientName}` : ' Bapak/Ibu/Sdr.'}, dengan ini kami sampaikan penawaran harga
-                                        pengerjaan produk konveksi dari <span className="font-semibold">{coName}</span>. Kami berkomitmen menghadirkan produk
-                                        berkualitas dengan jahitan rapi, bahan pilihan, pengiriman tepat waktu, dan harga yang kompetitif.
-                                    </p>
-                                    <p>Adapun rincian penawaran kami adalah sebagai berikut:</p>
-                                </div>
-
-                                {/* tabel item */}
-                                <div className="overflow-x-auto mb-6">
-                                    <table className="w-full text-left text-xs">
+                                    {/* PEMBUKA */}
+                                    <div style={{fontSize:'9pt', color:'#334155', lineHeight:1.5, marginBottom:'10px', whiteSpace:'pre-wrap'}}>{quoOpening.replace('{clientName}', qClientName||'Bapak/Ibu/Sdr.')}</div>
+                                    {/* TABEL */}
+                                    <table style={{width:'100%', borderCollapse:'collapse', marginBottom:'10px', fontSize:'8.5pt'}}>
                                         <thead>
-                                            <tr className="bg-slate-900 text-white">
-                                                <th className="p-3 rounded-l-lg w-8">No</th>
-                                                <th className="p-3">Deskripsi Produk & Spesifikasi</th>
-                                                <th className="p-3 text-center w-24">Est. Jumlah</th>
-                                                <th className="p-3 text-right w-32">Harga Satuan</th>
-                                                <th className="p-3 text-right w-36 rounded-r-lg">Diskon & Harga Net</th>
+                                            <tr style={{background:'#1e293b', color:'white'}}>
+                                                <th style={{padding:'5pt 6pt', textAlign:'left', width:'20px'}}>No</th>
+                                                <th style={{padding:'5pt 6pt', textAlign:'left'}}>Deskripsi Produk & Spesifikasi</th>
+                                                <th style={{padding:'5pt 6pt', textAlign:'center', width:'70px'}}>Est. Jumlah</th>
+                                                <th style={{padding:'5pt 6pt', textAlign:'right', width:'88px'}}>Harga Satuan</th>
+                                                <th style={{padding:'5pt 6pt', textAlign:'right', width:'96px'}}>Harga Net</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {quotationItems.length === 0 ? (
-                                                <tr><td colSpan={5} className="p-6 text-center text-slate-400">— Belum ada item —</td></tr>
-                                            ) : quotationItems.map((qi, idx) => {
-                                                const net = calcQuotationItemNet(qi);
-                                                const hasDiscount = qi.discountValue > 0;
-                                                return (
-                                                    <tr key={qi.id} className="hover:bg-slate-50">
-                                                        <td className="p-3 font-bold text-slate-500">{idx + 1}</td>
-                                                        <td className="p-3">
-                                                            <span className="font-bold text-slate-900 block">{qi.description || '—'}</span>
-                                                            {qi.detail && (
-                                                                <ul className="mt-0.5 space-y-0">
-                                                                    {qi.detail.split('\n').map((line, i) => line.trim() ? (
-                                                                        <li key={i} className="text-[10px] text-slate-400 italic">- {line.trim().replace(/^[-•]\s*/, '')}</li>
-                                                                    ) : null)}
-                                                                </ul>
-                                                            )}
-                                                        </td>
-                                                        <td className="p-3 text-center font-bold text-slate-700">{qi.estQtyDisplay && qi.estQtyDisplay.trim() ? qi.estQtyDisplay.trim() : `~${(qi.estQty||0).toLocaleString('id-ID')} Pcs`}</td>
-                                                        <td className="p-3 text-right font-semibold text-slate-700">{formatRp(qi.unitPrice)}</td>
-                                                        <td className="p-3 text-right">
-                                                            {hasDiscount && (
-                                                                <span className="text-rose-500 text-[10px] line-through block">{formatRp(qi.unitPrice)}</span>
-                                                            )}
-                                                            {hasDiscount && (
-                                                                <span className="text-[10px] text-slate-400 block">
-                                                                    Diskon {qi.discountType === 'pct' ? `${qi.discountValue}%` : formatRp(qi.discountValue)}
-                                                                </span>
-                                                            )}
-                                                            <span className="font-extrabold text-slate-900">{formatRp(net)}</span>
-                                                        </td>
-                                                    </tr>
-                                                );
+                                        <tbody>
+                                            {quotationItems.map((qi,idx)=>{
+                                                const net=calcQuotationItemNet(qi); const hd=qi.discountValue>0;
+                                                return(<tr key={qi.id} style={{borderBottom:'1px solid #f1f5f9'}}>
+                                                    <td style={{padding:'5pt 6pt', fontWeight:700, color:'#94a3b8'}}>{idx+1}</td>
+                                                    <td style={{padding:'5pt 6pt'}}>
+                                                        <span style={{fontWeight:700, color:'#0f172a', display:'block'}}>{qi.description||'—'}</span>
+                                                        {qi.detail&&qi.detail.split('\n').filter(l=>l.trim()).map((l,i)=><span key={i} style={{display:'block', fontSize:'7.5pt', color:'#94a3b8', fontStyle:'italic'}}>- {l.trim().replace(/^[-•]\s*/,'')}</span>)}
+                                                    </td>
+                                                    <td style={{padding:'5pt 6pt', textAlign:'center', fontWeight:700}}>{qi.estQtyDisplay?.trim()||`~${(qi.estQty||0).toLocaleString('id-ID')} Pcs`}</td>
+                                                    <td style={{padding:'5pt 6pt', textAlign:'right', color:'#475569'}}>{formatRp(qi.unitPrice)}</td>
+                                                    <td style={{padding:'5pt 6pt', textAlign:'right'}}>
+                                                        {hd&&<span style={{fontSize:'7.5pt',color:'#f43f5e',textDecoration:'line-through',display:'block'}}>{formatRp(qi.unitPrice)}</span>}
+                                                        {hd&&<span style={{fontSize:'7.5pt',color:'#94a3b8',display:'block'}}>Diskon {qi.discountType==='pct'?`${qi.discountValue}%`:formatRp(qi.discountValue)}</span>}
+                                                        <span style={{fontWeight:800, color:'#0f172a'}}>{formatRp(net)}</span>
+                                                    </td>
+                                                </tr>);
                                             })}
+                                            <tr style={{background:'#f8fafc', borderTop:'2px solid #e2e8f0'}}>
+                                                <td colSpan={4} style={{padding:'6pt', textAlign:'right', fontWeight:700, color:'#475569'}}>Total Estimasi:</td>
+                                                <td style={{padding:'6pt', textAlign:'right', fontWeight:900, color:'#0f172a'}}>{formatRp(grandTotal)}</td>
+                                            </tr>
                                         </tbody>
                                     </table>
-                                </div>
-
-                                {/* spacer — mendorong blok bawah ke bawah halaman saat konten sedikit */}
-                                <div className="quo-spacer"></div>
-
-                                {/* blok bawah: syarat + penutup + TTD — tidak boleh terpotong antar halaman */}
-                                <div className="quo-footer-block" style={{pageBreakInside:'avoid', flexShrink:0}}>
-                                    {/* catatan & syarat */}
-                                    <div className="text-xs border-t border-slate-200 pt-5 mb-8 space-y-2">
-                                        <p className="font-bold text-slate-800">Syarat & Ketentuan:</p>
-                                        <ul className="list-disc list-inside text-slate-600 space-y-1 text-[11px]">
-                                            <li>DP 50% saat Order Disetujui (SPK terbit).</li>
-                                            <li>Pelunasan 50% dilakukan sebelum pengiriman barang.</li>
-                                        </ul>
-                                        {(bank1 || bank2) && (
-                                            <div className="mt-3 space-y-1">
-                                                <p className="font-bold text-slate-800">Rekening Pembayaran:</p>
-                                                {bank1 && <p className="text-[11px] text-slate-600">{bank1} – {bank1No} a.n. {bank1Name}</p>}
-                                                {bank2 && <p className="text-[11px] text-slate-600">{bank2} – {bank2No} a.n. {bank2Name}</p>}
-                                            </div>
-                                        )}
-                                        {qNotes && (
-                                            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                                                <p className="font-bold text-amber-700 text-[10px] uppercase mb-1">Catatan:</p>
-                                                <p className="text-slate-700 text-[11px] whitespace-pre-wrap">{qNotes}</p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* kalimat penutup */}
-                                    <div className="mb-6 text-xs text-slate-700 leading-relaxed space-y-1.5 border-t border-slate-100 pt-5">
-                                        <p>
-                                            Demikian penawaran ini kami sampaikan dengan sepenuh hati. Besar harapan kami dapat menjalin
-                                            kerja sama yang saling menguntungkan bersama{qClientName ? ` Bapak/Ibu/Sdr. ${qClientName}` : ' Bapak/Ibu/Sdr.'}.
-                                            Penawaran ini berlaku <span className="font-semibold">14 hari kerja</span> sejak tanggal terbit.
-                                        </p>
-                                        <p>
-                                            Untuk konfirmasi order, negosiasi, atau informasi lebih lanjut, jangan ragu untuk menghubungi kami
-                                            kapan saja. Kami siap melayani dengan sepenuh hati dan profesional.
-                                        </p>
-                                        <p className="font-semibold text-slate-800">Terima kasih atas kepercayaan dan perhatian Bapak/Ibu/Sdr.</p>
-                                    </div>
-
-                                    {/* TTD */}
-                                    <div className="grid grid-cols-2 gap-6 text-center text-xs pt-4">
-                                        <div>
-                                            <p className="text-slate-500 mb-14">Disetujui Oleh (Pelanggan),</p>
-                                            <p className="font-bold text-slate-900">( ................................................ )</p>
+                                    <div className="quo-spacer"></div>
+                                    {/* FOOTER */}
+                                    <div className="quo-footer-block" style={{pageBreakInside:'avoid'}}>
+                                        <div style={{borderTop:'1px solid #e2e8f0', paddingTop:'10px', marginBottom:'8px', fontSize:'8.5pt'}}>
+                                            <div style={{fontWeight:700, color:'#1e293b', marginBottom:'4px'}}>Syarat & Ketentuan:</div>
+                                            <div style={{color:'#475569', whiteSpace:'pre-wrap'}}>{quoTerms}</div>
+                                            {(bank1||bank2)&&<div style={{marginTop:'6px'}}><div style={{fontWeight:700, color:'#1e293b', marginBottom:'2px'}}>Rekening Pembayaran:</div>{bank1&&<div style={{color:'#475569'}}>{bank1} – {bank1No} a.n. {bank1Name}</div>}{bank2&&<div style={{color:'#475569'}}>{bank2} – {bank2No} a.n. {bank2Name}</div>}</div>}
+                                            {qNotes&&<div style={{marginTop:'6px', background:'#fffbeb', border:'1px solid #fde68a', borderRadius:'6px', padding:'6px 8px'}}><div style={{fontWeight:700, color:'#92400e', fontSize:'7.5pt', marginBottom:'2px'}}>CATATAN:</div><div style={{color:'#334155', whiteSpace:'pre-wrap'}}>{qNotes}</div></div>}
                                         </div>
-                                        <div>
-                                            <p className="text-slate-500 mb-2">{sigRight}</p>
-                                            {sigImg ? (
-                                                <img src={sigImg} alt="TTD" style={{height: `${sigSize}px`, width:'auto', objectFit:'contain', margin:'0 auto 4px'}} />
-                                            ) : (
-                                                <div style={{height:'56px'}}></div>
-                                            )}
-                                            <p className="font-bold text-slate-900">( {coName} )</p>
+                                        <div style={{fontSize:'8.5pt', color:'#334155', lineHeight:1.5, marginBottom:'10px', whiteSpace:'pre-wrap', borderTop:'1px solid #f1f5f9', paddingTop:'8px'}}>{closingText}</div>
+                                        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'24px', textAlign:'center', fontSize:'8.5pt'}}>
+                                            <div><div style={{color:'#64748b', marginBottom:'40px'}}>Disetujui Oleh (Pelanggan),</div><div style={{fontWeight:700}}>( ................................................ )</div></div>
+                                            <div><div style={{color:'#64748b', marginBottom:'4px'}}>{sigRight}</div>{sigImg?<img src={sigImg} alt="TTD" style={{height:`${sigSize}px`, objectFit:'contain', margin:'0 auto 4px'}}/>:<div style={{height:'52px'}}></div>}<div style={{fontWeight:700}}>( {coName} )</div></div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                                </>
+                                );
+                            })()}
                         </div>
                         );
                     })()}
