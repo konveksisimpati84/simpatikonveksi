@@ -22545,7 +22545,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     {activeSection === 'panduan_bahan' && (() => {
                         const PANDUAN_CATS = ['SD', 'SMP', 'SMA', 'Dewasa', 'Kaos', 'Jaket', 'Almamater', 'Seragam', 'Olahraga', 'Lainnya'];
                         const PANDUAN_SATS = ['meter', 'kg', 'gram', 'pcs', 'lembar', 'roll', 'lusin', 'gross', 'liter', 'set'];
-                        const LEBAR_SATS = ['cm', 'inch', 'inchi'];
+                        const LEBAR_SATS = ['cm', 'inch'];
                         const filteredPanduan = panduanBahan.filter(p => {
                             if (panduanKatFilter !== 'Semua' && p.kat !== panduanKatFilter) return false;
                             if (panduanSearch) {
