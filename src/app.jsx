@@ -18,12 +18,6 @@
             console.error("Gagal inisialisasi Supabase:", error);
         }
 
-        const initialAccounts = [
-            { id: 1, username: 'admin', password: '123', role: 'Admin', name: 'Super Admin' },
-            { id: 2, username: 'mandor', password: '123', role: 'Mandor', name: 'Mandor Produksi' },
-            { id: 3, username: 'kasir', password: '123', role: 'Kasir', name: 'Staf Kasir' }
-        ];
-
         const initialEmployees = [];
 
         const initialOrders = [];
@@ -459,6 +453,62 @@
             return total;
         };
 
+        const recalculateOrderStatuses = (order) => {
+            const newProgress = { ...order.progress };
+            const stagesOrder = getActiveProductionStageIds(order);
+            
+            stagesOrder.forEach(stageId => {
+                if (!newProgress[stageId]) return;
+                const stageData = { ...newProgress[stageId] };
+                newProgress[stageId] = stageData;
+
+                let isAllSizesCompleted = true;
+                let totalCompletedAllSizes = 0;
+                Object.keys(order.sizes).forEach(size => {
+                    const target = order.sizes[size];
+                    let completedForSize = 0;
+                    if (stageData.workLogs) {
+                        stageData.workLogs.forEach(log => { if (!log.isDeleted && log.size === size && log.checkAfter) completedForSize += getWorkLogSubmittedQty(log); });
+                    }
+                    totalCompletedAllSizes += completedForSize;
+                    if (completedForSize < target) isAllSizesCompleted = false;
+                });
+                if (totalCompletedAllSizes === 0) stageData.status = 'Belum';
+                else if (isAllSizesCompleted) stageData.status = 'Selesai';
+                else stageData.status = 'Proses';
+            });
+
+            let isFullyShipped = true;
+            Object.keys(order.sizes).forEach(sz => { if ((order.shipped?.[sz] || 0) < order.sizes[sz]) isFullyShipped = false; });
+            
+            let overallStatus = 'Pending';
+            if (isFullyShipped) overallStatus = 'Terkirim';
+            else {
+                const stageLabel = (stageId) => productionStageOptions.find(stage => stage.id === stageId)?.label || stageId;
+                for (let i = stagesOrder.length - 1; i >= 0; i--) {
+                    const stageId = stagesOrder[i];
+                    const status = newProgress[stageId]?.status;
+                    if (status === 'Selesai') {
+                        overallStatus = i === stagesOrder.length - 1 ? 'Siap Kirim' : `Proses ${stageLabel(stagesOrder[i + 1])}`;
+                        break;
+                    }
+                    if (status === 'Proses') {
+                        overallStatus = `Proses ${stageLabel(stageId)}`;
+                        break;
+                    }
+                }
+            }
+
+            return { ...order, progress: newProgress, status: overallStatus };
+        };
+
+        // Setoran yang upahnya belum direkap — kriteria sama dengan daftar rekap di Laporan Kinerja
+        const getUnreportedWorkLogs = (order, stageIds = null) => Object.entries(safeObject(order?.progress))
+            .filter(([stageId]) => !stageIds || stageIds.includes(stageId))
+            .flatMap(([stageId, data]) => safeArray(data?.workLogs)
+                .filter(l => l && !l.isDeleted && !l.isReported && l.checkAfter && getWorkLogSubmittedQty(l) > 0)
+                .map(l => ({ ...l, stageId })));
+
         const getCustomerTrackingClientFromHash = () => {
             const hash = window.location.hash || '';
             const prefix = '#customer-tracking=';
@@ -731,6 +781,20 @@
             return paid >= total - 0.01 ? 'Lunas' : 'Termin';
         };
 
+        // Hubungan invoice ↔ marketing / klien: pakai ID bila tersimpan (tahan ganti nama), fallback nama untuk invoice lama
+        const isInvoiceOfMarketing = (inv, emp) => {
+            if (!inv || !emp) return false;
+            if (inv.marketingEmpId) return String(inv.marketingEmpId) === String(emp.id);
+            const empName = normalizeText(emp.name);
+            return empName !== '' && normalizeText(inv.marketing) === empName;
+        };
+        const isInvoiceOfClient = (inv, client) => {
+            if (!inv || !client) return false;
+            if (inv.clientId) return String(inv.clientId) === String(client.id);
+            const clientName = normalizeText(client.name);
+            return clientName !== '' && normalizeText(inv.customer) === clientName;
+        };
+
         const getInvoiceCommissionTotal = (invoice) => {
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
             if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
@@ -767,7 +831,11 @@
                 // Ambil nilai langsung dari DOM untuk hindari discrepancy Safari autocorrect
                 const rawUsername = pwInputRef.current?.form?.elements?.namedItem('login-username')?.value ?? username;
                 const rawPassword = pwInputRef.current?.value ?? password;
-                const validAccounts = ((Array.isArray(accounts) && accounts.length > 0) ? accounts : initialAccounts).filter(isVisibleRecord);
+                const validAccounts = (Array.isArray(accounts) ? accounts : []).filter(isVisibleRecord);
+                if (validAccounts.length === 0) {
+                    setError('Data akun belum termuat. Periksa koneksi internet lalu muat ulang halaman.');
+                    return;
+                }
 
                 const user = validAccounts.find(u =>
                     String(u.username).trim().toLowerCase() === String(rawUsername).trim().toLowerCase() &&
@@ -978,6 +1046,14 @@
 
             const executeDeleteOrder = () => {
                 if (deleteConfirmId !== null && deleteConfirmId !== undefined) {
+                    const target = safeOrders.find(o => String(o.id) === String(deleteConfirmId));
+                    const unreported = getUnreportedWorkLogs(target);
+                    if (unreported.length > 0) {
+                        const pcs = unreported.reduce((s, l) => s + getWorkLogSubmittedQty(l), 0);
+                        setDeleteConfirmId(null);
+                        showToast(`Order tidak bisa dihapus: masih ada ${pcs} pcs setoran karyawan yang upahnya belum direkap. Rekap gaji dulu di Laporan Kinerja.`, 'error');
+                        return;
+                    }
                     const now = new Date().toISOString();
                     setOrders(prev => prev.map(o => String(o.id) === String(deleteConfirmId) ? { ...o, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : o));
                     setDeleteConfirmId(null);
@@ -1009,6 +1085,13 @@
                     _syncUpdatedAt: now,
                     progress: Object.fromEntries(Object.entries(order.progress || {}).map(([k, v]) => [k, { ...v, status: 'Belum', workLogs: [] }])),
                     materialStatus: (order.processFlow || {}).materials === false ? 'Tidak Perlu' : 'Belum',
+                    // Riwayat milik order asal tidak ikut disalin: pengiriman, pembayaran/pembelian bahan, revisi
+                    shipped: {},
+                    materialPayments: {},
+                    materialPurchasedBatches: {},
+                    materials: safeArray(order.materials).filter(m => m && !m.isDeleted).map(({ purchaseStatus, purchaseDate, ...m }) => ({ ...m, id: genId('MAT-'), _syncUpdatedAt: now })),
+                    revisiItems: [],
+                    deletedAt: null,
                 };
                 setOrders(prev => [duped, ...(prev || [])]);
                 showToast(`Order ${newId} berhasil dibuat sebagai duplikat dari ${order.id}`, 'success');
@@ -1020,7 +1103,7 @@
                     productionPrices: { ...getDefaultProductionPrices(), ...(order.productionPrices || {}) }
                 });
                 const sortedKeys = sortSizeKeys(Object.keys(order.sizes || {}));
-                const sizesArray = sortedKeys.map((label, index) => ({ id: Date.now() + index, label, qty: order.sizes[label] }));
+                const sizesArray = sortedKeys.map((label, index) => ({ id: Date.now() + index, label, qty: order.sizes[label], originalLabel: label }));
                 while(sizesArray.length < 4) {
                     sizesArray.push({ id: Date.now() + sizesArray.length, label: '', qty: '' });
                 }
@@ -1072,20 +1155,58 @@
             const handleSaveEditOrder = (e) => {
                 e.preventDefault();
                 const finalSizes = {};
+                const sizeRenames = {};
                 let total = 0;
+                let duplicateLabel = '';
                 editSizeInputs.forEach(item => {
                     const parsedQty = parseInt(item.qty) || 0;
                     if (parsedQty > 0) {
-                        finalSizes[item.label || 'Custom'] = parsedQty;
+                        const label = String(item.label || 'Custom').trim() || 'Custom';
+                        if (finalSizes[label] !== undefined) duplicateLabel = label;
+                        finalSizes[label] = parsedQty;
                         total += parsedQty;
+                        if (item.originalLabel && item.originalLabel !== label) sizeRenames[item.originalLabel] = label;
                     }
                 });
                 if(total <= 0) { showToast("Jumlah total tidak boleh kosong.", "error"); return; }
-                
+                if (duplicateLabel) { showToast(`Ukuran "${duplicateLabel}" tertulis lebih dari sekali. Gabungkan jumlahnya dalam satu baris.`, "error"); return; }
+
+                const original = safeOrders.find(o => String(o.id) === String(editOrder.id));
+                // Ukuran lama yang dihapus padahal sudah punya data produksi/pengiriman -> data itu tidak akan terbaca lagi
+                const sizesWithData = new Set([
+                    ...Object.values(safeObject(original?.progress)).flatMap(st => safeArray(st?.workLogs).filter(l => l && !l.isDeleted && (l.checkBefore || l.checkAfter)).map(l => l.size)),
+                    ...Object.entries(safeObject(original?.shipped)).filter(([, q]) => (parseInt(q) || 0) > 0).map(([sz]) => sz)
+                ]);
+                const removedWithData = [...sizesWithData].filter(sz => finalSizes[sz] === undefined && !sizeRenames[sz]);
+                if (removedWithData.length > 0) { showToast(`Ukuran ${removedWithData.join(', ')} sudah punya data produksi/pengiriman, tidak bisa dihapus. Ubah jumlahnya saja.`, "error"); return; }
+                // Mematikan tahap yang masih punya setoran belum direkap -> upahnya hilang dari daftar rekap
+                const nextFlow = { ...getDefaultOrderProcessFlow(), ...(editOrder.processFlow || {}) };
+                const disabledStages = productionStageOptions.filter(st => nextFlow[st.id] === false && getOrderProcessFlow(original)[st.id] !== false).map(st => st.id);
+                const blockedStages = disabledStages.filter(stId => getUnreportedWorkLogs(original, [stId]).length > 0);
+                if (blockedStages.length > 0) {
+                    const names = blockedStages.map(stId => productionStageOptions.find(st => st.id === stId)?.label || stId).join(', ');
+                    showToast(`Tahap ${names} masih punya setoran yang upahnya belum direkap. Rekap gaji dulu sebelum mematikan tahap ini.`, "error");
+                    return;
+                }
+                const editNow = new Date().toISOString();
+                const renameSize = (sz) => sizeRenames[sz] || sz;
+
                 setOrders(prev => prev.map(o => {
                     if (String(o.id) === String(editOrder.id)) {
-                        return {
+                        const hasRenames = Object.keys(sizeRenames).length > 0;
+                        const progress = !hasRenames ? o.progress : Object.fromEntries(Object.entries(safeObject(o.progress)).map(([stId, st]) => [stId, {
+                            ...st,
+                            workLogs: safeArray(st?.workLogs).map(l => sizeRenames[l.size] ? { ...l, size: renameSize(l.size), _syncUpdatedAt: editNow } : l)
+                        }]));
+                        const shipped = !hasRenames ? o.shipped : Object.entries(safeObject(o.shipped)).reduce((acc, [sz, q]) => {
+                            const key = renameSize(sz);
+                            acc[key] = (parseInt(acc[key]) || 0) + (parseInt(q) || 0);
+                            return acc;
+                        }, {});
+                        return recalculateOrderStatuses({
                             ...o,
+                            progress,
+                            shipped,
                             client: editOrder.client,
                             type: editOrder.type,
                             deadline: editOrder.deadline,
@@ -1095,17 +1216,18 @@
                             designImage1: editOrder.designImage1,
                             designImage2: editOrder.designImage2,
                             marketing: editOrder.marketing,
-                            processFlow: { ...getDefaultOrderProcessFlow(), ...(editOrder.processFlow || {}) },
+                            processFlow: nextFlow,
                             productionPrices: { ...getDefaultProductionPrices(), ...(editOrder.productionPrices || {}) },
                             materialStatus: editOrder.materialStatus || ((editOrder.processFlow || {}).materials === false ? 'Tidak Perlu' : o.materialStatus),
                             revisiItems: editOrder.revisiItems || []
-                        };
+                        });
                     }
                     return o;
                 }));
-                
+
                 setEditOrder(null);
-                showToast("Data Order berhasil diperbarui!", "success");
+                const renamedText = Object.entries(sizeRenames).map(([a, b]) => `${a}→${b}`).join(', ');
+                showToast(renamedText ? `Data Order diperbarui. Data produksi ukuran ikut dipindah (${renamedText}).` : "Data Order berhasil diperbarui!", "success");
             };
 
             const handleGenerateInsight = async () => {
@@ -3037,7 +3159,8 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 if (order.status === 'Terkirim') return 'terkirim';
                 if (order.status === 'Siap Kirim') return 'siap';
                 const d = Math.ceil((new Date(order.deadline) - new Date()) / 86400000);
-                if (d <= 7) return 'terlambat';
+                if (d < 0) return 'terlambat';
+                if (d <= 7) return 'mendekati';
                 if (d <= 14) return 'sedang';
                 return 'normal';
             };
@@ -3096,54 +3219,6 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 return 0;
             };
 
-            const recalculateOrderStatuses = (order) => {
-                const newProgress = { ...order.progress };
-                const stagesOrder = getActiveProductionStageIds(order);
-                
-                stagesOrder.forEach(stageId => {
-                    if (!newProgress[stageId]) return;
-                    const stageData = { ...newProgress[stageId] };
-                    newProgress[stageId] = stageData;
-
-                    let isAllSizesCompleted = true;
-                    let totalCompletedAllSizes = 0;
-                    Object.keys(order.sizes).forEach(size => {
-                        const target = order.sizes[size];
-                        let completedForSize = 0;
-                        if (stageData.workLogs) {
-                            stageData.workLogs.forEach(log => { if (!log.isDeleted && log.size === size && log.checkAfter) completedForSize += getWorkLogSubmittedQty(log); });
-                        }
-                        totalCompletedAllSizes += completedForSize;
-                        if (completedForSize < target) isAllSizesCompleted = false;
-                    });
-                    if (totalCompletedAllSizes === 0) stageData.status = 'Belum';
-                    else if (isAllSizesCompleted) stageData.status = 'Selesai';
-                    else stageData.status = 'Proses';
-                });
-
-                let isFullyShipped = true;
-                Object.keys(order.sizes).forEach(sz => { if ((order.shipped?.[sz] || 0) < order.sizes[sz]) isFullyShipped = false; });
-                
-                let overallStatus = order.materialStatus === 'Selesai' ? 'Pembelian Bahan' : 'Pending'; 
-                if (isFullyShipped) overallStatus = 'Terkirim';
-                else {
-                    const stageLabel = (stageId) => productionStageOptions.find(stage => stage.id === stageId)?.label || stageId;
-                    for (let i = stagesOrder.length - 1; i >= 0; i--) {
-                        const stageId = stagesOrder[i];
-                        const status = newProgress[stageId]?.status;
-                        if (status === 'Selesai') {
-                            overallStatus = i === stagesOrder.length - 1 ? 'Siap Kirim' : `Proses ${stageLabel(stagesOrder[i + 1])}`;
-                            break;
-                        }
-                        if (status === 'Proses') {
-                            overallStatus = `Proses ${stageLabel(stageId)}`;
-                            break;
-                        }
-                    }
-                }
-
-                return { ...order, progress: newProgress, status: overallStatus };
-            };
 
             const handleUpdateLog = (orderId, stageId, logId, value) => {
                 setOrders(prevOrders => prevOrders.map(o => {
@@ -3163,6 +3238,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                         const maxForThisLog = maxAllowedGlobal - otherLogsTotal;
                         let val = parseInt(value) || 0;
                         if (val > maxForThisLog) val = maxForThisLog;
+                        if (val < 0) val = 0;
                         
                         const now = new Date().toISOString();
                         const newLogs = logs.map(l => String(l.id) === String(logId) ? { ...l, qty: val, qtyUpdatedAt: now, _syncUpdatedAt: now } : l);
@@ -3815,6 +3891,9 @@ window.addEventListener('load',function(){
                                                                                     <div className="flex justify-between text-gray-600 border-b border-gray-200 pb-0.5"><span title="Target Masuk">Target:</span> <span className="font-bold text-sm">{maxAllowed}</span></div>
                                                                                     <div className="flex justify-between text-green-700 border-b border-green-100 pb-0.5"><span title="Sudah Dikerjakan/Masuk">Isi:</span> <span className="font-bold text-sm">{currentStageTotal}</span></div>
                                                                                     <div className="flex justify-between text-red-600"><span title="Sisa Belum Diambil">Sisa:</span> <span className="font-bold text-sm">{availableToAdd}</span></div>
+                                                                                    {availableToAdd < 0 && (
+                                                                                        <div className="mt-1 bg-red-600 text-white rounded px-1.5 py-1 font-bold leading-tight" title="Biasanya terjadi jika dua orang mengambil bersamaan dari perangkat berbeda">⚠ Lebih ambil {Math.abs(availableToAdd)} pcs — cek & koreksi</div>
+                                                                                    )}
                                                                                 </div>
                                                                             </td>
                                                                             <td className="p-3">
@@ -4068,7 +4147,7 @@ window.addEventListener('load',function(){
 
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-[11px] text-gray-500 shadow-sm">
                         <span className="font-bold text-gray-600 mr-1">Filter Warna:</span>
-                        {[{k:'terkirim',c:'bg-purple-500',l:'Terkirim'},{k:'siap',c:'bg-green-500',l:'Siap Kirim'},{k:'terlambat',c:'bg-red-500',l:'Terlambat'},{k:'sedang',c:'bg-yellow-400',l:'Sedang Proses'},{k:'normal',c:'bg-blue-500',l:'Normal'}].map(({k,c,l}) => (
+                        {[{k:'terkirim',c:'bg-purple-500',l:'Terkirim'},{k:'siap',c:'bg-green-500',l:'Siap Kirim'},{k:'terlambat',c:'bg-red-500',l:'Lewat Deadline'},{k:'mendekati',c:'bg-orange-400',l:'Mendekati Deadline (≤7 hari)'},{k:'sedang',c:'bg-yellow-400',l:'Sedang Proses'},{k:'normal',c:'bg-blue-500',l:'Normal'}].map(({k,c,l}) => (
                             <button key={k} onClick={() => setColorFilter(prev => prev === k ? null : k)} className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${colorFilter===k?'bg-gray-100 border-gray-400 font-bold text-gray-800':'border-transparent hover:bg-gray-100'}`}>
                                 <span className={`inline-block w-2.5 h-3.5 rounded-sm ${c} flex-shrink-0`}></span>{l}
                             </button>
@@ -4094,10 +4173,14 @@ window.addEventListener('load',function(){
                                 cardColor = "bg-green-50 border-green-300 shadow-green-100";
                                 indicatorColor = "bg-green-500";
                                 textColor = "text-green-900";
-                            } else if (diffDays <= 7) {
+                            } else if (diffDays < 0) {
                                 cardColor = "bg-red-50 border-red-200";
                                 indicatorColor = "bg-red-500 group-hover:bg-red-600";
                                 textColor = "text-red-900";
+                            } else if (diffDays <= 7) {
+                                cardColor = "bg-orange-50 border-orange-200";
+                                indicatorColor = "bg-orange-500 group-hover:bg-orange-600";
+                                textColor = "text-orange-900";
                             } else if (diffDays <= 14) {
                                 cardColor = "bg-yellow-50 border-yellow-200";
                                 indicatorColor = "bg-yellow-500 group-hover:bg-yellow-600";
@@ -4126,11 +4209,22 @@ window.addEventListener('load',function(){
                                             <h3 className={`font-black text-lg ${textColor}`}>{order.id}</h3>
                                             <Badge status={order.status} />
                                         </div>
+                                        {(() => {
+                                            // Total ambil melebihi batas (mis. dua orang ambil bersamaan dari HP berbeda)
+                                            const over = getActiveProductionStageIds(order).flatMap(stageId => {
+                                                const taken = getStageSizeTotals(order.progress?.[stageId], 'taken');
+                                                return Object.keys(order.sizes || {}).filter(size => (taken[size] || 0) > getMaxAllowed(order, stageId, size))
+                                                    .map(size => `${productionStageOptions.find(st => st.id === stageId)?.label || stageId} ${size}`);
+                                            });
+                                            return over.length > 0 ? (
+                                                <div className="mb-2 ml-1 text-[11px] font-bold text-white bg-red-600 rounded px-2 py-1" title="Jumlah ambil melebihi jumlah yang tersedia. Biasanya karena dua orang mengambil bersamaan dari perangkat berbeda.">⚠ Lebih ambil: {over.join(', ')}</div>
+                                            ) : null;
+                                        })()}
                                         <div className="pl-1 space-y-1 mb-4 flex-1">
                                             <p className="text-sm font-bold text-gray-800">{order.client}</p>
                                             <p className="text-xs text-gray-600">{order.type} - {order.total} pcs</p>
-                                            <p className={`text-xs font-bold mt-1.5 ${diffDays <= 7 ? 'text-red-600' : diffDays <= 14 ? 'text-green-700' : 'text-gray-500'}`}>
-                                                DL: {order.deadline} ({diffDays > 0 ? `${diffDays} hari lagi` : 'Terlewat/Hari ini'})
+                                            <p className={`text-xs font-bold mt-1.5 ${diffDays < 0 ? 'text-red-600' : diffDays <= 7 ? 'text-orange-600' : diffDays <= 14 ? 'text-green-700' : 'text-gray-500'}`}>
+                                                DL: {order.deadline} ({diffDays > 0 ? `${diffDays} hari lagi` : diffDays === 0 ? 'Hari ini' : `Lewat ${Math.abs(diffDays)} hari`})
                                             </p>
                                             {order.notes && (
                                                 <div className="mt-3 p-2 bg-white/60 rounded border border-black/5 text-[11px] text-gray-700 leading-tight">
@@ -5068,7 +5162,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         foundStage = true; break;
                                     }
                                 }
-                                if (!foundStage) overallStatus = order.materialStatus === 'Selesai' ? 'Pembelian Bahan' : 'Pending';
+                                if (!foundStage) overallStatus = 'Pending';
                             }
 
                             order.status = overallStatus;
@@ -6337,7 +6431,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const getTotalBayar   = (kartuId) => trxList.filter(t => t.kartuId === kartuId && t.tipe === 'bayar').reduce((s,t) => s + safeMoney(t.jumlah), 0);
             const getTagihan = (kartuId) => Math.max(0, getTotalBelanja(kartuId) - getTotalBayar(kartuId));
             const getSisaLimit = (k) => Math.max(0, safeMoney(k.limit) - getTagihan(k.id));
-            const getPct = (k) => safeMoney(k.limit) > 0 ? Math.min(100, (getTotalBelanja(k.id) / safeMoney(k.limit)) * 100) : 0;
+            const getPct = (k) => safeMoney(k.limit) > 0 ? Math.min(100, (getTagihan(k.id) / safeMoney(k.limit)) * 100) : 0;
 
             const getDaysToTempo = (kartu) => {
                 if (!kartu?.jatuhTempo) return null;
@@ -7323,6 +7417,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const pf = payForm[itemId] || emptyPayForm;
                 const amt = safeMoney(pf.amount);
                 if (amt <= 0) return showToast('Isi nominal pembayaran.', 'error');
+                const sisaTagihan = Math.max(0, safeMoney(targetItem.amount) - getExpensePaid(targetItem));
+                if (amt > sisaTagihan + 0.01) return showToast(`Pembayaran melebihi sisa tagihan (sisa: ${formatRupiah(sisaTagihan)}).`, 'error');
                 const now = new Date().toISOString();
                 const pay = { id: genId('BPAY-'), date: pf.date || toLocalDateStr(now), amount: amt, method: pf.method || 'Tunai', note: pf.note || '', operasionalKaryawanId: pf.operasionalKaryawanId || '' };
                 setExpenses(prev => (prev || []).map(item => {
@@ -7839,7 +7935,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const visibleClients = safeClients.filter(isVisibleRecord).filter(client => matchesSearch([client.name, client.address, client.phone, client.pic, client.note], searchTerm));
             const { page: clientPage, setPage: setClientPage, totalPages: clientTotalPages, paged: pagedClients, total: clientTotal } = usePagination(visibleClients, 15);
             const getClientDpRows = (client) => Array.isArray(client?.clientDpPayments) ? client.clientDpPayments.filter(isVisibleRecord) : [];
-            const getClientInvoices = (client) => safeInvoices.filter(isVisibleRecord).filter(inv => normalizeText(inv.customer) === normalizeText(client?.name));
+            const getClientInvoices = (client) => safeInvoices.filter(isVisibleRecord).filter(inv => isInvoiceOfClient(inv, client));
             const getClientSummary = (client) => {
                 const dpRows = getClientDpRows(client);
                 const dp = dpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
@@ -7958,7 +8054,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                     .filter(dp => !dp.isDeleted && String(dp.id) !== String(dpId))
                     .reduce((sum, dp) => sum + safeMoney(dp.amount), 0);
                 const clientName = clientData?.name || '';
-                const clientInvs = (invoices || []).filter(inv => !inv.isDeleted && normalizeText(inv.customer) === normalizeText(clientName) && safeMoney(inv.linkedDpAmount) > 0);
+                const clientInvs = (invoices || []).filter(inv => !inv.isDeleted && isInvoiceOfClient(inv, clientData) && safeMoney(inv.linkedDpAmount) > 0);
                 const totalLinked = clientInvs.reduce((sum, inv) => sum + safeMoney(inv.linkedDpAmount), 0);
                 if (totalLinked > remainingPool) {
                     // Kurangi linkedDpAmount dari invoice terbaru dulu sampai pas dengan sisa pool
@@ -8617,16 +8713,29 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const uniqueInvoiceTypes = React.useMemo(() => [...new Set([..._defaultProdTypes, ...safeInvoiceRows.filter(isVisibleRecord).flatMap(inv => getInvoiceItems(inv).map(item => item.productionType)).filter(Boolean)])].sort(), [invoices]);
             const clientAddressSuggestions = React.useMemo(() => [...new Set(safeClientRows.filter(isVisibleRecord).map(c => String(c.address || '').trim()).filter(Boolean))].sort(), [clients]);
             // Hitung saldo DP tersedia dari pool klien (exclude DP yg punya invoiceId lama, exclude invoice yg sedang diedit)
+            // Klien untuk form invoice: cocokkan nama dulu; saat edit invoice lama yang namanya tidak diubah, pakai clientId-nya (tahan ganti nama klien)
+            const resolveFormClient = (customerName, currentEditId) => {
+                const visibleClients = safeClientRows.filter(isVisibleRecord);
+                const byName = visibleClients.find(c => normalizeText(c.name) === normalizeText(customerName));
+                if (byName) return byName;
+                if (!currentEditId || !form.clientId) return null;
+                const original = safeInvoiceRows.find(inv => String(inv.id) === String(currentEditId));
+                if (!original || normalizeText(original.customer) !== normalizeText(customerName)) return null;
+                return visibleClients.find(c => String(c.id) === String(form.clientId)) || null;
+            };
             const getFormAvailableDp = (customerName, currentEditId) => {
                 if (!customerName) return 0;
-                const client = safeClientRows.filter(isVisibleRecord).find(c => normalizeText(c.name) === normalizeText(customerName));
+                const client = resolveFormClient(customerName, currentEditId);
                 if (!client) return 0;
                 const poolTotal = (client.clientDpPayments || []).filter(isVisibleRecord).reduce((s, dp) => s + safeMoney(dp.amount), 0);
-                const usedByOthers = safeInvoiceRows.filter(isVisibleRecord).filter(inv => normalizeText(inv.customer) === normalizeText(customerName) && (!currentEditId || String(inv.id) !== String(currentEditId))).reduce((s, inv) => s + getInvoiceLinkedDpAmount(inv), 0);
+                const usedByOthers = safeInvoiceRows.filter(isVisibleRecord).filter(inv => isInvoiceOfClient(inv, client) && (!currentEditId || String(inv.id) !== String(currentEditId))).reduce((s, inv) => s + getInvoiceLinkedDpAmount(inv), 0);
                 return Math.max(0, poolTotal - usedByOthers);
             };
             const availableDpForForm = getFormAvailableDp(form.customer, editId);
             const currentInvoiceTotal = getInvoiceTotals(form).total;
+            // Saldo DP klien yang boleh dipakai = sisa tagihan setelah DP invoice & pembayaran yang sudah ada
+            const getFormOtherPaid = (f) => safeMoney(f.invoiceDp?.amount) + getInvoicePayments(f).reduce((s, p) => s + safeMoney(p.amount), 0);
+            const maxLinkedDpForForm = Math.max(0, Math.min(availableDpForForm, currentInvoiceTotal - getFormOtherPaid(form)));
             const visibleInvoices = React.useMemo(() => safeInvoiceRows.filter(isVisibleRecord).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.address, inv.marketing, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)], searchTerm);
@@ -8661,11 +8770,12 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const now = new Date().toISOString();
                 setClients(prev => {
                     const list = Array.isArray(prev) ? prev : [];
-                    const existing = list.find(client => normalizeText(client.name) === normalizeText(invoice.customer));
+                    const existing = (invoice.clientId && list.find(client => !client.isDeleted && String(client.id) === String(invoice.clientId)))
+                        || list.find(client => !client.isDeleted && normalizeText(client.name) === normalizeText(invoice.customer));
                     if (existing) {
                         return list.map(client => String(client.id) !== String(existing.id) ? client : { ...client, address: client.address || invoice.address || '', _syncUpdatedAt: now });
                     }
-                    return [{ id: genId('CLI-'), name: invoice.customer, address: invoice.address || '', phone: '', pic: '', note: '', clientDpPayments: [], _syncUpdatedAt: now }, ...list];
+                    return [{ id: invoice.clientId || genId('CLI-'), name: invoice.customer, address: invoice.address || '', phone: '', pic: '', note: '', clientDpPayments: [], _syncUpdatedAt: now }, ...list];
                 });
             };
             const saveInvoice = (e) => {
@@ -8686,7 +8796,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const empCommValue = form.commissionValue != null && form.commissionValue !== '' ? safeMoney(form.commissionValue) : safeMoney(marketingEmp?.commissionValue || 0);
                 // A1 & A2: Cap invoiceDp.amount antara 0 dan cleanedTotal
                 const safeDpAmount = Math.max(0, Math.min(safeMoney(form.invoiceDp?.amount), cleanedTotal));
-                const row = { ...form, id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal), shippingCost: Math.max(0, safeMoney(form.shippingCost)), shippingNote: String(form.shippingNote || ''), _syncUpdatedAt: now };
+                const formClient = resolveFormClient(form.customer, editId);
+                const row = { ...form, marketingEmpId: marketingEmp?.id || '', clientId: formClient?.id || genId('CLI-'), id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.max(0, Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal - safeDpAmount - getInvoicePayments(form).reduce((s, p) => s + safeMoney(p.amount), 0))), shippingCost: Math.max(0, safeMoney(form.shippingCost)), shippingNote: String(form.shippingNote || ''), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 setInvoices(prev => {
                     const list = Array.isArray(prev) ? prev : [];
@@ -9191,7 +9302,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                                         <input type="date" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}/>
-                                        <input list="client-list-invoice" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Nama instansi/customer" value={form.customer} onChange={e => { const _c = e.target.value; const _avail = getFormAvailableDp(_c, editId); const _total = getInvoiceTotals(form).total; setForm({ ...form, customer: _c, linkedDpAmount: _avail > 0 ? String(Math.min(_avail, _total)) : '' }); }} required/>
+                                        <input list="client-list-invoice" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Nama instansi/customer" value={form.customer} onChange={e => { const _c = e.target.value; const _avail = getFormAvailableDp(_c, editId); const _total = getInvoiceTotals(form).total; const _maxUse = Math.max(0, Math.min(_avail, _total - getFormOtherPaid(form))); setForm({ ...form, customer: _c, linkedDpAmount: _maxUse > 0 ? String(_maxUse) : '' }); }} required/>
                                         <datalist id="client-list-invoice">{safeClientRows.filter(isVisibleRecord).map(client => <option key={client.id} value={client.name}/>)}</datalist>
                                         <input list="client-address-list" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/>
                                         <datalist id="client-address-list">{clientAddressSuggestions.map((a,i)=><option key={i} value={a}/>)}</datalist>
@@ -9263,11 +9374,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <h4 className="font-bold text-emerald-800 mb-3 flex items-center gap-2"><span className="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span>Saldo Klien Tersedia</h4>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                             <div className="bg-white border border-emerald-200 rounded-xl p-3 text-center"><div className="text-xs text-gray-500 mb-1">Saldo Tersedia</div><div className="font-black text-emerald-700">{formatRupiah(availableDpForForm)}</div></div>
-                                            <div><label className="text-xs font-bold text-gray-600 block mb-1">Saldo Dipakai</label><input type="number" min="0" max={Math.min(availableDpForForm, currentInvoiceTotal)} className="w-full p-2.5 border border-emerald-300 rounded-xl text-right focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all bg-white" placeholder="0" value={form.linkedDpAmount || ''} onChange={e => { const v = Math.min(safeMoney(e.target.value), availableDpForForm, currentInvoiceTotal); setForm({ ...form, linkedDpAmount: v || '' }); }}/></div>
+                                            <div><label className="text-xs font-bold text-gray-600 block mb-1">Saldo Dipakai</label><input type="number" min="0" max={maxLinkedDpForForm} className="w-full p-2.5 border border-emerald-300 rounded-xl text-right focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all bg-white" placeholder="0" value={form.linkedDpAmount || ''} onChange={e => { const v = Math.min(safeMoney(e.target.value), availableDpForForm, currentInvoiceTotal); setForm({ ...form, linkedDpAmount: v || '' }); }}/></div>
                                             <div className="bg-white border border-emerald-200 rounded-xl p-3 text-center"><div className="text-xs text-gray-500 mb-1">Sisa Saldo Klien</div><div className="font-black text-blue-700">{formatRupiah(availableDpForForm - safeMoney(form.linkedDpAmount || 0))}</div></div>
                                         </div>
                                         <div className="mt-2 flex gap-2">
-                                            <button type="button" className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg transition-colors" onClick={() => setForm({ ...form, linkedDpAmount: Math.min(availableDpForForm, currentInvoiceTotal) })}>Pakai Semua Saldo</button>
+                                            <button type="button" className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg transition-colors" onClick={() => setForm({ ...form, linkedDpAmount: maxLinkedDpForForm })}>Pakai Semua Saldo</button>
                                             <button type="button" className="text-xs font-bold bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-lg transition-colors" onClick={() => setForm({ ...form, linkedDpAmount: '' })}>Reset Saldo</button>
                                         </div>
                                     </div>
@@ -10469,7 +10580,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const daily = dailyRows.reduce((sum, row) => sum + safeNumber(getDailySalaryLogTotal(row).daily), 0);
                 const overtime = dailyRows.reduce((sum, row) => sum + safeNumber(getDailySalaryLogTotal(row).overtime), 0);
                 // TODO: koneksi data ini perlu disempurnakan nanti jika invoice marketing memakai relasi selain nama karyawan.
-                const commission = safeInvoices.filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && inRange(inv?.date)).reduce((sum, inv) => {
+                const commission = safeInvoices.filter(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && inRange(inv?.date)).reduce((sum, inv) => {
                     try { return sum + safeNumber(getInvoiceCommissionTotal(inv)); } catch (error) { return sum; }
                 }, 0);
                 let kasbon = 0;
@@ -10705,8 +10816,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const found = empList.find(emp => !emp.isDeleted && emp.marketingShareToken === token);
                     if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
                     setMarketing(found);
-                    const normalize = (s) => String(s || '').toLowerCase().trim();
-                    const myInvoices = (rawInvoices || []).filter(inv => !inv.isDeleted && normalize(inv.marketing) === normalize(found.name));
+                    const myInvoices = (rawInvoices || []).filter(inv => !inv.isDeleted && isInvoiceOfMarketing(inv, found));
                     setInvList(myInvoices);
                     setLastUpdate(new Date());
                 } catch (err) {
@@ -11609,7 +11719,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         netSalary: safeMoney(rekap.netSalary ?? rekap.grossSalary ?? rekap.totalWage),
                         commissionSalary: safeMoney(rekap.marketingCommission || 0),
                         bagiHasilDireksiSalary: safeMoney(rekap.bagiHasilDireksiAmount || 0),
-                        items: rekap.items || []
+                        items: rekap.items || [],
+                        payments: rekap.payments,
+                        paymentStatus: rekap.paymentStatus
                     };
                 }), [rekapKinerja, employees, isSuperAdmin]);
             const allCashAdvanceRows = React.useMemo(() => visibleEmployees.flatMap(emp => getEmployeeCashAdvances(emp).map(item => ({
@@ -11679,7 +11791,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return [inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)].join(' ').toLowerCase().includes(normalizedSearch);
             });
             const getInvoiceTotal = (inv) => getInvoiceTotals(inv).total;
-            const getInvoicePaid = (inv) => getInvoiceCashInflow(inv);
             // Komisi dihitung akrual penuh: total invoice (bukan proporsional yang sudah dibayar)
             const getInvoiceCommission = (inv) => getInvoiceCommissionTotal(inv);
 
@@ -11693,7 +11804,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (!normalizedSearch) return true;
                 return [dp.clientName, dp.date, dp.amount, dp.method, dp.note, dp.orderId, dp.invoiceId].join(' ').toLowerCase().includes(normalizedSearch);
             }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-            const totalInvoiceIncome = invoiceRows.reduce((sum, inv) => sum + getInvoicePaid(inv), 0);
+            // Uang invoice yang diterima (DP invoice + tiap pembayaran) dicatat per TANGGAL DITERIMA, bukan tanggal invoice
+            const invoiceMatchesSearch = (inv) => !normalizedSearch || [inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)].join(' ').toLowerCase().includes(normalizedSearch);
+            const allInvoiceCashEvents = safeFinanceInvoices.filter(isVisibleRecord).flatMap(inv => {
+                const events = [];
+                const dpAmount = getInvoiceDpAmount(inv);
+                if (dpAmount > 0) events.push({ inv, date: getInvoiceDp(inv).date || inv.date, amount: dpAmount, sumber: 'DP Invoice' });
+                getInvoicePayments(inv).forEach(p => {
+                    const amount = safeMoney(p.amount);
+                    if (amount > 0) events.push({ inv, date: p.date || inv.date, amount, sumber: 'Invoice' });
+                });
+                return events;
+            });
+            const invoiceCashEvents = allInvoiceCashEvents.filter(e => isInPeriod(e.date) && invoiceMatchesSearch(e.inv));
+            const totalInvoiceIncome = invoiceCashEvents.reduce((sum, e) => sum + e.amount, 0);
             // Saldo DP klien diakui sebagai pendapatan saat dipakai di invoice (sebelumnya kewajiban)
             const totalLinkedDpIncome = invoiceRows.reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0);
             const totalClientDpIncome = clientDpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
@@ -11711,12 +11835,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const monthlyFinanceMasuk = React.useMemo(() => {
                 const totals = Array(12).fill(0);
-                safeFinanceInvoices.filter(isVisibleRecord).forEach(inv => {
-                    if (!inv.date) return;
-                    const parts = String(inv.date).split('-');
+                allInvoiceCashEvents.forEach(e => {
+                    if (!e.date) return;
+                    const parts = String(e.date).split('-');
                     if (parts[0] !== finChartYear) return;
                     const m = parseInt(parts[1], 10) - 1;
-                    if (m >= 0 && m < 12) totals[m] += getInvoiceCashInflow(inv);
+                    if (m >= 0 && m < 12) totals[m] += e.amount;
                 });
                 (expenses||[]).filter(isVisibleRecord).forEach(e => {
                     if (!e.date || e.type !== 'Uang Masuk') return;
@@ -11782,26 +11906,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Komisi dari invoice yang di-rekap sudah masuk totalWage; kecuali rekapnya sudah dihapus
             const deletedRekapIds = new Set(safeFinanceRekaps.filter(r => !isVisibleRecord(r)).map(r => String(r.id)));
             // Filter komisi marketing konsisten dengan filter karyawan/divisi yang aktif
-            const filteredMktNames = (() => {
-                if (employeeFilter !== 'Semua') {
-                    const emp = visibleEmployees.find(e => String(e.id) === String(employeeFilter));
-                    return emp ? new Set([normalizeText(emp.name)]) : new Set();
-                }
-                if (divisionFilter !== 'Semua') {
-                    return new Set(visibleEmployees.filter(e => getEmployeeDivisions(e).some(d => d === divisionFilter)).map(e => normalizeText(e.name)));
-                }
+            const filteredMktEmps = (() => {
+                if (employeeFilter !== 'Semua') return visibleEmployees.filter(e => String(e.id) === String(employeeFilter));
+                if (divisionFilter !== 'Semua') return visibleEmployees.filter(e => getEmployeeDivisions(e).some(d => d === divisionFilter));
                 return null;
             })();
             const totalMarketingCommission = invoiceRows
                 .filter(inv => !inv.commissionRekapId || deletedRekapIds.has(String(inv.commissionRekapId)))
-                .filter(inv => !filteredMktNames || filteredMktNames.has(normalizeText(inv.marketing || '')))
+                .filter(inv => !filteredMktEmps || filteredMktEmps.some(emp => isInvoiceOfMarketing(inv, emp)))
                 .reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
             // AKUNTANSI STANDAR
             // Pendapatan = pembayaran invoice + saldo DP yang dipakai invoice + pemasukan manual.
             // Setoran saldo DP sendiri bukan pendapatan (kewajiban) — hanya masuk Buku Kas.
             const totalPendapatan = totalInvoiceIncome + totalLinkedDpIncome + totalManualIncome;
             const cashInRows = [
-                ...invoiceRows.map(inv => ({ date: inv.date || '-', ref: inv.id || '-', sumber: 'Invoice', ket: inv.customer || '-', nominal: getInvoicePaid(inv) })),
+                ...invoiceCashEvents.map(e => ({ date: e.date || '-', ref: e.inv.id || '-', sumber: e.sumber, ket: e.inv.customer || '-', nominal: e.amount })),
                 ...clientDpRows.map(dp => ({ date: dp.date || '-', ref: dp.id || '-', sumber: 'Saldo DP Klien', ket: dp.clientName || '-', nominal: safeMoney(dp.amount) })),
                 ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
             ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
@@ -11835,7 +11954,39 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // bagiHasilDireksi sudah termasuk dalam totalWage (via grossSalary rekap) — tidak perlu ditambahkan lagi
             const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
             // Buku Kas = arus kas keluar nyata: pakai totalCashWage (netSalary) + kasbon yang diberikan
-            const totalBebanKas = totalMaterialPaid + totalCashWage + totalCashAdvanceGiven + totalOperationalExpense + totalBagiHasilPromosiPaid;
+            // Buku Kas Keluar = hanya pembayaran yang benar-benar dilakukan, per TANGGAL BAYAR.
+            // Data lama tanpa catatan pembayaran (sebelum fitur bayar ada) tetap dianggap lunas pada tanggalnya.
+            const passEmpFilters = (row) => (employeeFilter === 'Semua' || String(row.empId) === String(employeeFilter)) && (divisionFilter === 'Semua' || row.division === divisionFilter);
+            const getExpensePaidEvents = (e) => {
+                const pays = safeArray(e.payments).filter(p => safeMoney(p.amount) > 0);
+                if (pays.length > 0) return pays.map(p => ({ date: p.date || e.date, amount: safeMoney(p.amount) }));
+                const unpaidStatus = e.paymentStatus === 'Belum Dibayar' || e.paymentStatus === 'Dibayar Sebagian';
+                return unpaidStatus ? [] : [{ date: e.date, amount: safeMoney(e.amount) }];
+            };
+            const getWagePaidEvents = (r) => {
+                const pays = safeArray(r.payments).filter(p => safeMoney(p.amount) > 0);
+                if (pays.length > 0) return pays.map(p => ({ date: p.date || r.date, amount: safeMoney(p.amount) }));
+                const isLegacy = !Array.isArray(r.payments);
+                return (isLegacy || r.paymentStatus === 'lunas') ? [{ date: r.date, amount: r.netSalary }] : [];
+            };
+            const cashOutRows = [
+                ...allUnifiedNotes.flatMap(note => {
+                    const base = { ref: note.id || '-', sumber: 'Pembelian Bahan', ket: note.vendor || '-' };
+                    const pays = safeArray(note.payments).filter(p => (parseFloat(p.amount) || 0) > 0);
+                    if (pays.length > 0) return pays.map(p => ({ ...base, date: p.date || note.date || '-', nominal: parseFloat(p.amount) || 0 }));
+                    const paid = notePaid(note);
+                    return paid > 0 ? [{ ...base, date: note.date || '-', nominal: paid }] : [];
+                }),
+                ...allWageRows.filter(passEmpFilters).flatMap(r => getWagePaidEvents(r).map(ev => ({ date: ev.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: ev.amount }))),
+                ...allCashAdvanceRows.filter(passEmpFilters).map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
+                ...(expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Keluar').flatMap(e => getExpensePaidEvents(e).map(ev => ({ date: ev.date || '-', ref: e.id || '-', sumber: 'Biaya Operasional', ket: e.category || e.note || '-', nominal: ev.amount }))),
+                ...safeArray(bagiHasilPromosi).filter(isVisibleRecord).flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
+            ].filter(r => r.nominal > 0 && isInPeriod(r.date) && (!normalizedSearch || [r.date, r.ref, r.sumber, r.ket].join(' ').toLowerCase().includes(normalizedSearch)))
+             .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+            const totalBebanKas = cashOutRows.reduce((s, r) => s + r.nominal, 0);
+            // Tagihan periode ini yang belum dibayar — tidak masuk kas, ditampilkan terpisah agar tidak tersembunyi
+            const unpaidExpenseTotal = expenseRows.filter(e => e.type === 'Uang Keluar').reduce((s, e) => s + Math.max(0, safeMoney(e.amount) - getExpensePaidEvents(e).reduce((ps, ev) => ps + ev.amount, 0)), 0);
+            const unpaidWageTotal = wageRows.reduce((s, r) => s + Math.max(0, r.netSalary - getWagePaidEvents(r).reduce((ps, ev) => ps + ev.amount, 0)), 0);
             // Piutang kasbon all-time (neraca) — kasbon yang belum terpotong dari rekap manapun
             const totalKasbonOutstanding = allCashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
             // HPP = bahan baku + upah produksi murni (komisi TIDAK masuk HPP)
@@ -12122,43 +12273,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const periodLabel = period ? new Date(`${period}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : 'Semua Periode';
                 const printedDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
                 const kasmasukRows = cashInRows;
-                const kaskeluarRows = [
-                    ...materialRows.filter(r => !r.isHutang).map(r => ({
-                        date: r.date || '-',
-                        ref: r.orderId || r.id || '-',
-                        sumber: 'Pembelian Bahan',
-                        ket: r.type === 'Nota Pembelian' ? r.vendors.join(', ') : (r.client + ' — ' + r.vendors.join(', ')),
-                        nominal: r.total
-                    })),
-                    ...wageRows.map(r => ({
-                        date: r.date || '-',
-                        ref: r.id || '-',
-                        sumber: 'Gaji',
-                        ket: r.empName,
-                        nominal: r.netSalary
-                    })),
-                    ...cashAdvanceRows.map(r => ({
-                        date: r.date || '-',
-                        ref: r.id || '-',
-                        sumber: 'Kasbon',
-                        ket: r.empName,
-                        nominal: r.amount
-                    })),
-                    ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({
-                        date: r.date || '-',
-                        ref: r.id || '-',
-                        sumber: 'Biaya Operasional',
-                        ket: r.category || r.note || '-',
-                        nominal: safeMoney(r.amount)
-                    })),
-                    ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({
-                        date: p.date || b.tanggal || '-',
-                        ref: b.id || '-',
-                        sumber: 'Bagi Hasil Promosi',
-                        ket: b.nama || '-',
-                        nominal: safeMoney(p.amount)
-                    }))),
-                ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+                const kaskeluarRows = cashOutRows;
                 const totalKasMasuk = kasmasukRows.reduce((s, r) => s + r.nominal, 0);
                 const totalKasKeluar = kaskeluarRows.reduce((s, r) => s + r.nominal, 0);
                 const renderRows = (rows) => rows.map(r => `<tr><td>${r.date}</td><td>${r.ref}</td><td>${r.sumber}</td><td>${r.ket}</td><td class="text-right">${formatRupiah(r.nominal)}</td></tr>`).join('') || '<tr><td colspan="5" class="text-center" style="color:#999;font-style:italic;">Tidak ada data.</td></tr>';
@@ -12204,6 +12319,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <tbody>
                                 ${renderRows(kaskeluarRows)}
                                 <tr class="total-row"><td colspan="4">TOTAL KAS KELUAR</td><td class="text-right">${formatRupiah(totalKasKeluar)}</td></tr>
+                                ${unpaidExpenseTotal > 0 ? `<tr><td colspan="4" style="color:#92400e;font-style:italic;">Catatan: biaya belum dibayar (tidak masuk kas)</td><td class="text-right" style="color:#92400e;">${formatRupiah(unpaidExpenseTotal)}</td></tr>` : ''}
+                                ${unpaidWageTotal > 0 ? `<tr><td colspan="4" style="color:#92400e;font-style:italic;">Catatan: gaji belum dibayar (tidak masuk kas)</td><td class="text-right" style="color:#92400e;">${formatRupiah(unpaidWageTotal)}</td></tr>` : ''}
                             </tbody>
                         </table>
                         <div class="footer">Dicetak pada: ${printedDate}</div>
@@ -12667,13 +12784,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {[
-                                                ...materialRows.filter(r => !r.isHutang).map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.type === 'Nota Pembelian' ? r.vendors.join(', ') : (r.client + ' — ' + r.vendors.join(', ')), nominal: r.total })),
-                                                ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
-                                                ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
-                                                ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) })),
-                                                ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
-                                            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                            {cashOutRows.map((r, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                                                     <td className="p-3">{r.date}</td>
                                                     <td className="p-3 font-mono text-xs">{r.ref}</td>
@@ -12682,7 +12793,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <td className="p-3 text-right font-black text-red-700">{formatRupiah(r.nominal)}</td>
                                                 </tr>
                                             ))}
-                                            {materialRows.filter(r => !r.isHutang).length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && safeBagiHasilPromosi.flatMap(b => safeArray(b.payments)).length === 0 && (
+                                            {cashOutRows.length === 0 && (
                                                 <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas keluar pada periode ini.</td></tr>
                                             )}
                                             <tr className="bg-red-50 font-black border-t-2 border-red-400">
@@ -12693,13 +12804,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </table>
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                    {[
-                                        ...materialRows.filter(r => !r.isHutang).map(r => ({ date: r.date || '-', ref: r.orderId || r.id || '-', sumber: 'Pembelian Bahan', ket: r.type === 'Nota Pembelian' ? r.vendors.join(', ') : (r.client + ' — ' + r.vendors.join(', ')), nominal: r.total })),
-                                        ...wageRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: r.netSalary })),
-                                        ...cashAdvanceRows.map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
-                                        ...expenseRows.filter(r => r.type === 'Uang Keluar').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Biaya Operasional', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) })),
-                                        ...safeBagiHasilPromosi.flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
-                                    ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                    {cashOutRows.map((r, i) => (
                                         <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -12712,7 +12817,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div className="text-sm font-black text-red-700 shrink-0">{formatRupiah(r.nominal)}</div>
                                         </div>
                                     ))}
-                                    {materialRows.filter(r => !r.isHutang).length === 0 && wageRows.length === 0 && cashAdvanceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Keluar').length === 0 && safeBagiHasilPromosi.flatMap(b => safeArray(b.payments)).length === 0 && (
+                                    {cashOutRows.length === 0 && (
                                         <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas keluar pada periode ini.</div>
                                     )}
                                     <div className="px-4 py-3 bg-red-50 border-t-2 border-red-400 flex justify-between items-center">
@@ -12720,6 +12825,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <span className="font-black text-red-800 text-sm">{formatRupiah(totalBebanKas)}</span>
                                     </div>
                                 </div>
+                                {(unpaidExpenseTotal > 0 || unpaidWageTotal > 0) && (
+                                    <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-1">
+                                        <div className="font-bold">Tagihan periode ini yang belum dibayar (tidak masuk kas keluar):</div>
+                                        {unpaidExpenseTotal > 0 && <div className="flex justify-between gap-2"><span>Biaya operasional belum dibayar</span><span className="font-bold">{formatRupiah(unpaidExpenseTotal)}</span></div>}
+                                        {unpaidWageTotal > 0 && <div className="flex justify-between gap-2"><span>Gaji belum dibayar</span><span className="font-bold">{formatRupiah(unpaidWageTotal)}</span></div>}
+                                        <div className="text-amber-700">Catat pembayarannya di menu Biaya / Laporan Kinerja agar masuk Buku Kas.</div>
+                                    </div>
+                                )}
                             </Card>
                         </>
                     )}
@@ -13334,7 +13447,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     });
                     const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !visibleRekapIds.has(String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
                     const isDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                    const hasMarketing = !isDireksi && visibleInvoicesForPending.some(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                    const hasMarketing = !isDireksi && visibleInvoicesForPending.some(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                     const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => (!log.rekapId || !visibleRekapIds.has(String(log.rekapId))) && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
                     const fpPin = String(emp.fingerPin || '').trim();
                     const fpIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
@@ -13861,7 +13974,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 showToast('Entri dihapus.', 'success');
             };
 
-            const computeAutoAbsensiForEmp = (emp) => {
+            const computeAutoAbsensiForEmp = (emp, { includeGaps = false } = {}) => {
                 const ttm = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
                 const pin = String(emp?.fingerPin || '').trim();
                 if (!pin || !getEmployeeSalaryTypes(emp).includes('Harian')) return { previewLogs: [], warnings: [] };
@@ -13886,8 +13999,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const existingAbsensiLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '');
                 const cutoffDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateTo).sort().reverse()[0] : null;
                 const today = toLocalDateStr();
+                // Hari sebelum cutoff yang belum pernah direkap (mis. tidak dicentang saat rekap) = "terlewat".
+                // Hanya disertakan bila diminta (modal rekap), tidak dicentang otomatis, dan dilewati jika tanggal itu sudah punya log gaji harian/lembur yang direkap.
+                const rekapedSalaryLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.rekapId && String(l.rekapId).trim() !== '');
+                const coveredDayDates = new Set(rekapedSalaryLogs.filter(l => getDailySalaryLogTotal(l).daily > 0 || safeMoney(l.workDays) > 0).map(l => String(l.date)));
+                const coveredOtDates = new Set(rekapedSalaryLogs.filter(l => getDailySalaryLogTotal(l).overtime > 0 || safeMoney(l.overtimeCount) > 0).map(l => String(l.date)));
+                const firstAbsensiRekapDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateFrom || l.date).filter(Boolean).sort()[0] : null;
                 let startDate;
-                if (cutoffDate) {
+                if (cutoffDate && includeGaps && firstAbsensiRekapDate) {
+                    startDate = firstAbsensiRekapDate;
+                } else if (cutoffDate) {
                     const d = new Date(cutoffDate); d.setDate(d.getDate() + 1);
                     startDate = toLocalDateStr(d);
                 } else {
@@ -13902,6 +14023,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const previewLogs = [];
                 const nowTs = new Date().toISOString();
                 dates.forEach(date => {
+                    const isGap = !!(cutoffDate && date <= cutoffDate);
+                    const skipDay = isGap && coveredDayDates.has(date);
+                    const skipOt = isGap && coveredOtDates.has(date);
+                    if (skipDay && skipOt) return;
                     const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin).trim() === pin);
                     // Untuk shift malam yang melewati tengah malam, ambil scan dari tanggal berikutnya sebagai kandidat pulang
                     const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return toLocalDateStr(d); })();
@@ -13931,9 +14056,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
                     const jamMasuk = override?.jamMasuk || rawMasuk;
                     const jamPulang = override?.jamPulang || rawPulang;
-                    if (jamMasuk && !jamPulang) warnings.push({ date, type: 'masuk_tanpa_pulang', jam: jamMasuk });
-                    else if (!jamMasuk && jamPulang) warnings.push({ date, type: 'pulang_tanpa_masuk', jam: jamPulang });
-                    if (jamMasuk && jamPulang) {
+                    if (!isGap && jamMasuk && !jamPulang) warnings.push({ date, type: 'masuk_tanpa_pulang', jam: jamMasuk });
+                    else if (!isGap && !jamMasuk && jamPulang) warnings.push({ date, type: 'pulang_tanpa_masuk', jam: jamPulang });
+                    if (jamMasuk && jamPulang && !skipDay) {
                         let dayAdjAmt = 0; let dayAdjDetails = [];
                         if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
                             const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
@@ -13947,7 +14072,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const dayAdjFields = {};
                         if (dayAdjAmt !== 0) dayAdjFields.hourAdjustment = dayAdjAmt;
                         if (dayAdjDetails.length > 0) dayAdjFields.hourAdjDetails = dayAdjDetails;
-                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-DAY-${emp.id}-${date}`, date, note: `Hadir ${date}`, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 1, dailySalary: safeMoney(emp.dailySalary) || 0, overtimeCount: 0, overtimeRate: 0, ...dayAdjFields });
+                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-DAY-${emp.id}-${date}`, date, note: isGap ? `Hadir ${date} (terlewat)` : `Hadir ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 1, dailySalary: safeMoney(emp.dailySalary) || 0, overtimeCount: 0, overtimeRate: 0, ...dayAdjFields });
                     }
                     const shouldCalcLembur = empShift3obj != null ? true : !hasEmpShiftAssignment;
                     const mShift3Pulang = empShift3obj ? ttm(empShift3obj.jamPulang) : null;
@@ -13975,11 +14100,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         mLPulang = Math.min(mLPulang, cappedPulang);
                     }
                     const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
-                    if (shouldCalcLembur && lemburMenit >= 60) {
+                    if (shouldCalcLembur && lemburMenit >= 60 && !skipOt) {
                         const lemburJam = Math.round(lemburMenit / 60 * 10) / 10;
                         const lemburRate = safeMoney(emp.overtimeRate) || 0;
-                        if (lemburRate === 0) warnings.push({ date, type: 'lembur_rate_kosong', jam: jlMasuk });
-                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: `Lembur ${date}`, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
+                        if (lemburRate === 0 && !isGap) warnings.push({ date, type: 'lembur_rate_kosong', jam: jlMasuk });
+                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: isGap ? `Lembur ${date} (terlewat)` : `Lembur ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
                     }
                 });
                 if (previewLogs.length === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
@@ -13993,13 +14118,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const selectedDailyKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0).map(log => String(log.id || log.date)));
                 const selectedOvertimeKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => String(log.id || log.date)));
                 const empIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                const mktInvoices = empIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(emp?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                const mktInvoices = empIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => isInvoiceOfMarketing(inv, emp) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const selectedMarketingKeys = new Set(mktInvoices.map(inv => String(inv.id)));
-                const { previewLogs, warnings } = emp ? computeAutoAbsensiForEmp(emp) : { previewLogs: [], warnings: [] };
+                const { previewLogs, warnings } = emp ? computeAutoAbsensiForEmp(emp, { includeGaps: true }) : { previewLogs: [], warnings: [] };
                 const existingManualDates = new Set(allDailyLogs.map(l => String(l.date)));
                 previewLogs.forEach(log => {
                     // Jangan auto-select preview jika tanggal ini sudah punya log manual
                     if (existingManualDates.has(String(log.date))) return;
+                    // Hari terlewat ditampilkan tapi tidak dicentang otomatis — admin yang memutuskan
+                    if (log.isGapDate) return;
                     if (log.workDays > 0) selectedDailyKeys.add(String(log.id));
                     if (getDailySalaryLogTotal(log).overtime > 0) selectedOvertimeKeys.add(String(log.id));
                 });
@@ -14186,7 +14313,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap, ...finalPreviewLogs].map(l => [String(l.id || l.date), l])).values()];
                 const dailySalary = [...dailySalaryLogsForRekap, ...previewDailyForRekap].reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
                 const overtimeSalary = [...overtimeLogsForRekap, ...previewOvertimeForRekap].reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
-                const allMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(empForRekap?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                const allMktInvoices = safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => isInvoiceOfMarketing(inv, empForRekap) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const marketingInvoicesForRekap = allMktInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
                 const marketingCommission = marketingInvoicesForRekap.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
                 const bonusSal = safeMoney(bonusSalary);
@@ -14592,7 +14719,7 @@ ${getRekapShareLink(rekap)}
             const modalDailySalary = selectedDailyLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).daily, 0);
             const modalOvertimeSalary = selectedOvertimeLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).overtime, 0);
             const modalEmployeeIsDireksi = getEmployeeDivisions(modalEmployee).some(d => d === 'Direktur' || d === 'Komisaris');
-            const modalMarketingInvoices = modalEmployeeIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv.marketing) === normalizeText(modalEmployee?.name) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+            const modalMarketingInvoices = modalEmployeeIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => isInvoiceOfMarketing(inv, modalEmployee) && !inv.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
             const selectedMarketingInvoices = modalMarketingInvoices.filter(inv => modalData?.selectedMarketingKeys?.has(String(inv.id)));
             const modalMarketingCommission = selectedMarketingInvoices.reduce((sum, inv) => sum + getInvoiceCommissionTotal(inv), 0);
             const modalCashAdvanceSummary = getEmployeeCashAdvanceSummary(modalEmployee);
@@ -14831,7 +14958,7 @@ ${getRekapShareLink(rekap)}
                 const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                 const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                 const rIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                const mktRows = rIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                const mktRows = rIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                 const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                 const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                 const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
@@ -14877,7 +15004,7 @@ ${getRekapShareLink(rekap)}
                     const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
                     const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                     const pIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                    const mktRows = pIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                    const mktRows = pIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
                     const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                     const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                     const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
@@ -15099,7 +15226,7 @@ ${getRekapShareLink(rekap)}
                                 const cardEmpIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
                                 const mainMktRows = cardEmpIsDireksi ? [] : safeArray(safeInvoicesForReport)
                                     .filter(isVisibleRecord)
-                                    .filter(inv => normalizeText(inv?.marketing) === normalizeText(emp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0)
+                                    .filter(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0)
                                     .map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), paidTotal: safeNumber(getInvoicePaidTotal(inv)), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
                                 const marketingRows = mainMktRows;
                                 const totalDailySalary = dailySalaryRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).daily), 0);
@@ -15958,7 +16085,7 @@ ${getRekapShareLink(rekap)}
                         const dOvertimeRows = safeArray(getEmployeeDailySalaryLogs(dEmp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
                         const dCashAdvanceRows = safeArray(getEmployeeCashAdvances(dEmp));
                         const dEmpIsDireksi = getEmployeeDivisions(dEmp).some(d => d === 'Direktur' || d === 'Komisaris');
-                        const dMarketingRows = dEmpIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => normalizeText(inv?.marketing) === normalizeText(dEmp?.name) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0).map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
+                        const dMarketingRows = dEmpIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => isInvoiceOfMarketing(inv, dEmp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0).map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
                         const dTotalDailySalary = dDailySalaryRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
                         const dTotalOvertimeSalary = dOvertimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                         const dTotalMarketingCommission = dMarketingRows.reduce((s, inv) => s + safeNumber(inv.commissionTotal), 0);
@@ -23059,6 +23186,31 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     .slice(0, 1000);
             };
 
+            // Hanya daftar yang penghapusannya memakai tanda isDeleted (bukan dibuang) — kalau dibuang, union akan "menghidupkan" item yang sudah dihapus.
+            const getNestedMergeFields = (record) => {
+                const fields = ['cashAdvances', 'dailySalaryLogs', 'manualProductionLogs', 'clientDpPayments'];
+                if (record && (Array.isArray(record.invoiceItems) || record.invoiceDp !== undefined)) fields.push('payments');
+                return fields;
+            };
+            const getNestedItemTime = (item) => Math.max(0, ...[item?._syncUpdatedAt, item?.updatedAt, item?.deletedAt, item?.createdAt].map(v => {
+                const t = new Date(v || 0).getTime();
+                return Number.isFinite(t) ? t : 0;
+            }));
+            const mergeNestedById = (winnerArr, otherArr) => {
+                // Item tanpa id tidak bisa dicocokkan -> pakai daftar milik record pemenang (perilaku lama)
+                if ([...winnerArr, ...otherArr].some(item => !item || item.id === undefined || item.id === null || item.id === '')) return winnerArr;
+                const byId = new Map(winnerArr.map(item => [String(item.id), item]));
+                const order = winnerArr.map(item => String(item.id));
+                otherArr.forEach(item => {
+                    const key = String(item.id);
+                    const current = byId.get(key);
+                    if (!current) { byId.set(key, item); order.push(key); return; }
+                    const tCur = getNestedItemTime(current), tItem = getNestedItemTime(item);
+                    if (tItem > tCur || (tItem === tCur && item.isDeleted && !current.isDeleted)) byId.set(key, item);
+                });
+                return order.map(key => byId.get(key));
+            };
+
             const mergeRecordLists = (localRecords = [], remoteRecords = []) => {
                 const mergedById = new Map();
                 const mergeRecord = (localRecord, remoteRecord) => {
@@ -23086,7 +23238,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             return { ...activeRec, ...deletedRec, isDeleted: true, deletedAt: deletedRec.deletedAt || deletedRec._syncUpdatedAt || new Date().toISOString() };
                         }
                     }
-                    return localTime >= remoteTime ? { ...remoteRecord, ...localRecord } : { ...localRecord, ...remoteRecord };
+                    const localWins = localTime >= remoteTime;
+                    const merged = localWins ? { ...remoteRecord, ...localRecord } : { ...localRecord, ...remoteRecord };
+                    // Daftar di dalam record digabung per item agar tambahan dari dua perangkat tidak saling menimpa
+                    getNestedMergeFields(merged).forEach(field => {
+                        const winnerArr = (localWins ? localRecord : remoteRecord)[field];
+                        const otherArr = (localWins ? remoteRecord : localRecord)[field];
+                        if (Array.isArray(winnerArr) && Array.isArray(otherArr)) merged[field] = mergeNestedById(winnerArr, otherArr);
+                    });
+                    return merged;
                 };
                 (remoteRecords || []).forEach(record => { if (record?.id) mergedById.set(String(record.id), record); });
                 (localRecords || []).forEach(record => {
@@ -23388,7 +23548,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const applyRemoteDataSnapshotInner = async () => {
                 const remoteTsMap = await fetchRemoteTimestamps();
                 const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi, remoteLabelTemplates] = await Promise.all([
-                    fetchStoreDataCached('accounts', initialAccounts, remoteTsMap),
+                    fetchStoreDataCached('accounts', [], remoteTsMap),
                     fetchStoreDataCached('employees', initialEmployees, remoteTsMap),
                     fetchStoreDataCached('orders', initialOrders, remoteTsMap),
                     fetchStoreDataCached('rekapKinerja', [], remoteTsMap),
@@ -23762,7 +23922,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             );
                             const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi, remLabelTemplates] = await Promise.race([
                                 Promise.all([
-                                    fetchStoreDataCached('accounts', initialAccounts, initTsMap),
+                                    fetchStoreDataCached('accounts', [], initTsMap),
                                     fetchStoreDataCached('employees', initialEmployees, initTsMap),
                                     fetchStoreDataCached('orders', initialOrders, initTsMap),
                                     fetchStoreDataCached('rekapKinerja', [], initTsMap),
@@ -23792,7 +23952,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 _fetchTimeout
                             ]);
 
-                            const localAccounts = loadLocalData('simpati_accounts_sync', initialAccounts);
+                            const localAccounts = loadLocalData('simpati_accounts_sync', []);
                             const localEmployees = loadLocalData('simpati_employees_sync', initialEmployees);
                             const nextAccounts = mergeRecordLists(localAccounts, Array.isArray(accs) ? accs : []);
                             const nextEmployees = mergeRecordLists(sanitizeEmployees(localEmployees), sanitizeEmployees(Array.isArray(emps) ? emps : []));
@@ -23942,7 +24102,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const loadAllLocal = () => {
                     // Gunakan null sebagai fallback untuk mendeteksi apakah cache benar-benar ada
                     const cachedAccounts = loadLocalData('simpati_accounts_sync', null);
-                    const nextAccounts = cachedAccounts || initialAccounts;
+                    const nextAccounts = cachedAccounts || [];
                     const localOrders = loadLocalData('simpati_orders_sync', initialOrders);
                     const nextOrders = patchOrders(localOrders);
                     setAccounts(nextAccounts);
@@ -23969,7 +24129,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setAbsensiRawLogs(loadLocalData('simpati_absensiRawLogs_sync', []));
                     setKartuKredit(loadLocalData('simpati_kartu_kredit_sync', []));
                     setTransaksiKartu(loadLocalData('simpati_transaksi_kartu_sync', []));
-                    // Hanya validasi sesi jika ada cache akun yang nyata (bukan hanya fallback initialAccounts).
+                    // Hanya validasi sesi jika ada cache akun yang nyata.
                     // Jika cache tidak ada, biarkan sesi tetap aktif; Supabase akan memvalidasinya nanti.
                     if (cachedAccounts) {
                         syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });

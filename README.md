@@ -140,17 +140,17 @@ netlify deploy --prod --dir .
 
 ---
 
-## Akun Default
+## Akun Login
 
-> **WAJIB DIGANTI segera setelah login pertama!**
+Aplikasi **tidak lagi punya akun bawaan** (admin/123 dll. sudah dihapus). Login hanya memakai akun yang tersimpan di Supabase (`app_data`, id `accounts`). Jika data akun belum termuat (koneksi bermasalah), login ditolak dengan pesan untuk memuat ulang.
 
-| Username | Password | Role |
-|----------|----------|------|
-| admin    | 123      | Admin |
-| mandor   | 123      | Mandor |
-| kasir    | 123      | Kasir |
+Untuk instalasi baru (database kosong), buat baris akun pertama secara manual di Supabase:
 
-Ganti password di: **Master Akun → pilih akun → Edit**
+```sql
+insert into app_data (id, data) values ('accounts', '[{"id": 1, "username": "admin", "password": "GANTI-PASSWORD-KUAT", "role": "Admin", "name": "Super Admin"}]');
+```
+
+Kelola akun lain di: **Master Akun**
 
 ---
 
