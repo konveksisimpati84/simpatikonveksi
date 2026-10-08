@@ -1047,7 +1047,8 @@
             const executeDeleteOrder = () => {
                 if (deleteConfirmId !== null && deleteConfirmId !== undefined) {
                     const target = safeOrders.find(o => String(o.id) === String(deleteConfirmId));
-                    const unreported = getUnreportedWorkLogs(target);
+                    // Hanya tahap aktif — sama dengan yang tampil (dan bisa direkap) di Laporan Kinerja
+                    const unreported = getUnreportedWorkLogs(target, getActiveProductionStageIds(target || {}));
                     if (unreported.length > 0) {
                         const pcs = unreported.reduce((s, l) => s + getWorkLogSubmittedQty(l), 0);
                         setDeleteConfirmId(null);
@@ -1225,6 +1226,17 @@
                     return o;
                 }));
 
+                // Surat Jalan lama mencatat ukuran dalam teks "L (5), M (3)" — ikut diganti agar pembatalan SJ tetap mengurangi ukuran yang benar
+                if (Object.keys(sizeRenames).length > 0 && setRiwayatPengiriman) {
+                    const renameDetails = (details) => String(details || '').split(', ').map(part => {
+                        const m = part.match(/^(.+?)\s*\((\d+)\)$/);
+                        return m && sizeRenames[m[1].trim()] ? `${sizeRenames[m[1].trim()]} (${m[2]})` : part;
+                    }).join(', ');
+                    setRiwayatPengiriman(prev => (prev || []).map(r => {
+                        if (r.isDeleted || !safeArray(r.items).some(it => String(it.orderId) === String(editOrder.id))) return r;
+                        return { ...r, items: r.items.map(it => String(it.orderId) === String(editOrder.id) ? { ...it, details: renameDetails(it.details) } : it), _syncUpdatedAt: editNow };
+                    }));
+                }
                 setEditOrder(null);
                 const renamedText = Object.entries(sizeRenames).map(([a, b]) => `${a}→${b}`).join(', ');
                 showToast(renamedText ? `Data Order diperbarui. Data produksi ukuran ikut dipindah (${renamedText}).` : "Data Order berhasil diperbarui!", "success");
@@ -2208,6 +2220,14 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                     showToast("Nominal kasbon harus lebih dari 0.", "error");
                     return;
                 }
+                if (editingCashAdvanceId) {
+                    const editing = getEmployeeCashAdvances(activeCashAdvanceEmp).find(item => String(item.id) === String(editingCashAdvanceId));
+                    const alreadyDeducted = getCashAdvanceDeducted(editing);
+                    if (amount < alreadyDeducted) {
+                        showToast(`Nominal kasbon tidak boleh lebih kecil dari yang sudah dipotong gaji (${formatRupiah(alreadyDeducted)}).`, "error");
+                        return;
+                    }
+                }
                 const now = new Date().toISOString();
                 setEmployees(prev => (prev || []).map(emp => {
                     if (String(emp.id) !== String(activeCashAdvanceEmp.id)) return emp;
@@ -2245,6 +2265,11 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
 
             const deleteCashAdvance = (cashAdvanceId) => {
                 if (!activeCashAdvanceEmp) return;
+                const target = getEmployeeCashAdvances(activeCashAdvanceEmp).find(item => String(item.id) === String(cashAdvanceId));
+                if (getCashAdvanceDeducted(target) > 0) {
+                    showToast("Kasbon ini sudah dipotong dari gaji, tidak bisa dihapus. Batalkan dulu rekap gaji yang memotongnya.", "error");
+                    return;
+                }
                 const now = new Date().toISOString();
                 setEmployees(prev => (prev || []).map(emp => {
                     if (String(emp.id) !== String(activeCashAdvanceEmp.id)) return emp;
@@ -5106,8 +5131,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const riwayatToDelete = (riwayatPengiriman || []).find(r => String(r.id) === String(deleteConfirmId));
                 if (!riwayatToDelete) {
                     // Virtual record: deleteConfirmId == order.id (archived without SJ)
+                    // Status dihitung ulang dari progres produksi (bukan langsung "Siap Kirim")
                     setOrders(prev => (prev || []).map(o => String(o.id) === String(deleteConfirmId)
-                        ? { ...o, isArchived: false, status: 'Siap Kirim', shipped: {}, _syncUpdatedAt: new Date().toISOString() }
+                        ? recalculateOrderStatuses({ ...o, isArchived: false, shipped: {}, _syncUpdatedAt: new Date().toISOString() })
                         : o
                     ));
                     setDeleteConfirmId(null);
@@ -8492,6 +8518,10 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                     <span className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ background: statusColor.bg, color: statusColor.text }}>{status}</span>
                                                 </div>
                                                 <div className="text-xs text-gray-400 mt-0.5">{bhp.tanggal || '-'} · {invs.length} invoice{bhp.bagiHasilType === '%' ? ` · ${bhp.bagiHasilValue}%` : bhp.bagiHasilType === 'Rp/pcs' ? ` · ${formatRupiah(bhp.bagiHasilValue)}/pcs` : ' · Nominal tetap'}</div>
+                                                {(() => {
+                                                    const deletedCount = safeArray(bhp.invoiceIds).filter(id => !safeInvoices.some(inv => String(inv.id) === String(id))).length;
+                                                    return deletedCount > 0 ? <div className="mt-1 inline-block text-[10px] font-black text-white bg-red-600 rounded px-1.5 py-0.5" title="Invoice yang sudah dihapus tidak dihitung lagi dalam bagi hasil ini. Periksa apakah catatan ini masih berlaku.">⚠ {deletedCount} invoice sudah dihapus</div> : null;
+                                                })()}
                                                 {/* Stats */}
                                                 <div className="flex gap-5 flex-wrap mt-2.5">
                                                     <div><div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide">Total Nilai</div><div className="font-bold text-sm text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totalNilai)}</div></div>
@@ -11433,7 +11463,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                     return (
                                                                         <div key={r.id} className="bg-white border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-2">
                                                                             <div className="min-w-0">
-                                                                                <div className="text-xs font-bold text-gray-700">{r.invoiceId} — {r.invoiceCustomer}</div>
+                                                                                <div className="text-xs font-bold text-gray-700">{r.invoiceId} — {r.invoiceCustomer}
+                                                                                    {!safeInvoices.some(inv => String(inv.id) === String(r.invoiceId)) && <span className="ml-1.5 text-[10px] font-black text-white bg-red-600 rounded px-1.5 py-0.5" title="Invoice ini sudah dihapus. Periksa apakah catatan bagi hasil ini masih berlaku.">⚠ Invoice sudah dihapus</span>}
+                                                                                </div>
                                                                                 <div className="text-xs text-gray-400">{r.tanggal} · {r.invoiceType} · {(r.bagiHasilType||'per_pcs')==='persen' ? `Total Invoice ${formatRupiah(r.invoiceTotal||0)} × ${r.bagiHasilPersen||0}%` : `${r.pcs} pcs × ${formatRupiah(r.bagiHasilPerPcs)}`}</div>
                                                                                 {r.note && <div className="text-xs text-gray-400 italic">"{r.note}"</div>}
                                                                                 <div className="text-xs text-indigo-500 font-semibold mt-0.5">Kumulatif: {formatRupiah(kumulatif)}</div>
