@@ -22550,6 +22550,22 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const supabaseLoadedRef = React.useRef(false);
             const ordersSyncTimerRef = React.useRef(null);
             const ordersPendingRef = React.useRef(null);
+            // Status simpan ke cloud: key yang gagal disimpan diingat (juga di localStorage) dan dicoba ulang otomatis
+            const SYNC_FAILED_STORAGE_KEY = 'simpati_sync_failed_keys';
+            const syncSeqRef = React.useRef(0);
+            const syncPendingRef = React.useRef(null);   // key -> jumlah proses simpan yang sedang berjalan
+            const syncFailedRef = React.useRef(null);    // key -> { seq, data, permanent, lastRetryAt, fromPreviousSession }
+            if (syncFailedRef.current === null) {
+                syncPendingRef.current = new Map();
+                syncFailedRef.current = new Map();
+                // Key yang belum terkonfirmasi tersimpan pada sesi sebelumnya (gagal / aplikasi ditutup saat menyimpan)
+                try {
+                    JSON.parse(localStorage.getItem(SYNC_FAILED_STORAGE_KEY) || '[]').forEach(k => {
+                        if (typeof k === 'string') syncFailedRef.current.set(k, { seq: 0, data: null, permanent: false, lastRetryAt: 0, fromPreviousSession: true });
+                    });
+                } catch (e) {}
+            }
+            const [cloudSync, setCloudSync] = useState(() => ({ saving: syncFailedRef.current.size > 0, failedKeys: [] }));
             const inMemorySessionRef = React.useRef(null);
             const [authUser, setAuthUser] = useState(null);
             const [activeTab, setActiveTab] = useState('dashboard');
@@ -22704,6 +22720,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (isRefreshing) return;
                 setIsRefreshing(true);
                 try {
+                    // Kirim ulang dulu data yang sebelumnya gagal tersimpan
+                    if (syncFailedRef.current.size > 0) retryFailedSaves({ manual: true });
                     // Hapus timestamp cache supaya semua dataset di-fetch ulang dari Supabase
                     setTsCache({});
                     await applyRemoteDataSnapshot();
@@ -24005,28 +24023,82 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 };
             }, [isReady]);
 
+            const publishSyncState = () => {
+                const failedEntries = [...syncFailedRef.current.entries()];
+                const ordersWaiting = !!ordersSyncTimerRef.current;
+                // Disimpan di perangkat: semua key yang belum terkonfirmasi sampai di cloud, agar dikirim ulang walau aplikasi ditutup
+                const unconfirmed = new Set([...syncFailedRef.current.keys(), ...syncPendingRef.current.keys(), ...(ordersWaiting ? ['orders'] : [])]);
+                try {
+                    if (unconfirmed.size) localStorage.setItem(SYNC_FAILED_STORAGE_KEY, JSON.stringify([...unconfirmed]));
+                    else localStorage.removeItem(SYNC_FAILED_STORAGE_KEY);
+                } catch (e) {}
+                const failedKeys = failedEntries.filter(([, e]) => !e.fromPreviousSession).map(([k]) => k);
+                const saving = syncPendingRef.current.size > 0 || ordersWaiting || failedEntries.some(([, e]) => e.fromPreviousSession);
+                setCloudSync(prev => (prev.saving === saving && prev.failedKeys.join('|') === failedKeys.join('|')) ? prev : { saving, failedKeys });
+            };
+
+            // Cache timestamp dibuat basi sejak simpan dimulai: jika aplikasi tertutup sebelum simpan selesai,
+            // refresh berikutnya mengambil data cloud asli lalu mengirim ulang data lokal yang belum terkirim.
+            const invalidateTsCacheKey = (key) => {
+                const cache = getTsCache();
+                if (cache[key]) { delete cache[key]; setTsCache(cache); }
+            };
+            const beginSync = (key) => {
+                syncPendingRef.current.set(key, (syncPendingRef.current.get(key) || 0) + 1);
+                invalidateTsCacheKey(key);
+                publishSyncState();
+            };
+            const endSync = (key) => {
+                const left = (syncPendingRef.current.get(key) || 1) - 1;
+                if (left <= 0) syncPendingRef.current.delete(key); else syncPendingRef.current.set(key, left);
+                publishSyncState();
+            };
+
             const saveToSupabase = async (key, data) => {
                 if (!supabaseClient) return;
+                const seq = ++syncSeqRef.current;
+                beginSync(key);
+                let ok = false;
+                let permanent = false;
+                let specificToastShown = false;
                 try {
                     const { error } = await supabaseClient.from('app_data').upsert({ id: key, data: data });
                     if (error) {
                         console.error(`Supabase error saving ${key}:`, error);
                         if (error.code === '42501' || (error.message && error.message.includes('RLS'))) {
                             showToast(`PERINGATAN: GAGAL SINKRONISASI! Nonaktifkan RLS di Supabase.`, 'error');
+                            permanent = specificToastShown = true;
                         }
                         if (error.code === '42P01') {
                             showToast(`PERINGATAN: TABEL BELUM DIBUAT! Tabel 'app_data' belum ada di database Supabase Anda.`, 'error');
+                            permanent = specificToastShown = true;
                         }
                         if (error.status === 413 || (error.message && (error.message.toLowerCase().includes('too large') || error.message.toLowerCase().includes('payload')))) {
                             showToast(`PERINGATAN: Data '${key}' terlalu besar untuk disimpan ke cloud. Coba kurangi ukuran gambar.`, 'error');
+                            permanent = specificToastShown = true;
                         }
                     } else {
+                        ok = true;
                         const now = new Date().toISOString();
                         updateTsCache(key, now);
                         setTimeout(() => updateRemoteTimestamp(key, now), 0);
                     }
                 } catch (err) {
                     console.error(`Gagal menyimpan ${key}:`, err);
+                } finally {
+                    const failed = syncFailedRef.current;
+                    const current = failed.get(key);
+                    if (ok) {
+                        // Hanya hapus status gagal jika simpanan ini sama/lebih baru dari yang gagal
+                        if (current && current.seq <= seq) failed.delete(key);
+                    } else {
+                        const wasEmpty = ![...failed.values()].some(e => !e.fromPreviousSession);
+                        if (!current || current.seq < seq) failed.set(key, { seq, data, permanent, lastRetryAt: current?.lastRetryAt || 0, fromPreviousSession: false });
+                        if (wasEmpty && !specificToastShown) {
+                            showToast('Gagal menyimpan ke cloud (koneksi bermasalah). Data aman di perangkat ini dan akan dikirim ulang otomatis.', 'error');
+                        }
+                    }
+                    endSync(key);
                 }
             };
 
@@ -24061,6 +24133,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const patchedLocal = key === 'employees' ? sanitizeEmployees(localRecords) : (Array.isArray(localRecords) ? localRecords : []);
                 if (!supabaseClient) return patchedLocal;
 
+                // Tahap ambil-data-cloud sebelum simpan juga dihitung "sedang menyimpan"
+                beginSync(key);
                 try {
                     const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
                     if (error || !Array.isArray(data?.data)) return patchedLocal;
@@ -24068,17 +24142,35 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 } catch (err) {
                     console.error(`Gagal menggabungkan ${key} Supabase:`, err);
                     return patchedLocal;
+                } finally {
+                    endSync(key);
                 }
             };
 
             const flushOrdersSync = async (patched) => {
-                const merged = await mergeRemoteOrdersForSave(patched);
-                safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
-                saveToSupabase('orders', merged);
-                setOrders(current => {
-                    const currentMerged = mergeOrderLists(current || [], merged);
-                    return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
-                });
+                // Hitung sebagai "sedang menyimpan" sejak ambil data cloud sampai simpan selesai
+                beginSync('orders');
+                try {
+                    const merged = await mergeRemoteOrdersForSave(patched);
+                    safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
+                    const savePromise = saveToSupabase('orders', merged);
+                    setOrders(current => {
+                        const currentMerged = mergeOrderLists(current || [], merged);
+                        return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
+                    });
+                    await savePromise;
+                } finally {
+                    endSync('orders');
+                }
+            };
+
+            const flushPendingOrdersNow = () => {
+                if (!ordersSyncTimerRef.current) return;
+                clearTimeout(ordersSyncTimerRef.current);
+                ordersSyncTimerRef.current = null;
+                const latest = ordersPendingRef.current;
+                if (latest) flushOrdersSync(latest);
+                else publishSyncState();
             };
 
             const updateOrders = (updater) => {
@@ -24091,9 +24183,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     // Batalkan timer sebelumnya, mulai timer baru 3 detik
                     if (ordersSyncTimerRef.current) clearTimeout(ordersSyncTimerRef.current);
                     ordersSyncTimerRef.current = setTimeout(() => {
+                        ordersSyncTimerRef.current = null;
                         const latest = ordersPendingRef.current;
                         if (latest) flushOrdersSync(latest);
+                        else publishSyncState();
                     }, 3000);
+                    setTimeout(() => { invalidateTsCacheKey('orders'); publishSyncState(); }, 0);
                     return patched;
                 });
             };
@@ -24102,6 +24197,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setEmployees(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = sanitizeEmployees(stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []));
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_employees_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('employees', valid);
                         safeLocalSet('simpati_employees_sync', JSON.stringify(merged));
@@ -24119,6 +24216,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setAccounts(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_accounts_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('accounts', valid);
                         safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
@@ -24137,6 +24236,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setRekapKinerja(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_rekap_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('rekapKinerja', valid);
                         safeLocalSet('simpati_rekap_sync', JSON.stringify(merged));
@@ -24154,6 +24255,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setRiwayatPengiriman(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('riwayatPengiriman', valid);
                         safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(merged));
@@ -24171,6 +24274,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setExpenses(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_expenses_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('expenses', valid);
                         safeLocalSet('simpati_expenses_sync', JSON.stringify(merged));
@@ -24188,6 +24293,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setKartuKredit(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_kartu_kredit_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('kartu_kredit', valid);
                         safeLocalSet('simpati_kartu_kredit_sync', JSON.stringify(merged));
@@ -24205,6 +24312,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setTransaksiKartu(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('transaksi_kartu', valid);
                         safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(merged));
@@ -24222,6 +24331,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setInvoices(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_invoices_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('invoices', valid);
                         safeLocalSet('simpati_invoices_sync', JSON.stringify(merged));
@@ -24239,6 +24350,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setClients(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_clients_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('clients', valid);
                         safeLocalSet('simpati_clients_sync', JSON.stringify(merged));
@@ -24256,6 +24369,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setManualPurchases(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('manualPurchases', valid);
                         safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(merged));
@@ -24273,6 +24388,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setPurchaseNotes(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('purchaseNotes', valid);
                         safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(merged));
@@ -24290,6 +24407,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setDanaOperasional(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_dana_operasional_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('danaOperasional', valid);
                         safeLocalSet('simpati_dana_operasional_sync', JSON.stringify(merged));
@@ -24307,6 +24426,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setInvestors(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_investors_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('investors', valid);
                         safeLocalSet('simpati_investors_sync', JSON.stringify(merged));
@@ -24324,6 +24445,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setInvestorBagiHasil(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('investorBagiHasil', valid);
                         safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(merged));
@@ -24341,6 +24464,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setBagiHasilPromosi(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('bagiHasilPromosi', valid);
                         safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(merged));
@@ -24358,6 +24483,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setDrivers(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_drivers_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('drivers', valid);
                         safeLocalSet('simpati_drivers_sync', JSON.stringify(merged));
@@ -24375,6 +24502,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setDriverTarifs(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('driverTarifs', valid);
                         safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(merged));
@@ -24392,6 +24521,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setDriverTransactions(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_driver_trx_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('driverTransactions', valid);
                         safeLocalSet('simpati_driver_trx_sync', JSON.stringify(merged));
@@ -24409,6 +24540,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setDriverRekapGaji(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('driverRekapGaji', valid);
                         safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(merged));
@@ -24426,6 +24559,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setDriverKasbon(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('driverKasbon', valid);
                         safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(merged));
@@ -24443,6 +24578,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setStockItems(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_stock_items_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('stockItems', valid);
                         safeLocalSet('simpati_stock_items_sync', JSON.stringify(merged));
@@ -24460,6 +24597,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setAbsensiEdits(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(valid));
                     setTimeout(async () => {
                         const merged = await mergeRemoteRecordsForSave('absensiEdits', valid);
                         safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(merged));
@@ -24518,6 +24657,95 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     }, 0);
                     return valid;
                 });
+            };
+
+            // Coba ulang lewat fungsi update yang sama dengan simpan normal: ambil data cloud terbaru, gabungkan dengan data lokal, lalu simpan
+            const retryUpdaters = {
+                orders: updateOrders, employees: updateEmployees, accounts: updateAccounts, rekapKinerja: updateRekapKinerja,
+                riwayatPengiriman: updateRiwayatPengiriman, expenses: updateExpenses, kartu_kredit: updateKartuKredit,
+                transaksi_kartu: updateTransaksiKartu, invoices: updateInvoices, clients: updateClients,
+                manualPurchases: updateManualPurchases, purchaseNotes: updatePurchaseNotes, danaOperasional: updateDanaOperasional,
+                investors: updateInvestors, investorBagiHasil: updateInvestorBagiHasil, bagiHasilPromosi: updateBagiHasilPromosi,
+                drivers: updateDrivers, driverTarifs: updateDriverTarifs, driverTransactions: updateDriverTransactions,
+                driverRekapGaji: updateDriverRekapGaji, driverKasbon: updateDriverKasbon, stockItems: updateStockItems,
+                absensiEdits: updateAbsensiEdits, templates: updateTemplates, labelTemplates: updateTemplates
+            };
+            const retryFailedSaves = ({ manual = false } = {}) => {
+                if (!supabaseClient) return;
+                const now = Date.now();
+                const calledUpdaters = new Set();
+                [...syncFailedRef.current.entries()].forEach(([key, entry]) => {
+                    if (!manual && (entry.permanent || now - (entry.lastRetryAt || 0) < 25000)) return;
+                    entry.lastRetryAt = now;
+                    const updater = retryUpdaters[key];
+                    if (updater) {
+                        if (!calledUpdaters.has(updater)) { calledUpdaters.add(updater); updater(prev => prev); }
+                    } else if (entry.data) {
+                        (async () => {
+                            const payload = Array.isArray(entry.data) ? await mergeRemoteRecordsForSave(key, entry.data) : entry.data;
+                            saveToSupabase(key, payload);
+                        })();
+                    } else {
+                        // Tidak ada salinan data (mis. setelah aplikasi dibuka ulang): cache sudah dibuat basi,
+                        // jadi refresh berikutnya menggabungkan data lokal dengan cloud dan mengirim ulang jika berbeda.
+                        syncFailedRef.current.delete(key);
+                    }
+                });
+                publishSyncState();
+            };
+            const retryFailedSavesRef = React.useRef(retryFailedSaves);
+            retryFailedSavesRef.current = retryFailedSaves;
+            const flushPendingOrdersRef = React.useRef(flushPendingOrdersNow);
+            flushPendingOrdersRef.current = flushPendingOrdersNow;
+
+            useEffect(() => {
+                if (!isReady || !supabaseClient) return;
+                const retry = () => { if (navigator.onLine !== false) retryFailedSavesRef.current(); };
+                const startupId = setTimeout(retry, 3000);
+                const intervalId = setInterval(retry, 30000);
+                const handleOnline = () => retryFailedSavesRef.current();
+                // Kirim langsung order yang masih menunggu jeda 3 detik saat aplikasi ditutup / HP pindah aplikasi
+                const handleHidden = () => { if (document.hidden) flushPendingOrdersRef.current(); };
+                const handlePageHide = () => flushPendingOrdersRef.current();
+                const handleBeforeUnload = (e) => {
+                    flushPendingOrdersRef.current();
+                    if (syncPendingRef.current.size > 0 || ordersSyncTimerRef.current) { e.preventDefault(); e.returnValue = ''; }
+                };
+                window.addEventListener('online', handleOnline);
+                document.addEventListener('visibilitychange', handleHidden);
+                window.addEventListener('pagehide', handlePageHide);
+                window.addEventListener('beforeunload', handleBeforeUnload);
+                return () => {
+                    clearTimeout(startupId);
+                    clearInterval(intervalId);
+                    window.removeEventListener('online', handleOnline);
+                    document.removeEventListener('visibilitychange', handleHidden);
+                    window.removeEventListener('pagehide', handlePageHide);
+                    window.removeEventListener('beforeunload', handleBeforeUnload);
+                };
+            }, [isReady]);
+
+            const handleSyncBadgeClick = () => {
+                if (navigator.onLine === false) { showToast('Perangkat sedang offline. Data akan dikirim otomatis saat internet tersambung.', 'error'); return; }
+                retryFailedSaves({ manual: true });
+                showToast('Mengirim ulang data ke cloud...', 'success');
+            };
+
+            const renderSyncBadge = (dark) => {
+                if (!supabaseClient) return null;
+                const failedCount = cloudSync.failedKeys.length;
+                if (failedCount > 0) {
+                    return (
+                        <button onClick={handleSyncBadgeClick} title="Ada data yang belum tersimpan ke cloud. Klik untuk mengirim ulang sekarang."
+                            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap border animate-pulse ${dark ? 'bg-red-900/60 text-red-200 border-red-700' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                            ⚠ Belum tersimpan
+                        </button>
+                    );
+                }
+                if (cloudSync.saving) {
+                    return <span title="Sedang mengirim data ke cloud" className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap ${dark ? 'text-amber-300' : 'text-amber-600'}`}>⏳ Menyimpan…</span>;
+                }
+                return <span title="Semua data sudah tersimpan di cloud" className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>✓ Tersimpan</span>;
             };
 
             if (!isReady) {
@@ -24730,15 +24958,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                     <div className="flex-1 flex flex-col overflow-hidden print:overflow-visible">
                         <div className="md:hidden bg-slate-900 text-white px-4 py-3 flex justify-between items-center shadow-md print:hidden">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
                                 {templates?.companyLogo ? (
                                     <img src={templates.companyLogo} alt="Logo" className="max-h-8 object-contain bg-white/5 p-0.5 rounded" />
                                 ) : (
-                                    <h1 className="font-bold text-red-500 text-lg tracking-wider">{templates?.companyName || 'SIMPATI'}</h1>
+                                    <h1 className="font-bold text-red-500 text-lg tracking-wider truncate">{templates?.companyName || 'SIMPATI'}</h1>
                                 )}
                                 <span className="text-slate-400 text-xs hidden xs:inline truncate max-w-[120px]">{navItems.find(n => n.id === activeTab)?.label}</span>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 shrink-0">
+                                {renderSyncBadge(true)}
                                 <div className="flex flex-col items-center gap-0.5">
                                     <button onClick={handleManualRefresh} disabled={isRefreshing} className="text-blue-400 p-2 bg-slate-800 rounded border border-slate-700 disabled:opacity-50" title={formatSyncAgo(lastSyncTime) ? `Terakhir sync: ${formatSyncAgo(lastSyncTime)}` : 'Refresh data'}>
                                         <IconRefresh spinning={isRefreshing} />
@@ -24805,6 +25034,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
                                     {authUser.name.charAt(0).toUpperCase()}
                                 </div>
+                                {renderSyncBadge(false)}
                                 <div className="flex flex-col items-end gap-0.5">
                                     <button onClick={handleManualRefresh} disabled={isRefreshing} className="flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-blue-100 disabled:opacity-60" title="Refresh data dari server">
                                         <IconRefresh spinning={isRefreshing} />
