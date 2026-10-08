@@ -150,7 +150,9 @@ Untuk instalasi baru (database kosong), buat baris akun pertama secara manual di
 insert into app_data (id, data) values ('accounts', '[{"id": 1, "username": "admin", "password": "GANTI-PASSWORD-KUAT", "role": "Admin", "name": "Super Admin"}]');
 ```
 
-Kelola akun lain di: **Master Akun**
+Password disimpan **teracak** (SHA-256 + salt, kolom `passwordHash`/`passwordSalt`), bukan teks asli. Akun lama yang masih teks asli otomatis diacak saat ada pengguna login. Instalasi baru di atas tetap boleh memakai `password` teks asli — akan diacak otomatis setelah login pertama.
+
+Kelola akun lain di: **Master Akun**. Admin juga bisa mengunduh **Backup Data** (seluruh tabel `app_data`) dari menu tersebut.
 
 ---
 

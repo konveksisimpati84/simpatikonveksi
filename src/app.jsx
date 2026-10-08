@@ -150,6 +150,71 @@
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         };
         const toLocalMonthStr = (value = new Date()) => toLocalDateStr(value).slice(0, 7);
+        // SHA-256 murni JS (sinkron, tidak bergantung crypto.subtle yang hanya ada di HTTPS) — untuk mengacak password akun
+        const sha256Hex = (text) => {
+            const bytes = new TextEncoder().encode(String(text));
+            const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+            const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+            const bitLen = bytes.length * 8;
+            const padLen = (((bytes.length + 9) + 63) >> 6) << 6;
+            const msg = new Uint8Array(padLen);
+            msg.set(bytes);
+            msg[bytes.length] = 0x80;
+            const view = new DataView(msg.buffer);
+            view.setUint32(padLen - 8, Math.floor(bitLen / 0x100000000));
+            view.setUint32(padLen - 4, bitLen >>> 0);
+            const W = new Uint32Array(64);
+            const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+            for (let off = 0; off < padLen; off += 64) {
+                for (let i = 0; i < 16; i++) W[i] = view.getUint32(off + i * 4);
+                for (let i = 16; i < 64; i++) {
+                    const s0 = rotr(W[i - 15], 7) ^ rotr(W[i - 15], 18) ^ (W[i - 15] >>> 3);
+                    const s1 = rotr(W[i - 2], 17) ^ rotr(W[i - 2], 19) ^ (W[i - 2] >>> 10);
+                    W[i] = (W[i - 16] + s0 + W[i - 7] + s1) >>> 0;
+                }
+                let [a, b, c, d, e, f, g, h] = H;
+                for (let i = 0; i < 64; i++) {
+                    const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+                    const ch = (e & f) ^ (~e & g);
+                    const t1 = (h + S1 + ch + K[i] + W[i]) >>> 0;
+                    const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+                    const maj = (a & b) ^ (a & c) ^ (b & c);
+                    const t2 = (S0 + maj) >>> 0;
+                    h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+                }
+                H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0; H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
+                H[4] = (H[4] + e) >>> 0; H[5] = (H[5] + f) >>> 0; H[6] = (H[6] + g) >>> 0; H[7] = (H[7] + h) >>> 0;
+            }
+            return H.map(x => x.toString(16).padStart(8, '0')).join('');
+        };
+        const PASSWORD_HASH_ROUNDS = 500;
+        const hashPassword = (password, salt) => {
+            let h = sha256Hex(`${salt}:${String(password ?? '').trim()}`);
+            for (let i = 1; i < PASSWORD_HASH_ROUNDS; i++) h = sha256Hex(h + salt);
+            return h;
+        };
+        // Field password untuk disimpan: hanya hash + salt, teks asli tidak disimpan
+        const makePasswordFields = (password) => {
+            const salt = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`;
+            // password: null (bukan dihapus) agar pengosongan ikut tersinkron saat digabung dengan data perangkat lain
+            return { password: null, passwordHash: hashPassword(password, salt), passwordSalt: salt, passwordAlgo: `sha256x${PASSWORD_HASH_ROUNDS}` };
+        };
+        const verifyAccountPassword = (account, input) => {
+            if (!account) return false;
+            if (account.passwordHash && account.passwordSalt) return hashPassword(input, account.passwordSalt) === account.passwordHash;
+            return account.password !== undefined && account.password !== null && String(account.password).trim() === String(input ?? '').trim();
+        };
+        // Akun versi lama (password teks asli) -> diganti hash; akun yang sudah hash dibiarkan
+        const withHashedPassword = (account) => {
+            if (!account || account.password === undefined || account.password === null || account.password === '') return account;
+            if (account.passwordHash) return { ...account, password: null };
+            return { ...account, ...makePasswordFields(account.password) };
+        };
+        const stripCredentials = (account) => {
+            if (!account) return account;
+            const { password, passwordHash, passwordSalt, passwordAlgo, ...rest } = account;
+            return rest;
+        };
         const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(parseInt(num) || 0);
 
         const terbilangRupiah = (n) => {
@@ -839,11 +904,11 @@
 
                 const user = validAccounts.find(u =>
                     String(u.username).trim().toLowerCase() === String(rawUsername).trim().toLowerCase() &&
-                    String(u.password).trim() === String(rawPassword).trim()
+                    verifyAccountPassword(u, rawPassword)
                 );
 
                 if (user) {
-                    onLogin(user);
+                    onLogin(stripCredentials(user));
                 } else {
                     setError('Username atau password salah!');
                 }
@@ -17901,7 +17966,55 @@ ${getRekapShareLink(rekap)}
             );
         };
 
-        const MasterAkunView = ({ accounts, setAccounts, employees, showToast }) => {
+        // Backup: unduh salinan seluruh tabel app_data langsung dari Supabase (bukan dari cache perangkat)
+        const BACKUP_LAST_KEY = 'simpati_last_backup_at';
+        const BackupDataCard = ({ showToast }) => {
+            const [busy, setBusy] = useState(false);
+            const [lastAt, setLastAt] = useState(() => { try { return localStorage.getItem(BACKUP_LAST_KEY) || ''; } catch (e) { return ''; } });
+            const daysSince = lastAt ? Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000) : null;
+            const overdue = daysSince === null || daysSince >= 7;
+            const runBackup = async () => {
+                if (!supabaseClient) { showToast('Tidak terhubung ke database. Periksa internet lalu coba lagi.', 'error'); return; }
+                setBusy(true);
+                try {
+                    const { data, error } = await supabaseClient.from('app_data').select('id, data');
+                    if (error) throw error;
+                    if (!Array.isArray(data) || data.length === 0) throw new Error('Data kosong');
+                    const nowIso = new Date().toISOString();
+                    const payload = { app: 'simpati-konveksi', backupAt: nowIso, rowCount: data.length, rows: data };
+                    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `backup-simpati-${toLocalDateStr()}.json`;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                    try { localStorage.setItem(BACKUP_LAST_KEY, nowIso); } catch (e) {}
+                    setLastAt(nowIso);
+                    showToast(`Backup berhasil diunduh (${data.length} jenis data, ${(blob.size / 1048576).toFixed(1)} MB). Simpan file ini di tempat aman.`, 'success');
+                } catch (err) {
+                    console.error('Backup gagal:', err);
+                    showToast('Backup gagal. Periksa koneksi internet lalu coba lagi.', 'error');
+                } finally {
+                    setBusy(false);
+                }
+            };
+            return (
+                <div className={`rounded-xl border p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${overdue ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                    <div className="flex-1 min-w-0">
+                        <div className={`font-bold text-sm ${overdue ? 'text-red-800' : 'text-emerald-800'}`}>💾 Backup Data</div>
+                        <div className={`text-xs mt-0.5 ${overdue ? 'text-red-700' : 'text-emerald-700'}`}>
+                            {lastAt ? `Backup terakhir dari perangkat ini: ${new Date(lastAt).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })} (${daysSince} hari lalu)` : 'Belum pernah backup dari perangkat ini.'}
+                            {overdue && ' — disarankan backup minimal seminggu sekali.'}
+                        </div>
+                        <div className="text-[11px] text-gray-500 mt-1">Mengunduh salinan seluruh data terbaru dari database ke satu file. Simpan di Google Drive / flashdisk.</div>
+                    </div>
+                    <button onClick={runBackup} disabled={busy} className="shrink-0 px-4 py-2 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60">{busy ? 'Mengunduh...' : 'Unduh Backup Sekarang'}</button>
+                </div>
+            );
+        };
+
+        const MasterAkunView = ({ accounts, setAccounts, employees, showToast, authUser }) => {
             const [showForm, setShowForm] = useState(false);
             const [newAcc, setNewAcc] = useState({ username: '', password: '', name: '', role: 'Mandor', linkedEmpId: '', menuAccess: getDefaultMenuAccess('Mandor') });
             
@@ -17957,7 +18070,9 @@ ${getRekapShareLink(rekap)}
                 }
                 
                 const now = new Date().toISOString();
-                setAccounts(prev => [...(prev||[]), { ...newAcc, id: genId('ACC-'), _syncUpdatedAt: now }]);
+                if (!String(newAcc.password || '').trim()) { showToast("Password wajib diisi.", "error"); return; }
+                const { password: newPlainPassword, ...newAccRest } = newAcc;
+                setAccounts(prev => [...(prev||[]), { ...newAccRest, ...makePasswordFields(newPlainPassword), id: genId('ACC-'), _syncUpdatedAt: now }]);
                 setShowForm(false);
                 setNewAcc({ username: '', password: '', name: '', role: 'Mandor', linkedEmpId: '', menuAccess: getDefaultMenuAccess('Mandor') });
                 showToast("Akun ditambahkan!", "success");
@@ -17973,7 +18088,16 @@ ${getRekapShareLink(rekap)}
                     showToast("Pilih Karyawan yang akan dihubungkan dengan akun ini!", "error"); return;
                 }
                 const now = new Date().toISOString();
-                setAccounts(prev => prev.map(acc => String(acc.id) === String(editAcc.id) ? { ...editAcc, _syncUpdatedAt: now } : acc));
+                // Password baru (jika diisi) disimpan sebagai hash; kosong = password lama tetap
+                const { password: legacyPlain, newPassword, ...editRest } = editAcc;
+                const passwordFields = String(newPassword || '').trim()
+                    ? makePasswordFields(newPassword)
+                    : (editRest.passwordHash ? {} : (legacyPlain ? makePasswordFields(legacyPlain) : {}));
+                setAccounts(prev => prev.map(acc => {
+                    if (String(acc.id) !== String(editAcc.id)) return acc;
+                    const hasHash = !!(passwordFields.passwordHash || editRest.passwordHash || acc.passwordHash);
+                    return { ...acc, ...editRest, ...passwordFields, ...(hasHash ? { password: null } : {}), _syncUpdatedAt: now };
+                }));
                 setEditAcc(null);
                 showToast("Data Akun diperbarui!", "success");
             };
@@ -17991,6 +18115,7 @@ ${getRekapShareLink(rekap)}
 
             return (
                 <div className="space-y-6">
+                    {authUser?.role === 'Admin' && <BackupDataCard showToast={showToast} />}
                     <div className="flex justify-between items-center">
                         <h2 className="text-2xl font-bold text-gray-800">Master Akun Login</h2>
                         <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium"><IconPlusCircle /> Tambah Akun</button>
@@ -18045,7 +18170,7 @@ ${getRekapShareLink(rekap)}
                                             </td>
                                             <td className="p-3 text-sm"><span className={`px-2 py-1 text-xs font-semibold rounded ${acc.role === 'Karyawan' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>{acc.role}</span></td>
                                             <td className="p-3 text-center flex justify-center space-x-2">
-                                                <button onClick={() => setEditAcc(acc)} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded" title="Edit Akun"><IconEdit /></button>
+                                                <button onClick={() => setEditAcc({ ...acc, newPassword: '' })} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded" title="Edit Akun"><IconEdit /></button>
                                                 {acc.username !== 'admin' ? (
                                                     <button onClick={() => setDeleteConfirmId(acc.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded" title="Hapus Akun"><IconTrash /></button>
                                                 ) : <span className="text-xs text-gray-400 italic flex items-center">Protected</span>}
@@ -18088,7 +18213,7 @@ ${getRekapShareLink(rekap)}
                                         <label className="block text-sm mb-1 font-semibold">Username Login</label>
                                         <input required disabled={editAcc.username === 'admin'} type="text" className="w-full p-2 border rounded focus:ring-blue-500 disabled:bg-gray-100" value={editAcc.username} onChange={e => setEditAcc({...editAcc, username: e.target.value})} />
                                     </div>
-                                    <div><label className="block text-sm mb-1 font-semibold">Password Baru</label><input required type="text" className="w-full p-2 border rounded focus:ring-blue-500" value={editAcc.password} onChange={e => setEditAcc({...editAcc, password: e.target.value})} /></div>
+                                    <div><label className="block text-sm mb-1 font-semibold">Password Baru</label><input type="password" autoComplete="new-password" className="w-full p-2 border rounded focus:ring-blue-500" placeholder="Kosongkan jika tidak ingin mengganti password" value={editAcc.newPassword || ''} onChange={e => setEditAcc({...editAcc, newPassword: e.target.value})} /><p className="text-[11px] text-gray-500 mt-1">Password tersimpan dalam bentuk teracak dan tidak bisa ditampilkan. Isi hanya jika ingin mengganti.</p></div>
                                     {renderMenuAccessControls(editAcc, setEditAcc)}
                                     {editAcc.username === 'admin' && <p className="text-xs text-red-500 italic">*Username & Role akun utama (admin) tidak dapat diubah.</p>}
                                     <div className="flex justify-end space-x-3 pt-4 border-t">
@@ -22787,8 +22912,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 toastTimerRef.current = setTimeout(() => setToast(null), 3500);
             };
 
-            const saveAuthSession = (user, lastActiveAt = new Date().toISOString()) => {
-                if (!user) return;
+            const saveAuthSession = (rawUser, lastActiveAt = new Date().toISOString()) => {
+                if (!rawUser) return;
+                // Sesi di perangkat tidak menyimpan password / hash
+                const user = stripCredentials(rawUser);
                 const sessionData = JSON.stringify({ user, lastActiveAt });
                 // Lapisan 1: in-memory (selalu berhasil, bertahan selama tab terbuka)
                 inMemorySessionRef.current = { user, lastActiveAt };
@@ -23009,7 +23136,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 ));
 
                 if (latestUser) {
-                    setAuthUser(latestUser);
+                    setAuthUser(stripCredentials(latestUser));
                     saveAuthSession(latestUser, getAuthSessionLastActiveAt() || new Date().toISOString());
                 } else if (fromConfirmedData || supabaseLoadedRef.current) {
                     // Hanya logout "akun tidak ditemukan" jika data sudah dikonfirmasi lengkap dari Supabase.
@@ -23913,10 +24040,30 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             useEffect(() => {
                 const savedUser = readValidAuthSession();
-                if (savedUser) setAuthUser(savedUser);
+                if (savedUser) { setAuthUser(stripCredentials(savedUser)); saveAuthSession(savedUser); }
 
                 const initData = async () => {
-                    // Mode share slip gaji karyawan: hanya fetch 4 dataset yang dibutuhkan
+                    // Halaman share yang mengambil datanya sendiri: jangan muat (dan jangan simpan ke perangkat pengunjung) data utama
+                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) {
+                        setIsReady(true);
+                        return;
+                    }
+                    // Tracking klien: hanya order + pengaturan tampilan
+                    if (customerTrackingClient) {
+                        if (supabaseClient) {
+                            try {
+                                const [ords, tmpls] = await Promise.all([fetchStoreData('orders', []), fetchStoreData('templates', initialTemplates)]);
+                                setOrders(patchOrders(Array.isArray(ords) ? ords : []));
+                                setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
+                            } catch (e) {
+                                console.error('Gagal fetch data tracking:', e);
+                                showToast('Gagal memuat data. Periksa jaringan lalu muat ulang halaman.', 'error');
+                            }
+                        }
+                        setIsReady(true);
+                        return;
+                    }
+                    // Mode share slip gaji karyawan: hanya rekap + pengaturan (+ invoice bila slip memuat komisi)
                     if (rekapGajiShareId) {
                         if (!supabaseClient) {
                             // SDK Supabase gagal dimuat (jaringan buruk) — tampilkan pesan yang tepat
@@ -23925,16 +24072,20 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             return;
                         }
                         try {
-                            const [rekaps, emps, tmpls, invs] = await Promise.all([
+                            const [rekaps, tmpls] = await Promise.all([
                                 fetchStoreData('rekapKinerja', []),
-                                fetchStoreData('employees', []),
                                 fetchStoreData('templates', initialTemplates),
-                                fetchStoreData('invoices', []),
                             ]);
-                            setRekapKinerja(Array.isArray(rekaps) ? rekaps : []);
-                            setEmployees(sanitizeEmployees(Array.isArray(emps) ? emps : []));
+                            const rekapList = Array.isArray(rekaps) ? rekaps : [];
+                            const thisRekap = rekapList.find(r => String(r.id) === String(rekapGajiShareId));
+                            // Data karyawan lain tidak diunduh; nama & divisi diambil dari rekap itu sendiri
+                            setRekapKinerja(thisRekap ? [thisRekap] : []);
                             setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
-                            setInvoices(Array.isArray(invs) ? invs : []);
+                            if (thisRekap && safeArray(thisRekap.marketingInvoiceIds).length > 0) {
+                                const invs = await fetchStoreData('invoices', []);
+                                const ids = new Set(safeArray(thisRekap.marketingInvoiceIds).map(String));
+                                setInvoices(safeArray(invs).filter(inv => ids.has(String(inv.id))));
+                            }
                         } catch(e) {
                             console.error('Gagal fetch data share rekap:', e);
                             showToast('Gagal memuat data. Periksa jaringan lalu muat ulang halaman.', 'error');
@@ -24176,7 +24327,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
                 // Mode share: tidak perlu sync — karyawan hanya lihat slip gaji statis
-                if (rekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
 
                 const refresh = () => {
                     lastRefreshRef.current = Date.now();
@@ -24851,6 +25002,31 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
+            // Password teks asli (versi lama) diganti hash — satu akun per giliran agar layar tidak macet di HP lambat
+            const passwordMigrationRef = React.useRef(false);
+            const migrateAccountPasswords = async (accountSnapshot) => {
+                if (passwordMigrationRef.current) return;
+                const legacy = safeArray(accountSnapshot).filter(acc => acc && acc.password !== undefined && acc.password !== null && acc.password !== '');
+                if (legacy.length === 0) return;
+                passwordMigrationRef.current = true;
+                const hashed = new Map();
+                for (const acc of legacy) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    hashed.set(String(acc.id), { plain: acc.password, next: withHashedPassword(acc) });
+                }
+                updateAccounts(prev => safeArray(prev).map(acc => {
+                    const h = hashed.get(String(acc?.id));
+                    // Lewati jika password sudah diganti di perangkat lain sementara proses berjalan
+                    if (!h || acc.password !== h.plain) return acc;
+                    const { password, passwordHash, passwordSalt, passwordAlgo } = h.next;
+                    return { ...acc, password, passwordHash, passwordSalt, passwordAlgo };
+                }));
+                passwordMigrationRef.current = false;
+            };
+            useEffect(() => {
+                if (isReady && authUser) migrateAccountPasswords(accounts);
+            }, [isReady, !!authUser, accounts]);
+
             // Coba ulang lewat fungsi update yang sama dengan simpan normal: ambil data cloud terbaru, gabungkan dengan data lokal, lalu simpan
             const retryUpdaters = {
                 orders: updateOrders, employees: updateEmployees, accounts: updateAccounts, rekapKinerja: updateRekapKinerja,
@@ -24892,6 +25068,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 const retry = () => { if (navigator.onLine !== false) retryFailedSavesRef.current(); };
                 const startupId = setTimeout(retry, 3000);
                 const intervalId = setInterval(retry, 30000);
@@ -25035,9 +25212,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return (
                     <>
                         <LoginView 
-                            onLogin={(user) => { 
-                                setAuthUser(user); 
+                            onLogin={(user) => {
+                                setAuthUser(user);
                                 saveAuthSession(user);
+                                setTimeout(() => migrateAccountPasswords(accounts), 500);
                                 showToast(`Selamat datang, ${user.name}!`, 'success'); 
                                 const userAccess = getAccountMenuAccess(user);
                                 if (user.role === 'Karyawan' && userAccess.includes('produksi')) {
@@ -25261,7 +25439,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={orders} templates={templates} showToast={showToast} /></div>}
                                 {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
                                 {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} /></div>}
-                                {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} /></div>}
+                                {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} authUser={authUser} /></div>}
                                 {tabMounted('stock_barang', canOpen('stock_barang')) && <div hidden={!tabVisible('stock_barang')}><StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('absensi_finger', canOpen('absensi_finger')) && <div hidden={!tabVisible('absensi_finger')}><AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></div>}
                                 {activeTab === 'hpp_kalkulator' && canOpen('hpp_kalkulator') && <HppKalkulatorView supabaseClient={supabaseClient} showToast={showToast} templates={templates} />}
