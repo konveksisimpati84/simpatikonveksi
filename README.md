@@ -31,10 +31,26 @@ Aplikasi web manajemen operasional pabrik konveksi, dibangun sebagai Single-Page
 
 | Layer | Teknologi |
 |-------|-----------|
-| Frontend | React 18 (CDN) + Tailwind CSS (CDN) + Babel Standalone |
+| Frontend | React 18.3.1 (CDN) + Tailwind CSS (CDN); JSX diterjemahkan saat build (tanpa Babel di browser) |
 | Backend / DB | Supabase (PostgreSQL) |
 | Cache Offline | localStorage |
 | AI (opsional) | Google Gemini API |
+
+### Build `index.html`
+
+`index.html` adalah **file hasil build** — jangan diedit langsung, perubahan akan tertimpa.
+
+- Kode aplikasi: `src/app.jsx`
+- Kerangka HTML (head, library CDN, layar loading): `src/index.template.html`
+
+Setelah mengubah salah satu file di atas, rakit ulang:
+
+```bash
+npm install --no-save @babel/core@8 @babel/preset-react@8   # sekali saja
+node scripts/build.cjs
+```
+
+Commit `src/` **dan** `index.html` hasil build bersama-sama.
 
 ---
 
