@@ -328,6 +328,13 @@
         const getActiveProductionStageIds = (order) => getActiveProductionStages(order).map(stage => stage.id);
         const orderNeedsMaterials = (order) => getOrderProcessFlow(order).materials !== false;
         const getProductionUnitPrice = (order, stageId) => safeMoney(order?.productionPrices?.[stageId]);
+        // Tanggal menurut jam perangkat (WIB), bukan UTC — toISOString() mundur 1 hari untuk input 00:00–06:59 WIB
+        const toLocalDateStr = (value = new Date()) => {
+            const d = value instanceof Date ? value : new Date(value);
+            if (isNaN(d.getTime())) return '';
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+        const toLocalMonthStr = (value = new Date()) => toLocalDateStr(value).slice(0, 7);
         const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(parseInt(num) || 0);
 
         const terbilangRupiah = (n) => {
@@ -609,7 +616,7 @@
             if (!note || note.payments !== undefined) return note;
             if (note.paymentStatus === 'Lunas') {
                 const tot = noteTotal(note);
-                return { ...note, payments: tot > 0 ? [{ id: genId('PAY-'), date: note.date || new Date().toISOString().slice(0, 10), amount: tot, method: note.method || 'Transfer', note: 'Migrasi otomatis' }] : [] };
+                return { ...note, payments: tot > 0 ? [{ id: genId('PAY-'), date: note.date || toLocalDateStr(), amount: tot, method: note.method || 'Transfer', note: 'Migrasi otomatis' }] : [] };
             }
             return { ...note, payments: [] };
         };
@@ -1169,7 +1176,7 @@
                 let nextNum = maxIdNum + 1;
                 let newId = `ORD-${String(nextNum).padStart(3, '0')}`;
                 while (allOrds.some(o => o.id === newId)) { nextNum++; newId = `ORD-${String(nextNum).padStart(3, '0')}`; }
-                const today = new Date().toISOString().split('T')[0];
+                const today = toLocalDateStr();
                 const now = new Date().toISOString();
                 const duped = {
                     ...order,
@@ -1475,7 +1482,7 @@
                                                                 const shipped = (order.shipped && Object.keys(order.shipped).length > 0) ? order.shipped : order.sizes || {};
                                                                 const shippedTotal = Object.values(shipped).reduce((s, q) => s + (parseInt(q) || 0), 0);
                                                                 const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz} (${shipped[sz]})`).join(', ');
-                                                                setRiwayatPengiriman(prev => [...(prev || []), { id: genId('SJ-'), date: new Date().toISOString().split('T')[0], client: order.client, items: [{ orderId: order.id, type: order.type || '-', details, total: shippedTotal || order.total || 0 }], total: shippedTotal || order.total || 0, _syncUpdatedAt: new Date().toISOString() }]);
+                                                                setRiwayatPengiriman(prev => [...(prev || []), { id: genId('SJ-'), date: toLocalDateStr(), client: order.client, items: [{ orderId: order.id, type: order.type || '-', details, total: shippedTotal || order.total || 0 }], total: shippedTotal || order.total || 0, _syncUpdatedAt: new Date().toISOString() }]);
                                                             }
                                                             setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, isArchived: true } : o));
                                                             showToast("Order dipindahkan ke Riwayat!", "success");
@@ -1523,7 +1530,7 @@
                                                         const shipped = (order.shipped && Object.keys(order.shipped).length > 0) ? order.shipped : order.sizes || {};
                                                         const shippedTotal = Object.values(shipped).reduce((s, q) => s + (parseInt(q) || 0), 0);
                                                         const details = sortSizeKeys(Object.keys(shipped)).map(sz => `${sz} (${shipped[sz]})`).join(', ');
-                                                        setRiwayatPengiriman(prev => [...(prev || []), { id: genId('SJ-'), date: new Date().toISOString().split('T')[0], client: order.client, items: [{ orderId: order.id, type: order.type || '-', details, total: shippedTotal || order.total || 0 }], total: shippedTotal || order.total || 0, _syncUpdatedAt: new Date().toISOString() }]);
+                                                        setRiwayatPengiriman(prev => [...(prev || []), { id: genId('SJ-'), date: toLocalDateStr(), client: order.client, items: [{ orderId: order.id, type: order.type || '-', details, total: shippedTotal || order.total || 0 }], total: shippedTotal || order.total || 0, _syncUpdatedAt: new Date().toISOString() }]);
                                                     }
                                                     setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, isArchived: true } : o));
                                                     showToast("Order dipindahkan ke Riwayat!", "success");
@@ -1942,10 +1949,10 @@
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [cashAdvanceEmp, setCashAdvanceEmp] = useState(null);
-            const [cashAdvanceForm, setCashAdvanceForm] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', note: '', status: 'Belum Dipotong' });
+            const [cashAdvanceForm, setCashAdvanceForm] = useState({ date: toLocalDateStr(), amount: '', note: '', status: 'Belum Dipotong' });
             const [editingCashAdvanceId, setEditingCashAdvanceId] = useState(null);
             const [dailySalaryEmp, setDailySalaryEmp] = useState(null);
-            const [dailySalaryForm, setDailySalaryForm] = useState({ date: new Date().toISOString().slice(0, 10), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
+            const [dailySalaryForm, setDailySalaryForm] = useState({ date: toLocalDateStr(), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
             const [editingDailySalaryId, setEditingDailySalaryId] = useState(null);
 
             const [profileEmp, setProfileEmp] = useState(null);
@@ -2241,7 +2248,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             };
 
             const resetCashAdvanceForm = () => {
-                setCashAdvanceForm({ date: new Date().toISOString().slice(0, 10), amount: '', note: '', status: 'Belum Dipotong' });
+                setCashAdvanceForm({ date: toLocalDateStr(), amount: '', note: '', status: 'Belum Dipotong' });
                 setEditingCashAdvanceId(null);
             };
 
@@ -2264,7 +2271,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                     const currentAdvances = Array.isArray(emp.cashAdvances) ? emp.cashAdvances : [];
                     const nextAdvance = {
                         id: editingCashAdvanceId || genId('KAS-'),
-                        date: cashAdvanceForm.date || now.slice(0, 10),
+                        date: cashAdvanceForm.date || toLocalDateStr(now),
                         amount,
                         note: String(cashAdvanceForm.note || '').trim(),
                         status: cashAdvanceForm.status || 'Belum Dipotong',
@@ -2286,7 +2293,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             const editCashAdvance = (cashAdvance) => {
                 setEditingCashAdvanceId(cashAdvance.id);
                 setCashAdvanceForm({
-                    date: cashAdvance.date || new Date().toISOString().slice(0, 10),
+                    date: cashAdvance.date || toLocalDateStr(),
                     amount: getCashAdvanceAmount(cashAdvance),
                     note: cashAdvance.note || '',
                     status: cashAdvance.status || normalizeCashAdvanceStatus(cashAdvance)
@@ -2309,13 +2316,13 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             };
 
             const resetDailySalaryForm = () => {
-                setDailySalaryForm({ date: new Date().toISOString().slice(0, 10), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
+                setDailySalaryForm({ date: toLocalDateStr(), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
                 setEditingDailySalaryId(null);
             };
 
             const openDailySalaryModal = (emp) => {
                 setDailySalaryEmp(emp);
-                setDailySalaryForm({ date: new Date().toISOString().slice(0, 10), workDays: '', dailySalary: emp.dailySalary || '', overtimeCount: '', overtimeRate: '', note: '' });
+                setDailySalaryForm({ date: toLocalDateStr(), workDays: '', dailySalary: emp.dailySalary || '', overtimeCount: '', overtimeRate: '', note: '' });
                 setEditingDailySalaryId(null);
             };
 
@@ -2331,7 +2338,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 if (_logTotal === 0 && !window.confirm('Total log ini Rp 0 (hari kerja dan lembur kosong). Tetap simpan?')) return;
                 const row = {
                     id: editingDailySalaryId || genId('DAY-'),
-                    date: dailySalaryForm.date || now.slice(0, 10),
+                    date: dailySalaryForm.date || toLocalDateStr(now),
                     workDays: _wd,
                     dailySalary: _ds,
                     overtimeCount: _oc,
@@ -2355,7 +2362,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             const editDailySalaryLog = (log) => {
                 setEditingDailySalaryId(log.id);
                 setDailySalaryForm({
-                    date: log.date || new Date().toISOString().slice(0, 10),
+                    date: log.date || toLocalDateStr(),
                     workDays: log.workDays || '',
                     dailySalary: log.dailySalary || '',
                     overtimeCount: log.overtimeCount || '',
@@ -2858,7 +2865,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                             <div key={emp.id} className="flex items-center gap-3 px-4 py-3 bg-white">
                                                 <div className="flex-1 min-w-0">
                                                     <div className="font-semibold text-sm text-gray-500 line-through">{emp.name}</div>
-                                                    <div className="text-xs text-gray-400">{getEmployeeDivisions(emp).join(', ')} · Dihapus {emp.deletedAt ? emp.deletedAt.slice(0, 10) : '-'}</div>
+                                                    <div className="text-xs text-gray-400">{getEmployeeDivisions(emp).join(', ')} · Dihapus {emp.deletedAt ? toLocalDateStr(emp.deletedAt) : '-'}</div>
                                                 </div>
                                                 <button onClick={() => setRestoreEmpConfirmId(emp.id)} className="px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors">Pulihkan</button>
                                             </div>
@@ -2905,7 +2912,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
         const InputOrderView = ({ orders, setOrders, setActiveTab, showToast }) => {
             const allOrders = orders || [];
             const safeOrders = allOrders.filter(isVisibleOrder);
-            const [newOrder, setNewOrder] = useState({ client: '', type: '', date: new Date().toISOString().split('T')[0], deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
+            const [newOrder, setNewOrder] = useState({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
             const [sizeInputs, setSizeInputs] = useState([{ id: 1, label: 'S', qty: '' }, { id: 2, label: 'M', qty: '' }, { id: 3, label: 'L', qty: '' }, { id: 4, label: 'XL', qty: '' }]);
             // Ambil dan urutkan daftar instansi yang sudah pernah diinput sebelumnya
             const uniqueClients = [...new Set(safeOrders.map(o => o.client).filter(Boolean))].sort();
@@ -3019,7 +3026,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 setOrders(prev => [orderToAdd, ...(prev||[])]);
                 const selectedProcessLabels = orderProcessOptions.filter(opt => orderToAdd.processFlow[opt.id] !== false).map(opt => opt.label).join(', ');
                 showToast("Order ditambahkan ke antrean!", "success");
-                setNewOrder({ client: '', type: '', date: new Date().toISOString().split('T')[0], deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
+                setNewOrder({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
                 setSizeInputs([{ id: 1, label: 'S', qty: '' }, { id: 2, label: 'M', qty: '' }, { id: 3, label: 'L', qty: '' }, { id: 4, label: 'XL', qty: '' }]);
                 setActiveTab('produksi');
             };
@@ -4342,7 +4349,7 @@ window.addEventListener('load',function(){
             const toggleClientExpand = (client) => setExpandedClients(prev => ({ ...prev, [client]: !prev[client] }));
             const [shipModalOrderId, setShipModalOrderId] = useState(null);
             const [shipNote, setShipNote] = useState('');
-            const [shipDate, setShipDate] = useState(new Date().toISOString().slice(0, 10));
+            const [shipDate, setShipDate] = useState(toLocalDateStr());
             const safeOrders = (orders || []).filter(isVisibleOrder);
 
             const handleToggleOrderSelection = (orderId) => {
@@ -4563,7 +4570,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                 const sjId = genId('SJ-');
                 
-                const shipDateFinal = date || new Date().toISOString().split('T')[0];
+                const shipDateFinal = date || toLocalDateStr();
                 const newHistoryRecord = {
                     id: sjId,
                     date: shipDateFinal,
@@ -4751,7 +4758,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                         {isDone ? (
                                                                             <button onClick={() => {
                                                                                 const hasSJ = (riwayatPengiriman||[]).filter(isVisibleRecord).some(r => (r.items||[]).some(i => i.orderId === order.id));
-                                                                                if (!hasSJ) { const sh = (order.shipped && Object.keys(order.shipped).length > 0) ? order.shipped : order.sizes||{}; const st = Object.values(sh).reduce((s,q)=>s+(parseInt(q)||0),0); const det = sortSizeKeys(Object.keys(sh)).map(sz=>`${sz} (${sh[sz]})`).join(', '); setRiwayatPengiriman(prev => [...(prev||[]), { id: genId('SJ-'), date: new Date().toISOString().split('T')[0], client: order.client, items: [{ orderId: order.id, type: order.type||'-', details: det, total: st||order.total||0 }], total: st||order.total||0, _syncUpdatedAt: new Date().toISOString() }]); }
+                                                                                if (!hasSJ) { const sh = (order.shipped && Object.keys(order.shipped).length > 0) ? order.shipped : order.sizes||{}; const st = Object.values(sh).reduce((s,q)=>s+(parseInt(q)||0),0); const det = sortSizeKeys(Object.keys(sh)).map(sz=>`${sz} (${sh[sz]})`).join(', '); setRiwayatPengiriman(prev => [...(prev||[]), { id: genId('SJ-'), date: toLocalDateStr(), client: order.client, items: [{ orderId: order.id, type: order.type||'-', details: det, total: st||order.total||0 }], total: st||order.total||0, _syncUpdatedAt: new Date().toISOString() }]); }
                                                                                 setOrders(prev => prev.map(o => String(o.id)===String(order.id) ? {...o, isArchived: true} : o));
                                                                                 showToast("Order diarsipkan!", "success");
                                                                             }} className="text-[10px] font-bold bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded-lg">Arsipkan</button>
@@ -4850,15 +4857,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <div>
                                                     <label className="block text-xs font-semibold text-gray-600 mb-1">Tanggal Surat Jalan</label>
                                                     <input type="date" value={shipDate} onChange={e => setShipDate(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300" />
-                                                    {shipDate !== new Date().toISOString().slice(0, 10) && <p className="text-xs text-amber-600 mt-1">⚠ Tanggal diubah dari hari ini — surat jalan akan tercetak dengan tanggal ini.</p>}
+                                                    {shipDate !== toLocalDateStr() && <p className="text-xs text-amber-600 mt-1">⚠ Tanggal diubah dari hari ini — surat jalan akan tercetak dengan tanggal ini.</p>}
                                                 </div>
                                                 <div>
                                                     <label className="block text-xs font-semibold text-gray-600 mb-1">Catatan Tambahan (opsional)</label>
                                                     <textarea rows={2} placeholder="Misal: titipan, order di luar alur produksi, dll." value={shipNote} onChange={e => setShipNote(e.target.value)} className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300" />
                                                 </div>
                                                 <div className="flex justify-end gap-2">
-                                                    <button onClick={() => { setShipModalOrderId(null); setShipNote(''); setShipDate(new Date().toISOString().slice(0, 10)); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Batal</button>
-                                                    <button onClick={() => { executeKirimGabungan(clientName, clientSelectedOrders, shipNote, shipDate); setShipModalOrderId(null); setSelectedOrders({}); setShipNote(''); setShipDate(new Date().toISOString().slice(0, 10)); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak SJ & Kirim</button>
+                                                    <button onClick={() => { setShipModalOrderId(null); setShipNote(''); setShipDate(toLocalDateStr()); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Batal</button>
+                                                    <button onClick={() => { executeKirimGabungan(clientName, clientSelectedOrders, shipNote, shipDate); setShipModalOrderId(null); setSelectedOrders({}); setShipNote(''); setShipDate(toLocalDateStr()); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconPrinter /> Cetak SJ & Kirim</button>
                                                 </div>
                                             </div>
                                         </div>
@@ -5528,7 +5535,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
             const [orderComboState, setOrderComboState] = useState({});
             const [quickPayNoteId, setQuickPayNoteId] = useState(null);
-            const [quickPayForm, setQuickPayForm] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
+            const [quickPayForm, setQuickPayForm] = useState({ date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
             const [noteSearch, setNoteSearch] = useState('');
             const [filterStatus, setFilterStatus] = useState('Semua');
             const [sortBy, setSortBy] = useState('terbaru');
@@ -5542,8 +5549,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const exitSelectionMode = () => { setSelectionMode(false); setCheckedNoteIds(new Set()); };
 
             const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', discountRp: '', discountPct: '', orderId: '' });
-            const emptyPayment = () => ({ id: genId('PAY-'), date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
-            const emptyNoteForm = { vendor: '', date: new Date().toISOString().slice(0, 10), items: [emptyItem()], method: 'Transfer', note: '', payments: [], globalDiscountType: 'Rp', globalDiscountValue: '' };
+            const emptyPayment = () => ({ id: genId('PAY-'), date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
+            const emptyNoteForm = { vendor: '', date: toLocalDateStr(), items: [emptyItem()], method: 'Transfer', note: '', payments: [], globalDiscountType: 'Rp', globalDiscountValue: '' };
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
@@ -5586,7 +5593,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const note = {
                     id: editNoteId || genId('PN-'),
                     vendor,
-                    date: noteForm.date || now.slice(0, 10),
+                    date: noteForm.date || toLocalDateStr(now),
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
                     payments: fc.cleanPayments,
@@ -5660,14 +5667,14 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (tot > 0 && currentPaid + amt > tot + 0.01) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
                 // Buat payment baru sekali di sini, lalu ambil existingPayments dari state terkini di dalam updater
                 // agar tidak ada stale closure jika sync terjadi antara validasi dan save
-                const newPayment = { id: genId('PAY-'), date: quickPayForm.date || now.slice(0, 10), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '', operasionalKaryawanId: quickPayForm.operasionalKaryawanId || '' };
+                const newPayment = { id: genId('PAY-'), date: quickPayForm.date || toLocalDateStr(now), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '', operasionalKaryawanId: quickPayForm.operasionalKaryawanId || '' };
                 setPurchaseNotes(prev => prev.map(n => {
                     if (n.id !== noteId) return n;
                     const existing = safeArray(normalizeNote(n).payments);
                     return { ...n, payments: [...existing, newPayment], _syncUpdatedAt: now };
                 }));
                 setQuickPayNoteId(null);
-                setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
+                setQuickPayForm({ date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
                 showToast('Pembayaran dicatat.', 'success');
             };
 
@@ -5960,7 +5967,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         {/* Action buttons */}
                                         <div className="flex gap-2 pt-1 flex-wrap">
                                             {status !== 'Lunas' && (
-                                                <button onClick={() => { setQuickPayNoteId(isQuickPayOpen ? null : note.id); setQuickPayForm({ date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' }); }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#059669', background: '#ECFDF5', borderColor: '#6EE7B7' }}>💳 Catat Bayar</button>
+                                                <button onClick={() => { setQuickPayNoteId(isQuickPayOpen ? null : note.id); setQuickPayForm({ date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' }); }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#059669', background: '#ECFDF5', borderColor: '#6EE7B7' }}>💳 Catat Bayar</button>
                                             )}
                                             <button onClick={() => {
                                                 setEditNoteId(note.id);
@@ -6488,7 +6495,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
             const KATEGORI = ['Bahan Baku','Peralatan','Transportasi','Operasional','Lainnya'];
             const emptyKartu = { id: '', namaKartu: '', limit: '', jatuhTempo: '', warna: 'biru', catatan: '' };
-            const emptyTrx   = { kartuId: '', tipe: 'belanja', jumlah: '', tanggal: new Date().toISOString().slice(0,10), kategori: 'Bahan Baku', keterangan: '' };
+            const emptyTrx   = { kartuId: '', tipe: 'belanja', jumlah: '', tanggal: toLocalDateStr(), kategori: 'Bahan Baku', keterangan: '' };
 
             const [activeKartuId, setActiveKartuId] = React.useState(null);
             const [showKartuForm, setShowKartuForm] = React.useState(false);
@@ -6555,7 +6562,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const now = new Date().toISOString();
                 const newTrx = { ...trxForm, id: genId('TKK-'), kartuId: kartuTarget.id, jumlah: safeMoney(trxForm.jumlah), _syncUpdatedAt: now };
                 setTransaksiKartu(prev => [newTrx, ...safeArray(prev)]);
-                setTrxForm(prev => ({ ...prev, jumlah: '', keterangan: '', tanggal: new Date().toISOString().slice(0,10) }));
+                setTrxForm(prev => ({ ...prev, jumlah: '', keterangan: '', tanggal: toLocalDateStr() }));
                 showToast('Transaksi disimpan.', 'success');
             };
             const handleDeleteTrx = (id) => {
@@ -6835,12 +6842,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast }) => {
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const [selectedEmpId, setSelectedEmpId] = useState('');
-            const emptyTransferForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '', type: 'keluar' };
+            const emptyTransferForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '', type: 'keluar' };
             const [form, setForm] = useState(emptyTransferForm);
             const [editId, setEditId] = useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [showForm, setShowForm] = useState(false);
-            const emptyNolkanForm = { tanggal: new Date().toISOString().slice(0, 10), nominal: '', keterangan: '' };
+            const emptyNolkanForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '' };
             const [showNolkanForm, setShowNolkanForm] = useState(false);
             const [nolkanForm, setNolkanForm] = useState(emptyNolkanForm);
             const [empSearch, setEmpSearch] = useState('');
@@ -6877,7 +6884,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     id: editId || genId('DO-'),
                     karyawanId: selectedEmpId,
                     karyawanNama: selectedEmp?.name || '',
-                    tanggal: form.tanggal || now.slice(0, 10),
+                    tanggal: form.tanggal || toLocalDateStr(now),
                     nominal,
                     keterangan: form.keterangan || '',
                     type: isTalangan ? 'talangan' : 'keluar',
@@ -6911,7 +6918,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     id: genId('DO-'),
                     karyawanId: selectedEmpId,
                     karyawanNama: selectedEmp?.name || '',
-                    tanggal: nolkanForm.tanggal || now.slice(0, 10),
+                    tanggal: nolkanForm.tanggal || toLocalDateStr(now),
                     nominal,
                     keterangan: nolkanForm.keterangan.trim(),
                     type: 'penyelesaian',
@@ -6932,7 +6939,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     showToast('Karyawan dikeluarkan dari daftar dana operasional.', 'success');
                 } else {
                     const emp = safeEmployees.find(e => String(e.id) === eid);
-                    const record = { id: genId('DO-'), karyawanId: eid, karyawanNama: emp?.name || '', tanggal: now.slice(0, 10), nominal: 0, keterangan: 'Terdaftar dana operasional', type: 'aktivasi', _syncUpdatedAt: now };
+                    const record = { id: genId('DO-'), karyawanId: eid, karyawanNama: emp?.name || '', tanggal: toLocalDateStr(now), nominal: 0, keterangan: 'Terdaftar dana operasional', type: 'aktivasi', _syncUpdatedAt: now };
                     setDanaOperasional(prev => [record, ...safeArray(prev)]);
                     showToast(`${emp?.name || 'Karyawan'} didaftarkan ke dana operasional.`, 'success');
                 }
@@ -7318,8 +7325,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes, rekapKinerja = [], bagiHasilPromosi = [] }) => {
             const [biayaSubTab, setBiayaSubTab] = useState('biaya');
             const emptyItem = () => ({ id: genId('BI-'), desc: '', qty: '1', unit: 'pcs', price: '' });
-            const emptyForm = { date: new Date().toISOString().slice(0, 10), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '', discountType: 'Rp', discountValue: '' };
-            const emptyPayForm = { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Tunai', note: '', operasionalKaryawanId: '' };
+            const emptyForm = { date: toLocalDateStr(), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '', discountType: 'Rp', discountValue: '' };
+            const emptyPayForm = { date: toLocalDateStr(), amount: '', method: 'Tunai', note: '', operasionalKaryawanId: '' };
             const [form, setForm] = useState(emptyForm);
             const [editId, setEditId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
@@ -7496,7 +7503,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const amt = safeMoney(pf.amount);
                 if (amt <= 0) return showToast('Isi nominal pembayaran.', 'error');
                 const now = new Date().toISOString();
-                const pay = { id: genId('BPAY-'), date: pf.date || now.slice(0, 10), amount: amt, method: pf.method || 'Tunai', note: pf.note || '', operasionalKaryawanId: pf.operasionalKaryawanId || '' };
+                const pay = { id: genId('BPAY-'), date: pf.date || toLocalDateStr(now), amount: amt, method: pf.method || 'Tunai', note: pf.note || '', operasionalKaryawanId: pf.operasionalKaryawanId || '' };
                 setExpenses(prev => (prev || []).map(item => {
                     if (String(item.id) !== String(itemId)) return item;
                     const newPays = [...(item.payments || []), pay];
@@ -7895,7 +7902,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         };
 
         const InvoiceView = ({ invoices, setInvoices, employees, showToast, templates }) => {
-            const emptyInvoice = { date: new Date().toISOString().slice(0, 10), customer: '', address: '', type: '', size: '', qty: '', price: '', marketing: '', discountPerPcs: '', discountPercent: '', paymentStatus: 'Belum Dibayar', paymentAmount: '', paymentMethod: 'Transfer', paymentNote: '', note: '', commissionType: 'Persen', commissionValue: '5' };
+            const emptyInvoice = { date: toLocalDateStr(), customer: '', address: '', type: '', size: '', qty: '', price: '', marketing: '', discountPerPcs: '', discountPercent: '', paymentStatus: 'Belum Dibayar', paymentAmount: '', paymentMethod: 'Transfer', paymentNote: '', note: '', commissionType: 'Persen', commissionValue: '5' };
             const [form, setForm] = useState(emptyInvoice);
             const [editId, setEditId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
@@ -7998,7 +8005,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
         const ClientsView = ({ clients, setClients, invoices = [], setInvoices, showToast, templates }) => {
             const emptyClient = { name: '', address: '', phone: '', pic: '', note: '' };
-            const emptyDp = { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '', orderId: '' };
+            const emptyDp = { date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', orderId: '' };
             const [form, setForm] = useState(emptyClient);
             const [editId, setEditId] = useState(null);
             const [selectedClient, setSelectedClient] = useState(null);
@@ -8026,7 +8033,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const safe = (v) => String(v ?? '-').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
                 const amount = safeMoney(dp.amount);
                 const receiptNo = dp.id || `DP-${Date.now()}`;
-                const printContent = `<!DOCTYPE html><html><head><title>Kwt - ${safe(clientName || receiptNo)}</title><style>@page{size:A5 landscape;margin:8mm}body{font-family:Arial,Helvetica,sans-serif;color:#10264a;margin:0;background:#fff}.sheet{width:100%;box-sizing:border-box;padding:10px 12px 8px}.top{display:flex;justify-content:space-between;align-items:flex-start}.brand img{max-height:48px;max-width:150px;object-fit:contain}.brand-text{line-height:.95}.brand-small{font-size:18px;font-weight:900;color:#111}.brand-main{font-size:38px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-1px}.title{text-align:right}.title h1{font-size:32px;letter-spacing:8px;margin:4px 0 10px;color:#10264a}.no-row{font-size:14px}.line{border-bottom:3px solid #10264a;margin:14px 0 18px}.field{display:grid;grid-template-columns:160px 12px 1fr;gap:8px;align-items:end;font-size:14px;margin:10px 0}.dots{border-bottom:1.5px dotted #222;min-height:19px;padding:0 6px;color:#111}.amount-words{margin-left:180px;background:#eef1f5;border-bottom:1.5px dotted #222;min-height:25px;padding:6px 8px;font-size:12px;color:#111}.pay-lines{margin-left:180px}.pay-lines .dots{margin:10px 0}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px;align-items:start}.rp-box{width:270px;height:42px;border:2px solid #10264a;display:grid;grid-template-columns:70px 1fr;transform:skewX(-10deg);overflow:hidden}.rp-label,.rp-value{display:flex;align-items:center;padding:0 14px;transform:skewX(10deg);font-size:19px;font-weight:900}.rp-label{border-right:2px solid #10264a}.rp-value{background:#d0d8e6;color:#111}.sign{text-align:center;font-size:13px}.date-line{border-bottom:1.5px dotted #10264a;display:inline-block;min-width:200px;text-align:left;color:#111}.receiver{margin-top:16px}.name-line{display:inline-block;min-width:80px;border-bottom:1.5px dotted #10264a;margin-top:42px;color:#111}.sign-box{text-align:center;width:190px;position:relative}.sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:0;position:relative;z-index:0}.sign-img{max-height:110px;max-width:160px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}.sign-space{height:65px}.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}.sign-name{font-size:12px;font-weight:700;color:#10264a;text-decoration:underline;text-underline-offset:3px;position:relative;z-index:0}.sign-sub{font-size:10px;color:#64748b;margin-top:3px;position:relative;z-index:0}.cut-wrap{border:1.5px dashed #bbb;border-radius:3px;position:relative;margin:4px}.cut-scr{position:absolute;font-size:15px;color:#999;background:#fff;padding:0 3px;line-height:1}.cut-scr-tl{top:-10px;left:2px}.cut-scr-br{bottom:-10px;right:2px;transform:rotate(180deg)}</style></head><body><div class="cut-wrap"><div class="cut-scr cut-scr-tl">✂</div><div class="cut-scr cut-scr-br">✂</div><div class="sheet"><div class="top"><div class="brand">${(templates||{}).companyLogo ? `<img src="${(templates||{}).companyLogo}" />` : `<div class="brand-text"><div class="brand-small">Konveksi</div><div class="brand-main">Simpati</div></div>`}</div><div class="title"><h1>KWITANSI SALDO</h1><div class="no-row">No. &nbsp;: <span class="dots" style="display:inline-block;min-width:160px">${safe(receiptNo)}</span></div></div></div><div class="line"></div><div class="field"><div>Diterima dari</div><div>:</div><div class="dots">${safe(clientName || '-')}</div></div><div class="field"><div>Uang sejumlah</div><div>:</div><div class="dots">${formatRupiah(amount)}</div></div><div class="amount-words">${safe(terbilangRupiah(amount))}</div><div class="field"><div>Untuk pembayaran</div><div>:</div><div class="dots">Titipan Saldo Klien${dp.orderId ? ' / Order ' + safe(dp.orderId) : ''}</div></div><div class="pay-lines"><div class="dots">Metode: ${safe(dp.method || '-')}${dp.note ? ' &nbsp;|&nbsp; ' + safe(dp.note) : ''}</div></div><div class="bottom"><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${formatRupiah(amount).replace('Rp ', '').replace('Rp ', '')}</div></div><div class="sign"><div><span class="date-line">${safe(dp.date || new Date().toISOString().slice(0,10))}</span></div><div class="sign-box" style="margin:12px auto 0"><div class="sign-title">Hormat Kami,</div>${(templates||{}).signatureImage?`<img class="sign-img" src="${(templates||{}).signatureImage}" alt="ttd"/>`:'<div class="sign-space"></div>'}<div class="sign-name" style="margin-top:6px">${safe((templates||{}).companyName||'Simpati Konveksi')}</div><div class="sign-sub">Administration</div></div></div></div></div></div></body></html>`;
+                const printContent = `<!DOCTYPE html><html><head><title>Kwt - ${safe(clientName || receiptNo)}</title><style>@page{size:A5 landscape;margin:8mm}body{font-family:Arial,Helvetica,sans-serif;color:#10264a;margin:0;background:#fff}.sheet{width:100%;box-sizing:border-box;padding:10px 12px 8px}.top{display:flex;justify-content:space-between;align-items:flex-start}.brand img{max-height:48px;max-width:150px;object-fit:contain}.brand-text{line-height:.95}.brand-small{font-size:18px;font-weight:900;color:#111}.brand-main{font-size:38px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-1px}.title{text-align:right}.title h1{font-size:32px;letter-spacing:8px;margin:4px 0 10px;color:#10264a}.no-row{font-size:14px}.line{border-bottom:3px solid #10264a;margin:14px 0 18px}.field{display:grid;grid-template-columns:160px 12px 1fr;gap:8px;align-items:end;font-size:14px;margin:10px 0}.dots{border-bottom:1.5px dotted #222;min-height:19px;padding:0 6px;color:#111}.amount-words{margin-left:180px;background:#eef1f5;border-bottom:1.5px dotted #222;min-height:25px;padding:6px 8px;font-size:12px;color:#111}.pay-lines{margin-left:180px}.pay-lines .dots{margin:10px 0}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px;align-items:start}.rp-box{width:270px;height:42px;border:2px solid #10264a;display:grid;grid-template-columns:70px 1fr;transform:skewX(-10deg);overflow:hidden}.rp-label,.rp-value{display:flex;align-items:center;padding:0 14px;transform:skewX(10deg);font-size:19px;font-weight:900}.rp-label{border-right:2px solid #10264a}.rp-value{background:#d0d8e6;color:#111}.sign{text-align:center;font-size:13px}.date-line{border-bottom:1.5px dotted #10264a;display:inline-block;min-width:200px;text-align:left;color:#111}.receiver{margin-top:16px}.name-line{display:inline-block;min-width:80px;border-bottom:1.5px dotted #10264a;margin-top:42px;color:#111}.sign-box{text-align:center;width:190px;position:relative}.sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:0;position:relative;z-index:0}.sign-img{max-height:110px;max-width:160px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}.sign-space{height:65px}.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}.sign-name{font-size:12px;font-weight:700;color:#10264a;text-decoration:underline;text-underline-offset:3px;position:relative;z-index:0}.sign-sub{font-size:10px;color:#64748b;margin-top:3px;position:relative;z-index:0}.cut-wrap{border:1.5px dashed #bbb;border-radius:3px;position:relative;margin:4px}.cut-scr{position:absolute;font-size:15px;color:#999;background:#fff;padding:0 3px;line-height:1}.cut-scr-tl{top:-10px;left:2px}.cut-scr-br{bottom:-10px;right:2px;transform:rotate(180deg)}</style></head><body><div class="cut-wrap"><div class="cut-scr cut-scr-tl">✂</div><div class="cut-scr cut-scr-br">✂</div><div class="sheet"><div class="top"><div class="brand">${(templates||{}).companyLogo ? `<img src="${(templates||{}).companyLogo}" />` : `<div class="brand-text"><div class="brand-small">Konveksi</div><div class="brand-main">Simpati</div></div>`}</div><div class="title"><h1>KWITANSI SALDO</h1><div class="no-row">No. &nbsp;: <span class="dots" style="display:inline-block;min-width:160px">${safe(receiptNo)}</span></div></div></div><div class="line"></div><div class="field"><div>Diterima dari</div><div>:</div><div class="dots">${safe(clientName || '-')}</div></div><div class="field"><div>Uang sejumlah</div><div>:</div><div class="dots">${formatRupiah(amount)}</div></div><div class="amount-words">${safe(terbilangRupiah(amount))}</div><div class="field"><div>Untuk pembayaran</div><div>:</div><div class="dots">Titipan Saldo Klien${dp.orderId ? ' / Order ' + safe(dp.orderId) : ''}</div></div><div class="pay-lines"><div class="dots">Metode: ${safe(dp.method || '-')}${dp.note ? ' &nbsp;|&nbsp; ' + safe(dp.note) : ''}</div></div><div class="bottom"><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${formatRupiah(amount).replace('Rp ', '').replace('Rp ', '')}</div></div><div class="sign"><div><span class="date-line">${safe(dp.date || toLocalDateStr())}</span></div><div class="sign-box" style="margin:12px auto 0"><div class="sign-title">Hormat Kami,</div>${(templates||{}).signatureImage?`<img class="sign-img" src="${(templates||{}).signatureImage}" alt="ttd"/>`:'<div class="sign-space"></div>'}<div class="sign-name" style="margin-top:6px">${safe((templates||{}).companyName||'Simpati Konveksi')}</div><div class="sign-sub">Administration</div></div></div></div></div></div></body></html>`;
                 const w = window.open('', '_blank');
                 if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up!", "error");
                 w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
@@ -8254,13 +8261,13 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
         };
 
         const BagiHasilPromosiTab = ({ bagiHasilPromosi, updateBagiHasilPromosi, invoices, showToast, employees, danaOperasional, purchaseNotes, expenses, rekapKinerja }) => {
-            const emptyBhpForm = { nama: '', tanggal: new Date().toISOString().slice(0,10), invoiceIds: [], bagiHasilType: '%', bagiHasilValue: '', note: '', payments: [] };
+            const emptyBhpForm = { nama: '', tanggal: toLocalDateStr(), invoiceIds: [], bagiHasilType: '%', bagiHasilValue: '', note: '', payments: [] };
             const [form, setForm] = React.useState(emptyBhpForm);
             const [editId, setEditId] = React.useState(null);
             const [invSearch, setInvSearch] = React.useState('');
             const [showInvDropdown, setShowInvDropdown] = React.useState(false);
             const [detailId, setDetailId] = React.useState(null);
-            const [payForm, setPayForm] = React.useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '', operasionalKaryawanId: '' });
+            const [payForm, setPayForm] = React.useState({ amount: '', date: toLocalDateStr(), method: 'Transfer', note: '', operasionalKaryawanId: '' });
             const [shareModal, setShareModal] = React.useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = React.useState(null);
 
@@ -8302,7 +8309,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const row = {
                     id: editId || genId('BHP-'),
                     nama: String(form.nama).trim(),
-                    tanggal: form.tanggal || now.slice(0,10),
+                    tanggal: form.tanggal || toLocalDateStr(now),
                     invoiceIds: form.invoiceIds,
                     bagiHasilType: form.bagiHasilType || '%',
                     bagiHasilValue: safeMoney(form.bagiHasilValue),
@@ -8321,7 +8328,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             };
 
             const startEdit = (bhp) => {
-                setForm({ nama: bhp.nama || '', tanggal: bhp.tanggal || new Date().toISOString().slice(0,10), invoiceIds: safeArray(bhp.invoiceIds).map(String), bagiHasilType: bhp.bagiHasilType || '%', bagiHasilValue: String(bhp.bagiHasilValue || ''), note: bhp.note || '', payments: safeArray(bhp.payments) });
+                setForm({ nama: bhp.nama || '', tanggal: bhp.tanggal || toLocalDateStr(), invoiceIds: safeArray(bhp.invoiceIds).map(String), bagiHasilType: bhp.bagiHasilType || '%', bagiHasilValue: String(bhp.bagiHasilValue || ''), note: bhp.note || '', payments: safeArray(bhp.payments) });
                 setEditId(bhp.id);
                 setDetailId(null);
             };
@@ -8344,13 +8351,13 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                     if (amt > sisa + 0.01) return showToast(`Nominal melebihi sisa tagihan (${formatRupiah(sisa)}). Periksa kembali.`, 'error');
                 }
                 const now = new Date().toISOString();
-                const pay = { id: genId('BHPP-'), date: payForm.date || now.slice(0,10), amount: amt, method: payForm.method || 'Transfer', note: payForm.note || '', _syncUpdatedAt: now };
+                const pay = { id: genId('BHPP-'), date: payForm.date || toLocalDateStr(now), amount: amt, method: payForm.method || 'Transfer', note: payForm.note || '', _syncUpdatedAt: now };
                 if (payForm.operasionalKaryawanId) {
                     pay.operasionalKaryawanId = payForm.operasionalKaryawanId;
                     pay.method = 'Dana Operasional';
                 }
                 updateBagiHasilPromosi(prev => (Array.isArray(prev) ? prev : []).map(b => String(b.id) === String(bhpId) ? { ...b, payments: [...safeArray(b.payments), pay], _syncUpdatedAt: now } : b));
-                setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '', operasionalKaryawanId: '' });
+                setPayForm({ amount: '', date: toLocalDateStr(), method: 'Transfer', note: '', operasionalKaryawanId: '' });
                 showToast('Pembayaran dicatat.', 'success');
             };
 
@@ -8749,12 +8756,12 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 return { ...item, pricePerPcs: basePrice > 0 ? String(basePrice) : (item.pricePerPcs || ''), discountType, discountValue, _hasMixedPrices: hasMixedPrices, _hasMixedDiscounts: hasMixedDiscounts };
             });
             const emptyInvoice = {
-                date: new Date().toISOString().slice(0, 10),
+                date: toLocalDateStr(),
                 customer: '',
                 address: '',
                 marketing: '',
                 invoiceItems: [newItem()],
-                invoiceDp: { date: new Date().toISOString().slice(0, 10), amount: '', method: 'Transfer', note: '' },
+                invoiceDp: { date: toLocalDateStr(), amount: '', method: 'Transfer', note: '' },
                 note: '',
                 commissionType: 'Persen',
                 commissionValue: '0',
@@ -8776,7 +8783,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [payInvId, setPayInvId] = useState(null);
             const [detailInvId, setDetailInvId] = useState(null);
             const [editModalOpen, setEditModalOpen] = useState(false);
-            const [payForm, setPayForm] = useState({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '', proofImage: '' });
+            const [payForm, setPayForm] = useState({ amount: '', date: toLocalDateStr(), method: 'Transfer', note: '', proofImage: '' });
             const [proofViewImg, setProofViewImg] = useState(null);
             const [mktShareModal, setMktShareModal] = useState(null);
             const [invShareModal, setInvShareModal] = useState(null);
@@ -8890,7 +8897,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 }));
                 showToast('Pembayaran berhasil dicatat.', 'success');
                 setPayInvId(null);
-                setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '', proofImage: '' });
+                setPayForm({ amount: '', date: toLocalDateStr(), method: 'Transfer', note: '', proofImage: '' });
             };
             const deleteInvoicePayment = (invId, payId) => {
                 const now = new Date().toISOString();
@@ -9181,7 +9188,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const amount = totals.total;
                 const payments = getInvoicePayments(inv);
                 const lastPay = payments.length > 0 ? payments[payments.length - 1] : null;
-                const lastDate = lastPay?.date || getInvoiceDp(inv)?.date || inv.date || new Date().toISOString().slice(0, 10);
+                const lastDate = lastPay?.date || getInvoiceDp(inv)?.date || inv.date || toLocalDateStr();
                 const lastMethod = lastPay?.method || getInvoiceDp(inv)?.method || 'Transfer';
                 const lastNote = lastPay?.note || '';
                 const jumlahJenis = getInvoiceItems(inv).filter(i => i.productionType).length;
@@ -9644,7 +9651,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 {/* Tombol aksi — icon only */}
                                                 <div className="flex gap-1.5 items-center">
                                                     <button onClick={() => setDetailInvId(inv.id)} title="Rincian" className="bg-blue-50 hover:bg-blue-100 text-blue-700 p-2 rounded-lg border border-blue-100 transition-colors"><IconEye /></button>
-                                                    {status !== 'Lunas' && <button onClick={() => { setPayInvId(inv.id); setPayForm({ amount: '', date: new Date().toISOString().slice(0,10), method: 'Transfer', note: '' }); }} title="Bayar" className="bg-green-50 hover:bg-green-100 text-green-700 p-2 rounded-lg border border-green-100 transition-colors"><IconCash /></button>}
+                                                    {status !== 'Lunas' && <button onClick={() => { setPayInvId(inv.id); setPayForm({ amount: '', date: toLocalDateStr(), method: 'Transfer', note: '' }); }} title="Bayar" className="bg-green-50 hover:bg-green-100 text-green-700 p-2 rounded-lg border border-green-100 transition-colors"><IconCash /></button>}
                                                     {status !== 'Lunas' && <button onClick={() => { const token = getOrCreateInvShareToken(inv.id); if (token) setInvShareModal({ inv, token }); }} title="Tagih via WhatsApp" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 p-2 rounded-lg border border-emerald-200 transition-colors flex items-center justify-center"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.123.553 4.112 1.523 5.837L.057 23.25a.75.75 0 00.921.921l5.45-1.467A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.9 0-3.7-.5-5.27-1.38l-.38-.22-3.93 1.06 1.03-3.84-.24-.38A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg></button>}
                                                     <button onClick={() => { setEditId(inv.id); setForm({ ...emptyInvoice, ...inv, invoiceItems: prepareItemsForForm(getInvoiceItems(inv)), invoiceDp: getInvoiceDp(inv) }); setEditModalOpen(true); }} title="Edit Invoice" className="bg-purple-50 hover:bg-purple-100 text-purple-700 p-2 rounded-lg border border-purple-100 transition-colors"><IconEdit /></button>
                                                     <button onClick={() => printInvoice(inv)} title="Cetak Invoice" className="bg-slate-50 hover:bg-slate-100 text-slate-700 p-2 rounded-lg border border-slate-100 transition-colors"><IconPrinter /></button>
@@ -10685,7 +10692,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const now = new Date().toISOString();
                 const rows = employeeRows.map(row => ({ empId: row.emp.id, name: row.emp.name || '-', division: getEmployeeDivisions(row.emp).join(', ') || '-', salaryTypes: getSalaryTypesText(row.emp), production: row.summary.production, commission: row.summary.commission, daily: row.summary.daily, overtime: row.summary.overtime, gross: row.summary.gross, deduction: row.summary.deduction, net: row.summary.net, kasbonRemaining: row.summary.kasbon }));
                 // TODO: koneksi data ini perlu disempurnakan agar potongan kasbon massal bisa mengubah cashAdvances utama tanpa risiko pada data lama.
-                const row = { id: `RKP-BULK-${Date.now()}`, type: 'bulk_salary_recap', periodStart: dateFrom || '', periodEnd: dateTo || '', periodLabel: `${dateFrom || 'Awal'} s/d ${dateTo || 'Sekarang'}`, employees: rows, productionSalary: totals.production, dailySalary: totals.daily, overtimeSalary: totals.overtime, marketingCommission: totals.commission, grossSalary: totals.gross, cashAdvanceDeduction: totals.kasbon, netSalary: totals.net, totalWage: totals.net, payments: [], paymentStatus: 'belum', createdAt: now, dateProcessed: now.slice(0, 10), _syncUpdatedAt: now };
+                const row = { id: `RKP-BULK-${Date.now()}`, type: 'bulk_salary_recap', periodStart: dateFrom || '', periodEnd: dateTo || '', periodLabel: `${dateFrom || 'Awal'} s/d ${dateTo || 'Sekarang'}`, employees: rows, productionSalary: totals.production, dailySalary: totals.daily, overtimeSalary: totals.overtime, marketingCommission: totals.commission, grossSalary: totals.gross, cashAdvanceDeduction: totals.kasbon, netSalary: totals.net, totalWage: totals.net, payments: [], paymentStatus: 'belum', createdAt: now, dateProcessed: toLocalDateStr(now), _syncUpdatedAt: now };
                 setRekapKinerja(prev => [row, ...safeArray(prev)]);
                 // Tandai commissionRekapId pada invoice marketing yang masuk rekap ini,
                 // agar tidak terhitung dobel di rekap berikutnya
@@ -10727,7 +10734,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     ) : (
                         <div className="space-y-4"><div className="grid grid-cols-1 md:grid-cols-5 gap-3"><Card><h3 className="text-xs font-bold text-gray-500">Jumlah Rekap</h3><p className="text-xl font-black">{rekapTotals.count}</p></Card><Card><h3 className="text-xs font-bold text-gray-500">Total Karyawan</h3><p className="text-xl font-black">{rekapTotals.employees.size}</p></Card><Card><h3 className="text-xs font-bold text-gray-500">Gaji Bersih</h3><p className="text-xl font-black">{formatRupiah(rekapTotals.net)}</p></Card><Card><h3 className="text-xs font-bold text-gray-500">Potongan Kasbon</h3><p className="text-xl font-black">{formatRupiah(rekapTotals.kasbon)}</p></Card><Card><h3 className="text-xs font-bold text-gray-500">Komisi</h3><p className="text-xl font-black">{formatRupiah(rekapTotals.commission)}</p></Card></div><Card><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Periode/Tanggal</th><th className="p-3 text-left">Rekap</th><th className="p-3 text-right">Karyawan</th><th className="p-3 text-right">Potongan</th><th className="p-3 text-right">Bersih</th><th className="p-3 text-center">Aksi</th></tr></thead><tbody>{filteredRekaps.map(rekap => <tr key={rekap.id} className="border-t"><td className="p-3">{rekap.periodLabel || rekap.dateProcessed || '-'}</td><td className="p-3 font-bold">{rekap.id || '-'}</td><td className="p-3 text-right">{safeArray(rekap.employees).length || 1}</td><td className="p-3 text-right">{formatRupiah(rekap.cashAdvanceDeduction || 0)}</td><td className="p-3 text-right font-black text-blue-700">{formatRupiah(rekap.netSalary ?? rekap.totalWage ?? 0)}</td><td className="p-3 text-center"><button onClick={() => printRekap(rekap)} className="text-xs bg-gray-50 text-slate-700 px-2 py-1 rounded font-bold">Cetak</button></td></tr>)}{filteredRekaps.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-gray-500 italic">Belum ada rekap kinerja.</td></tr>}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{filteredRekaps.map(rekap => <div key={rekap.id} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="font-bold text-gray-900 text-sm">{rekap.id || '-'}</div><div className="text-xs text-gray-500 mt-0.5">{rekap.periodLabel || rekap.dateProcessed || '-'} · {safeArray(rekap.employees).length || 1} karyawan</div>{(rekap.cashAdvanceDeduction || 0) > 0 && <div className="text-xs text-orange-600 mt-0.5">Potongan: {formatRupiah(rekap.cashAdvanceDeduction || 0)}</div>}<div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(rekap.netSalary ?? rekap.totalWage ?? 0)}</div></div><button onClick={() => printRekap(rekap)} className="text-xs bg-gray-50 text-slate-700 border border-gray-200 px-2 py-1 rounded font-bold shrink-0">Cetak</button></div>)}{filteredRekaps.length === 0 && <div className="py-8 text-center text-gray-500 italic text-sm">Belum ada rekap kinerja.</div>}</div></Card></div>
                     )}
-                    {showBulkModal && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4"><div className="bg-white rounded-xl shadow-xl w-full max-w-6xl max-h-[92vh] overflow-y-auto"><div className="flex justify-between items-start border-b p-5"><div><h3 className="text-xl font-black">Rekap Seluruh Gaji Karyawan</h3><p className="text-sm text-gray-500">Periode {dateFrom || 'Awal'} s/d {dateTo || 'Sekarang'}</p></div><button onClick={() => setShowBulkModal(false)} className="text-2xl text-gray-400">&times;</button></div><div className="p-5 space-y-4"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">Karyawan</th><th className="p-2 text-right">Produksi</th><th className="p-2 text-right">Komisi</th><th className="p-2 text-right">Harian</th><th className="p-2 text-right">Lembur</th><th className="p-2 text-right">Bruto</th><th className="p-2 text-right">Sisa Kasbon</th><th className="p-2 text-right">Potongan</th><th className="p-2 text-right">Bersih</th></tr></thead><tbody>{employeeRows.map(row => <tr key={row.emp.id || row.emp.name} className="border-t"><td className="p-2 font-bold">{row.emp.name || '-'}<div className="text-xs text-gray-500">{getEmployeeDivisions(row.emp).join(', ') || '-'} / {getSalaryTypesText(row.emp)}</div></td><td className="p-2 text-right">{formatRupiah(row.summary.production)}</td><td className="p-2 text-right">{formatRupiah(row.summary.commission)}</td><td className="p-2 text-right">{formatRupiah(row.summary.daily)}</td><td className="p-2 text-right">{formatRupiah(row.summary.overtime)}</td><td className="p-2 text-right font-bold">{formatRupiah(row.summary.gross)}</td><td className="p-2 text-right">{row.summary.kasbon > 0 ? formatRupiah(row.summary.kasbon) : 'Tidak ada kasbon aktif'}</td><td className="p-2 text-right"><input type="number" min="0" max={Math.min(row.summary.kasbon, row.summary.gross)} className="w-28 p-1 border rounded text-right" value={deductions[row.emp.id] || ''} onChange={e => { const next = Math.min(safeNumber(e.target.value), row.summary.kasbon, row.summary.gross); setDeductions(prev => ({ ...prev, [row.emp.id]: next })); }} disabled={row.summary.kasbon <= 0 || row.summary.gross <= 0} /></td><td className="p-2 text-right font-black text-blue-700">{formatRupiah(row.summary.net)}</td></tr>)}{employeeRows.length === 0 && <tr><td colSpan="9" className="p-8 text-center text-gray-500 italic">Belum ada data karyawan.</td></tr>}</tbody></table></div><div className="grid grid-cols-2 md:grid-cols-6 gap-3"><Card><h4 className="text-xs font-bold text-gray-500">Produksi</h4><p className="font-black">{formatRupiah(totals.production)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Komisi</h4><p className="font-black">{formatRupiah(totals.commission)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Harian</h4><p className="font-black">{formatRupiah(totals.daily)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Lembur</h4><p className="font-black">{formatRupiah(totals.overtime)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Potongan</h4><p className="font-black">{formatRupiah(totals.kasbon)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Bersih</h4><p className="font-black text-blue-700">{formatRupiah(totals.net)}</p></Card></div>{(() => { const existing = safeRekaps.filter(r => inRange(r.dateProcessed || (r.createdAt || '').slice(0, 10))); return existing.length > 0 ? <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">⚠ Sudah ada <strong>{existing.length} rekap</strong> tersimpan di periode ini. Pastikan tidak ada rekap per-karyawan yang sudah disimpan untuk karyawan yang sama agar tidak terhitung ganda di Laporan Keuangan.</div> : null; })()}<div className="flex justify-end gap-2"><button onClick={() => printBulkRekap()} className="px-4 py-2 bg-gray-100 rounded font-bold">Cetak Rekap Gaji</button><button onClick={saveBulkRekap} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">Simpan Rekap Gaji</button></div></div></div></div>}
+                    {showBulkModal && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4"><div className="bg-white rounded-xl shadow-xl w-full max-w-6xl max-h-[92vh] overflow-y-auto"><div className="flex justify-between items-start border-b p-5"><div><h3 className="text-xl font-black">Rekap Seluruh Gaji Karyawan</h3><p className="text-sm text-gray-500">Periode {dateFrom || 'Awal'} s/d {dateTo || 'Sekarang'}</p></div><button onClick={() => setShowBulkModal(false)} className="text-2xl text-gray-400">&times;</button></div><div className="p-5 space-y-4"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-2 text-left">Karyawan</th><th className="p-2 text-right">Produksi</th><th className="p-2 text-right">Komisi</th><th className="p-2 text-right">Harian</th><th className="p-2 text-right">Lembur</th><th className="p-2 text-right">Bruto</th><th className="p-2 text-right">Sisa Kasbon</th><th className="p-2 text-right">Potongan</th><th className="p-2 text-right">Bersih</th></tr></thead><tbody>{employeeRows.map(row => <tr key={row.emp.id || row.emp.name} className="border-t"><td className="p-2 font-bold">{row.emp.name || '-'}<div className="text-xs text-gray-500">{getEmployeeDivisions(row.emp).join(', ') || '-'} / {getSalaryTypesText(row.emp)}</div></td><td className="p-2 text-right">{formatRupiah(row.summary.production)}</td><td className="p-2 text-right">{formatRupiah(row.summary.commission)}</td><td className="p-2 text-right">{formatRupiah(row.summary.daily)}</td><td className="p-2 text-right">{formatRupiah(row.summary.overtime)}</td><td className="p-2 text-right font-bold">{formatRupiah(row.summary.gross)}</td><td className="p-2 text-right">{row.summary.kasbon > 0 ? formatRupiah(row.summary.kasbon) : 'Tidak ada kasbon aktif'}</td><td className="p-2 text-right"><input type="number" min="0" max={Math.min(row.summary.kasbon, row.summary.gross)} className="w-28 p-1 border rounded text-right" value={deductions[row.emp.id] || ''} onChange={e => { const next = Math.min(safeNumber(e.target.value), row.summary.kasbon, row.summary.gross); setDeductions(prev => ({ ...prev, [row.emp.id]: next })); }} disabled={row.summary.kasbon <= 0 || row.summary.gross <= 0} /></td><td className="p-2 text-right font-black text-blue-700">{formatRupiah(row.summary.net)}</td></tr>)}{employeeRows.length === 0 && <tr><td colSpan="9" className="p-8 text-center text-gray-500 italic">Belum ada data karyawan.</td></tr>}</tbody></table></div><div className="grid grid-cols-2 md:grid-cols-6 gap-3"><Card><h4 className="text-xs font-bold text-gray-500">Produksi</h4><p className="font-black">{formatRupiah(totals.production)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Komisi</h4><p className="font-black">{formatRupiah(totals.commission)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Harian</h4><p className="font-black">{formatRupiah(totals.daily)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Lembur</h4><p className="font-black">{formatRupiah(totals.overtime)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Potongan</h4><p className="font-black">{formatRupiah(totals.kasbon)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Bersih</h4><p className="font-black text-blue-700">{formatRupiah(totals.net)}</p></Card></div>{(() => { const existing = safeRekaps.filter(r => inRange(r.dateProcessed || (r.createdAt ? toLocalDateStr(r.createdAt) : ''))); return existing.length > 0 ? <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">⚠ Sudah ada <strong>{existing.length} rekap</strong> tersimpan di periode ini. Pastikan tidak ada rekap per-karyawan yang sudah disimpan untuk karyawan yang sama agar tidak terhitung ganda di Laporan Keuangan.</div> : null; })()}<div className="flex justify-end gap-2"><button onClick={() => printBulkRekap()} className="px-4 py-2 bg-gray-100 rounded font-bold">Cetak Rekap Gaji</button><button onClick={saveBulkRekap} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">Simpan Rekap Gaji</button></div></div></div></div>}
                 </div>
             );
         };
@@ -11228,13 +11235,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const [showForm, setShowForm] = useState(false);
             const [editId, setEditId] = useState(null);
-            const [form, setForm] = useState({ name: '', modalMasuk: '', bagiHasilType: 'per_pcs', bagiHasilPerPcs: '', bagiHasilPersen: '', tanggalMulai: new Date().toISOString().slice(0,10), tanggalJatuhTempo: '', catatan: '' });
+            const [form, setForm] = useState({ name: '', modalMasuk: '', bagiHasilType: 'per_pcs', bagiHasilPerPcs: '', bagiHasilPersen: '', tanggalMulai: toLocalDateStr(), tanggalJatuhTempo: '', catatan: '' });
             const [kalkulatorOmset, setKalkulatorOmset] = React.useState('');
             const [expandedId, setExpandedId] = useState(null);
             const [showBHModal, setShowBHModal] = useState(null);
-            const [bhForm, setBhForm] = useState({ invoiceId: '', tanggal: new Date().toISOString().slice(0,10), note: '' });
+            const [bhForm, setBhForm] = useState({ invoiceId: '', tanggal: toLocalDateStr(), note: '' });
             const [bhFilterFrom, setBhFilterFrom] = React.useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; });
-            const [bhFilterTo, setBhFilterTo] = React.useState(() => { const d = new Date(); return d.toISOString().slice(0,10); });
+            const [bhFilterTo, setBhFilterTo] = React.useState(() => { const d = new Date(); return toLocalDateStr(d); });
             const [bhSelectedIds, setBhSelectedIds] = React.useState([]);
             const [bhNote, setBhNote] = React.useState('');
             const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -11263,12 +11270,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setInvestors(prev => [...safeArray(prev), { ...form, id: genId('INVST-'), modalMasuk: parseFloat(form.modalMasuk), bagiHasilType: form.bagiHasilType||'per_pcs', bagiHasilPerPcs: parseFloat(form.bagiHasilPerPcs)||0, bagiHasilPersen: parseFloat(form.bagiHasilPersen)||0, tanggalJatuhTempo: form.tanggalJatuhTempo||'', isLunas: false, isDeleted: false, _syncUpdatedAt: now() }]);
                     showToast('Investor berhasil ditambahkan', 'success');
                 }
-                setForm({ name: '', modalMasuk: '', bagiHasilType: 'per_pcs', bagiHasilPerPcs: '', bagiHasilPersen: '', tanggalMulai: new Date().toISOString().slice(0,10), tanggalJatuhTempo: '', catatan: '' });
+                setForm({ name: '', modalMasuk: '', bagiHasilType: 'per_pcs', bagiHasilPerPcs: '', bagiHasilPersen: '', tanggalMulai: toLocalDateStr(), tanggalJatuhTempo: '', catatan: '' });
                 setEditId(null); setShowForm(false);
             };
 
             const tandaiLunas = (id, lunas) => {
-                setInvestors(prev => safeArray(prev).map(inv => inv.id === id ? { ...inv, isLunas: lunas, tanggalLunas: lunas ? new Date().toISOString().slice(0,10) : null, _syncUpdatedAt: now() } : inv));
+                setInvestors(prev => safeArray(prev).map(inv => inv.id === id ? { ...inv, isLunas: lunas, tanggalLunas: lunas ? toLocalDateStr() : null, _syncUpdatedAt: now() } : inv));
                 setLunasConfirm(null);
                 showToast(lunas ? 'Investor ditandai Lunas' : 'Status dikembalikan ke Aktif', 'success');
             };
@@ -11344,7 +11351,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <h2 className="text-2xl font-bold text-gray-800">Manajemen Investor</h2>
                             <p className="text-sm text-gray-500 mt-0.5">Bagi hasil per pcs atau % invoice — modal + akumulasi bagi hasil dikembalikan ke investor</p>
                         </div>
-                        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ name:'', modalMasuk:'', bagiHasilType:'per_pcs', bagiHasilPerPcs:'', bagiHasilPersen:'', tanggalMulai: new Date().toISOString().slice(0,10), tanggalJatuhTempo:'', catatan:'' }); setKalkulatorOmset(''); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-sm">+ Tambah Investor</button>
+                        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ name:'', modalMasuk:'', bagiHasilType:'per_pcs', bagiHasilPerPcs:'', bagiHasilPersen:'', tanggalMulai: toLocalDateStr(), tanggalJatuhTempo:'', catatan:'' }); setKalkulatorOmset(''); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-sm">+ Tambah Investor</button>
                     </div>
 
                     {/* Summary */}
@@ -11451,7 +11458,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <div className="flex items-center gap-1.5 flex-wrap justify-start sm:justify-end">
                                                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${status==='Lunas'?'bg-green-100 text-green-800':'bg-indigo-100 text-indigo-800'}`}>{status}</span>
                                                     <button onClick={() => setExpandedId(isExpanded ? null : investor.id)} className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1.5 rounded-lg">{isExpanded?'▲ Tutup':'▼ Detail'}</button>
-                                                    {!investor.isLunas && <button onClick={() => { setShowBHModal(investor.id); setBhForm({ invoiceId:'', tanggal: new Date().toISOString().slice(0,10), note:'' }); setBhSelectedIds([]); setBhNote(''); }} className="text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-2.5 py-1.5 rounded-lg">+ Catat BH</button>}
+                                                    {!investor.isLunas && <button onClick={() => { setShowBHModal(investor.id); setBhForm({ invoiceId:'', tanggal: toLocalDateStr(), note:'' }); setBhSelectedIds([]); setBhNote(''); }} className="text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-2.5 py-1.5 rounded-lg">+ Catat BH</button>}
                                                     {!investor.isLunas
                                                         ? <button onClick={() => setLunasConfirm({ id: investor.id, lunas: true, kewajiban: totalKewajiban })} className="text-xs font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 px-2.5 py-1.5 rounded-lg">Tandai Lunas</button>
                                                         : <button onClick={() => tandaiLunas(investor.id, false)} className="text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200 px-2.5 py-1.5 rounded-lg">Batalkan Lunas</button>
@@ -11732,7 +11739,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (!value) return false;
                 const date = new Date(value);
                 if (isNaN(date.getTime())) return false;
-                return date.toISOString().slice(0, 7) === period;
+                return toLocalMonthStr(date) === period;
             };
 
             const allUnifiedNotes = safeArray(purchaseNotes).filter(isVisibleRecord).filter(n => noteTotal(n) > 0 || notePaid(n) > 0);
@@ -11742,7 +11749,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (tot <= 0 && paid <= 0) return [];
                 const base = {
                     id: note.id,
-                    date: note.date || new Date().toISOString().slice(0, 10),
+                    date: note.date || toLocalDateStr(),
                     client: note.vendor || '-',
                     type: 'Nota Pembelian',
                     totalPcs: 0,
@@ -11866,6 +11873,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return [dp.clientName, dp.date, dp.amount, dp.method, dp.note, dp.orderId, dp.invoiceId].join(' ').toLowerCase().includes(normalizedSearch);
             }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
             const totalInvoiceIncome = invoiceRows.reduce((sum, inv) => sum + getInvoicePaid(inv), 0);
+            // Saldo DP klien diakui sebagai pendapatan saat dipakai di invoice (sebelumnya kewajiban)
+            const totalLinkedDpIncome = invoiceRows.reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0);
             const totalClientDpIncome = clientDpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalManualIncome = expenseRows.filter(row => row.type === 'Uang Masuk').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
@@ -11895,8 +11904,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const m = parseInt(parts[1], 10) - 1;
                     if (m >= 0 && m < 12) totals[m] += safeMoney(e.amount);
                 });
+                (clients || []).filter(isVisibleRecord).forEach(c => safeArray(c.clientDpPayments).filter(isVisibleRecord).forEach(dp => {
+                    if (!dp.date) return;
+                    const parts = String(dp.date).split('-');
+                    if (parts[0] !== finChartYear) return;
+                    const m = parseInt(parts[1], 10) - 1;
+                    if (m >= 0 && m < 12) totals[m] += safeMoney(dp.amount);
+                }));
                 return totals;
-            }, [safeFinanceInvoices, expenses, finChartYear]);
+            }, [safeFinanceInvoices, expenses, clients, finChartYear]);
 
             const monthlyFinanceKeluar = React.useMemo(() => {
                 const totals = Array(12).fill(0);
@@ -11960,8 +11976,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 .filter(inv => !filteredMktNames || filteredMktNames.has(normalizeText(inv.marketing || '')))
                 .reduce((sum, inv) => sum + getInvoiceCommission(inv), 0);
             // AKUNTANSI STANDAR
-            // Pendapatan = pembayaran invoice + pemasukan manual (BUKAN saldo DP)
-            const totalPendapatan = totalInvoiceIncome + totalManualIncome;
+            // Pendapatan = pembayaran invoice + saldo DP yang dipakai invoice + pemasukan manual.
+            // Setoran saldo DP sendiri bukan pendapatan (kewajiban) — hanya masuk Buku Kas.
+            const totalPendapatan = totalInvoiceIncome + totalLinkedDpIncome + totalManualIncome;
+            const cashInRows = [
+                ...invoiceRows.map(inv => ({ date: inv.date || '-', ref: inv.id || '-', sumber: 'Invoice', ket: inv.customer || '-', nominal: getInvoicePaid(inv) })),
+                ...clientDpRows.map(dp => ({ date: dp.date || '-', ref: dp.id || '-', sumber: 'Saldo DP Klien', ket: dp.clientName || '-', nominal: safeMoney(dp.amount) })),
+                ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
+            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+            const totalCashIn = cashInRows.reduce((s, r) => s + r.nominal, 0);
 
             // Kewajiban: Saldo DP Klien (liability - uang muka yang belum dipakai)
             const totalSaldoDpMasukAll = (clients || []).filter(isVisibleRecord)
@@ -12233,6 +12256,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <tbody>
                                 <tr class="section-header"><td colspan="2">PENDAPATAN</td></tr>
                                 <tr><td>&nbsp;&nbsp;Pendapatan Invoice</td><td class="text-right">${formatRupiah(totalInvoiceIncome)}</td></tr>
+                                ${totalLinkedDpIncome > 0 ? `<tr><td>&nbsp;&nbsp;Pendapatan dari Saldo DP Klien</td><td class="text-right">${formatRupiah(totalLinkedDpIncome)}</td></tr>` : ''}
                                 <tr><td>&nbsp;&nbsp;Pemasukan Lain</td><td class="text-right">${formatRupiah(totalManualIncome)}</td></tr>
                                 <tr class="total-row"><td>TOTAL PENDAPATAN</td><td class="text-right">${formatRupiah(totalPendapatan)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
@@ -12276,22 +12300,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const handlePrintCashBook = () => {
                 const periodLabel = period ? new Date(`${period}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : 'Semua Periode';
                 const printedDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-                const kasmasukRows = [
-                    ...invoiceRows.map(inv => ({
-                        date: inv.date || '-',
-                        ref: inv.id || '-',
-                        sumber: 'Invoice',
-                        ket: inv.customer || '-',
-                        nominal: getInvoicePaid(inv)
-                    })),
-                    ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({
-                        date: r.date || '-',
-                        ref: r.id || '-',
-                        sumber: 'Pemasukan',
-                        ket: r.category || r.note || '-',
-                        nominal: safeMoney(r.amount)
-                    }))
-                ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+                const kasmasukRows = cashInRows;
                 const kaskeluarRows = [
                     ...materialRows.filter(r => !r.isHutang).map(r => ({
                         date: r.date || '-',
@@ -12458,11 +12467,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             {/* PENDAPATAN */}
                             <div className="bg-green-50 border border-green-200 rounded-xl p-5">
                                 <h3 className="text-base font-black text-green-800 mb-3 uppercase tracking-wide">Pendapatan</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                     <Card className="border-l-4 border-l-green-500">
                                         <h3 className="text-xs font-bold text-gray-500">Pendapatan Invoice</h3>
                                         <p className="text-2xl font-black text-green-700 mt-2">{formatRupiah(totalInvoiceIncome)}</p>
                                         <p className="text-xs text-gray-500 mt-1">Pembayaran tunai/transfer invoice</p>
+                                    </Card>
+                                    <Card className="border-l-4 border-l-emerald-500">
+                                        <h3 className="text-xs font-bold text-gray-500">Dari Saldo DP Klien</h3>
+                                        <p className="text-2xl font-black text-emerald-700 mt-2">{formatRupiah(totalLinkedDpIncome)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Saldo DP yang dipakai bayar invoice</p>
                                     </Card>
                                     <Card className="border-l-4 border-l-teal-500">
                                         <h3 className="text-xs font-bold text-gray-500">Pemasukan Lain</h3>
@@ -12472,7 +12486,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <Card className="border-l-4 border-l-green-700 bg-green-100">
                                         <h3 className="text-xs font-black text-green-800">TOTAL PENDAPATAN</h3>
                                         <p className="text-2xl font-black text-green-800 mt-2">{formatRupiah(totalPendapatan)}</p>
-                                        <p className="text-xs text-green-700 mt-1">Invoice + pemasukan lain</p>
+                                        <p className="text-xs text-green-700 mt-1">Invoice + saldo DP dipakai + pemasukan lain</p>
                                     </Card>
                                 </div>
                             </div>
@@ -12728,6 +12742,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="space-y-1 font-mono text-sm max-w-2xl">
                                 <div className="bg-gray-100 px-3 py-1 font-bold text-gray-700 rounded">PENDAPATAN</div>
                                 <div className="flex justify-between px-3 py-1"><span>Pendapatan Invoice</span><span className="font-bold">{formatRupiah(totalInvoiceIncome)}</span></div>
+                                {totalLinkedDpIncome > 0 && <div className="flex justify-between px-3 py-1"><span>Pendapatan dari Saldo DP Klien</span><span className="font-bold">{formatRupiah(totalLinkedDpIncome)}</span></div>}
                                 <div className="flex justify-between px-3 py-1"><span>Pemasukan Lain</span><span className="font-bold">{formatRupiah(totalManualIncome)}</span></div>
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-green-800 bg-green-50 rounded"><span>TOTAL PENDAPATAN</span><span>{formatRupiah(totalPendapatan)}</span></div>
                                 <div className="py-1"></div>
@@ -12775,10 +12790,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {[
-                                                ...invoiceRows.map(inv => ({ date: inv.date || '-', ref: inv.id || '-', sumber: 'Invoice', ket: inv.customer || '-', nominal: getInvoicePaid(inv) })),
-                                                ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
-                                            ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                            {cashInRows.map((r, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                                                     <td className="p-3">{r.date}</td>
                                                     <td className="p-3 font-mono text-xs">{r.ref}</td>
@@ -12787,21 +12799,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <td className="p-3 text-right font-black text-green-700">{formatRupiah(r.nominal)}</td>
                                                 </tr>
                                             ))}
-                                            {invoiceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Masuk').length === 0 && (
+                                            {cashInRows.length === 0 && (
                                                 <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data kas masuk pada periode ini.</td></tr>
                                             )}
                                             <tr className="bg-green-50 font-black border-t-2 border-green-400">
                                                 <td colSpan="4" className="p-3 text-green-800">TOTAL KAS MASUK</td>
-                                                <td className="p-3 text-right text-green-800">{formatRupiah(invoiceRows.reduce((s, inv) => s + getInvoicePaid(inv), 0) + expenseRows.filter(r => r.type === 'Uang Masuk').reduce((s, r) => s + safeMoney(r.amount), 0))}</td>
+                                                <td className="p-3 text-right text-green-800">{formatRupiah(totalCashIn)}</td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                    {[
-                                        ...invoiceRows.map(inv => ({ date: inv.date || '-', ref: inv.id || '-', sumber: 'Invoice', ket: inv.customer || '-', nominal: getInvoicePaid(inv) })),
-                                        ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
-                                    ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)).map((r, i) => (
+                                    {cashInRows.map((r, i) => (
                                         <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -12814,12 +12823,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <div className="text-sm font-black text-green-700 shrink-0">{formatRupiah(r.nominal)}</div>
                                         </div>
                                     ))}
-                                    {invoiceRows.length === 0 && expenseRows.filter(r => r.type === 'Uang Masuk').length === 0 && (
+                                    {cashInRows.length === 0 && (
                                         <div className="px-4 py-6 text-center text-gray-500 italic text-sm">Belum ada data kas masuk pada periode ini.</div>
                                     )}
                                     <div className="px-4 py-3 bg-green-50 border-t-2 border-green-400 flex justify-between items-center">
                                         <span className="font-black text-green-800 text-sm">TOTAL KAS MASUK</span>
-                                        <span className="font-black text-green-800 text-sm">{formatRupiah(invoiceRows.reduce((s, inv) => s + getInvoicePaid(inv), 0) + expenseRows.filter(r => r.type === 'Uang Masuk').reduce((s, r) => s + safeMoney(r.amount), 0))}</span>
+                                        <span className="font-black text-green-800 text-sm">{formatRupiah(totalCashIn)}</span>
                                     </div>
                                 </div>
                             </Card>
@@ -13306,7 +13315,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
         const DireksiEmpCard = ({ emp, calculated, payments, bulan, updateBagiHasilDireksi, showToast }) => {
             const [showPayForm, setShowPayForm] = useState(false);
             const [payAmt, setPayAmt] = useState('');
-            const [payDate, setPayDate] = useState(new Date().toISOString().slice(0,10));
+            const [payDate, setPayDate] = useState(toLocalDateStr());
             const [payNote, setPayNote] = useState('');
             const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
             const sisaTagihan = Math.max(0, calculated - totalPaid);
@@ -13400,14 +13409,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [detailRekapTab, setDetailRekapTab] = useState('rincian');
             const [payFormAmount, setPayFormAmount] = useState('');
             const [payFormMethod, setPayFormMethod] = useState('Transfer');
-            const [payFormDate, setPayFormDate] = useState(new Date().toISOString().split('T')[0]);
+            const [payFormDate, setPayFormDate] = useState(toLocalDateStr());
             const [payFormNote, setPayFormNote] = useState('');
             const [payFormOperasionalKaryawanId, setPayFormOperasionalKaryawanId] = useState('');
             const [selectionConfirm, setSelectionConfirm] = useState(null);
             const [selectedItemKeys, setSelectedItemKeys] = useState(new Set());
             const [searchTerm, setSearchTerm] = useState('');
             const [activeReportTab, setActiveReportTab] = useState('input');
-            const [rankMonth, setRankMonth] = useState(new Date().toISOString().slice(0,7));
+            const [rankMonth, setRankMonth] = useState(toLocalMonthStr());
             const [rankDivFilter, setRankDivFilter] = useState('Semua');
             const [rankSortBy, setRankSortBy] = useState('total');
             const [rekapSortBy, setRekapSortBy] = useState('terbaru');
@@ -13474,8 +13483,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             }, [pinnedRekapIds]);
             const [inputDetailEmpId, setInputDetailEmpId] = useState(null);
             const [showOnlyReady, setShowOnlyReady] = useState(false);
-            const [manualProdForm, setManualProdForm] = useState({ empId: null, date: new Date().toISOString().slice(0,10), description: '', qty: '', unitPrice: '' });
-            const [dailyInputForm, setDailyInputForm] = useState({ empId: null, mode: 'harian', date: new Date().toISOString().slice(0,10), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
+            const [manualProdForm, setManualProdForm] = useState({ empId: null, date: toLocalDateStr(), description: '', qty: '', unitPrice: '' });
+            const [dailyInputForm, setDailyInputForm] = useState({ empId: null, mode: 'harian', date: toLocalDateStr(), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
             const safeOrdersForReport = Array.isArray(orders) ? orders : [];
             const safeEmployeesForReport = Array.isArray(employees) ? employees : [];
             const safeRekapForReport = Array.isArray(rekapKinerja) ? rekapKinerja : [];
@@ -13491,7 +13500,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const empIdsWithPendingSalary = React.useMemo(() => {
                 const ids = new Set();
                 const visibleRekapIds = new Set(visibleRekapsBase.map(rk => String(rk.id)));
-                const currentBHMonth = new Date().toISOString().slice(0,7);
+                const currentBHMonth = toLocalMonthStr();
                 visibleEmployees.forEach(emp => {
                     let hasProd = false;
                     visibleOrdersForPending.forEach(order => {
@@ -13511,7 +13520,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     let hasFingerPending = false;
                     if (fpPin && fpIsHarian) {
                         const fpCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                        const fpToday = new Date().toISOString().split('T')[0];
+                        const fpToday = toLocalDateStr();
                         hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
                     }
                     const hasBagiHasil = isDireksi && safeMoney(emp.bagiHasilNilai) > 0 && !visibleRekapsBase.some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === currentBHMonth);
@@ -13973,7 +13982,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (!qty || parseFloat(qty) <= 0) { showToast('Qty harus lebih dari 0.', 'error'); return; }
                 if (!unitPrice || parseFloat(unitPrice) <= 0) { showToast('Harga satuan harus lebih dari 0.', 'error'); return; }
                 const now = new Date().toISOString();
-                const newLog = { id: genId('mprod-'), date: date || now.slice(0,10), description: description.trim(), qty: parseFloat(qty), unitPrice: parseFloat(unitPrice), isDeleted: false, rekapId: '', createdAt: now, _syncUpdatedAt: now };
+                const newLog = { id: genId('mprod-'), date: date || toLocalDateStr(now), description: description.trim(), qty: parseFloat(qty), unitPrice: parseFloat(unitPrice), isDeleted: false, rekapId: '', createdAt: now, _syncUpdatedAt: now };
                 setEmployees(prev => (prev || []).map(emp => {
                     if (String(emp.id) !== String(empId)) return emp;
                     return { ...emp, manualProductionLogs: [...(emp.manualProductionLogs || []), newLog], _syncUpdatedAt: now };
@@ -13993,7 +14002,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const isLembur = mode === 'lembur';
                 const newLog = {
                     id: genId('DAY-'),
-                    date: date || now.slice(0,10),
+                    date: date || toLocalDateStr(now),
                     workDays: isLembur ? 0 : safeMoney(workDays),
                     dailySalary: isLembur ? 0 : safeMoney(dailySalary),
                     overtimeCount: isLembur ? safeMoney(overtimeCount) : 0,
@@ -14055,11 +14064,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const rateLebih = safeMoney(emp.rateLebih) || 0;
                 const existingAbsensiLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '');
                 const cutoffDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateTo).sort().reverse()[0] : null;
-                const today = new Date().toISOString().split('T')[0];
+                const today = toLocalDateStr();
                 let startDate;
                 if (cutoffDate) {
                     const d = new Date(cutoffDate); d.setDate(d.getDate() + 1);
-                    startDate = d.toISOString().split('T')[0];
+                    startDate = toLocalDateStr(d);
                 } else {
                     const allPinDates = safeArray(absensiRawLogs).filter(l => !l.isDeleted && String(l.pin).trim() === pin).map(l => l.tanggal).filter(Boolean).sort();
                     startDate = allPinDates[0] || null;
@@ -14067,14 +14076,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (!startDate || startDate > today) return { previewLogs: [], warnings: [] };
                 const dates = [];
                 const cur = new Date(startDate); const end = new Date(today);
-                while (cur <= end) { dates.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1); }
+                while (cur <= end) { dates.push(toLocalDateStr(cur)); cur.setDate(cur.getDate() + 1); }
                 const warnings = [];
                 const previewLogs = [];
                 const nowTs = new Date().toISOString();
                 dates.forEach(date => {
                     const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin).trim() === pin);
                     // Untuk shift malam yang melewati tengah malam, ambil scan dari tanggal berikutnya sebagai kandidat pulang
-                    const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
+                    const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return toLocalDateStr(d); })();
                     // Hanya scan dari tanggal berikutnya yang terjadi SEBELUM jam masuk normal (cegah scan pagi hari kerja dihitung sebagai jam pulang lembur)
                     const nextDayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === nextDate && !l.isDeleted && String(l.pin).trim() === pin && (ttm(l.jam) == null || mMasukCfg == null || ttm(l.jam) < mMasukCfg));
                     const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
@@ -14336,7 +14345,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     return;
                 }
                 // Cegah double-rekap: pastikan tidak ada rekap lain yang sedang dibuat untuk karyawan + tanggal yang sama
-                const todayStr = new Date().toISOString().split('T')[0];
+                const todayStr = toLocalDateStr();
                 const existingSameDay = safeArray(rekapKinerja).filter(isVisibleRecord).some(rk =>
                     String(rk.empId) === String(modalData.empId) && rk.dateProcessed === todayStr
                 );
@@ -14402,7 +14411,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     empId: modalData.empId,
                     empName: empForRekap?.name || '',
                     division: empForRekap ? getEmployeeDivisions(empForRekap).join(', ') : '',
-                    dateProcessed: new Date().toISOString().split('T')[0],
+                    dateProcessed: toLocalDateStr(),
                     items: selectedItems,
                     total: selectedTotal,
                     totalWage: selectedWage,
@@ -14604,7 +14613,7 @@ ${getRekapShareLink(rekap)}
                 const net = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
                 const alreadyPaid = (rekap.payments || []).reduce((s, p) => s + safeMoney(p.amount), 0);
                 if (amount > net - alreadyPaid + 0.01) { showToast('Jumlah melebihi sisa yang harus dibayar.', 'error'); return; }
-                const newPayment = { id: genId('PAY-'), date: payFormDate || new Date().toISOString().split('T')[0], amount, method: payFormMethod || 'Transfer', note: payFormNote || '', operasionalKaryawanId: payFormOperasionalKaryawanId || '', createdAt: new Date().toISOString() };
+                const newPayment = { id: genId('PAY-'), date: payFormDate || toLocalDateStr(), amount, method: payFormMethod || 'Transfer', note: payFormNote || '', operasionalKaryawanId: payFormOperasionalKaryawanId || '', createdAt: new Date().toISOString() };
                 setRekapKinerja(prev => (prev || []).map(r => {
                     if (String(r.id) !== String(rekapId)) return r;
                     const updatedPayments = [...(r.payments || []), newPayment];
@@ -14969,7 +14978,7 @@ ${getRekapShareLink(rekap)}
                 const today = new Date();
                 const unpaidOldRekaps = allRekaps.filter(r => {
                     if ((r.paymentStatus || 'belum') === 'lunas') return false;
-                    const tgl = r.dateProcessed || (r.createdAt || '').slice(0, 10);
+                    const tgl = r.dateProcessed || (r.createdAt ? toLocalDateStr(r.createdAt) : '');
                     if (!tgl) return false;
                     return Math.floor((today - new Date(tgl)) / 86400000) > 30;
                 });
@@ -15010,7 +15019,7 @@ ${getRekapShareLink(rekap)}
                 let rPreviewHarian = 0, rPreviewLembur = 0;
                 if (rEmpPin && rEmpIsHarian) {
                     const rCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                    const rTodayStr = new Date().toISOString().split('T')[0];
+                    const rTodayStr = toLocalDateStr();
                     const rHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === rEmpPin && l.tanggal > (rCutoff || '0000-00-00') && l.tanggal <= rTodayStr);
                     if (rHasPending) {
                         const rResult = computeAutoAbsensiForEmp(emp);
@@ -15018,7 +15027,7 @@ ${getRekapShareLink(rekap)}
                         rPreviewLembur = safeArray(rResult.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                     }
                 }
-                const rBHMonth = new Date().toISOString().slice(0,7);
+                const rBHMonth = toLocalMonthStr();
                 const rBHAlreadyRekaped = rIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === rBHMonth);
                 const rBagiHasil = (rIsDireksi && !rBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, rBHMonth) : 0;
                 const total = totalProdWage + harian + lembur + komisi + rPreviewHarian + rPreviewLembur + rBagiHasil;
@@ -15056,7 +15065,7 @@ ${getRekapShareLink(rekap)}
                     let pPreviewHarian = 0, pPreviewLembur = 0;
                     if (pEmpPin && pEmpIsHarian) {
                         const pCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                        const pTodayStr = new Date().toISOString().split('T')[0];
+                        const pTodayStr = toLocalDateStr();
                         const pHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === pEmpPin && l.tanggal > (pCutoff || '0000-00-00') && l.tanggal <= pTodayStr);
                         if (pHasPending) {
                             const pResult = computeAutoAbsensiForEmp(emp);
@@ -15064,7 +15073,7 @@ ${getRekapShareLink(rekap)}
                             pPreviewLembur = safeArray(pResult.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                         }
                     }
-                    const pBHMonth = new Date().toISOString().slice(0,7);
+                    const pBHMonth = toLocalMonthStr();
                     const pBHAlreadyRekaped = pIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === pBHMonth);
                     const pBagiHasil = (pIsDireksi && !pBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, pBHMonth) : 0;
                     const total = totalProdWage + harian + lembur + komisi + pPreviewHarian + pPreviewLembur + pBagiHasil;
@@ -15276,7 +15285,7 @@ ${getRekapShareLink(rekap)}
                                 const totalOvertimeSalary = overtimeRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).overtime), 0);
                                 const totalMarketingCommission = marketingRows.reduce((sum, inv) => sum + safeNumber(inv.commissionTotal), 0);
                                 const cashAdvanceSummary = getEmployeeCashAdvanceSummary(emp);
-                                const cardBHMonth = new Date().toISOString().slice(0,7);
+                                const cardBHMonth = toLocalMonthStr();
                                 const cardBHAlreadyRekaped = cardEmpIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === cardBHMonth);
                                 const cardBagiHasil = (cardEmpIsDireksi && !cardBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, cardBHMonth) : 0;
                                 const totalIncome = safeNumber(totalUnsettledWage) + safeNumber(totalMarketingCommission) + safeNumber(totalDailySalary) + safeNumber(totalOvertimeSalary) + safeNumber(cardBagiHasil);
@@ -15289,7 +15298,7 @@ ${getRekapShareLink(rekap)}
                                 let hasAbsensiPending = false;
                                 if (empPin && empIsHarian) {
                                     const absCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                                    const absTodayStr = new Date().toISOString().split('T')[0];
+                                    const absTodayStr = toLocalDateStr();
                                     hasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === empPin && l.tanggal > (absCutoff || '0000-00-00') && l.tanggal <= absTodayStr);
                                 }
                                 let listPreviewDailyTotal = 0, listPreviewOvertimeTotal = 0;
@@ -15470,7 +15479,7 @@ ${getRekapShareLink(rekap)}
                                         <SectionTitle ok={unpaidOldRekaps.length === 0} warn="yellow">{unpaidOldRekaps.length > 0 ? `⚠ ${unpaidOldRekaps.length} Rekap Belum Dibayar > 30 Hari` : '✓ Semua rekap dibayar tepat waktu'}</SectionTitle>
                                         {unpaidOldRekaps.length > 0 && <div className="text-xs text-yellow-700">Rekap berikut sudah lebih dari 30 hari tapi belum lunas dibayar.</div>}
                                         {unpaidOldRekaps.map(r => {
-                                            const tgl = r.dateProcessed || (r.createdAt || '').slice(0, 10);
+                                            const tgl = r.dateProcessed || (r.createdAt ? toLocalDateStr(r.createdAt) : '');
                                             const hari = Math.floor((new Date() - new Date(tgl)) / 86400000);
                                             const paid = safeArray(r.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
                                             const net = getRekapNet(r);
@@ -16133,7 +16142,7 @@ ${getRekapShareLink(rekap)}
                         const dTotalOvertimeSalary = dOvertimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                         const dTotalMarketingCommission = dMarketingRows.reduce((s, inv) => s + safeNumber(inv.commissionTotal), 0);
                         const dCashAdvanceSummary = getEmployeeCashAdvanceSummary(dEmp);
-                        const dBHMonth = new Date().toISOString().slice(0,7);
+                        const dBHMonth = toLocalMonthStr();
                         const dBHAlreadyRekaped = dEmpIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(dEmp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === dBHMonth);
                         const dBagiHasil = (dEmpIsDireksi && !dBHAlreadyRekaped) ? getBagiHasilDireksi(dEmp, safeInvoicesForReport, dBHMonth) : 0;
                         const dTotalIncome = dTotalUnsettledWage + dTotalMarketingCommission + dTotalDailySalary + dTotalOvertimeSalary + dBagiHasil;
@@ -16142,7 +16151,7 @@ ${getRekapShareLink(rekap)}
                         let dHasAbsensiPending = false;
                         if (dEmpPin && dEmpIsHarian) {
                             const dAbsCutoff = safeArray(dEmp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                            const dAbsTodayStr = new Date().toISOString().split('T')[0];
+                            const dAbsTodayStr = toLocalDateStr();
                             dHasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === dEmpPin && l.tanggal > (dAbsCutoff || '0000-00-00') && l.tanggal <= dAbsTodayStr);
                         }
                         const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || dHasAbsensiPending || dBagiHasil > 0;
@@ -16178,7 +16187,7 @@ ${getRekapShareLink(rekap)}
                                         <div className="border border-gray-200 rounded-xl overflow-hidden">
                                             <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
                                                 <span className="font-black text-xs text-gray-700">Gaji Produksi ({dUnsettledItems.length} item)</span>
-                                                <button onClick={() => setManualProdForm(prev => ({ ...prev, empId: prev.empId === dEmp.id ? null : dEmp.id, description: '', qty: '', unitPrice: '', date: new Date().toISOString().slice(0,10) }))} className="text-xs px-2 py-1 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700">+ Tambah Manual</button>
+                                                <button onClick={() => setManualProdForm(prev => ({ ...prev, empId: prev.empId === dEmp.id ? null : dEmp.id, description: '', qty: '', unitPrice: '', date: toLocalDateStr() }))} className="text-xs px-2 py-1 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700">+ Tambah Manual</button>
                                             </div>
                                             {manualProdForm.empId === dEmp.id && (
                                                 <div className="bg-green-50 border-b border-green-200 p-3 space-y-2">
@@ -16211,7 +16220,7 @@ ${getRekapShareLink(rekap)}
                                             <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                 <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
                                                     <span className="font-black text-xs text-gray-700">Gaji Harian ({dDailySalaryRows.length + dPreviewDailyRows.length})</span>
-                                                    <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: (prev.empId === dEmp.id && prev.mode === 'harian') ? null : dEmp.id, mode: 'harian', date: new Date().toISOString().slice(0,10), workDays: '', dailySalary: String(dEmp.dailySalary || ''), note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">+ Input Harian</button>
+                                                    <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: (prev.empId === dEmp.id && prev.mode === 'harian') ? null : dEmp.id, mode: 'harian', date: toLocalDateStr(), workDays: '', dailySalary: String(dEmp.dailySalary || ''), note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700">+ Input Harian</button>
                                                 </div>
                                                 {dailyInputForm.empId === dEmp.id && dailyInputForm.mode === 'harian' && (
                                                     <div className="bg-indigo-50 border-b border-indigo-200 p-3 space-y-2">
@@ -16234,7 +16243,7 @@ ${getRekapShareLink(rekap)}
                                             <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                 <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
                                                     <span className="font-black text-xs text-gray-700">Lembur ({dOvertimeRows.length + dPreviewOvertimeRows.length})</span>
-                                                    <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: (prev.empId === dEmp.id && prev.mode === 'lembur') ? null : dEmp.id, mode: 'lembur', date: new Date().toISOString().slice(0,10), overtimeCount: '', overtimeRate: String(dEmp.overtimeRate || ''), note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700">+ Input Lembur</button>
+                                                    <button onClick={() => setDailyInputForm(prev => ({ ...prev, empId: (prev.empId === dEmp.id && prev.mode === 'lembur') ? null : dEmp.id, mode: 'lembur', date: toLocalDateStr(), overtimeCount: '', overtimeRate: String(dEmp.overtimeRate || ''), note: '' }))} className="text-xs px-2 py-1 rounded-lg bg-sky-600 text-white font-bold hover:bg-sky-700">+ Input Lembur</button>
                                                 </div>
                                                 {dailyInputForm.empId === dEmp.id && dailyInputForm.mode === 'lembur' && (
                                                     <div className="bg-sky-50 border-b border-sky-200 p-3 space-y-2">
@@ -16283,7 +16292,7 @@ ${getRekapShareLink(rekap)}
                         const sisaBayar = Math.max(0, netSalary - totalPaid);
                         const payStatus = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'belum' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary - 1 ? 'lunas' : 'sebagian';
                         const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
-                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(new Date().toISOString().split('T')[0]); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); setShowSelisihDetail(false); };
+                        const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(toLocalDateStr()); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); setShowSelisihDetail(false); };
                         const detailKomisiSelisih = getRekapKomisiSelisih(rekap);
                         const snap = rekap.marketingInvoiceAmounts;
                         const hasSnap = snap && Object.keys(snap).length > 0;
@@ -18233,10 +18242,10 @@ ${getRekapShareLink(rekap)}
             };
 
             // ----- TRANSAKSI FORM -----
-            const [xForm, setXForm] = React.useState({ date: new Date().toISOString().slice(0,10), weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'' });
+            const [xForm, setXForm] = React.useState({ date: toLocalDateStr(), weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'' });
             const openTrxForm = (trx=null) => {
                 setEditTrx(trx);
-                setXForm(trx ? { date:trx.date||'', weight:trx.weight||'', distance:trx.distance||'', driverId:trx.driverId||'', tarifId:trx.tarifId||'', ongkir:trx.ongkir||'', tripType:trx.tripType||'sekali', status:trx.status||'Menunggu', note:trx.note||'' } : { date: new Date().toISOString().slice(0,10), weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'' });
+                setXForm(trx ? { date:trx.date||'', weight:trx.weight||'', distance:trx.distance||'', driverId:trx.driverId||'', tarifId:trx.tarifId||'', ongkir:trx.ongkir||'', tripType:trx.tripType||'sekali', status:trx.status||'Menunggu', note:trx.note||'' } : { date: toLocalDateStr(), weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'' });
                 setShowTrxForm(true);
             };
             const handleXFormChange = (field, val) => {
@@ -18359,7 +18368,7 @@ ${getRekapShareLink(rekap)}
             const visibleKasbon = (driverKasbon || []).filter(isVisibleRecord);
             const [showKasbonDriver, setShowKasbonDriver] = React.useState(null); // driverId
             const [showKasbonAddForm, setShowKasbonAddForm] = React.useState(false);
-            const [kasbonForm, setKasbonForm] = React.useState({ driverId: '', jumlah: '', keterangan: '', tanggal: new Date().toISOString().slice(0,10) });
+            const [kasbonForm, setKasbonForm] = React.useState({ driverId: '', jumlah: '', keterangan: '', tanggal: toLocalDateStr() });
 
             const getKasbonAktif = (driverId) => visibleKasbon.filter(k => k.driverId === driverId && (safeMoney(k.jumlah) - safeMoney(k.sudahDipotong)) > 0);
             const getTotalSisaKasbon = (driverId) => getKasbonAktif(driverId).reduce((s,k) => s + safeMoney(k.jumlah) - safeMoney(k.sudahDipotong), 0);
@@ -18521,7 +18530,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     gajiDiterima,
                     jumlahTrip: selectedTripIds.length,
                     note: rekapNote,
-                    tanggalRekap: new Date().toISOString().slice(0,10),
+                    tanggalRekap: toLocalDateStr(),
                     _syncUpdatedAt: new Date().toISOString()
                 };
                 // Hitung kasbonDeductions (FIFO) sebelum simpan rekap
@@ -18757,7 +18766,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     </span>
                                                 </td>
                                                 <td className="px-3 py-2">
-                                                    <button onClick={()=>{setShowKasbonDriver(drv.id);setKasbonForm({driverId:drv.id,jumlah:'',keterangan:'',tanggal:new Date().toISOString().slice(0,10)});setShowKasbonAddForm(false);}} className={`text-xs font-bold px-2 py-1 rounded ${sisaKasbon>0?'bg-red-100 text-red-700 hover:bg-red-200':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                                                    <button onClick={()=>{setShowKasbonDriver(drv.id);setKasbonForm({driverId:drv.id,jumlah:'',keterangan:'',tanggal:toLocalDateStr()});setShowKasbonAddForm(false);}} className={`text-xs font-bold px-2 py-1 rounded ${sisaKasbon>0?'bg-red-100 text-red-700 hover:bg-red-200':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
                                                         💳 {sisaKasbon>0?formatRupiah(sisaKasbon):'Kasbon'}
                                                     </button>
                                                 </td>
@@ -18788,7 +18797,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             {drv.address && <div className="text-xs text-gray-400 mt-0.5 truncate">{drv.address}</div>}
                                         </div>
                                         <div className="flex flex-col gap-1 items-end shrink-0">
-                                            <button onClick={()=>{setShowKasbonDriver(drv.id);setKasbonForm({driverId:drv.id,jumlah:'',keterangan:'',tanggal:new Date().toISOString().slice(0,10)});setShowKasbonAddForm(false);}} className={`text-xs font-bold px-2 py-1 rounded ${sisaKasbon>0?'bg-red-100 text-red-700':'bg-gray-100 text-gray-500'}`}>
+                                            <button onClick={()=>{setShowKasbonDriver(drv.id);setKasbonForm({driverId:drv.id,jumlah:'',keterangan:'',tanggal:toLocalDateStr()});setShowKasbonAddForm(false);}} className={`text-xs font-bold px-2 py-1 rounded ${sisaKasbon>0?'bg-red-100 text-red-700':'bg-gray-100 text-gray-500'}`}>
                                                 💳 {sisaKasbon>0?formatRupiah(sisaKasbon):'Kasbon'}
                                             </button>
                                             <div className="flex gap-1">
@@ -25043,8 +25052,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const absensiShiftAssignments = templates?.absensiShiftAssignments || [];
 
             const [activeTab, setActiveTab] = useState('log');
-            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-            const [rekapMonth, setRekapMonth] = useState(new Date().toISOString().slice(0, 7));
+            const [selectedDate, setSelectedDate] = useState(toLocalDateStr());
+            const [rekapMonth, setRekapMonth] = useState(toLocalMonthStr());
             const [rekapMinggu, setRekapMinggu] = useState(0);
             const [rekapEmp, setRekapEmp] = useState('');
             const [rekapEmpSearch, setRekapEmpSearch] = useState('');
@@ -26220,12 +26229,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [expandedClients, setExpandedClients] = useState(new Set());
             const [showForm, setShowForm] = useState(false);
             const [editItem, setEditItem] = useState(null);
-            const emptyForm = { clientName: '', itemName: '', qty: '', unit: 'pcs', type: 'Masuk', date: new Date().toISOString().split('T')[0], note: '' };
+            const emptyForm = { clientName: '', itemName: '', qty: '', unit: 'pcs', type: 'Masuk', date: toLocalDateStr(), note: '' };
             const [form, setForm] = useState(emptyForm);
             const [historyItem, setHistoryItem] = useState(null);
-            const emptyAmbilForm = { qty: '', note: '', date: new Date().toISOString().split('T')[0] };
+            const emptyAmbilForm = { qty: '', note: '', date: toLocalDateStr() };
             const [ambilForm, setAmbilForm] = useState(emptyAmbilForm);
-            const emptyTambahForm = { qty: '', note: '', date: new Date().toISOString().split('T')[0] };
+            const emptyTambahForm = { qty: '', note: '', date: toLocalDateStr() };
             const [tambahForm, setTambahForm] = useState(emptyTambahForm);
             const [printStokItem, setPrintStokItem] = useState(null);
             const [printStokNote, setPrintStokNote] = useState('');
@@ -26240,7 +26249,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const openForm = (item = null) => {
                 if (item) {
-                    setForm({ clientName: item.clientName || '', itemName: item.itemName || '', qty: item.qty || '', unit: item.unit || 'pcs', type: item.type || 'Masuk', date: item.date || new Date().toISOString().split('T')[0], note: item.note || '' });
+                    setForm({ clientName: item.clientName || '', itemName: item.itemName || '', qty: item.qty || '', unit: item.unit || 'pcs', type: item.type || 'Masuk', date: item.date || toLocalDateStr(), note: item.note || '' });
                     setEditItem(item);
                 } else {
                     setForm({ ...emptyForm, clientName: filterClient || '' });
@@ -26286,19 +26295,19 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             clientName: printStokItem.clientName,
                             itemName: printStokItem.itemName,
                             note: printStokNote.trim(),
-                            date: new Date().toISOString().split('T')[0],
+                            date: toLocalDateStr(),
                             createdAt: new Date().toISOString(),
                         }];
                     });
                 }
-                doPrint({ ...printStokItem, type: 'Tersedia', date: new Date().toISOString().split('T')[0], note: printStokNote });
+                doPrint({ ...printStokItem, type: 'Tersedia', date: toLocalDateStr(), note: printStokNote });
                 setPrintStokItem(null);
             };
 
             const handleTambahStok = (itemName, unit, clientName) => {
                 const qty = Number(tambahForm.qty);
                 if (!qty || qty <= 0) return showToast('Jumlah harus angka positif', 'error');
-                const record = { id: Date.now().toString() + Math.random().toString(36).slice(2), clientName, itemName, qty, unit, type: 'Masuk', date: tambahForm.date || new Date().toISOString().split('T')[0], note: tambahForm.note || '' };
+                const record = { id: Date.now().toString() + Math.random().toString(36).slice(2), clientName, itemName, qty, unit, type: 'Masuk', date: tambahForm.date || toLocalDateStr(), note: tambahForm.note || '' };
                 setStockItems(prev => [...prev, record]);
                 setTambahForm(emptyTambahForm);
                 showToast('Stok berhasil ditambahkan.', 'success');
@@ -26317,7 +26326,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const qty = Number(ambilForm.qty);
                 if (!qty || qty <= 0) return showToast('Jumlah harus angka positif', 'error');
                 if (qty > saldo) return showToast(`Jumlah melebihi saldo tersedia (${saldo} ${unit})`, 'error');
-                const record = { id: Date.now().toString() + Math.random().toString(36).slice(2), clientName, itemName, qty, unit, type: 'Keluar', date: ambilForm.date || new Date().toISOString().split('T')[0], note: ambilForm.note || '' };
+                const record = { id: Date.now().toString() + Math.random().toString(36).slice(2), clientName, itemName, qty, unit, type: 'Keluar', date: ambilForm.date || toLocalDateStr(), note: ambilForm.note || '' };
                 setStockItems(prev => [...prev, record]);
                 setAmbilForm(emptyAmbilForm);
                 showToast('Pengambilan stok berhasil disimpan.', 'success');
@@ -27050,7 +27059,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     });
                 });
 
-                doc.save(`label-${paper.type}-${new Date().toISOString().slice(0,10)}.pdf`);
+                doc.save(`label-${paper.type}-${toLocalDateStr()}.pdf`);
             };
 
             const doSave = () => {
