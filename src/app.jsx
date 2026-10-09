@@ -863,6 +863,16 @@
             return clientName !== '' && normalizeText(inv.customer) === clientName;
         };
 
+        // Absensi: datang minimal 1 jam sebelum jam masuk shift = lembur (dihitung menit sebelum jam masuk).
+        // Kurang dari 1 jam tidak dihitung. Scan dini hari yang sebenarnya jam pulang Shift 3 (lewat tengah malam) diabaikan.
+        const LEMBUR_DATANG_AWAL_MIN_MENIT = 60;
+        const getLemburDatangAwalMenit = (mMasuk, mJamMasukShift, mShift3PulangLewatMalam = null) => {
+            if (mMasuk == null || mJamMasukShift == null) return 0;
+            if (mShift3PulangLewatMalam != null && mMasuk <= mShift3PulangLewatMalam) return 0;
+            const awal = mJamMasukShift - mMasuk;
+            return awal >= LEMBUR_DATANG_AWAL_MIN_MENIT ? awal : 0;
+        };
+
         const getInvoiceCommissionTotal = (invoice) => {
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
             if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
@@ -8255,13 +8265,23 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
 
         const calcBagiHasil = (bhp, invoiceList) => {
             const invs = safeArray(bhp.invoiceIds).map(id => (invoiceList || []).find(inv => isVisibleRecord(inv) && String(inv.id) === String(id))).filter(Boolean);
-            const totalNilai = invs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
             const totalPcs = invs.reduce((s, inv) => s + getInvoicePcsTotal(inv), 0);
             const type = bhp.bagiHasilType || 'Rp';
             const value = safeMoney(bhp.bagiHasilValue);
-            const nominal = type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value;
-            return { invs, totalNilai, totalPcs, nominal };
+            const nominalFrom = (nilai) => type === '%' ? Math.round(nilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value;
+            // Basis % = nilai pesanan tanpa ongkir. Catatan lama yang sudah lunas dengan hitungan lama (termasuk ongkir)
+            // tetap memakai hitungan lama agar riwayat yang sudah dibayar tidak berubah.
+            const totalTanpaOngkir = invs.reduce((s, inv) => s + getInvoiceTotals(inv).productionTotal, 0);
+            const totalDenganOngkir = invs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
+            const nominalLama = nominalFrom(totalDenganOngkir);
+            const paid = safeArray(bhp.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
+            const termasukOngkir = type === '%' && totalDenganOngkir !== totalTanpaOngkir && nominalLama > 0 && paid >= nominalLama - 0.01;
+            const totalNilai = termasukOngkir ? totalDenganOngkir : totalTanpaOngkir;
+            const nominal = nominalFrom(totalNilai);
+            return { invs, totalNilai, totalPcs, nominal, termasukOngkir };
         };
+        // Nilai satu invoice sesuai basis bagi hasil promosi (untuk tampilan rincian)
+        const getBhpInvoiceNilai = (inv, termasukOngkir) => termasukOngkir ? getInvoiceTotals(inv).total : getInvoiceTotals(inv).productionTotal;
         const getBhpPaid = (bhp) => safeArray(bhp.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
         const getBhpStatus = (bhp, nominal) => {
             if (nominal <= 0) return 'Belum Dibayar';
@@ -8292,15 +8312,11 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             }).slice(0, 20);
 
             const selectedInvs = form.invoiceIds.map(id => safeInvoices.find(inv => String(inv.id) === String(id))).filter(Boolean);
-            const previewTotalNilai = selectedInvs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
-            const previewTotalPcs = selectedInvs.reduce((s, inv) => s + getInvoicePcsTotal(inv), 0);
-            const previewNominal = (() => {
-                const v = safeMoney(form.bagiHasilValue);
-                if (v <= 0) return 0;
-                if (form.bagiHasilType === '%') return Math.round(previewTotalNilai * v / 100);
-                if (form.bagiHasilType === 'Rp/pcs') return Math.round(previewTotalPcs * v);
-                return v;
-            })();
+            // Pratinjau memakai hitungan yang sama dengan data tersimpan (basis tanpa ongkir)
+            const previewCalc = calcBagiHasil({ ...form, invoiceIds: selectedInvs.map(inv => inv.id), bagiHasilType: form.bagiHasilType || '%', bagiHasilValue: safeMoney(form.bagiHasilValue) }, safeInvoices);
+            const previewTotalNilai = previewCalc.totalNilai;
+            const previewTotalPcs = previewCalc.totalPcs;
+            const previewNominal = safeMoney(form.bagiHasilValue) <= 0 ? 0 : previewCalc.nominal;
 
             const addInvoice = (inv) => {
                 if (form.invoiceIds.includes(String(inv.id))) return;
@@ -8381,7 +8397,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const getShareUrl = (token) => `${window.location.origin}${window.location.pathname}#promosi-share=${encodeURIComponent(token)}`;
 
             const openShareModal = (bhp) => {
-                const { invs, totalNilai, totalPcs, nominal } = calcBagiHasil(bhp, safeInvoices);
+                const { invs, totalNilai, totalPcs, nominal, termasukOngkir } = calcBagiHasil(bhp, safeInvoices);
                 const url = getShareUrl(bhp.shareToken);
                 const sep = `————————————————`;
                 const isSingle = invs.length <= 1;
@@ -8402,7 +8418,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                       ]
                     : [
                         `Rincian Pesanan:`,
-                        ...invs.map(inv => `• ${inv.customer || '-'}\n  Nilai : ${formatRupiah(getInvoiceTotals(inv).total)}${isPcs ? `  |  ${getInvoicePcsTotal(inv)} pcs` : ''}`),
+                        ...invs.map(inv => `• ${inv.customer || '-'}\n  Nilai : ${formatRupiah(getBhpInvoiceNilai(inv, termasukOngkir))}${isPcs ? `  |  ${getInvoicePcsTotal(inv)} pcs` : ''}`),
                         ``,
                         `• Total Pesanan  : ${formatRupiah(totalNilai)}`,
                         ...(isPcs ? [`• Total Pcs       : ${totalPcs} pcs`] : []),
@@ -8487,7 +8503,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                                 <span className="font-mono text-xs text-teal-700 font-bold">{inv.id}</span>
                                                                 <span className="text-gray-500 ml-2">{inv.customer}</span>
                                                             </div>
-                                                            <span className="font-bold text-gray-700 shrink-0">{formatRupiah(getInvoiceTotals(inv).total)}</span>
+                                                            <span className="font-bold text-gray-700 shrink-0">{formatRupiah(getInvoiceTotals(inv).productionTotal)}</span>
                                                         </button>
                                                     );
                                                 })}
@@ -8504,12 +8520,12 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                         <span className="text-gray-600 truncate">{inv.customer}</span>
                                                     </div>
                                                     <div className="flex items-center gap-2 shrink-0">
-                                                        <span className="font-bold text-gray-800">{formatRupiah(getInvoiceTotals(inv).total)}</span>
+                                                        <span className="font-bold text-gray-800">{formatRupiah(getBhpInvoiceNilai(inv, previewCalc.termasukOngkir))}</span>
                                                         <button type="button" onClick={() => removeInvoice(inv.id)} className="text-red-400 hover:text-red-600 font-bold text-lg leading-none">×</button>
                                                     </div>
                                                 </div>
                                             ))}
-                                            <div className="text-xs text-gray-500 text-right">Total Nilai: <span className="font-black text-gray-700">{formatRupiah(previewTotalNilai)}</span></div>
+                                            <div className="text-xs text-gray-500 text-right">Total Nilai{previewCalc.termasukOngkir ? ' (termasuk ongkir, sudah lunas)' : ' (tanpa ongkir)'}: <span className="font-black text-gray-700">{formatRupiah(previewTotalNilai)}</span></div>
                                         </div>
                                     )}
                                 </div>
@@ -8561,7 +8577,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                             </div>
                         )}
                         {safeBhp.sort((a, b) => new Date(b.tanggal || 0) - new Date(a.tanggal || 0)).map(bhp => {
-                            const { invs, totalNilai, nominal } = calcBagiHasil(bhp, safeInvoices);
+                            const { invs, totalNilai, nominal, termasukOngkir } = calcBagiHasil(bhp, safeInvoices);
                             const paid = getBhpPaid(bhp);
                             const sisa = Math.max(0, nominal - paid);
                             const status = getBhpStatus(bhp, nominal);
@@ -8640,7 +8656,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                                     <span className="font-mono text-teal-700 font-bold text-xs shrink-0">{inv.id}</span>
                                                                     <span className="text-gray-600 text-sm truncate">{inv.customer}</span>
                                                                 </div>
-                                                                <span className="font-bold text-gray-800 text-sm shrink-0 ml-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getInvoiceTotals(inv).total)}</span>
+                                                                <span className="font-bold text-gray-800 text-sm shrink-0 ml-2" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(getBhpInvoiceNilai(inv, termasukOngkir))}</span>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -10306,16 +10322,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const allInv = Array.isArray(invRes.data?.data) ? invRes.data.data : [];
                         const found = allBhp.find(b => !b.isDeleted && b.shareToken === token);
                         if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
-                        const invs = safeArray(found.invoiceIds).map(id => allInv.find(inv => !inv.isDeleted && String(inv.id) === String(id))).filter(Boolean);
-                        const totalNilai = invs.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0);
-                        const totalPcs = invs.reduce((s, inv) => s + getInvoicePcsTotal(inv), 0);
-                        const type = found.bagiHasilType || 'Rp';
-                        const value = safeMoney(found.bagiHasilValue);
-                        const nominal = type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value;
+                        // Hitungan sama dengan menu Bagi Hasil Promosi (basis tanpa ongkir)
+                        const { invs, totalNilai, totalPcs, nominal, termasukOngkir } = calcBagiHasil(found, allInv);
                         const paid = safeArray(found.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
                         const sisa = Math.max(0, nominal - paid);
                         const status = nominal <= 0 ? 'Belum Dibayar' : paid <= 0 ? 'Belum Dibayar' : sisa < 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian';
-                        setData({ bhp: found, invs, totalNilai, totalPcs, nominal, paid, sisa, status });
+                        setData({ bhp: found, invs, totalNilai, totalPcs, nominal, paid, sisa, status, termasukOngkir });
                     } catch(e) {
                         setError('Gagal memuat data. Silakan refresh halaman.');
                     }
@@ -10434,7 +10446,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <span className="card-header-label">Rincian Pesanan ({invs.length} Invoice)</span>
                                 </div>
                                 {invs.map((inv, i) => {
-                                    const tot = getInvoiceTotals(inv).total;
+                                    const tot = getBhpInvoiceNilai(inv, data.termasukOngkir);
                                     return (
                                         <div key={inv.id} className="inv-row">
                                             <div className="inv-num">{i + 1}</div>
@@ -11060,12 +11072,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const today = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
             const invType = investor.bagiHasilType || 'per_pcs';
             const isPersen = invType === 'persen';
-            const tarifLabel = isPersen ? `${investor.bagiHasilPersen || 0}% dari Total Invoice` : `${fmtRp(investor.bagiHasilPerPcs)} / pcs`;
+            const tarifLabel = isPersen ? `${investor.bagiHasilPersen || 0}% dari Nilai Invoice (tanpa ongkir)` : `${fmtRp(investor.bagiHasilPerPcs)} / pcs`;
             const tarifJudul = isPersen ? 'Persentase Bagi Hasil' : 'Bagi Hasil Per Pcs';
             const docSub = isPersen ? 'Bagi Hasil % dari Invoice' : 'Bagi Hasil Per Pcs Produksi';
             const periodeStr = investor.tanggalMulai ? (investor.tanggalJatuhTempo ? `${investor.tanggalMulai} s/d ${investor.tanggalJatuhTempo}` : `Mulai ${investor.tanggalMulai}`) : '-';
             const caraPerhitungan = isPersen
-                ? `Bagi hasil dihitung dari <strong>total nilai invoice × ${investor.bagiHasilPersen || 0}%</strong> untuk setiap invoice yang sudah lunas dan dilaporkan. Contoh: invoice Rp 10.000.000 → bagi hasil = Rp 10.000.000 × ${investor.bagiHasilPersen || 0}% = <strong>${fmtRp(Math.round(10000000 * (parseFloat(investor.bagiHasilPersen)||0) / 100))}</strong>`
+                ? `Bagi hasil dihitung dari <strong>nilai invoice (tanpa ongkos kirim) × ${investor.bagiHasilPersen || 0}%</strong> untuk setiap invoice yang sudah lunas dan dilaporkan. Contoh: invoice Rp 10.000.000 → bagi hasil = Rp 10.000.000 × ${investor.bagiHasilPersen || 0}% = <strong>${fmtRp(Math.round(10000000 * (parseFloat(investor.bagiHasilPersen)||0) / 100))}</strong>`
                 : `Bagi hasil dihitung dari <strong>jumlah pcs × ${fmtRp(investor.bagiHasilPerPcs)}</strong> untuk setiap invoice yang sudah lunas dan dilaporkan. Contoh: 100 pcs → bagi hasil = 100 × ${fmtRp(investor.bagiHasilPerPcs)} = <strong>${fmtRp(100 * (parseFloat(investor.bagiHasilPerPcs)||0))}</strong>`;
             const rows = records.map((r, i) => `
                 <tr style="background:${i%2===0?'#f8fafc':'#fff'}">
@@ -11127,7 +11139,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 <table>
                     <thead><tr>
                         <th>Tanggal</th><th>No Invoice</th><th>Klien</th><th>Jenis</th>
-                        <th style="text-align:center">Pcs</th><th style="text-align:right">${isPersen ? 'Total Invoice' : 'BH/Pcs'}</th>
+                        <th style="text-align:center">Pcs</th><th style="text-align:right">${isPersen ? 'Nilai Invoice' : 'BH/Pcs'}</th>
                         <th style="text-align:right">Total BH</th><th>Catatan</th>
                     </tr></thead>
                     <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:12px;color:#94a3b8">Belum ada data bagi hasil</td></tr>'}</tbody>
@@ -11156,10 +11168,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const tglMulai = investor.tanggalMulai ? new Date(investor.tanggalMulai).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) : '-';
             const tglTempo = investor.tanggalJatuhTempo ? new Date(investor.tanggalJatuhTempo).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) : null;
             const invType = investor.bagiHasilType || 'per_pcs';
-            const tarifLabel = invType === 'persen' ? `${investor.bagiHasilPersen || 0}% dari Total Invoice` : `${formatRupiah(investor.bagiHasilPerPcs)} / pcs`;
+            const tarifLabel = invType === 'persen' ? `${investor.bagiHasilPersen || 0}% dari Nilai Invoice (tanpa ongkir)` : `${formatRupiah(investor.bagiHasilPerPcs)} / pcs`;
             const tarifSub = invType === 'persen' ? 'Persentase per invoice' : 'Per unit produksi';
             const clausePerhitungan = invType === 'persen'
-                ? `Bagi hasil dihitung sebesar <strong>${investor.bagiHasilPersen || 0}% dari total nilai setiap invoice</strong> yang telah lunas dan dilaporkan kepada investor. Semakin besar omset yang berhasil ditagih, semakin besar bagi hasil yang diterima.`
+                ? `Bagi hasil dihitung sebesar <strong>${investor.bagiHasilPersen || 0}% dari nilai setiap invoice (tanpa ongkos kirim)</strong> yang telah lunas dan dilaporkan kepada investor. Semakin besar omset yang berhasil ditagih, semakin besar bagi hasil yang diterima.`
                 : `Bagi hasil dihitung sebesar <strong>${formatRupiah(investor.bagiHasilPerPcs)} untuk setiap pcs</strong> yang diproduksi dan tercatat dalam invoice yang telah lunas. Total bagi hasil = jumlah pcs terproduksi × ${formatRupiah(investor.bagiHasilPerPcs)}.`;
             const statusLabel = investor.isLunas ? 'Lunas ✦' : 'Aktif ✦';
             const logoHtml = (tmpl||{}).companyLogo
@@ -11340,7 +11352,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (!inv) continue;
                     const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
                     if (invType === 'per_pcs' && pcs <= 0) continue;
-                    const invTotal = getInvoiceTotals(inv).total;
+                    // Basis % bagi hasil = nilai pesanan tanpa ongkir
+                    const invTotal = getInvoiceTotals(inv).productionTotal;
                     const bh = invType === 'persen'
                         ? Math.round(invTotal * (parseFloat(investor.bagiHasilPersen) || 0) / 100)
                         : pcs * (parseFloat(investor.bagiHasilPerPcs) || 0);
@@ -11351,7 +11364,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         tanggal: tanggalCatat, pcs, bagiHasilType: invType,
                         bagiHasilPerPcs: invType === 'per_pcs' ? parseFloat(investor.bagiHasilPerPcs) : 0,
                         bagiHasilPersen: invType === 'persen' ? parseFloat(investor.bagiHasilPersen) : 0,
-                        invoiceTotal: invType === 'persen' ? invTotal : 0,
+                        invoiceTotal: invType === 'persen' ? invTotal : 0, basisTanpaOngkir: true,
                         totalBagiHasil: bh, note: bhNote, isDeleted: false, _syncUpdatedAt: now()
                     });
                 }
@@ -11534,7 +11547,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                                 <div className="text-xs font-bold text-gray-700">{r.invoiceId} — {r.invoiceCustomer}
                                                                                     {!safeInvoices.some(inv => String(inv.id) === String(r.invoiceId)) && <span className="ml-1.5 text-[10px] font-black text-white bg-red-600 rounded px-1.5 py-0.5" title="Invoice ini sudah dihapus. Periksa apakah catatan bagi hasil ini masih berlaku.">⚠ Invoice sudah dihapus</span>}
                                                                                 </div>
-                                                                                <div className="text-xs text-gray-400">{r.tanggal} · {r.invoiceType} · {(r.bagiHasilType||'per_pcs')==='persen' ? `Total Invoice ${formatRupiah(r.invoiceTotal||0)} × ${r.bagiHasilPersen||0}%` : `${r.pcs} pcs × ${formatRupiah(r.bagiHasilPerPcs)}`}</div>
+                                                                                <div className="text-xs text-gray-400">{r.tanggal} · {r.invoiceType} · {(r.bagiHasilType||'per_pcs')==='persen' ? `${r.basisTanpaOngkir ? 'Nilai tanpa ongkir' : 'Total Invoice'} ${formatRupiah(r.invoiceTotal||0)} × ${r.bagiHasilPersen||0}%` : `${r.pcs} pcs × ${formatRupiah(r.bagiHasilPerPcs)}`}</div>
                                                                                 {r.note && <div className="text-xs text-gray-400 italic">"{r.note}"</div>}
                                                                                 <div className="text-xs text-indigo-500 font-semibold mt-0.5">Kumulatif: {formatRupiah(kumulatif)}</div>
                                                                             </div>
@@ -11564,7 +11577,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const invType = investor.bagiHasilType || 'per_pcs';
                         const calcBH = (inv) => {
                             const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
-                            const total = getInvoiceTotals(inv).total;
+                            const total = getInvoiceTotals(inv).productionTotal;
                             return invType === 'persen'
                                 ? Math.round(total * (parseFloat(investor.bagiHasilPersen)||0) / 100)
                                 : pcs * (parseFloat(investor.bagiHasilPerPcs)||0);
@@ -11589,7 +11602,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     {/* Header */}
                                     <div className="p-5 border-b border-gray-100">
                                         <h3 className="font-bold text-gray-800 text-base">Catat Bagi Hasil</h3>
-                                        <p className="text-xs text-gray-500 mt-0.5">Investor: <strong>{investor.name}</strong> · {invType === 'persen' ? `${investor.bagiHasilPersen||0}% dari total invoice` : `${formatRupiah(investor.bagiHasilPerPcs)}/pcs`}</p>
+                                        <p className="text-xs text-gray-500 mt-0.5">Investor: <strong>{investor.name}</strong> · {invType === 'persen' ? `${investor.bagiHasilPersen||0}% dari nilai invoice (tanpa ongkir)` : `${formatRupiah(investor.bagiHasilPerPcs)}/pcs`}</p>
                                     </div>
                                     {/* Filter */}
                                     <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex flex-wrap gap-3 items-center">
@@ -11614,7 +11627,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <div className="space-y-1.5">
                                                     {filtered.map(inv => {
                                                         const pcs = getInvoicePcsTotal(inv) || parseInt(inv.qty) || 0;
-                                                        const total = getInvoiceTotals(inv).total;
+                                                        const total = getInvoiceTotals(inv).productionTotal;
                                                         const bh = calcBH(inv);
                                                         const checked = bhSelectedIds.includes(inv.id);
                                                         return (
@@ -11622,7 +11635,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                 <input type="checkbox" checked={checked} onChange={() => toggleOne(inv.id)} className="w-4 h-4 accent-indigo-600 flex-shrink-0" />
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="text-xs font-bold text-gray-800 truncate">{inv.id} — {inv.customer || '-'}</div>
-                                                                    <div className="text-xs text-gray-400">{inv.date || inv.tanggal || '-'} · {pcs} pcs · Total: {formatRupiah(total)}</div>
+                                                                    <div className="text-xs text-gray-400">{inv.date || inv.tanggal || '-'} · {pcs} pcs · Nilai (tanpa ongkir): {formatRupiah(total)}</div>
                                                                 </div>
                                                                 <div className="text-right flex-shrink-0">
                                                                     <div className="text-xs text-gray-400">BH</div>
@@ -12040,14 +12053,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return isInPeriod(tgl);
             });
             const totalBagiHasilPromosiPaid = safeBagiHasilPromosi.reduce((s, b) => s + safeArray(b.payments).reduce((ps, p) => ps + safeMoney(p.amount), 0), 0);
-            const totalBagiHasilPromosiNominal = safeBagiHasilPromosi.reduce((s, b) => {
-                const invs = safeArray(b.invoiceIds).map(id => safeFinanceInvoices.find(inv => isVisibleRecord(inv) && String(inv.id) === String(id))).filter(Boolean);
-                const totalNilai = invs.reduce((ns, inv) => ns + getInvoiceTotals(inv).total, 0);
-                const totalPcs = invs.reduce((ns, inv) => ns + getInvoicePcsTotal(inv), 0);
-                const type = b.bagiHasilType || 'Rp';
-                const value = safeMoney(b.bagiHasilValue);
-                return s + (type === '%' ? Math.round(totalNilai * value / 100) : type === 'Rp/pcs' ? Math.round(totalPcs * value) : value);
-            }, 0);
+            // Sama dengan menu Bagi Hasil Promosi (basis tanpa ongkir)
+            const totalBagiHasilPromosiNominal = safeBagiHasilPromosi.reduce((s, b) => s + calcBagiHasil(b, safeFinanceInvoices).nominal, 0);
 
             // Beban L/R: kasbon = piutang karyawan (aset), bukan biaya — tidak masuk beban.
             // totalWage menggunakan grossSalary (biaya tenaga kerja penuh, sebelum potongan kasbon).
@@ -14161,7 +14168,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (jamMasuk && jamPulang && !skipDay) {
                         let dayAdjAmt = 0; let dayAdjDetails = [];
                         if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
-                            const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
+                            // Datang lebih awal tidak dihitung "jam lebih" (≥ 1 jam awal sudah dihitung sebagai lembur): jam masuk paling awal = jadwal shift
+                            const mMasukEfektif = Math.max(ttm(jamMasuk), mMasukCfg);
+                            const actualMenit = ttm(jamPulang) - mMasukEfektif;
                             const selisihMenit = actualMenit - standardMenit;
                             if (Math.abs(selisihMenit) >= 30) {
                                 const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
@@ -14200,11 +14209,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         mLPulang = Math.min(mLPulang, cappedPulang);
                     }
                     const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
-                    if (shouldCalcLembur && lemburMenit >= 60 && !skipOt) {
-                        const lemburJam = Math.round(lemburMenit / 60 * 10) / 10;
+                    const lemburMalamMenit = (shouldCalcLembur && lemburMenit >= 60) ? lemburMenit : 0;
+                    // Datang ≥ 1 jam sebelum jam masuk = lembur (hanya hari yang tercatat hadir: ada jam masuk & pulang)
+                    const lemburAwalMenit = (jamMasuk && jamPulang) ? getLemburDatangAwalMenit(ttm(jamMasuk), mMasukCfg, isShift3CrossMidnight ? mShift3Pulang : null) : 0;
+                    const totalLemburMenit = lemburMalamMenit + lemburAwalMenit;
+                    if (totalLemburMenit > 0 && !skipOt) {
+                        const lemburJam = Math.round(totalLemburMenit / 60 * 10) / 10;
                         const lemburRate = safeMoney(emp.overtimeRate) || 0;
-                        if (lemburRate === 0 && !isGap) warnings.push({ date, type: 'lembur_rate_kosong', jam: jlMasuk });
-                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: isGap ? `Lembur ${date} (terlewat)` : `Lembur ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
+                        if (lemburRate === 0 && !isGap) warnings.push({ date, type: 'lembur_rate_kosong', jam: lemburMalamMenit > 0 ? jlMasuk : jamMasuk });
+                        const awalLabel = lemburAwalMenit > 0 ? ` (datang awal ${Math.round(lemburAwalMenit / 60 * 10) / 10} jam)` : '';
+                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: `Lembur ${date}${awalLabel}${isGap ? ' (terlewat)' : ''}`, ...(lemburAwalMenit > 0 ? { lemburAwalMenit } : {}), isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
                     }
                 });
                 if (previewLogs.length === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
@@ -25555,6 +25569,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const mn = m % 60;
                 return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;
             };
+            // Durasi untuk label, mis. 70 -> "1j 10m"
+            const durasiLabel = (m) => { const h = Math.floor((m || 0) / 60), mn = (m || 0) % 60; return h > 0 && mn > 0 ? `${h}j ${mn}m` : h > 0 ? `${h}j` : `${mn}m`; };
 
             const getEditKey = (pin, tanggal) => `${tanggal}_${String(pin)}`;
 
@@ -25690,8 +25706,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) {
                     lemburMenit = mLPulang - mLMasuk;
                 }
+                // Datang ≥ 1 jam sebelum jam masuk = lembur (sama dengan perhitungan gaji di Laporan Kinerja)
+                const isShift3LewatMalam = shift3 !== null && mShift3Pulang != null && mShift3Pulang < mAktifBoundary;
+                const lemburAwalMenit = (jamMasuk && jamPulang) ? getLemburDatangAwalMenit(mMasuk, mMasukCfg, isShift3LewatMalam ? mShift3Pulang : null) : 0;
 
-                return { jamMasuk, jamPulang, rawMasuk, rawPulang, jamLemburMasuk, jamLemburPulang, rawLemburMasuk, rawLemburPulang, status, lemburMenit };
+                return { jamMasuk, jamPulang, rawMasuk, rawPulang, jamLemburMasuk, jamLemburPulang, rawLemburMasuk, rawLemburPulang, status, lemburMenit, lemburAwalMenit };
             };
 
             // Build daily summary for a date
@@ -25869,7 +25888,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             empMap[pin].hadir++;
                             if (metrics.status === 'Terlambat') empMap[pin].terlambat++;
                         }
-                        empMap[pin].lemburMenit += metrics.lemburMenit;
+                        empMap[pin].lemburMenit += metrics.lemburMenit + (metrics.lemburAwalMenit || 0);
                     });
                 }
 
@@ -25906,7 +25925,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const metrics = computeDayMetrics(entries, override, shiftConfig);
                     const mIn = timeToMinutes(metrics.jamMasuk), mOut = timeToMinutes(metrics.jamPulang);
                     const kerjaMenit = (mIn != null && mOut != null && mOut > mIn) ? mOut - mIn : 0;
-                    days.push({ d, dateStr, dow, isWeekend: isWknd, jamMasuk: metrics.jamMasuk, jamPulang: metrics.jamPulang, jamLemburMasuk: metrics.jamLemburMasuk, jamLemburPulang: metrics.jamLemburPulang, status: metrics.jamMasuk ? metrics.status : 'absen', kerjaMenit, lemburMenit: metrics.lemburMenit || 0 });
+                    days.push({ d, dateStr, dow, isWeekend: isWknd, jamMasuk: metrics.jamMasuk, jamPulang: metrics.jamPulang, jamLemburMasuk: metrics.jamLemburMasuk, jamLemburPulang: metrics.jamLemburPulang, status: metrics.jamMasuk ? metrics.status : 'absen', kerjaMenit, lemburMenit: (metrics.lemburMenit || 0) + (metrics.lemburAwalMenit || 0), lemburAwalMenit: metrics.lemburAwalMenit || 0 });
                 }
                 return days;
             };
@@ -25999,7 +26018,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <Card className="border-l-4 border-l-blue-500"><h3 className="text-sm font-bold text-gray-500">Hadir Hari Ini</h3><p className="text-2xl font-black text-blue-700 mt-2">{dailyRows.filter(r => r.jamMasuk).length}</p><p className="text-xs text-gray-400 mt-1">dari {dailyRows.length} data</p></Card>
                         <Card className="border-l-4 border-l-red-500"><h3 className="text-sm font-bold text-gray-500">Terlambat</h3><p className="text-2xl font-black text-red-700 mt-2">{dailyRows.filter(r => r.status === 'Terlambat').length}</p><p className="text-xs text-gray-400 mt-1">karyawan</p></Card>
-                        <Card className="border-l-4 border-l-orange-500"><h3 className="text-sm font-bold text-gray-500">Lembur</h3><p className="text-2xl font-black text-orange-700 mt-2">{dailyRows.filter(r => r.lemburMenit > 0).length}</p><p className="text-xs text-gray-400 mt-1">karyawan lembur</p></Card>
+                        <Card className="border-l-4 border-l-orange-500"><h3 className="text-sm font-bold text-gray-500">Lembur</h3><p className="text-2xl font-black text-orange-700 mt-2">{dailyRows.filter(r => r.lemburMenit > 0 || r.lemburAwalMenit > 0).length}</p><p className="text-xs text-gray-400 mt-1">karyawan lembur</p></Card>
                     </div>
 
                     <Card>
@@ -26050,7 +26069,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <th className="py-2 px-3 text-center">Detail</th>
                                             </tr></thead>
                                             <tbody>{dailyRows.map((row, idx) => {
-                                                const hasLembur = row.lemburMenit > 0 || !!row.jamLemburMasuk;
+                                                const hasLembur = row.lemburMenit > 0 || !!row.jamLemburMasuk || row.lemburAwalMenit > 0;
                                                 const isLate = row.status === 'Terlambat';
                                                 const mIn = timeToMinutes(row.jamMasuk);
                                                 const mOut = timeToMinutes(row.jamPulang);
@@ -26117,8 +26136,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     <span className="text-[11px] font-black tabular-nums text-white leading-tight">{row.jamLemburMasuk}</span>
                                                                 </div>
                                                             </div>
-                                                        ) : (
+                                                        ) : row.lemburAwalMenit > 0 ? null : (
                                                             <span className="text-gray-300 text-xs">—</span>
+                                                        )}
+                                                        {row.lemburAwalMenit > 0 && (
+                                                            <div className="mt-1"><span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 tabular-nums whitespace-nowrap" title="Datang minimal 1 jam sebelum jam masuk dihitung lembur">⏰ Datang awal {durasiLabel(row.lemburAwalMenit)}</span></div>
                                                         )}
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
@@ -26153,6 +26175,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     <div><div className="text-[10px] text-gray-500 font-bold uppercase mb-0.5">Status</div><div>{statusBadge(detailRow.status)}</div></div>
                                                     <div className="text-right"><div className="text-[10px] text-gray-500 font-bold uppercase mb-0.5">Jumlah Scan</div><div className="font-bold text-gray-700">{detailRow.scanCount}x</div></div>
                                                 </div>
+                                                {detailRow.lemburAwalMenit > 0 && (
+                                                    <div className="bg-amber-50 rounded-xl p-3 mb-3">
+                                                        <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Lembur Datang Awal</div>
+                                                        <div className="font-bold text-amber-800">Masuk {detailRow.jamMasuk} <span className="text-amber-600">({durasiLabel(detailRow.lemburAwalMenit)} sebelum jam masuk, dihitung lembur)</span></div>
+                                                    </div>
+                                                )}
                                                 {(detailRow.jamLemburMasuk || detailRow.lemburMenit > 0) && (
                                                     <div className="bg-orange-50 rounded-xl p-3 mb-3">
                                                         <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Sesi Lembur</div>
@@ -26411,6 +26439,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             {hasLembur ? (
                                                                 <div className="flex flex-col items-center gap-1">
                                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-200 tabular-nums">🌙 {lemDur}</span>
+                                                                    {day.lemburAwalMenit > 0 && <span className="text-[9px] font-bold text-amber-700 whitespace-nowrap">termasuk datang awal {rkDurLabel(day.lemburAwalMenit)}</span>}
                                                                     {day.jamLemburMasuk && (
                                                                         <div className="flex items-center gap-1">
                                                                             <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded border bg-orange-50 border-orange-200 text-orange-700">
