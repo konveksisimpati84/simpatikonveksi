@@ -975,8 +975,21 @@
                 style.remove();
             };
         };
-        // Struk thermal (58/80 mm) hanya bisa hitam: selalu mode tajam
-        const isThermalPrintDoc = (doc) => { try { return /\b(5[0-9]|7[0-9]|80)\s*mm\b/.test(doc.documentElement.innerHTML.slice(0, 20000)); } catch (e) { return false; } };
+        // Struk thermal (kertas 58/80 mm) hanya bisa hitam: selalu mode tajam.
+        // Dikenali dari ukuran halaman @page (bukan sembarang angka mm, mis. tinggi hiasan 72mm di sertifikat A4)
+        const isThermalPrintDoc = (doc) => {
+            try {
+                const css = Array.prototype.map.call(doc.querySelectorAll('style'), st => st.textContent || '').join('\n');
+                return /@page\s*\{[^}]*size\s*:\s*(5[0-9]|7[0-9]|80)(\.\d+)?\s*mm/i.test(css);
+            } catch (e) { return false; }
+        };
+        // Halaman share (link driver) memuat pengaturan cetaknya sendiri
+        const applyPrintSettingsFromTemplates = (tpl) => {
+            if (!tpl || typeof tpl !== 'object' || Object.keys(tpl).length === 0) return;
+            printModeState.global = tpl.printMode === 'warna' ? 'warna' : PRINT_MODE_DEFAULT;
+            printModeState.logoSize = Number(tpl.logoSize) || 100;
+            printModeState.logoSrc = tpl.companyLogo || '';
+        };
         const hookPrintWindow = (w) => {
             let done = false;
             const apply = () => {
@@ -1009,7 +1022,7 @@
             // Cetak langsung dari halaman (slip gaji di link share, Kalkulator HPP): tajamkan sementara, kembalikan setelah cetak
             let revertMain = null;
             window.addEventListener('beforeprint', () => {
-                try { if (revertMain) revertMain(); revertMain = sharpenPrintDocument(document, { strict: getEffectivePrintMode() === 'tajam', logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc }); } catch (e) { revertMain = null; }
+                try { if (revertMain) revertMain(); revertMain = sharpenPrintDocument(document, { strict: getEffectivePrintMode() === 'tajam' || isThermalPrintDoc(document), logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc }); } catch (e) { revertMain = null; }
             });
             window.addEventListener('afterprint', () => { try { if (revertMain) revertMain(); } catch (e) {} revertMain = null; });
         };
@@ -15107,7 +15120,10 @@ ${getRekapShareLink(rekap)}
                     return isSuperAdmin || !(emp && isSensitiveEmp(emp));
                 })
                 .sort((a, b) => (b.rekap.dateProcessed || '').localeCompare(a.rekap.dateProcessed || ''));
-            const cancelledPaidSignature = cancelledPaidRekaps.map(({ rekap, pays }) => `${rekap.id}:${pays.length}`).join('|');
+            // Kunci per rekap; peringatan hanya muncul lagi bila ada rekap batal-berbayar yang BELUM pernah ditandai "sudah dicek"
+            const cancelledPaidKeys = cancelledPaidRekaps.map(({ rekap, pays }) => `${rekap.id}:${pays.length}`);
+            const cancelledPaidDismissedSet = new Set(String(cancelledPaidDismissed || '').split('|').filter(Boolean));
+            const cancelledPaidHasNew = cancelledPaidKeys.some(k => !cancelledPaidDismissedSet.has(k));
             const cancelledPaidTotal = cancelledPaidRekaps.reduce((s, { pays }) => s + pays.reduce((ps, p) => ps + safeMoney(p.amount), 0), 0);
             const getRekapNet = (r) => {
                 if (r.netSalary != null) return safeMoney(r.netSalary);
@@ -15643,7 +15659,7 @@ ${getRekapShareLink(rekap)}
                     </div>
                     ) : activeReportTab === 'rekap' ? (
                     <div className="space-y-4">
-                        {authUser?.role !== 'Karyawan' && cancelledPaidRekaps.length > 0 && cancelledPaidDismissed !== cancelledPaidSignature && (
+                        {authUser?.role !== 'Karyawan' && cancelledPaidRekaps.length > 0 && cancelledPaidHasNew && (
                             <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-sm text-amber-900">
                                 <div className="flex flex-col sm:flex-row sm:items-start gap-2">
                                     <div className="flex-1 min-w-0">
@@ -15652,7 +15668,7 @@ ${getRekapShareLink(rekap)}
                                     </div>
                                     <div className="flex gap-2 shrink-0">
                                         <button onClick={() => setShowCancelledPaidDetail(v => !v)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-amber-300 bg-white hover:bg-amber-100">{showCancelledPaidDetail ? 'Sembunyikan' : 'Lihat Rincian'}</button>
-                                        <button onClick={() => { try { localStorage.setItem(CANCELLED_PAID_DISMISS_KEY, cancelledPaidSignature); } catch (e) {} setCancelledPaidDismissed(cancelledPaidSignature); }} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white" title="Tutup pemberitahuan ini (muncul lagi bila ada data baru)">Sudah dicek, tutup</button>
+                                        <button onClick={() => { const next = [...new Set([...cancelledPaidDismissedSet, ...cancelledPaidKeys])].join('|'); try { localStorage.setItem(CANCELLED_PAID_DISMISS_KEY, next); } catch (e) {} setCancelledPaidDismissed(next); }} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white" title="Tutup pemberitahuan ini (muncul lagi bila ada data baru)">Sudah dicek, tutup</button>
                                     </div>
                                 </div>
                                 {showCancelledPaidDetail && (
@@ -19931,7 +19947,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const { trx: cTrx, tarif: cTarif, templates: cTpl } = JSON.parse(cached);
                             setTrx(cTrx || null);
                             setTarif(cTarif || null);
-                            setTemplates2(cTpl || {});
+                            setTemplates2(cTpl || {}); applyPrintSettingsFromTemplates(cTpl);
                             setLoading(false);
                         }
                         if (supabaseClient) {
@@ -19945,7 +19961,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const tpl = tplRes.data?.data || {};
                             const foundTarif = found ? (tarRes.data?.data || []).find(t => t.id === found.tarifId) || null : null;
                             setTrx(found || null);
-                            setTemplates2(tpl);
+                            setTemplates2(tpl); applyPrintSettingsFromTemplates(tpl);
                             setTarif(foundTarif);
                             try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ trx: found, tarif: foundTarif, templates: tpl })); } catch(e) {}
                         }
@@ -20075,7 +20091,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             setRekap(cR || null);
                             setTrips(cT || []);
                             setDriver(cD || null);
-                            setTpl(cTpl || {});
+                            setTpl(cTpl || {}); applyPrintSettingsFromTemplates(cTpl);
                             setTarifs(cTrf || []);
                             setLoading(false);
                         }
@@ -20096,7 +20112,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             setRekap(found || null);
                             setTrips(foundTrips);
                             setDriver(foundDriver);
-                            setTpl(tpl);
+                            setTpl(tpl); applyPrintSettingsFromTemplates(tpl);
                             setTarifs(allTarifs);
                             try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ rekap: found, trips: foundTrips, driver: foundDriver, tpl, tarifs: allTarifs })); } catch(e) {}
                         }
@@ -23241,9 +23257,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
             const [templates, setTemplates] = useState({});
             // Mode cetak bawaan (Pengaturan Cetak) untuk penajam cetak; tiap perangkat bisa menimpa sendiri
-            printModeState.global = templates?.printMode === 'warna' ? 'warna' : PRINT_MODE_DEFAULT;
-            printModeState.logoSize = Number(templates?.logoSize) || 100;
-            printModeState.logoSrc = templates?.companyLogo || '';
+            applyPrintSettingsFromTemplates(templates);
             const [kartuKredit, setKartuKredit] = useState([]);
             const [transaksiKartu, setTransaksiKartu] = useState([]);
             const [danaOperasional, setDanaOperasional] = useState([]);
