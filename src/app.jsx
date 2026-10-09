@@ -10038,22 +10038,51 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     const prices = [...new Set(itemSizes.map(s => safeMoney(s.pricePerPcs)))];
                                                     const samePrice = prices.length === 1;
                                                     const fmtNum = (n) => formatRupiah(n).replace(/^Rp\s*/, '');
+                                                    if (samePrice) {
+                                                        return (
+                                                            <tr key={i} className="border-b border-gray-100 align-top">
+                                                                <td className="px-1 py-2.5">
+                                                                    <div className="font-bold text-gray-900 leading-snug">{item.productionType || '-'}</div>
+                                                                    <div className="text-[12.5px] text-gray-600 mt-0.5 leading-snug">{itemSizes.map(s => `${s.size || '-'} ${safeMoney(s.qty)}`).join(' · ')}</div>
+                                                                    <div className="text-[11.5px] text-gray-500 sm:hidden">@ {formatRupiah(prices[0])}</div>
+                                                                </td>
+                                                                <td className="px-1 py-2.5 text-right tabular-nums">{itemPcs}</td>
+                                                                <td className="px-1 py-2.5 text-right tabular-nums hidden sm:table-cell">{fmtNum(prices[0])}</td>
+                                                                <td className="px-1 py-2.5 text-right tabular-nums whitespace-nowrap">
+                                                                    <div className="font-semibold text-gray-900">{fmtNum(itemTotal)}</div>
+                                                                    {itemDiscount > 0 && <div className="text-[11px] text-amber-700">diskon −{fmtNum(itemDiscount)}</div>}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
+                                                    // Harga berbeda per ukuran: baris produk + satu baris per ukuran (semua baris tampil sama)
                                                     return (
-                                                        <tr key={i} className="border-b border-gray-100 align-top">
-                                                            <td className="px-1 py-2.5">
-                                                                <div className="font-bold text-gray-900 leading-snug">{item.productionType || '-'}</div>
-                                                                <div className="text-[12.5px] text-gray-600 mt-0.5 leading-snug">
-                                                                    {itemSizes.map(s => samePrice ? `${s.size || '-'} ${safeMoney(s.qty)}` : `${s.size || '-'} ${safeMoney(s.qty)} × ${fmtNum(s.pricePerPcs)}`).join(' · ')}
-                                                                </div>
-                                                                {samePrice && <div className="text-[11.5px] text-gray-500 sm:hidden">@ {formatRupiah(prices[0])}</div>}
-                                                            </td>
-                                                            <td className="px-1 py-2.5 text-right tabular-nums">{itemPcs}</td>
-                                                            <td className="px-1 py-2.5 text-right tabular-nums hidden sm:table-cell">{samePrice ? fmtNum(prices[0]) : <span className="text-[11px] text-gray-500">per ukuran</span>}</td>
-                                                            <td className="px-1 py-2.5 text-right tabular-nums whitespace-nowrap">
-                                                                <div className="font-semibold text-gray-900">{fmtNum(itemTotal)}</div>
-                                                                {itemDiscount > 0 && <div className="text-[11px] text-amber-700">diskon −{fmtNum(itemDiscount)}</div>}
-                                                            </td>
-                                                        </tr>
+                                                        <React.Fragment key={i}>
+                                                            <tr className="align-top">
+                                                                <td className="px-1 pt-2.5 pb-1 font-bold text-gray-900 leading-snug">{item.productionType || '-'}</td>
+                                                                <td className="px-1 pt-2.5 pb-1 text-right tabular-nums font-bold">{itemPcs}</td>
+                                                                <td className="px-1 pt-2.5 pb-1 hidden sm:table-cell"></td>
+                                                                <td className="px-1 pt-2.5 pb-1 text-right tabular-nums whitespace-nowrap font-bold text-gray-900">{fmtNum(itemTotal)}</td>
+                                                            </tr>
+                                                            {itemSizes.map((sz, si) => {
+                                                                const st = getInvoiceSizeTotal(sz);
+                                                                const last = si === itemSizes.length - 1;
+                                                                return (
+                                                                    <tr key={`${i}-${si}`} className={`align-top text-[13px] text-gray-700 ${last ? 'border-b border-gray-100' : ''}`}>
+                                                                        <td className={`pl-4 pr-1 py-1 ${last ? 'pb-2.5' : ''}`}>
+                                                                            <span className="font-semibold text-gray-800">{sz.size || '-'}</span>
+                                                                            <span className="text-[11.5px] text-gray-500 sm:hidden"> @ {fmtNum(sz.pricePerPcs)}</span>
+                                                                        </td>
+                                                                        <td className={`px-1 py-1 text-right tabular-nums ${last ? 'pb-2.5' : ''}`}>{safeMoney(sz.qty)}</td>
+                                                                        <td className={`px-1 py-1 text-right tabular-nums hidden sm:table-cell ${last ? 'pb-2.5' : ''}`}>{fmtNum(sz.pricePerPcs)}</td>
+                                                                        <td className={`px-1 py-1 text-right tabular-nums whitespace-nowrap ${last ? 'pb-2.5' : ''}`}>
+                                                                            {fmtNum(st.total)}
+                                                                            {st.discount > 0 && <div className="text-[11px] text-amber-700">diskon −{fmtNum(st.discount)}</div>}
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </React.Fragment>
                                                     );
                                                 })}
                                             </tbody>
