@@ -13468,6 +13468,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
             const [bonusSalary, setBonusSalary] = useState('');
             const [bonusNote, setBonusNote] = useState('');
+            const [bonusEdit, setBonusEdit] = useState(null); // { rekapId, amount, note } — ubah bonus rekap yang sudah jadi
             const [isRekapProcessing, setIsRekapProcessing] = useState(false);
             // printOptions dihapus — pilihan direkap kini langsung dikontrol oleh selectedKeys per kategori
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
@@ -14774,8 +14775,67 @@ ${getRekapShareLink(rekap)}
                 showToast("Rekap diperbarui.", "success");
             };
 
+            // Total yang sudah dibayar dari rekap. Rekap lama tanpa catatan pembayaran (null) dianggap sudah dibayar di Buku Kas.
+            const getRekapPaidTotal = (rekap) => Array.isArray(rekap?.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : null;
+            const canEditRekapBonus = authUser?.role !== 'Karyawan';
+
+            const openBonusEdit = (rekap) => {
+                if (!rekap || rekap.isDeleted) return;
+                const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
+                if (emp && isSensitiveEmp(emp) && authUser?.role !== 'Admin') { showToast("Hanya Admin yang dapat mengubah gaji karyawan Direktur/Komisaris/Marketing.", "error"); return; }
+                if (getRekapPaidTotal(rekap) === null) { showToast("Rekap lama (sebelum ada catatan pembayaran) tidak bisa diubah bonusnya.", "error"); return; }
+                setBonusEdit({ rekapId: rekap.id, amount: String(safeMoney(rekap.bonusSalary) || ''), note: rekap.bonusNote || '' });
+            };
+
+            // Hitung ulang gaji kotor/bersih/status bila bonus diubah — dipakai pratinjau dan simpan
+            const calcRekapWithBonus = (rekap, newBonusInput) => {
+                const oldBonus = safeMoney(rekap.bonusSalary);
+                const newBonus = safeMoney(newBonusInput);
+                const oldGross = safeMoney(rekap.grossSalary ?? rekap.totalWage);
+                const newGross = Math.max(0, oldGross - oldBonus + newBonus);
+                const deduction = safeMoney(rekap.cashAdvanceDeduction);
+                const newNet = Math.max(0, newGross - deduction);
+                const paid = getRekapPaidTotal(rekap) || 0;
+                const status = paid <= 0 ? 'belum' : paid >= newNet - 1 ? 'lunas' : 'sebagian';
+                let error = '';
+                if (newGross < deduction) error = `Gaji kotor tidak boleh lebih kecil dari potongan kasbon (${formatRupiah(deduction)}).`;
+                else if (paid > newNet + 1) error = `Gaji bersih jadi ${formatRupiah(newNet)}, lebih kecil dari yang sudah dibayar (${formatRupiah(paid)}). Hapus dulu pembayaran yang berlebih.`;
+                return { oldBonus, newBonus, oldGross, newGross, deduction, newNet, paid, sisa: Math.max(0, newNet - paid), status, error };
+            };
+
+            const saveBonusEdit = () => {
+                if (!bonusEdit) return;
+                const rekap = (rekapKinerja || []).find(r => String(r.id) === String(bonusEdit.rekapId));
+                if (!rekap || rekap.isDeleted) { setBonusEdit(null); showToast("Rekap tidak ditemukan atau sudah dibatalkan.", "error"); return; }
+                if (getRekapPaidTotal(rekap) === null) { showToast("Rekap lama (sebelum ada catatan pembayaran) tidak bisa diubah bonusnya.", "error"); return; }
+                const calc = calcRekapWithBonus(rekap, bonusEdit.amount);
+                if (calc.error) { showToast(calc.error, "error"); return; }
+                const note = String(bonusEdit.note || '').trim();
+                if (calc.newBonus === calc.oldBonus && note === String(rekap.bonusNote || '').trim()) { setBonusEdit(null); return; }
+                const now = new Date().toISOString();
+                const historyEntry = { id: genId('BNS-'), at: now, from: calc.oldBonus, to: calc.newBonus, note, by: authUser?.name || authUser?.username || '-' };
+                setRekapKinerja(prev => (prev || []).map(item => {
+                    if (String(item.id) !== String(rekap.id)) return item;
+                    // Hitung dari data terbaru (bisa saja ada pembayaran baru masuk dari perangkat lain)
+                    const c = calcRekapWithBonus(item, bonusEdit.amount);
+                    if (c.error) return item;
+                    return { ...item, bonusSalary: c.newBonus, bonusNote: note, grossSalary: c.newGross, netSalary: c.newNet, paymentStatus: c.status, bonusHistory: [...safeArray(item.bonusHistory), historyEntry], _syncUpdatedAt: now };
+                }));
+                setBonusEdit(null);
+                showToast(calc.status === 'lunas' || calc.sisa <= 0 ? "Bonus disimpan." : `Bonus disimpan. Sisa gaji yang perlu dibayar: ${formatRupiah(calc.sisa)}.`, "success");
+            };
+
             const restoreRekapToInput = (rekap) => {
-                if (!rekap || !window.confirm('Kembalikan rekap ini ke Input Laporan Kinerja untuk diperbaiki?')) return;
+                if (!rekap) return;
+                // Rekap yang sudah ada pembayarannya tidak boleh dikembalikan: catatan bayar ikut hilang & bisa terbayar dua kali
+                const paidForRestore = getRekapPaidTotal(rekap);
+                if (paidForRestore === null || paidForRestore > 0) {
+                    showToast(paidForRestore === null
+                        ? "Rekap lama ini tercatat sudah dibayar, tidak bisa dikembalikan ke Input. Gunakan tombol 🎁 Bonus untuk menambah bonus."
+                        : `Rekap ini sudah dibayar ${formatRupiah(paidForRestore)}. Hapus dulu pembayarannya, atau gunakan tombol 🎁 Bonus untuk menambah bonus.`, "error");
+                    return;
+                }
+                if (!window.confirm('Kembalikan rekap ini ke Input Laporan Kinerja untuk diperbaiki?')) return;
                 const now = new Date().toISOString();
                 const logsToUnlock = (rekap.items || []).flatMap(item => (item.logIds || []).map(l => ({ orderId: item.orderId, stageId: l.stageId, logId: l.logId })));
                 setOrders(prevOrders => {
@@ -15625,6 +15685,7 @@ ${getRekapShareLink(rekap)}
                                                     <div className="flex justify-center gap-1.5">
                                                         <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-2 rounded-lg"><IconEye /></button>
                                                         <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-2 rounded-lg"><IconEdit /></button>
+                                                        {canEditRekapBonus && <button onClick={() => openBonusEdit(rekap)} title="Tambah / Ubah Bonus Kinerja" className="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 p-2 rounded-lg text-xs font-bold">🎁</button>}
                                                         <button onClick={() => printExistingRekap(rekap)} title="Cetak Struk Thermal" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-2 rounded-lg"><IconPrinter /></button>
                                                         <button onClick={() => sendWaRekap(rekap)} title="Kirim Notifikasi WhatsApp" className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 p-2 rounded-lg text-xs font-bold">WA</button>
                                                         <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-2 rounded-lg"><IconTrash /></button>
@@ -15671,6 +15732,7 @@ ${getRekapShareLink(rekap)}
                                             <div className="flex gap-1.5 flex-wrap">
                                                 <button onClick={() => setDetailRekapId(rekap.id)} title="Lihat Rincian" className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 p-1.5 rounded-lg"><IconEye /></button>
                                                 <button onClick={() => restoreRekapToInput(rekap)} title="Edit Rekap" className="text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 p-1.5 rounded-lg"><IconEdit /></button>
+                                                {canEditRekapBonus && <button onClick={() => openBonusEdit(rekap)} title="Tambah / Ubah Bonus Kinerja" className="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 p-1.5 rounded-lg text-xs font-bold">🎁 Bonus</button>}
                                                 <button onClick={() => printExistingRekap(rekap)} title="Cetak Struk Thermal" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-1.5 rounded-lg"><IconPrinter /></button>
                                                 <button onClick={() => sendWaRekap(rekap)} title="Kirim Notifikasi WhatsApp" className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 p-1.5 rounded-lg text-xs font-bold">WA</button>
                                                 <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"><IconTrash /></button>
@@ -16125,6 +16187,60 @@ ${getRekapShareLink(rekap)}
                             </div>
                         </div>
                     )}
+
+                    {bonusEdit && (() => {
+                        const bRekap = (rekapKinerja || []).find(r => String(r.id) === String(bonusEdit.rekapId));
+                        if (!bRekap) return null;
+                        const c = calcRekapWithBonus(bRekap, bonusEdit.amount);
+                        const statusLabel = c.status === 'lunas' ? 'Sudah Dibayar' : c.status === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
+                        const history = safeArray(bRekap.bonusHistory).slice().reverse();
+                        return (
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200] p-4" onClick={() => setBonusEdit(null)}>
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                                    <div className="p-5 border-b">
+                                        <h3 className="font-black text-lg text-gray-800">🎁 Bonus Kinerja</h3>
+                                        <p className="text-xs text-gray-500 mt-0.5">{bRekap.empName || '-'} · Rekap {bRekap.dateProcessed || '-'}</p>
+                                    </div>
+                                    <div className="p-5 space-y-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">Total Bonus (Rp)</label>
+                                            <input type="number" min="0" className="w-full p-2.5 border rounded-lg text-right font-bold" value={bonusEdit.amount} onChange={e => setBonusEdit({ ...bonusEdit, amount: e.target.value })} placeholder="0" autoFocus />
+                                            <p className="text-[11px] text-gray-500 mt-1">Isi total bonus untuk rekap ini (bukan tambahannya saja). Bonus sekarang: {formatRupiah(c.oldBonus)}</p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">Keterangan</label>
+                                            <input type="text" className="w-full p-2.5 border rounded-lg text-sm" value={bonusEdit.note} onChange={e => setBonusEdit({ ...bonusEdit, note: e.target.value })} placeholder="Contoh: Bonus target Oktober" />
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1">
+                                            <div className="flex justify-between"><span className="text-gray-500">Gaji kotor</span><span className="font-bold">{formatRupiah(c.newGross)}{c.newGross !== c.oldGross && <span className="text-gray-400 font-normal line-through ml-1.5 text-xs">{formatRupiah(c.oldGross)}</span>}</span></div>
+                                            {c.deduction > 0 && <div className="flex justify-between"><span className="text-gray-500">Potongan kasbon</span><span className="font-bold text-red-600">−{formatRupiah(c.deduction)}</span></div>}
+                                            <div className="flex justify-between"><span className="text-gray-500">Gaji bersih</span><span className="font-black text-blue-700">{formatRupiah(c.newNet)}</span></div>
+                                            <div className="flex justify-between"><span className="text-gray-500">Sudah dibayar</span><span className="font-bold text-green-700">{formatRupiah(c.paid)}</span></div>
+                                            <div className="flex justify-between border-t pt-1"><span className="text-gray-500">Sisa / Status</span><span className="font-bold">{formatRupiah(c.sisa)} · {statusLabel}</span></div>
+                                        </div>
+                                        {c.error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg p-2.5">{c.error}</div>}
+                                        {history.length > 0 && (
+                                            <div>
+                                                <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">Riwayat Perubahan Bonus</div>
+                                                <div className="space-y-1 max-h-40 overflow-y-auto">
+                                                    {history.map(h => (
+                                                        <div key={h.id} className="text-xs bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                                                            <div className="flex justify-between gap-2"><span className="font-bold text-amber-800">{formatRupiah(h.from)} → {formatRupiah(h.to)}</span><span className="text-gray-400 shrink-0">{h.at ? new Date(h.at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-'}</span></div>
+                                                            <div className="text-gray-500">{h.note || '-'} · oleh {h.by || '-'}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="p-4 border-t flex justify-end gap-2">
+                                        <button onClick={() => setBonusEdit(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-bold text-gray-700">Batal</button>
+                                        <button onClick={saveBonusEdit} disabled={!!c.error} className={`px-4 py-2 rounded-lg text-sm font-black text-white ${c.error ? 'bg-gray-300 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-700'}`}>Simpan Bonus</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {deleteRekapConfirmId && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
@@ -16583,7 +16699,10 @@ ${getRekapShareLink(rekap)}
                                             <div>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">Riwayat Pembayaran</div>
-                                                    <button onClick={() => editExistingRekap(rekap)} className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg">✏️ Edit Kasbon</button>
+                                                    <div className="flex gap-1.5">
+                                                        {canEditRekapBonus && <button onClick={() => openBonusEdit(rekap)} className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg">🎁 Bonus</button>}
+                                                        <button onClick={() => editExistingRekap(rekap)} className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg">✏️ Edit Kasbon</button>
+                                                    </div>
                                                 </div>
                                                 {payments.length === 0 ? (
                                                     <div className="text-center text-gray-400 italic text-sm py-4 border border-dashed border-gray-200 rounded-xl">Belum ada pembayaran</div>
