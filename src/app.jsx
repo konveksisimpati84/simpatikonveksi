@@ -871,7 +871,8 @@
         // Teks di latar gelap (mis. tulisan putih di kop biru) tidak diubah.
         const PRINT_MODE_DEVICE_KEY = 'simpati_print_mode_device';
         const PRINT_MODE_DEFAULT = 'tajam';
-        const printModeState = { global: PRINT_MODE_DEFAULT };
+        const printModeState = { global: PRINT_MODE_DEFAULT, logoSize: 100, logoSrc: '' };
+        const getPrintLogoFactor = () => { const v = Number(printModeState.logoSize) || 100; return Math.min(200, Math.max(50, v)) / 100; };
         const getDevicePrintMode = () => { try { const v = localStorage.getItem(PRINT_MODE_DEVICE_KEY) || ''; return v === 'warna' || v === 'tajam' ? v : ''; } catch (e) { return ''; } };
         const getEffectivePrintMode = () => getDevicePrintMode() || (printModeState.global === 'warna' ? 'warna' : PRINT_MODE_DEFAULT);
         const parseCssRgb = (str) => {
@@ -883,7 +884,7 @@
         };
         const printLuminance = (c) => (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
         const printDarkness = (c) => Math.round((1 - printLuminance(c)) * 100);
-        const sharpenPrintDocument = (doc, { strict, minDarkness = 60 }) => {
+        const sharpenPrintDocument = (doc, { strict, minDarkness = 60, logoFactor = 1, logoSrc = '' }) => {
             const win = doc && doc.defaultView;
             if (!win || !doc.body) return () => {};
             const changes = [];
@@ -948,6 +949,27 @@
                     });
                 }
             });
+            // Ukuran logo di cetak (Pengaturan Cetak): ukuran asli tiap dokumen dikali faktor, perbandingan tetap
+            if (logoSrc && logoFactor && Math.abs(logoFactor - 1) > 0.001) {
+                Array.prototype.forEach.call(doc.images, img => {
+                    if (img.getAttribute('src') !== logoSrc) return;
+                    const resize = () => {
+                        const rect = img.getBoundingClientRect();
+                        if (!rect.height || !rect.width) return;
+                        const cs = win.getComputedStyle(img);
+                        const pageW = doc.documentElement.clientWidth || doc.body.clientWidth || 0;
+                        let maxW = rect.width * logoFactor;
+                        if (pageW > 0) maxW = Math.min(maxW, pageW);
+                        const h = Math.round(Math.min(rect.height * logoFactor, rect.height * (maxW / rect.width)) * 10) / 10;
+                        setStyle(img, 'height', `${h}px`);
+                        setStyle(img, 'width', 'auto');
+                        setStyle(img, 'max-height', 'none');
+                        setStyle(img, 'max-width', `${Math.round(maxW)}px`);
+                        if (cs.objectFit === 'fill') setStyle(img, 'object-fit', 'contain');
+                    };
+                    if (img.complete && img.naturalHeight) resize(); else img.addEventListener('load', resize, { once: true });
+                });
+            }
             return () => {
                 changes.reverse().forEach(([el, prop, value, priority]) => { if (value) el.style.setProperty(prop, value, priority); else el.style.removeProperty(prop); });
                 style.remove();
@@ -964,7 +986,7 @@
                     if (!doc || !doc.body || !doc.body.firstChild) return;
                     done = true;
                     const mode = getEffectivePrintMode();
-                    sharpenPrintDocument(doc, { strict: mode === 'tajam' || isThermalPrintDoc(doc) });
+                    sharpenPrintDocument(doc, { strict: mode === 'tajam' || isThermalPrintDoc(doc), logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc });
                 } catch (e) { console.warn('Penajam cetak gagal:', e); }
             };
             const nativePrint = w.print;
@@ -987,7 +1009,7 @@
             // Cetak langsung dari halaman (slip gaji di link share, Kalkulator HPP): tajamkan sementara, kembalikan setelah cetak
             let revertMain = null;
             window.addEventListener('beforeprint', () => {
-                try { if (revertMain) revertMain(); revertMain = sharpenPrintDocument(document, { strict: getEffectivePrintMode() === 'tajam' }); } catch (e) { revertMain = null; }
+                try { if (revertMain) revertMain(); revertMain = sharpenPrintDocument(document, { strict: getEffectivePrintMode() === 'tajam', logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc }); } catch (e) { revertMain = null; }
             });
             window.addEventListener('afterprint', () => { try { if (revertMain) revertMain(); } catch (e) {} revertMain = null; });
         };
@@ -18009,6 +18031,9 @@ ${getRekapShareLink(rekap)}
         const TemplateView = ({ templates, setTemplates, showToast }) => {
             const [localTemplates, setLocalTemplates] = useState(templates || initialTemplates);
             const [devicePrintMode, setDevicePrintModeState] = useState(() => getDevicePrintMode());
+            const LOGO_MAX_HEIGHT = 300, LOGO_MAX_WIDTH = 1200;
+            const [logoNaturalHeight, setLogoNaturalHeight] = useState(0);
+            const logoSizePct = Math.min(200, Math.max(50, Number(localTemplates.logoSize) || 100));
             const changeDevicePrintMode = (value) => {
                 try { if (value) localStorage.setItem(PRINT_MODE_DEVICE_KEY, value); else localStorage.removeItem(PRINT_MODE_DEVICE_KEY); } catch (e) {}
                 setDevicePrintModeState(value);
@@ -18036,12 +18061,17 @@ ${getRekapShareLink(rekap)}
                     const img = new Image();
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
+                        // Tinggi maks 300 px (dulu 100 px) agar logo tetap tajam di kertas, juga saat diperbesar; lebar maks 1200 px
                         let width = img.width, height = img.height;
-                        if (height > 100) { width = Math.round(width * (100 / height)); height = 100; }
+                        const scale = Math.min(1, LOGO_MAX_HEIGHT / height, LOGO_MAX_WIDTH / width);
+                        width = Math.max(1, Math.round(width * scale)); height = Math.max(1, Math.round(height * scale));
                         canvas.width = width; canvas.height = height;
                         const ctx = canvas.getContext('2d');
+                        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
                         ctx.drawImage(img, 0, 0, width, height);
                         setLocalTemplates(prev => ({ ...prev, companyLogo: canvas.toDataURL('image/png') }));
+                        setLogoNaturalHeight(height);
+                        showToast('Logo dimuat. Klik Simpan Pengaturan untuk menyimpan.', 'success');
                     };
                     img.src = event.target.result;
                 };
@@ -18115,10 +18145,25 @@ ${getRekapShareLink(rekap)}
                             <div className="mb-4">
                                 <label className="block text-sm mb-1">Logo</label>
                                 <div className="flex items-center gap-4">
-                                    {localTemplates.companyLogo ? <img src={localTemplates.companyLogo} className="h-16" /> : <div className="w-16 h-16 border border-dashed flex items-center justify-center text-xs text-gray-400">No Logo</div>}
+                                    {localTemplates.companyLogo ? <img src={localTemplates.companyLogo} className="h-16" onLoad={e => setLogoNaturalHeight(e.currentTarget.naturalHeight || 0)} /> : <div className="w-16 h-16 border border-dashed flex items-center justify-center text-xs text-gray-400">No Logo</div>}
                                     <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-sm border p-1 rounded" />
                                     {localTemplates.companyLogo && <button type="button" onClick={() => setLocalTemplates(prev => ({ ...prev, companyLogo: '' }))} className="text-red-500 border p-1 text-sm rounded">Hapus</button>}
                                 </div>
+                                {localTemplates.companyLogo && logoNaturalHeight > 0 && logoNaturalHeight < 200 && (
+                                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-2">Resolusi logo saat ini rendah ({logoNaturalHeight} px) sehingga bisa sedikit buram di kertas. Unggah ulang file logo aslinya (sebaiknya PNG beresolusi tinggi) agar cetakan tajam.</p>
+                                )}
+                                {localTemplates.companyLogo && (
+                                    <div className="mt-3 bg-gray-50 border rounded-lg p-3">
+                                        <label className="text-sm block mb-1">Ukuran logo di semua hasil cetak: <span className="font-bold text-blue-600">{logoSizePct}%</span></label>
+                                        <input type="range" min="50" max="200" step="10" value={logoSizePct} onChange={e => setLocalTemplates(prev => ({ ...prev, logoSize: Number(e.target.value) }))} className="w-full max-w-md" />
+                                        <div className="flex justify-between text-[10px] text-gray-400 max-w-md"><span>50%</span><span>100% (asli)</span><span>150%</span><span>200%</span></div>
+                                        <div className="mt-2 text-[11px] text-gray-500">Contoh di kop invoice (tinggi asli ±48 px → {Math.round(48 * logoSizePct / 100)} px):</div>
+                                        <div className="mt-1 bg-white border rounded p-2 inline-flex items-center" style={{ minHeight: 40 }}>
+                                            <img src={localTemplates.companyLogo} alt="Pratinjau logo" style={{ height: `${Math.round(48 * logoSizePct / 100)}px`, width: 'auto', maxWidth: '100%', objectFit: 'contain' }} />
+                                        </div>
+                                        <p className="text-[11px] text-gray-500 mt-1">Ukuran tiap dokumen diperbesar/diperkecil dengan perbandingan yang sama, dan tidak melebihi lebar kertas. Disarankan 100–150%. Disimpan dengan tombol Simpan Pengaturan.</p>
+                                    </div>
+                                )}
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div><label className="block text-sm mb-1">Nama Perusahaan</label><input type="text" name="companyName" className="w-full p-2 border rounded" value={localTemplates.companyName || ''} onChange={handleChange} required /></div>
@@ -23197,6 +23242,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [templates, setTemplates] = useState({});
             // Mode cetak bawaan (Pengaturan Cetak) untuk penajam cetak; tiap perangkat bisa menimpa sendiri
             printModeState.global = templates?.printMode === 'warna' ? 'warna' : PRINT_MODE_DEFAULT;
+            printModeState.logoSize = Number(templates?.logoSize) || 100;
+            printModeState.logoSrc = templates?.companyLogo || '';
             const [kartuKredit, setKartuKredit] = useState([]);
             const [transaksiKartu, setTransaksiKartu] = useState([]);
             const [danaOperasional, setDanaOperasional] = useState([]);
