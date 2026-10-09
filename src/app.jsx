@@ -14777,15 +14777,21 @@ ${getRekapShareLink(rekap)}
                 showToast("Rekap diperbarui.", "success");
             };
 
-            // Total yang sudah dibayar dari rekap. Rekap lama tanpa catatan pembayaran (null) dianggap sudah dibayar di Buku Kas.
-            const getRekapPaidTotal = (rekap) => Array.isArray(rekap?.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : null;
+            // Total yang sudah dibayar dari rekap. null = rekap lama yang di Buku Kas dianggap lunas tanpa rincian pembayaran
+            // (tanpa daftar pembayaran, atau status 'lunas' dengan daftar kosong) — aturan sama dengan getWagePaidEvents di Laporan Keuangan.
+            const getRekapPaidTotal = (rekap) => {
+                const pays = Array.isArray(rekap?.payments) ? rekap.payments.filter(p => safeMoney(p.amount) > 0) : [];
+                if (pays.length > 0) return pays.reduce((s, p) => s + safeMoney(p.amount), 0);
+                if (!Array.isArray(rekap?.payments) || rekap?.paymentStatus === 'lunas') return null;
+                return 0;
+            };
             const canEditRekapBonus = authUser?.role !== 'Karyawan';
 
             const openBonusEdit = (rekap) => {
                 if (!rekap || rekap.isDeleted) return;
                 const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                 if (emp && isSensitiveEmp(emp) && authUser?.role !== 'Admin') { showToast("Hanya Admin yang dapat mengubah gaji karyawan Direktur/Komisaris/Marketing.", "error"); return; }
-                if (getRekapPaidTotal(rekap) === null) { showToast("Rekap lama (sebelum ada catatan pembayaran) tidak bisa diubah bonusnya.", "error"); return; }
+                if (getRekapPaidTotal(rekap) === null) { showToast("Rekap ini tercatat lunas tanpa rincian pembayaran (data lama), jadi bonusnya tidak bisa diubah agar Buku Kas tetap benar.", "error"); return; }
                 setBonusEdit({ rekapId: rekap.id, amount: String(safeMoney(rekap.bonusSalary) || ''), note: rekap.bonusNote || '' });
             };
 
@@ -14809,7 +14815,7 @@ ${getRekapShareLink(rekap)}
                 if (!bonusEdit) return;
                 const rekap = (rekapKinerja || []).find(r => String(r.id) === String(bonusEdit.rekapId));
                 if (!rekap || rekap.isDeleted) { setBonusEdit(null); showToast("Rekap tidak ditemukan atau sudah dibatalkan.", "error"); return; }
-                if (getRekapPaidTotal(rekap) === null) { showToast("Rekap lama (sebelum ada catatan pembayaran) tidak bisa diubah bonusnya.", "error"); return; }
+                if (getRekapPaidTotal(rekap) === null) { showToast("Rekap ini tercatat lunas tanpa rincian pembayaran (data lama), jadi bonusnya tidak bisa diubah agar Buku Kas tetap benar.", "error"); return; }
                 const calc = calcRekapWithBonus(rekap, bonusEdit.amount);
                 if (calc.error) { showToast(calc.error, "error"); return; }
                 const note = String(bonusEdit.note || '').trim();
@@ -14934,7 +14940,15 @@ ${getRekapShareLink(rekap)}
             // Rekap yang dibatalkan tapi masih menyimpan catatan pembayaran: pembayaran ini TIDAK tercatat di Buku Kas / Dana Operasional
             const cancelledPaidRekaps = safeRekapForReport
                 .filter(r => r && r.isDeleted)
-                .map(r => ({ rekap: r, pays: safeArray(r.payments).filter(p => safeMoney(p.amount) > 0) }))
+                .map(r => {
+                    const pays = safeArray(r.payments).filter(p => safeMoney(p.amount) > 0);
+                    // Rekap lama yang dianggap lunas tanpa rincian pembayaran (aturan Buku Kas): pakai gaji bersihnya
+                    if (pays.length === 0 && (!Array.isArray(r.payments) || r.paymentStatus === 'lunas')) {
+                        const net = r.netSalary != null ? safeMoney(r.netSalary) : Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
+                        return { rekap: r, pays: net > 0 ? [{ id: 'legacy', date: r.dateProcessed, amount: net, method: 'lunas, data lama' }] : [] };
+                    }
+                    return { rekap: r, pays };
+                })
                 .filter(({ rekap, pays }) => {
                     if (pays.length === 0) return false;
                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
