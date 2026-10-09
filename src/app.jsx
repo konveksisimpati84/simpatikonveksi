@@ -863,14 +863,15 @@
             return clientName !== '' && normalizeText(inv.customer) === clientName;
         };
 
-        // Absensi: datang minimal 1 jam sebelum jam masuk shift = lembur (dihitung menit sebelum jam masuk).
-        // Kurang dari 1 jam tidak dihitung. Scan dini hari yang sebenarnya jam pulang Shift 3 (lewat tengah malam) diabaikan.
-        const LEMBUR_DATANG_AWAL_MIN_MENIT = 60;
-        const getLemburDatangAwalMenit = (mMasuk, mJamMasukShift, mShift3PulangLewatMalam = null) => {
-            if (mMasuk == null || mJamMasukShift == null) return 0;
-            if (mShift3PulangLewatMalam != null && mMasuk <= mShift3PulangLewatMalam) return 0;
-            const awal = mJamMasukShift - mMasuk;
-            return awal >= LEMBUR_DATANG_AWAL_MIN_MENIT ? awal : 0;
+        // Absensi: scan di luar Batas Scan shift dianggap jam batasnya (mis. batas 06:00–17:30: datang 05:30 -> 06:00, pulang 18:00 -> 17:30)
+        const clampJamKeBatasScan = (jam, scanMulai, scanSelesai) => {
+            if (!jam) return jam;
+            const toM = (t) => { if (!t) return null; const [h, m] = String(t).split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
+            const m = toM(jam), mMulai = toM(scanMulai), mSelesai = toM(scanSelesai);
+            if (m == null) return jam;
+            if (mMulai != null && m < mMulai) return scanMulai;
+            if (mSelesai != null && m > mSelesai) return scanSelesai;
+            return jam;
         };
 
         const getInvoiceCommissionTotal = (invoice) => {
@@ -14161,16 +14162,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     }
                     const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
                     const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
-                    const jamMasuk = override?.jamMasuk || rawMasuk;
-                    const jamPulang = override?.jamPulang || rawPulang;
+                    // Ikuti Batas Scan shift (sama dengan menu Absensi Finger); jam yang diedit manual tidak diubah
+                    const jamMasuk = override?.jamMasuk || clampJamKeBatasScan(rawMasuk, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
+                    const jamPulang = override?.jamPulang || clampJamKeBatasScan(rawPulang, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
                     if (!isGap && jamMasuk && !jamPulang) warnings.push({ date, type: 'masuk_tanpa_pulang', jam: jamMasuk });
                     else if (!isGap && !jamMasuk && jamPulang) warnings.push({ date, type: 'pulang_tanpa_masuk', jam: jamPulang });
                     if (jamMasuk && jamPulang && !skipDay) {
                         let dayAdjAmt = 0; let dayAdjDetails = [];
                         if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
-                            // Datang lebih awal tidak dihitung "jam lebih" (≥ 1 jam awal sudah dihitung sebagai lembur): jam masuk paling awal = jadwal shift
-                            const mMasukEfektif = Math.max(ttm(jamMasuk), mMasukCfg);
-                            const actualMenit = ttm(jamPulang) - mMasukEfektif;
+                            // Selisih bersih dari jam kerja standar shift: datang awal & pulang lebih lama = lebih jam, kurang < 30 menit = toleransi
+                            const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
                             const selisihMenit = actualMenit - standardMenit;
                             if (Math.abs(selisihMenit) >= 30) {
                                 const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
@@ -14209,16 +14210,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         mLPulang = Math.min(mLPulang, cappedPulang);
                     }
                     const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
-                    const lemburMalamMenit = (shouldCalcLembur && lemburMenit >= 60) ? lemburMenit : 0;
-                    // Datang ≥ 1 jam sebelum jam masuk = lembur (hanya hari yang tercatat hadir: ada jam masuk & pulang)
-                    const lemburAwalMenit = (jamMasuk && jamPulang) ? getLemburDatangAwalMenit(ttm(jamMasuk), mMasukCfg, isShift3CrossMidnight ? mShift3Pulang : null) : 0;
-                    const totalLemburMenit = lemburMalamMenit + lemburAwalMenit;
-                    if (totalLemburMenit > 0 && !skipOt) {
-                        const lemburJam = Math.round(totalLemburMenit / 60 * 10) / 10;
+                    if (shouldCalcLembur && lemburMenit >= 60 && !skipOt) {
+                        const lemburJam = Math.round(lemburMenit / 60 * 10) / 10;
                         const lemburRate = safeMoney(emp.overtimeRate) || 0;
-                        if (lemburRate === 0 && !isGap) warnings.push({ date, type: 'lembur_rate_kosong', jam: lemburMalamMenit > 0 ? jlMasuk : jamMasuk });
-                        const awalLabel = lemburAwalMenit > 0 ? ` (datang awal ${Math.round(lemburAwalMenit / 60 * 10) / 10} jam)` : '';
-                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: `Lembur ${date}${awalLabel}${isGap ? ' (terlewat)' : ''}`, ...(lemburAwalMenit > 0 ? { lemburAwalMenit } : {}), isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
+                        if (lemburRate === 0 && !isGap) warnings.push({ date, type: 'lembur_rate_kosong', jam: jlMasuk });
+                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: isGap ? `Lembur ${date} (terlewat)` : `Lembur ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
                     }
                 });
                 if (previewLogs.length === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
@@ -25646,18 +25642,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                 const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
 
-                // Batas waktu scan: taps di luar jendela ini diabaikan untuk perhitungan aktif
-                const mScanMulai = shiftConfig?.scanMulai ? timeToMinutes(shiftConfig.scanMulai) : null;
-                const mScanSelesai = shiftConfig?.scanSelesai ? timeToMinutes(shiftConfig.scanSelesai) : null;
-                const inScanWindow = (e) => {
-                    const m = timeToMinutes(e.jam);
-                    if (mScanMulai !== null && m < mScanMulai) return false;
-                    if (mScanSelesai !== null && m > mScanSelesai) return false;
-                    return true;
-                };
-                const windowedSorted = (mScanMulai !== null || mScanSelesai !== null) ? sorted.filter(inScanWindow) : sorted;
-
-                const aktifEntries = windowedSorted.filter(e => timeToMinutes(e.jam) < mAktifBoundary);
+                // Batas Scan: scan di luar batas tidak dibuang, tapi dianggap jam batasnya (lihat clampJamKeBatasScan)
+                const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mAktifBoundary);
                 const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mAktifBoundary);
 
                 const mMasukCfg = timeToMinutes(jamMasukEff);
@@ -25689,8 +25675,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     rawLemburPulang = lemburPulangZone.length > 0 ? lemburPulangZone[lemburPulangZone.length - 1].jam : null;
                 }
 
-                const jamMasuk = override?.jamMasuk || rawMasuk;
-                const jamPulang = override?.jamPulang || rawPulang;
+                // Sama dengan perhitungan gaji di Laporan Kinerja; jam yang diedit manual tidak diubah
+                const jamMasuk = override?.jamMasuk || clampJamKeBatasScan(rawMasuk, shiftConfig?.scanMulai, shiftConfig?.scanSelesai);
+                const jamPulang = override?.jamPulang || clampJamKeBatasScan(rawPulang, shiftConfig?.scanMulai, shiftConfig?.scanSelesai);
                 const jamLemburMasuk = shouldComputeLembur ? (override?.jamLemburMasuk || rawLemburMasuk) : null;
                 const jamLemburPulang = shouldComputeLembur ? (override?.jamLemburPulang || rawLemburPulang) : null;
 
@@ -25706,11 +25693,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) {
                     lemburMenit = mLPulang - mLMasuk;
                 }
-                // Datang ≥ 1 jam sebelum jam masuk = lembur (sama dengan perhitungan gaji di Laporan Kinerja)
-                const isShift3LewatMalam = shift3 !== null && mShift3Pulang != null && mShift3Pulang < mAktifBoundary;
-                const lemburAwalMenit = (jamMasuk && jamPulang) ? getLemburDatangAwalMenit(mMasuk, mMasukCfg, isShift3LewatMalam ? mShift3Pulang : null) : 0;
+                // Lebih/kurang jam dari jam kerja standar shift (selisih bersih; di bawah 30 menit = toleransi, tidak dihitung)
+                const mPulangHari = timeToMinutes(jamPulang);
+                const selisihJamMenit = (mMasuk != null && mPulangHari != null && mMasukCfg != null && mPulangCfg != null) ? (mPulangHari - mMasuk) - (mPulangCfg - mMasukCfg) : 0;
+                const lebihKurangMenit = Math.abs(selisihJamMenit) >= 30 ? selisihJamMenit : 0;
 
-                return { jamMasuk, jamPulang, rawMasuk, rawPulang, jamLemburMasuk, jamLemburPulang, rawLemburMasuk, rawLemburPulang, status, lemburMenit, lemburAwalMenit };
+                return { jamMasuk, jamPulang, rawMasuk, rawPulang, jamLemburMasuk, jamLemburPulang, rawLemburMasuk, rawLemburPulang, status, lemburMenit, lebihKurangMenit };
             };
 
             // Build daily summary for a date
@@ -25888,7 +25876,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             empMap[pin].hadir++;
                             if (metrics.status === 'Terlambat') empMap[pin].terlambat++;
                         }
-                        empMap[pin].lemburMenit += metrics.lemburMenit + (metrics.lemburAwalMenit || 0);
+                        empMap[pin].lemburMenit += metrics.lemburMenit;
                     });
                 }
 
@@ -25925,7 +25913,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const metrics = computeDayMetrics(entries, override, shiftConfig);
                     const mIn = timeToMinutes(metrics.jamMasuk), mOut = timeToMinutes(metrics.jamPulang);
                     const kerjaMenit = (mIn != null && mOut != null && mOut > mIn) ? mOut - mIn : 0;
-                    days.push({ d, dateStr, dow, isWeekend: isWknd, jamMasuk: metrics.jamMasuk, jamPulang: metrics.jamPulang, jamLemburMasuk: metrics.jamLemburMasuk, jamLemburPulang: metrics.jamLemburPulang, status: metrics.jamMasuk ? metrics.status : 'absen', kerjaMenit, lemburMenit: (metrics.lemburMenit || 0) + (metrics.lemburAwalMenit || 0), lemburAwalMenit: metrics.lemburAwalMenit || 0 });
+                    days.push({ d, dateStr, dow, isWeekend: isWknd, jamMasuk: metrics.jamMasuk, jamPulang: metrics.jamPulang, jamLemburMasuk: metrics.jamLemburMasuk, jamLemburPulang: metrics.jamLemburPulang, status: metrics.jamMasuk ? metrics.status : 'absen', kerjaMenit, lemburMenit: metrics.lemburMenit || 0 });
                 }
                 return days;
             };
@@ -26018,7 +26006,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <Card className="border-l-4 border-l-blue-500"><h3 className="text-sm font-bold text-gray-500">Hadir Hari Ini</h3><p className="text-2xl font-black text-blue-700 mt-2">{dailyRows.filter(r => r.jamMasuk).length}</p><p className="text-xs text-gray-400 mt-1">dari {dailyRows.length} data</p></Card>
                         <Card className="border-l-4 border-l-red-500"><h3 className="text-sm font-bold text-gray-500">Terlambat</h3><p className="text-2xl font-black text-red-700 mt-2">{dailyRows.filter(r => r.status === 'Terlambat').length}</p><p className="text-xs text-gray-400 mt-1">karyawan</p></Card>
-                        <Card className="border-l-4 border-l-orange-500"><h3 className="text-sm font-bold text-gray-500">Lembur</h3><p className="text-2xl font-black text-orange-700 mt-2">{dailyRows.filter(r => r.lemburMenit > 0 || r.lemburAwalMenit > 0).length}</p><p className="text-xs text-gray-400 mt-1">karyawan lembur</p></Card>
+                        <Card className="border-l-4 border-l-orange-500"><h3 className="text-sm font-bold text-gray-500">Lembur</h3><p className="text-2xl font-black text-orange-700 mt-2">{dailyRows.filter(r => r.lemburMenit > 0).length}</p><p className="text-xs text-gray-400 mt-1">karyawan lembur</p></Card>
                     </div>
 
                     <Card>
@@ -26069,7 +26057,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <th className="py-2 px-3 text-center">Detail</th>
                                             </tr></thead>
                                             <tbody>{dailyRows.map((row, idx) => {
-                                                const hasLembur = row.lemburMenit > 0 || !!row.jamLemburMasuk || row.lemburAwalMenit > 0;
+                                                const hasLembur = row.lemburMenit > 0 || !!row.jamLemburMasuk;
                                                 const isLate = row.status === 'Terlambat';
                                                 const mIn = timeToMinutes(row.jamMasuk);
                                                 const mOut = timeToMinutes(row.jamPulang);
@@ -26094,12 +26082,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                               </div>
                                                             : <span className="text-gray-300 text-xs">—</span>
                                                         }
+                                                        {row.jamMasuk && row.rawMasuk && row.rawMasuk !== row.jamMasuk && !row.override?.jamMasuk && <div className="text-[9px] text-gray-400 mt-0.5 whitespace-nowrap" title="Scan di luar Batas Scan dianggap jam batas">scan {row.rawMasuk}</div>}
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
                                                         {row.jamPulang
                                                             ? <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded-md bg-blue-500">
                                                                 <span className="text-[6.5px] font-bold uppercase tracking-wider text-white opacity-80">Pulang</span>
                                                                 <span className="text-[11px] font-black tabular-nums text-white leading-tight">{row.jamPulang}</span>
+                                                                {row.rawPulang && row.rawPulang !== row.jamPulang && !row.override?.jamPulang && <span className="text-[8px] text-white/80 whitespace-nowrap" title="Scan di luar Batas Scan dianggap jam batas">scan {row.rawPulang}</span>}
                                                               </div>
                                                             : row.jamMasuk
                                                                 ? <span className="text-[8px] text-gray-400 italic border border-dashed border-gray-200 px-1.5 py-0.5 rounded">belum pulang</span>
@@ -26111,6 +26101,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 tabular-nums">⏱ {pagiDurLabel}</span>
                                                             : <span className="text-gray-300 text-xs">—</span>
                                                         }
+                                                        {row.lebihKurangMenit > 0 && <div className="mt-1 text-[10px] font-bold text-emerald-700 whitespace-nowrap" title="Lebih dari jam kerja standar shift">+{durasiLabel(row.lebihKurangMenit)} lebih jam</div>}
+                                                        {row.lebihKurangMenit < 0 && <div className="mt-1 text-[10px] font-bold text-red-600 whitespace-nowrap" title="Kurang dari jam kerja standar shift">−{durasiLabel(-row.lebihKurangMenit)} kurang jam</div>}
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
                                                         {row.lemburMenit > 0 ? (
@@ -26136,11 +26128,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     <span className="text-[11px] font-black tabular-nums text-white leading-tight">{row.jamLemburMasuk}</span>
                                                                 </div>
                                                             </div>
-                                                        ) : row.lemburAwalMenit > 0 ? null : (
+                                                        ) : (
                                                             <span className="text-gray-300 text-xs">—</span>
-                                                        )}
-                                                        {row.lemburAwalMenit > 0 && (
-                                                            <div className="mt-1"><span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 tabular-nums whitespace-nowrap" title="Datang minimal 1 jam sebelum jam masuk dihitung lembur">⏰ Datang awal {durasiLabel(row.lemburAwalMenit)}</span></div>
                                                         )}
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
@@ -26175,10 +26164,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     <div><div className="text-[10px] text-gray-500 font-bold uppercase mb-0.5">Status</div><div>{statusBadge(detailRow.status)}</div></div>
                                                     <div className="text-right"><div className="text-[10px] text-gray-500 font-bold uppercase mb-0.5">Jumlah Scan</div><div className="font-bold text-gray-700">{detailRow.scanCount}x</div></div>
                                                 </div>
-                                                {detailRow.lemburAwalMenit > 0 && (
-                                                    <div className="bg-amber-50 rounded-xl p-3 mb-3">
-                                                        <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Lembur Datang Awal</div>
-                                                        <div className="font-bold text-amber-800">Masuk {detailRow.jamMasuk} <span className="text-amber-600">({durasiLabel(detailRow.lemburAwalMenit)} sebelum jam masuk, dihitung lembur)</span></div>
+                                                {detailRow.lebihKurangMenit !== 0 && detailRow.lebihKurangMenit != null && (
+                                                    <div className={`${detailRow.lebihKurangMenit > 0 ? 'bg-emerald-50' : 'bg-red-50'} rounded-xl p-3 mb-3`}>
+                                                        <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">{detailRow.lebihKurangMenit > 0 ? 'Lebih Jam' : 'Kurang Jam'}</div>
+                                                        <div className={`font-bold ${detailRow.lebihKurangMenit > 0 ? 'text-emerald-700' : 'text-red-700'}`}>{detailRow.lebihKurangMenit > 0 ? '+' : '−'}{durasiLabel(Math.abs(detailRow.lebihKurangMenit))} <span className="font-normal text-xs text-gray-500">dari jam kerja standar shift (selisih di bawah 30 menit tidak dihitung)</span></div>
                                                     </div>
                                                 )}
                                                 {(detailRow.jamLemburMasuk || detailRow.lemburMenit > 0) && (
@@ -26439,7 +26428,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             {hasLembur ? (
                                                                 <div className="flex flex-col items-center gap-1">
                                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-200 tabular-nums">🌙 {lemDur}</span>
-                                                                    {day.lemburAwalMenit > 0 && <span className="text-[9px] font-bold text-amber-700 whitespace-nowrap">termasuk datang awal {rkDurLabel(day.lemburAwalMenit)}</span>}
                                                                     {day.jamLemburMasuk && (
                                                                         <div className="flex items-center gap-1">
                                                                             <div className="inline-flex flex-col items-center px-1.5 py-0.5 rounded border bg-orange-50 border-orange-200 text-orange-700">
