@@ -10009,168 +10009,115 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <span className="font-mono text-blue-200 text-xs font-semibold">{inv.id}</span>
                                             <span className="text-white/40 text-xs">·</span>
                                             <span className="text-white/70 text-xs">{inv.date}</span>
-                                            {inv.marketing && <span className="text-white/60 text-xs">· 👤 {inv.marketing}</span>}
+                                            {inv.marketing && <span className="text-white/70 text-xs">· Marketing: {inv.marketing}</span>}
                                         </div>
-                                        <span className="inline-block mt-2 text-[11px] font-black px-2.5 py-0.5 rounded-full" style={{ background: statusColor.bg, color: statusColor.text }}>{statusColor.label}</span>
+                                        <span className="inline-block mt-2 text-[11px] font-black px-2.5 py-0.5 rounded-full" style={{ background: statusColor.bg, color: statusColor.text }}>{statusColor.label}{status === 'Termin' ? ` · ${pct}% terbayar` : ''}</span>
                                     </div>
                                     <button onClick={() => setDetailInvId(null)} className="w-8 h-8 rounded-xl bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-sm font-black shrink-0 ml-2">✕</button>
                                 </div>
 
                                 <div className="overflow-y-auto flex-1 p-5 space-y-5">
 
-                                    {/* Rincian Produksi */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-2.5">
-                                            <div className="w-1 h-4 rounded-full bg-teal-500"></div>
-                                            <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Rincian Produksi</span>
-                                            <span className="text-[10px] text-gray-400 font-bold">{totalPcs} pcs total</span>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {invItems.map((item, i) => {
-                                                const itemSizes = (item.sizes || []).filter(s => (s.qty > 0 || s.size));
-                                                const itemSubtotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).subtotal, 0);
-                                                const itemDiscount = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).discount, 0);
-                                                const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
-                                                const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
-                                                return (
-                                                    <div key={i} className="rounded-xl border border-gray-100 overflow-hidden">
-                                                        <div className="flex items-center justify-between px-3 py-2 bg-blue-50 border-b border-blue-100">
-                                                            <span className="font-black text-blue-800 text-sm">{item.productionType || '-'}</span>
-                                                            <div className="text-right">
-                                                                <span className="text-xs font-black text-blue-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(itemTotal)}</span>
-                                                                <span className="text-[10px] text-blue-400 ml-1">({itemPcs} pcs)</span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="px-3 py-2 flex flex-wrap gap-1.5">
-                                                            {itemSizes.map((s, si) => {
-                                                                const st = getInvoiceSizeTotal(s);
-                                                                return (
-                                                                    <div key={si} className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-center min-w-[56px]">
-                                                                        <div className="text-[10px] font-black text-gray-700">{s.size || '-'}</div>
-                                                                        <div className="text-[10px] text-gray-500">{safeMoney(s.qty)} pcs</div>
-                                                                        {st.discount > 0 && <div className="text-[9px] text-amber-600 line-through">{formatRupiah(st.subtotal)}</div>}
-                                                                        <div className="text-[10px] font-bold text-blue-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(st.total)}</div>
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                        {itemDiscount > 0 && (
-                                                            <div className="px-3 py-1.5 bg-amber-50 border-t border-amber-100 flex justify-between">
-                                                                <span className="text-[10px] text-amber-700 font-semibold">🏷 Diskon item ini</span>
-                                                                <span className="text-[10px] font-bold text-amber-700">- {formatRupiah(itemDiscount)}</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
+                                    {/* Tampilan nota: tabel produk -> hitungan -> sisa tagihan */}
+                                    <div className="-mx-1 overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="border-b-2 border-gray-200 text-[11px] uppercase tracking-wide text-gray-500">
+                                                    <th className="text-left font-bold px-1 py-1.5">Produk &amp; Ukuran</th>
+                                                    <th className="text-right font-bold px-1 py-1.5">Qty</th>
+                                                    <th className="text-right font-bold px-1 py-1.5 hidden sm:table-cell">Harga</th>
+                                                    <th className="text-right font-bold px-1 py-1.5">Subtotal</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {invItems.map((item, i) => {
+                                                    const itemSizes = (item.sizes || []).filter(s => (safeMoney(s.qty) > 0 || s.size));
+                                                    const itemDiscount = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).discount, 0);
+                                                    const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
+                                                    const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
+                                                    const prices = [...new Set(itemSizes.map(s => safeMoney(s.pricePerPcs)))];
+                                                    const samePrice = prices.length === 1;
+                                                    const fmtNum = (n) => formatRupiah(n).replace(/^Rp\s*/, '');
+                                                    return (
+                                                        <tr key={i} className="border-b border-gray-100 align-top">
+                                                            <td className="px-1 py-2.5">
+                                                                <div className="font-bold text-gray-900 leading-snug">{item.productionType || '-'}</div>
+                                                                <div className="text-[12.5px] text-gray-600 mt-0.5 leading-snug">
+                                                                    {itemSizes.map(s => samePrice ? `${s.size || '-'} ${safeMoney(s.qty)}` : `${s.size || '-'} ${safeMoney(s.qty)} × ${fmtNum(s.pricePerPcs)}`).join(' · ')}
+                                                                </div>
+                                                                {samePrice && <div className="text-[11.5px] text-gray-500 sm:hidden">@ {formatRupiah(prices[0])}</div>}
+                                                            </td>
+                                                            <td className="px-1 py-2.5 text-right tabular-nums">{itemPcs}</td>
+                                                            <td className="px-1 py-2.5 text-right tabular-nums hidden sm:table-cell">{samePrice ? fmtNum(prices[0]) : <span className="text-[11px] text-gray-500">per ukuran</span>}</td>
+                                                            <td className="px-1 py-2.5 text-right tabular-nums whitespace-nowrap">
+                                                                <div className="font-semibold text-gray-900">{fmtNum(itemTotal)}</div>
+                                                                {itemDiscount > 0 && <div className="text-[11px] text-amber-700">diskon −{fmtNum(itemDiscount)}</div>}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
                                     </div>
 
-                                    {/* Ringkasan Keuangan */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-2.5">
-                                            <div className="w-1 h-4 rounded-full bg-blue-500"></div>
-                                            <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Ringkasan Keuangan</span>
-                                        </div>
-                                        <div className="rounded-xl border border-gray-100 overflow-hidden">
-                                            {totals.subtotal !== totals.total && (
-                                                <div className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
-                                                    <span className="text-sm text-gray-500">Subtotal Produksi ({totalPcs} pcs)</span>
-                                                    <span className="text-sm font-bold text-gray-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totals.subtotal)}</span>
-                                                </div>
-                                            )}
-                                            {totals.lineDiscount > 0 && (
-                                                <div className="flex justify-between items-center px-4 py-2.5 bg-amber-50 border-b border-amber-100">
-                                                    <span className="text-sm text-amber-700 font-semibold">🏷 Diskon Per Baris</span>
-                                                    <span className="text-sm font-bold text-amber-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(totals.lineDiscount)}</span>
-                                                </div>
-                                            )}
-                                            {totals.globalDiscount > 0 && (
-                                                <div className="flex justify-between items-center px-4 py-2.5 bg-orange-50 border-b border-orange-100">
-                                                    <span className="text-sm text-orange-700 font-semibold">🎫 Diskon Global{inv.globalDiscountType === '%' ? ` (${safeMoney(inv.globalDiscountValue)}%)` : ''}</span>
-                                                    <span className="text-sm font-bold text-orange-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(totals.globalDiscount)}</span>
-                                                </div>
-                                            )}
-                                            <div className="flex justify-between items-center px-4 py-3 bg-blue-50 border-b border-blue-100">
-                                                <span className="text-sm font-black text-blue-800">Total Invoice</span>
-                                                <span className="text-base font-black text-blue-900" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(totals.total)}</span>
+                                    <div className="space-y-0.5">
+                                        {(totals.globalDiscount > 0 || totals.shippingCost > 0) && (
+                                            <div className="flex justify-between px-1 py-1.5 text-sm text-gray-600">
+                                                <span>Jumlah produk</span>
+                                                <span className="tabular-nums">{formatRupiah(totals.subtotal - totals.lineDiscount)}</span>
                                             </div>
-                                            {dpAmt > 0 && (
-                                                <div className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
-                                                    <span className="text-sm text-gray-500">DP Awal</span>
-                                                    <div className="flex items-center gap-2">
-                                                        <button onClick={() => { const dpObj = getInvoiceDp(inv); const cum = dpAmt + getInvoiceLinkedDpAmount(inv); printInvoicePayment(inv, { id: (dpObj.id || inv.id+'-DP'), date: dpObj.date, amount: dpAmt, method: dpObj.method || 'Transfer', note: dpObj.note || '' }, 'DP / Uang Muka', cum >= totals.total); }} title="Cetak Kwitansi DP" className="text-slate-400 hover:text-blue-600 transition-colors"><IconPrinter /></button>
-                                                        <span className="text-sm font-bold text-green-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(dpAmt)}</span>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {linkedDp > 0 && (
-                                                <div className="flex justify-between items-center px-4 py-2.5 bg-emerald-50 border-b border-emerald-100">
-                                                    <span className="text-sm text-emerald-700 font-semibold">💳 Saldo Klien Dipakai</span>
-                                                    <span className="text-sm font-bold text-emerald-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(linkedDp)}</span>
-                                                </div>
-                                            )}
-                                            {termins.map((pay, pi) => (
-                                                <div key={pay.id || pi} className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
-                                                    <div>
-                                                        <span className="text-sm text-gray-500">Termin {pi + 1}</span>
-                                                        <span className="text-[10px] text-gray-400 ml-2">{pay.date} · {pay.method || 'Transfer'}</span>
-                                                        {pay.note && <span className="text-[10px] text-gray-400 ml-1 italic">· {pay.note}</span>}
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button onClick={() => { const cum = dpAmt + linkedDp + termins.slice(0, pi+1).reduce((s,p) => s + safeMoney(p.amount), 0); printInvoicePayment(inv, pay, `Termin ke-${pi+1}`, cum >= totals.total); }} title="Cetak Kwitansi" className="text-slate-400 hover:text-blue-600 transition-colors"><IconPrinter /></button>
-                                                        <span className="text-sm font-bold text-green-700" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(safeMoney(pay.amount))}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            <div className={`flex justify-between items-center px-4 py-3 ${remaining > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-                                                <span className={`text-sm font-black ${remaining > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                                                    {remaining > 0 ? '⚠ Sisa Tagihan' : '✓ Lunas'}
-                                                </span>
-                                                <span className={`text-base font-black ${remaining > 0 ? 'text-red-600' : 'text-green-600'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                                    {formatRupiah(remaining)}
+                                        )}
+                                        {totals.globalDiscount > 0 && (
+                                            <div className="flex justify-between px-1 py-1.5 text-sm text-amber-700">
+                                                <span>Diskon{inv.globalDiscountType === '%' ? ` (${safeMoney(inv.globalDiscountValue)}%)` : ''}</span>
+                                                <span className="tabular-nums">− {formatRupiah(totals.globalDiscount)}</span>
+                                            </div>
+                                        )}
+                                        {totals.shippingCost > 0 && (
+                                            <div className="flex justify-between px-1 py-1.5 text-sm text-gray-600">
+                                                <span>Ongkos kirim</span>
+                                                <span className="tabular-nums">+ {formatRupiah(totals.shippingCost)}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between items-baseline px-1 pt-2.5 pb-1.5 border-t-2 border-gray-900 mt-1">
+                                            <span className="font-black text-gray-900">Total Invoice <span className="text-xs font-bold text-gray-500">({totalPcs} pcs)</span></span>
+                                            <span className="font-black text-gray-900 text-base tabular-nums">{formatRupiah(totals.total)}</span>
+                                        </div>
+                                        {dpAmt > 0 && (
+                                            <div className="flex justify-between items-center px-1 py-1.5 text-sm text-emerald-700">
+                                                <span>DP Awal <span className="text-[11px] text-gray-500">{getInvoiceDp(inv).date || ''}{getInvoiceDp(inv).method ? ` · ${getInvoiceDp(inv).method}` : ''}</span></span>
+                                                <span className="flex items-center gap-2">
+                                                    <button onClick={() => { const dpObj = getInvoiceDp(inv); const cum = dpAmt + getInvoiceLinkedDpAmount(inv); printInvoicePayment(inv, { id: (dpObj.id || inv.id+'-DP'), date: dpObj.date, amount: dpAmt, method: dpObj.method || 'Transfer', note: dpObj.note || '' }, 'DP / Uang Muka', cum >= totals.total); }} title="Cetak Kwitansi DP" className="text-slate-400 hover:text-blue-600 transition-colors"><IconPrinter /></button>
+                                                    <span className="tabular-nums">− {formatRupiah(dpAmt)}</span>
                                                 </span>
                                             </div>
-                                        </div>
+                                        )}
+                                        {linkedDp > 0 && (
+                                            <div className="flex justify-between items-center px-1 py-1.5 text-sm text-emerald-700">
+                                                <span>Saldo klien dipakai</span>
+                                                <span className="tabular-nums">− {formatRupiah(linkedDp)}</span>
+                                            </div>
+                                        )}
+                                        {termins.map((pay, pi) => (
+                                            <div key={pay.id || pi} className="flex justify-between items-center px-1 py-1.5 text-sm text-emerald-700">
+                                                <span className="min-w-0">Termin {pi + 1} <span className="text-[11px] text-gray-500">{pay.date} · {pay.method || 'Transfer'}{pay.note ? ` · ${pay.note}` : ''}</span></span>
+                                                <span className="flex items-center gap-2 shrink-0">
+                                                    <button onClick={() => { const cum = dpAmt + linkedDp + termins.slice(0, pi+1).reduce((s,p) => s + safeMoney(p.amount), 0); printInvoicePayment(inv, pay, `Termin ke-${pi+1}`, cum >= totals.total); }} title="Cetak Kwitansi" className="text-slate-400 hover:text-blue-600 transition-colors"><IconPrinter /></button>
+                                                    <span className="tabular-nums">− {formatRupiah(safeMoney(pay.amount))}</span>
+                                                </span>
+                                            </div>
+                                        ))}
                                     </div>
 
-                                    {/* Progress Pembayaran */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-2.5">
-                                            <div className="w-1 h-4 rounded-full bg-green-500"></div>
-                                            <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Progress Pembayaran</span>
-                                        </div>
-                                        <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                                            <div className="flex items-center justify-between mb-1.5">
-                                                <span className="text-[11px] font-bold text-gray-500">{pct}% terbayar</span>
-                                                <span className="text-[11px] font-black" style={{ color: statusColor.text }}>{statusColor.label}</span>
-                                            </div>
-                                            <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                                                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${statusColor.bar}, ${statusColor.bar}cc)` }}></div>
-                                            </div>
-                                            <div className="flex justify-between mt-1.5">
-                                                <span className="text-[10px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>Terbayar: {formatRupiah(paid)}</span>
-                                                {remaining > 0 && <span className="text-[10px] text-red-500 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>Sisa: {formatRupiah(remaining)}</span>}
-                                            </div>
-                                        </div>
+                                    <div className={`flex justify-between items-center rounded-xl px-4 py-3 ${remaining > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                                        <span className={`font-black ${remaining > 0 ? 'text-red-800' : 'text-green-800'}`}>{remaining > 0 ? 'Sisa Tagihan' : '✓ Lunas'}</span>
+                                        <span className={`text-xl font-black tabular-nums ${remaining > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatRupiah(remaining)}</span>
                                     </div>
 
-                                    {/* Marketing & Komisi */}
-                                    {(inv.marketing || commission > 0) && (
-                                        <div className="rounded-xl border border-purple-100 bg-purple-50 px-4 py-3 flex items-center justify-between">
-                                            <div>
-                                                <div className="text-[11px] font-black text-purple-500 uppercase tracking-widest mb-0.5">Komisi Marketing</div>
-                                                <div className="text-sm font-bold text-purple-800">{inv.marketing || '-'}</div>
-                                                {inv.commissionValue > 0 && (
-                                                    <div className="text-[10px] text-purple-400 mt-0.5">
-                                                        {inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${inv.commissionValue}% dari nilai produksi`}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="font-black text-purple-700 text-lg" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(commission)}</div>
-                                                {inv.commissionRekapId && <div className="text-[10px] text-purple-400">✓ Sudah direkap</div>}
-                                            </div>
+                                    {commission > 0 && (
+                                        <div className="rounded-xl border border-purple-100 bg-purple-50 px-4 py-2.5 flex items-center justify-between gap-3 text-sm text-purple-800">
+                                            <span className="min-w-0">Komisi marketing{inv.commissionValue > 0 ? ` ${inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${inv.commissionValue}%`}` : ''}{inv.marketing ? ` · ${inv.marketing}` : ''}{inv.commissionRekapId ? <b> · sudah direkap</b> : ''}</span>
+                                            <b className="tabular-nums shrink-0">{formatRupiah(commission)}</b>
                                         </div>
                                     )}
 
