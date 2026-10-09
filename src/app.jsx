@@ -199,15 +199,18 @@
             // password: null (bukan dihapus) agar pengosongan ikut tersinkron saat digabung dengan data perangkat lain
             return { password: null, passwordHash: hashPassword(password, salt), passwordSalt: salt, passwordAlgo: `sha256x${PASSWORD_HASH_ROUNDS}` };
         };
+        // Password teks asli hanya ditulis oleh aplikasi versi lama (versi baru selalu mengosongkannya),
+        // jadi jika ada, itulah password terbaru dan yang berlaku — walau hash lama masih tersimpan.
+        const hasPlainPassword = (account) => !!account && account.password !== undefined && account.password !== null && account.password !== '';
         const verifyAccountPassword = (account, input) => {
             if (!account) return false;
+            if (hasPlainPassword(account)) return String(account.password).trim() === String(input ?? '').trim();
             if (account.passwordHash && account.passwordSalt) return hashPassword(input, account.passwordSalt) === account.passwordHash;
-            return account.password !== undefined && account.password !== null && String(account.password).trim() === String(input ?? '').trim();
+            return false;
         };
-        // Akun versi lama (password teks asli) -> diganti hash; akun yang sudah hash dibiarkan
+        // Password teks asli -> diacak ulang dari teks asli itu (menggantikan hash lama bila ada)
         const withHashedPassword = (account) => {
-            if (!account || account.password === undefined || account.password === null || account.password === '') return account;
-            if (account.passwordHash) return { ...account, password: null };
+            if (!hasPlainPassword(account)) return account;
             return { ...account, ...makePasswordFields(account.password) };
         };
         const stripCredentials = (account) => {
@@ -18092,7 +18095,7 @@ ${getRekapShareLink(rekap)}
                 const { password: legacyPlain, newPassword, ...editRest } = editAcc;
                 const passwordFields = String(newPassword || '').trim()
                     ? makePasswordFields(newPassword)
-                    : (editRest.passwordHash ? {} : (legacyPlain ? makePasswordFields(legacyPlain) : {}));
+                    : (hasPlainPassword({ password: legacyPlain }) ? makePasswordFields(legacyPlain) : {});
                 setAccounts(prev => prev.map(acc => {
                     if (String(acc.id) !== String(editAcc.id)) return acc;
                     const hasHash = !!(passwordFields.passwordHash || editRest.passwordHash || acc.passwordHash);
