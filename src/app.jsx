@@ -13446,7 +13446,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
-            const [showDeletedRekaps, setShowDeletedRekaps] = useState(false);
+            const CANCELLED_PAID_DISMISS_KEY = 'simpati_cancelled_paid_rekap_dismissed';
+            const [cancelledPaidDismissed, setCancelledPaidDismissed] = useState(() => { try { return localStorage.getItem(CANCELLED_PAID_DISMISS_KEY) || ''; } catch (e) { return ''; } });
+            const [showCancelledPaidDetail, setShowCancelledPaidDetail] = useState(false);
             const [detailRekapId, setDetailRekapId] = useState(null);
             const [detailRekapTab, setDetailRekapTab] = useState('rincian');
             const [payFormAmount, setPayFormAmount] = useState('');
@@ -14929,10 +14931,18 @@ ${getRekapShareLink(rekap)}
                     ], searchTerm);
                 })
                 .sort((a, b) => (b.dateProcessed || '').localeCompare(a.dateProcessed || '') || String(b.id).localeCompare(String(a.id)));
-            const deletedRekaps = safeRekapForReport
-                .filter(r => r.isDeleted && !r.restoredForEdit)
-                .filter(r => matchesSearch([r.id, r.empName, r.division, r.dateProcessed], searchTerm))
-                .sort((a, b) => (b.dateProcessed || '').localeCompare(a.dateProcessed || '') || String(b.id).localeCompare(String(a.id)));
+            // Rekap yang dibatalkan tapi masih menyimpan catatan pembayaran: pembayaran ini TIDAK tercatat di Buku Kas / Dana Operasional
+            const cancelledPaidRekaps = safeRekapForReport
+                .filter(r => r && r.isDeleted)
+                .map(r => ({ rekap: r, pays: safeArray(r.payments).filter(p => safeMoney(p.amount) > 0) }))
+                .filter(({ rekap, pays }) => {
+                    if (pays.length === 0) return false;
+                    const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
+                    return isSuperAdmin || !(emp && isSensitiveEmp(emp));
+                })
+                .sort((a, b) => (b.rekap.dateProcessed || '').localeCompare(a.rekap.dateProcessed || ''));
+            const cancelledPaidSignature = cancelledPaidRekaps.map(({ rekap, pays }) => `${rekap.id}:${pays.length}`).join('|');
+            const cancelledPaidTotal = cancelledPaidRekaps.reduce((s, { pays }) => s + pays.reduce((ps, p) => ps + safeMoney(p.amount), 0), 0);
             const getRekapNet = (r) => {
                 if (r.netSalary != null) return safeMoney(r.netSalary);
                 return Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
@@ -15467,6 +15477,37 @@ ${getRekapShareLink(rekap)}
                     </div>
                     ) : activeReportTab === 'rekap' ? (
                     <div className="space-y-4">
+                        {authUser?.role !== 'Karyawan' && cancelledPaidRekaps.length > 0 && cancelledPaidDismissed !== cancelledPaidSignature && (
+                            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-sm text-amber-900">
+                                <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-black">⚠ {cancelledPaidRekaps.length} rekap yang dibatalkan punya pembayaran {formatRupiah(cancelledPaidTotal)} yang tidak tercatat di Buku Kas</div>
+                                        <div className="text-xs mt-1 text-amber-800">Pembayaran di rekap yang sudah dibatalkan tidak dihitung di Laporan Keuangan maupun Dana Operasional. Jika uangnya memang sudah keluar dan belum dicatat di rekap pengganti, catat ulang pembayarannya di rekap aktif karyawan tersebut.</div>
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                        <button onClick={() => setShowCancelledPaidDetail(v => !v)} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-amber-300 bg-white hover:bg-amber-100">{showCancelledPaidDetail ? 'Sembunyikan' : 'Lihat Rincian'}</button>
+                                        <button onClick={() => { try { localStorage.setItem(CANCELLED_PAID_DISMISS_KEY, cancelledPaidSignature); } catch (e) {} setCancelledPaidDismissed(cancelledPaidSignature); }} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white" title="Tutup pemberitahuan ini (muncul lagi bila ada data baru)">Sudah dicek, tutup</button>
+                                    </div>
+                                </div>
+                                {showCancelledPaidDetail && (
+                                    <div className="mt-3 overflow-x-auto">
+                                        <table className="w-full text-xs text-left bg-white rounded-lg">
+                                            <thead className="bg-amber-100/60 text-amber-900"><tr><th className="p-2">Tanggal Rekap</th><th className="p-2">Karyawan</th><th className="p-2">Pembayaran</th><th className="p-2 text-right">Jumlah</th></tr></thead>
+                                            <tbody>
+                                                {cancelledPaidRekaps.map(({ rekap, pays }) => (
+                                                    <tr key={rekap.id} className="border-t border-amber-100">
+                                                        <td className="p-2 whitespace-nowrap">{rekap.dateProcessed || '-'}</td>
+                                                        <td className="p-2 font-bold">{rekap.empName || '-'}</td>
+                                                        <td className="p-2">{pays.map(p => `${p.date || '-'}${p.method ? ` (${p.method})` : ''}`).join(', ')}</td>
+                                                        <td className="p-2 text-right font-bold whitespace-nowrap">{formatRupiah(pays.reduce((s, p) => s + safeMoney(p.amount), 0))}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                             <Card><h3 className="text-xs font-bold text-gray-500">Total Karyawan Direkap</h3><p className="text-xl font-black text-blue-700">{rekapSummary.employees}</p></Card>
                             <Card><h3 className="text-xs font-bold text-gray-500">Total Pcs</h3><p className="text-xl font-black text-slate-700">{rekapSummary.pcs} pcs</p></Card>
@@ -15688,7 +15729,6 @@ ${getRekapShareLink(rekap)}
                                                         {canEditRekapBonus && <button onClick={() => openBonusEdit(rekap)} title="Tambah / Ubah Bonus Kinerja" className="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 p-2 rounded-lg text-xs font-bold">🎁</button>}
                                                         <button onClick={() => printExistingRekap(rekap)} title="Cetak Struk Thermal" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-2 rounded-lg"><IconPrinter /></button>
                                                         <button onClick={() => sendWaRekap(rekap)} title="Kirim Notifikasi WhatsApp" className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 p-2 rounded-lg text-xs font-bold">WA</button>
-                                                        <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-2 rounded-lg"><IconTrash /></button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -15735,7 +15775,6 @@ ${getRekapShareLink(rekap)}
                                                 {canEditRekapBonus && <button onClick={() => openBonusEdit(rekap)} title="Tambah / Ubah Bonus Kinerja" className="text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 p-1.5 rounded-lg text-xs font-bold">🎁 Bonus</button>}
                                                 <button onClick={() => printExistingRekap(rekap)} title="Cetak Struk Thermal" className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 p-1.5 rounded-lg"><IconPrinter /></button>
                                                 <button onClick={() => sendWaRekap(rekap)} title="Kirim Notifikasi WhatsApp" className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 p-1.5 rounded-lg text-xs font-bold">WA</button>
-                                                <button onClick={() => setDeleteRekapConfirmId(rekap.id)} title="Batalkan Rekap" className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg"><IconTrash /></button>
                                             </div>
                                         </div>
                                     );
@@ -15747,49 +15786,6 @@ ${getRekapShareLink(rekap)}
                             <Card>
                                 <Paginator page={rekapListPage} setPage={setRekapListPage} totalPages={rekapListTotalPages} total={rekapListTotal} pageSize={15} label="rekap" />
                             </Card>
-                        )}
-                        {deletedRekaps.length > 0 && (
-                            <div className="mt-4">
-                                <button onClick={() => setShowDeletedRekaps(v => !v)} className={`flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-lg border transition-colors ${showDeletedRekaps ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-                                    <span>🗑</span>
-                                    <span>{showDeletedRekaps ? 'Sembunyikan' : 'Tampilkan'} Rekap Terhapus</span>
-                                    <span className="bg-red-100 text-red-700 text-xs font-black px-2 py-0.5 rounded-full">{deletedRekaps.length}</span>
-                                </button>
-                                {showDeletedRekaps && (
-                                    <div className="mt-3 bg-white border border-red-200 rounded-xl shadow-sm overflow-hidden">
-                                        <div className="px-4 py-2 bg-red-50 border-b border-red-100 text-xs font-bold text-red-700">Rekap yang sudah dibatalkan — bisa dipulihkan kembali</div>
-                                        <div className="overflow-x-auto">
-                                        <table className="w-full text-sm text-left">
-                                            <thead className="bg-gray-50 text-gray-500 text-xs">
-                                                <tr>
-                                                    <th className="p-3 font-semibold">Tanggal</th>
-                                                    <th className="p-3 font-semibold">Nama Karyawan</th>
-                                                    <th className="p-3 font-semibold">Divisi</th>
-                                                    <th className="p-3 font-semibold text-right">Gaji Bersih</th>
-                                                    <th className="p-3 font-semibold text-center">Aksi</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {deletedRekaps.map(rekap => {
-                                                    const netSalary = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
-                                                    return (
-                                                        <tr key={rekap.id} className="border-t border-gray-100 bg-red-50/40">
-                                                            <td className="p-3 text-gray-500 text-xs">{rekap.dateProcessed || '-'}</td>
-                                                            <td className="p-3 font-bold text-gray-500 line-through">{rekap.empName || '-'}</td>
-                                                            <td className="p-3 text-gray-400">{rekap.division || '-'}</td>
-                                                            <td className="p-3 text-right text-gray-400 font-bold">{formatRupiah(netSalary)}</td>
-                                                            <td className="p-3 text-center">
-                                                                <button onClick={() => setRestoreRekapConfirmId(rekap.id)} className="text-xs font-bold bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors">Pulihkan</button>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
                         )}
                     </div>
                     ) : activeReportTab === 'ranking' ? (
