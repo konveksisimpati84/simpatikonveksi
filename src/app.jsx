@@ -8913,7 +8913,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 if (targetInv) {
                     const invTotal = getInvoiceTotals(targetInv).total;
                     const currentPaid = getInvoicePaidTotal(targetInv);
-                    if (currentPaid + amt > invTotal) return showToast(`Pembayaran melebihi sisa tagihan (sisa: Rp ${formatMoney(Math.max(0, invTotal - currentPaid))}).`, 'error');
+                    if (currentPaid + amt > invTotal) return showToast(`Pembayaran melebihi sisa tagihan (sisa: ${formatRupiah(Math.max(0, invTotal - currentPaid))}).`, 'error');
                 }
                 const now = new Date().toISOString();
                 setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => {
@@ -11248,7 +11248,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 </div>
 </div></body></html>`;
             const w = window.open('', '_blank');
-            if (!w) return showToast('Gagal mencetak. Harap izinkan Pop-up!', 'error');
+            if (!w) { window.alert('Gagal mencetak. Harap izinkan Pop-up!'); return; }
             w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
         };
 
@@ -19829,8 +19829,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     </div>
                     <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
                         <div>Hormat Kami,</div>
-                        ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
-                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(templates?.companyName || 'Simpati Konveksi')}</div>
+                        ${(tpl?.signatureImage && tpl?.showSignatureOnPrint !== false) ? `<img src="${tpl.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(tpl?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(tpl?.companyName || 'Simpati Konveksi')}</div>
                     </div>
                 </div>
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
