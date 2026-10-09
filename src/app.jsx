@@ -863,6 +863,136 @@
             return clientName !== '' && normalizeText(inv.customer) === clientName;
         };
 
+        // ===== Penajam hasil cetak =====
+        // Dipasang sekali untuk SEMUA cetakan (jendela cetak baru & cetak langsung dari halaman), tanpa mengubah tiap template.
+        // - Semua mode: warna latar dipaksa ikut tercetak (tulisan putih di judul tabel tidak hilang)
+        // - Mode "tajam" & struk thermal: teks di latar terang jadi hitam pekat, transparansi dihapus, garis tabel yang sangat pucat dipertegas
+        // - Mode "warna": warna teks dipertahankan, tapi yang terlalu pucat digelapkan sampai minimal 60%
+        // Teks di latar gelap (mis. tulisan putih di kop biru) tidak diubah.
+        const PRINT_MODE_DEVICE_KEY = 'simpati_print_mode_device';
+        const PRINT_MODE_DEFAULT = 'tajam';
+        const printModeState = { global: PRINT_MODE_DEFAULT };
+        const getDevicePrintMode = () => { try { const v = localStorage.getItem(PRINT_MODE_DEVICE_KEY) || ''; return v === 'warna' || v === 'tajam' ? v : ''; } catch (e) { return ''; } };
+        const getEffectivePrintMode = () => getDevicePrintMode() || (printModeState.global === 'warna' ? 'warna' : PRINT_MODE_DEFAULT);
+        const parseCssRgb = (str) => {
+            const m = String(str || '').match(/rgba?\(([^)]+)\)/);
+            if (!m) return null;
+            const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+            if (p.length < 3 || p.slice(0, 3).some(v => !Number.isFinite(v))) return null;
+            return { r: p[0], g: p[1], b: p[2], a: p.length > 3 && Number.isFinite(p[3]) ? p[3] : 1 };
+        };
+        const printLuminance = (c) => (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
+        const printDarkness = (c) => Math.round((1 - printLuminance(c)) * 100);
+        const sharpenPrintDocument = (doc, { strict, minDarkness = 60 }) => {
+            const win = doc && doc.defaultView;
+            if (!win || !doc.body) return () => {};
+            const changes = [];
+            const setStyle = (el, prop, value) => {
+                changes.push([el, prop, el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)]);
+                el.style.setProperty(prop, value, 'important');
+            };
+            const style = doc.createElement('style');
+            style.setAttribute('data-simpati-print', '1');
+            style.textContent = '*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}';
+            (doc.head || doc.body).appendChild(style);
+            // Warna latar efektif (naik ke induk sampai ketemu latar tidak transparan). null = tidak diketahui (gambar latar)
+            const bgCache = new Map();
+            const effectiveBg = (el) => {
+                const chain = [];
+                let node = el, found;
+                while (node && node.nodeType === 1) {
+                    if (bgCache.has(node)) { found = bgCache.get(node); break; }
+                    chain.push(node);
+                    const cs = win.getComputedStyle(node);
+                    const img = cs.backgroundImage || '';
+                    if (img && img !== 'none') {
+                        if (/url\(/.test(img)) { found = null; break; }
+                        const stops = [...img.matchAll(/rgba?\([^)]+\)/g)].map(m => parseCssRgb(m[0])).filter(c => c && c.a > 0.3);
+                        if (stops.length) { found = { r: stops.reduce((s, c) => s + c.r, 0) / stops.length, g: stops.reduce((s, c) => s + c.g, 0) / stops.length, b: stops.reduce((s, c) => s + c.b, 0) / stops.length, a: 1 }; break; }
+                    }
+                    const bg = parseCssRgb(cs.backgroundColor);
+                    if (bg && bg.a > 0.5) { found = bg; break; }
+                    node = node.parentElement;
+                }
+                if (found === undefined) found = { r: 255, g: 255, b: 255, a: 1 };
+                chain.forEach(n => bgCache.set(n, found));
+                return found;
+            };
+            const darkenTo = (c, target) => {
+                const lum = printLuminance(c);
+                if (lum <= 0) return c;
+                const k = Math.min(1, ((1 - target / 100)) / lum);
+                return { r: Math.round(c.r * k), g: Math.round(c.g * k), b: Math.round(c.b * k), a: 1 };
+            };
+            const SKIP = new Set(['SCRIPT', 'STYLE', 'IMG', 'SVG', 'CANVAS', 'BR', 'HR', 'VIDEO', 'IFRAME', 'svg']);
+            doc.body.querySelectorAll('*').forEach(el => {
+                if (SKIP.has(el.tagName)) return;
+                const cs = win.getComputedStyle(el);
+                if (cs.display === 'none') return;
+                const hasText = Array.prototype.some.call(el.childNodes, n => n.nodeType === 3 && n.nodeValue.trim() !== '');
+                if (hasText) {
+                    const c = parseCssRgb(cs.color);
+                    const bg = c ? effectiveBg(el) : null;
+                    if (c && bg && printLuminance(bg) > 0.45) {
+                        const d = printDarkness(c);
+                        if (strict) { if (d < 90) setStyle(el, 'color', 'rgb(0, 0, 0)'); }
+                        else if (d < minDarkness) { const n = darkenTo(c, minDarkness); setStyle(el, 'color', `rgb(${n.r}, ${n.g}, ${n.b})`); }
+                    }
+                    if (strict && parseFloat(cs.opacity) < 1) setStyle(el, 'opacity', '1');
+                }
+                if (strict) {
+                    ['top', 'right', 'bottom', 'left'].forEach(side => {
+                        if (parseFloat(cs.getPropertyValue(`border-${side}-width`)) <= 0 || cs.getPropertyValue(`border-${side}-style`) === 'none') return;
+                        const bc = parseCssRgb(cs.getPropertyValue(`border-${side}-color`));
+                        if (bc && bc.a > 0.3 && printDarkness(bc) < 25) setStyle(el, `border-${side}-color`, 'rgb(150, 150, 150)');
+                    });
+                }
+            });
+            return () => {
+                changes.reverse().forEach(([el, prop, value, priority]) => { if (value) el.style.setProperty(prop, value, priority); else el.style.removeProperty(prop); });
+                style.remove();
+            };
+        };
+        // Struk thermal (58/80 mm) hanya bisa hitam: selalu mode tajam
+        const isThermalPrintDoc = (doc) => { try { return /\b(5[0-9]|7[0-9]|80)\s*mm\b/.test(doc.documentElement.innerHTML.slice(0, 20000)); } catch (e) { return false; } };
+        const hookPrintWindow = (w) => {
+            let done = false;
+            const apply = () => {
+                if (done) return;
+                try {
+                    const doc = w.document;
+                    if (!doc || !doc.body || !doc.body.firstChild) return;
+                    done = true;
+                    const mode = getEffectivePrintMode();
+                    sharpenPrintDocument(doc, { strict: mode === 'tajam' || isThermalPrintDoc(doc) });
+                } catch (e) { console.warn('Penajam cetak gagal:', e); }
+            };
+            const nativePrint = w.print;
+            w.print = function () { apply(); return nativePrint.call(w); };
+            try {
+                const d = w.document;
+                const nativeClose = d.close;
+                d.close = function () { const r = nativeClose.apply(d, arguments); apply(); return r; };
+            } catch (e) {}
+        };
+        const installPrintSharpener = () => {
+            if (typeof window === 'undefined' || window.__simpatiPrintSharpener) return;
+            window.__simpatiPrintSharpener = true;
+            const nativeOpen = window.open;
+            window.open = function (url) {
+                const w = nativeOpen.apply(window, arguments);
+                if (w && (!url || url === 'about:blank')) { try { hookPrintWindow(w); } catch (e) {} }
+                return w;
+            };
+            // Cetak langsung dari halaman (slip gaji di link share, Kalkulator HPP): tajamkan sementara, kembalikan setelah cetak
+            let revertMain = null;
+            window.addEventListener('beforeprint', () => {
+                try { if (revertMain) revertMain(); revertMain = sharpenPrintDocument(document, { strict: getEffectivePrintMode() === 'tajam' }); } catch (e) { revertMain = null; }
+            });
+            window.addEventListener('afterprint', () => { try { if (revertMain) revertMain(); } catch (e) {} revertMain = null; });
+        };
+        installPrintSharpener();
+
         // Absensi: scan di luar Batas Scan shift dianggap jam batasnya (mis. batas 06:00–17:30: datang 05:30 -> 06:00, pulang 18:00 -> 17:30)
         const clampJamKeBatasScan = (jam, scanMulai, scanSelesai) => {
             if (!jam) return jam;
@@ -17878,6 +18008,12 @@ ${getRekapShareLink(rekap)}
 
         const TemplateView = ({ templates, setTemplates, showToast }) => {
             const [localTemplates, setLocalTemplates] = useState(templates || initialTemplates);
+            const [devicePrintMode, setDevicePrintModeState] = useState(() => getDevicePrintMode());
+            const changeDevicePrintMode = (value) => {
+                try { if (value) localStorage.setItem(PRINT_MODE_DEVICE_KEY, value); else localStorage.removeItem(PRINT_MODE_DEVICE_KEY); } catch (e) {}
+                setDevicePrintModeState(value);
+                showToast(value ? `Perangkat ini memakai mode cetak ${value === 'tajam' ? 'Tajam' : 'Warna'}.` : 'Perangkat ini mengikuti mode cetak bawaan.', 'success');
+            };
             const loadedOnce = React.useRef(false);
 
             useEffect(() => {
@@ -17947,6 +18083,33 @@ ${getRekapShareLink(rekap)}
                 <div className="space-y-6 max-w-4xl">
                     <h2 className="text-2xl font-bold text-gray-800">Pengaturan Cetak</h2>
                     <form onSubmit={handleSubmit} className="space-y-6">
+                        <Card>
+                            <h3 className="font-bold border-b pb-2 mb-4">Mode Cetak (Ketajaman Warna)</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm mb-1 font-semibold">Mode bawaan (semua perangkat)</label>
+                                    <select name="printMode" className="w-full p-2 border rounded" value={localTemplates.printMode === 'warna' ? 'warna' : 'tajam'} onChange={handleChange}>
+                                        <option value="tajam">Tajam / Hitam Pekat — printer hitam-putih & thermal</option>
+                                        <option value="warna">Warna — printer warna</option>
+                                    </select>
+                                    <p className="text-[11px] text-gray-500 mt-1">Disimpan dengan tombol Simpan Pengaturan.</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm mb-1 font-semibold">Khusus perangkat ini</label>
+                                    <select className="w-full p-2 border rounded" value={devicePrintMode} onChange={e => changeDevicePrintMode(e.target.value)}>
+                                        <option value="">Ikuti mode bawaan</option>
+                                        <option value="tajam">Tajam / Hitam Pekat</option>
+                                        <option value="warna">Warna</option>
+                                    </select>
+                                    <p className="text-[11px] text-gray-500 mt-1">Langsung berlaku. Pakai bila perangkat ini tersambung ke printer yang berbeda (mis. PC dengan printer warna).</p>
+                                </div>
+                            </div>
+                            <div className="mt-3 text-xs text-gray-600 bg-gray-50 border rounded-lg p-3 space-y-1">
+                                <div><b>Tajam:</b> semua tulisan dicetak hitam pekat, garis tabel dipertegas. Paling jelas untuk printer hitam-putih.</div>
+                                <div><b>Warna:</b> warna dipertahankan, tapi tulisan yang terlalu pucat digelapkan agar tetap terbaca.</div>
+                                <div>Struk thermal selalu dicetak hitam pekat. Pastikan juga printer tidak dalam mode Draft/Hemat Tinta.</div>
+                            </div>
+                        </Card>
                         <Card>
                             <h3 className="font-bold border-b pb-2 mb-4">Kop Surat</h3>
                             <div className="mb-4">
@@ -23032,6 +23195,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [absensiEdits, setAbsensiEdits] = useState([]);
             const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
             const [templates, setTemplates] = useState({});
+            // Mode cetak bawaan (Pengaturan Cetak) untuk penajam cetak; tiap perangkat bisa menimpa sendiri
+            printModeState.global = templates?.printMode === 'warna' ? 'warna' : PRINT_MODE_DEFAULT;
             const [kartuKredit, setKartuKredit] = useState([]);
             const [transaksiKartu, setTransaksiKartu] = useState([]);
             const [danaOperasional, setDanaOperasional] = useState([]);
