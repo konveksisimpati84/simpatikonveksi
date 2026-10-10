@@ -53,6 +53,7 @@
             absensiLemburSelesai: '21:00',
             absensiTitikTengah: '',
             absensiTitikTengahLembur: '',
+            absensiToleransiMenit: 5,
             absensiShifts: [
                 { id: 'shift1', name: 'Shift 1', jamMasuk: '07:00', jamTelat: '07:30', jamPulang: '16:30', scanMulai: '', scanSelesai: '' },
                 { id: 'shift2', name: 'Shift 2', jamMasuk: '13:00', jamTelat: '13:30', jamPulang: '22:30', scanMulai: '', scanSelesai: '' },
@@ -1101,6 +1102,37 @@
             if (mMulai != null && m < mMulai) return scanMulai;
             if (mSelesai != null && m > mSelesai) return scanSelesai;
             return jam;
+        };
+
+        // Absensi: toleransi lebih/kurang jam (menit). Selisih di bawah toleransi tidak dihitung; di atasnya dihitung per menit penuh.
+        const ABSENSI_TOLERANSI_DEFAULT = 5;
+        const getAbsensiToleransiMenit = (tpl) => {
+            const raw = tpl?.absensiToleransiMenit;
+            if (raw === '' || raw == null) return ABSENSI_TOLERANSI_DEFAULT;
+            const n = Math.floor(Number(raw));
+            return Number.isFinite(n) && n >= 0 ? Math.min(n, 240) : ABSENSI_TOLERANSI_DEFAULT;
+        };
+        const hitungLebihKurangMenit = (selisihMenit, toleransiMenit) => {
+            const s = Math.round(Number(selisihMenit) || 0);
+            if (s === 0) return 0;
+            return Math.abs(s) >= toleransiMenit ? s : 0;
+        };
+        // Titik tengah (pemisah scan masuk / pulang) dalam menit: milik shift -> global (bila jatuh di dalam jam kerja shift) -> otomatis di tengah
+        const getTitikTengahMenit = (shift, globalTitikTengah, jamMasuk, jamPulang) => {
+            const toM = (t) => { if (!t) return null; const [h, m] = String(t).split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
+            const mMasuk = toM(jamMasuk), mPulang = toM(jamPulang);
+            const own = toM(shift?.titikTengah);
+            if (own != null) return own;
+            const glob = toM(globalTitikTengah);
+            if (glob != null && (!shift || mMasuk == null || mPulang == null || (glob > mMasuk && glob < mPulang))) return glob;
+            return (mMasuk != null && mPulang != null) ? (mMasuk + mPulang) / 2 : null;
+        };
+        // Label selisih jam di rincian gaji, mis. "+1j 10m" / "−7m" (data lama tanpa menit: "+0.5 jam")
+        const formatSelisihJamLabel = (d) => {
+            const mnt = Number(d?.selisihMenit);
+            if (!Number.isFinite(mnt) || mnt === 0) return `${d?.selisihJam > 0 ? '+' : ''}${d?.selisihJam ?? 0} jam`;
+            const a = Math.abs(Math.round(mnt)), h = Math.floor(a / 60), m = a % 60;
+            return `${mnt > 0 ? '+' : '−'}${h > 0 && m > 0 ? `${h}j ${m}m` : h > 0 ? `${h}j` : `${m}m`}`;
         };
 
         const getInvoiceCommissionTotal = (invoice) => {
@@ -13932,7 +13964,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const t = getDailySalaryLogTotal(log);
                         const hasAdj = log.hourAdjDetails?.length > 0 && t.adj !== 0;
                         const adjRows = hasAdj
-                            ? log.hourAdjDetails.map(d => `<div class="item-row" style="font-size:9.5px;background:#fafafa;padding-left:8px"><span style="color:#6b7280">↳ <b style="color:#374151">${d.date}</b> | ${d.selisihJam > 0 ? '+' : ''}${d.selisihJam} jam</span><span style="color:${d.amount > 0 ? '#15803d' : '#dc2626'};font-weight:700">${d.amount > 0 ? '+' : ''}${formatReceiptMoney(d.amount)}</span></div>`).join('') +
+                            ? log.hourAdjDetails.map(d => `<div class="item-row" style="font-size:9.5px;background:#fafafa;padding-left:8px"><span style="color:#6b7280">↳ <b style="color:#374151">${d.date}</b> | ${formatSelisihJamLabel(d)}</span><span style="color:${d.amount > 0 ? '#15803d' : '#dc2626'};font-weight:700">${d.amount > 0 ? '+' : ''}${formatReceiptMoney(d.amount)}</span></div>`).join('') +
                               (log.hourAdjDetails.length > 1 ? `<div class="item-row" style="font-size:9.5px;background:#f0fdf4;padding-left:8px"><span style="font-weight:700;color:#374151">Subtotal Penyesuaian</span><span style="color:${t.adj > 0 ? '#15803d' : '#dc2626'};font-weight:700">${t.adj > 0 ? '+' : ''}${formatReceiptMoney(t.adj)}</span></div>` : '')
                             : '';
                         return `
@@ -14305,11 +14337,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const jpCfg = empPrimaryShift?.jamPulang || templates?.absensiJamPulang || '16:30';
                 const lmCfg = templates?.absensiLemburMulai || '18:00';
                 const lsCfg = templates?.absensiLemburSelesai || '21:00';
-                const ttCfg = templates?.absensiTitikTengah || '';
                 const ttLCfg = templates?.absensiTitikTengahLembur || '';
+                const toleransiMenit = getAbsensiToleransiMenit(templates);
                 const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
                 const mLM = ttm(lmCfg), mLS = ttm(lsCfg);
-                const mMid = ttCfg ? ttm(ttCfg) : (mMasukCfg != null && mPulangCfg != null ? (mMasukCfg + mPulangCfg) / 2 : null);
+                // Titik tengah per shift (sama dengan menu Absensi Finger)
+                const mMid = getTitikTengahMenit(empPrimaryShift, templates?.absensiTitikTengah, jmCfg, jpCfg);
                 const standardMenit = (mMasukCfg != null && mPulangCfg != null) ? mPulangCfg - mMasukCfg : 0;
                 const rateKurang = safeMoney(emp.rateKurang) || 0;
                 const rateLebih = safeMoney(emp.rateLebih) || 0;
@@ -14379,10 +14412,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     if (jamMasuk && jamPulang && !skipDay) {
                         let dayAdjAmt = 0; let dayAdjDetails = [];
                         if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
-                            // Selisih bersih dari jam kerja standar shift: datang awal & pulang lebih lama = lebih jam, kurang < 30 menit = toleransi
+                            // Selisih bersih dari jam kerja standar shift: datang awal & pulang lebih lama = lebih jam.
+                            // Selisih di bawah toleransi (menu Absensi Finger) tidak dihitung; di atasnya dihitung per menit.
                             const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
-                            const selisihMenit = actualMenit - standardMenit;
-                            if (Math.abs(selisihMenit) >= 30) {
+                            const selisihMenit = hitungLebihKurangMenit(actualMenit - standardMenit, toleransiMenit);
+                            if (selisihMenit !== 0) {
                                 const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
                                 const amount = selisihMenit > 0 ? Math.round((selisihMenit / 60) * rateLebih) : -Math.round((Math.abs(selisihMenit) / 60) * rateKurang);
                                 if (amount !== 0) { dayAdjAmt = amount; dayAdjDetails = [{ date, selisihMenit, selisihJam, amount }]; }
@@ -16233,7 +16267,7 @@ ${getRekapShareLink(rekap)}
                                             <table className="w-full text-xs">
                                                 <thead className="bg-indigo-50 text-indigo-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalAllDailyLogs.length>0&&modalAllDailyLogs.every(l=>modalData?.selectedDailyKeys?.has(String(l.id||l.date)))} onChange={()=>toggleAllModalDailyItems(modalAllDailyLogs)}/></th><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Hari Masuk</th><th className="py-2 px-3 text-right">Gaji Harian</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
                                                 <tbody>
-                                                    {modalAllDailyLogs.map((log,idx)=>{const t=getDailySalaryLogTotal(log);const isSel=modalData?.selectedDailyKeys?.has(String(log.id||log.date));const hasAdj=log.hourAdjDetails?.length>0;const isAuto=!!log._isAutoPreview;const _dayNamesRek=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];return(<React.Fragment key={`daily-${idx}`}><tr className={`border-t ${isSel?'bg-indigo-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalDailyItem(log)}/></td><td className="py-2 px-3"><div>{log.date||'-'}</div>{log.date&&<div className="text-[10px] text-indigo-400 font-semibold">{_dayNamesRek[new Date(log.date+'T00:00:00').getDay()]}</div>}</td><td className="py-2 px-3"><div className="flex flex-wrap items-center gap-1">{isAuto&&<span className="text-[10px] font-black bg-amber-100 text-amber-700 border border-amber-300 rounded px-1.5 py-0.5 leading-none">AUTO</span>}<span>{log.note||'Masuk Kerja'}</span></div></td><td className="py-2 px-3 text-right">{log.workDays||0} hari</td><td className="py-2 px-3 text-right">{formatRupiah(log.dailySalary)}</td><td className="py-2 px-3 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>{hasAdj&&<tr className={`${isSel?'bg-indigo-50/60':''}`}><td colSpan="6" className="px-3 pb-2 pt-0"><div className="ml-6 border-l-2 border-indigo-200 pl-2 space-y-0.5">{log.hourAdjDetails.map((d,i)=><div key={i} className="flex justify-between text-[11px]"><span className="text-gray-500">{d.date} {d.selisihJam>0?'+':''}{d.selisihJam} jam</span><span className={d.amount>0?'text-green-700 font-bold':'text-red-600 font-bold'}>{d.amount>0?'+':''}{formatRupiah(d.amount)}</span></div>)}{log.hourAdjDetails.length>1&&<div className="flex justify-between text-[11px] border-t border-indigo-200 pt-0.5 mt-0.5"><span className="text-gray-600 font-semibold">Penyesuaian Jam Kerja</span><span className={t.adj>0?'text-green-700 font-black':'text-red-600 font-black'}>{t.adj>0?'+':''}{formatRupiah(t.adj)}</span></div>}</div></td></tr>}</React.Fragment>);})}
+                                                    {modalAllDailyLogs.map((log,idx)=>{const t=getDailySalaryLogTotal(log);const isSel=modalData?.selectedDailyKeys?.has(String(log.id||log.date));const hasAdj=log.hourAdjDetails?.length>0;const isAuto=!!log._isAutoPreview;const _dayNamesRek=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];return(<React.Fragment key={`daily-${idx}`}><tr className={`border-t ${isSel?'bg-indigo-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalDailyItem(log)}/></td><td className="py-2 px-3"><div>{log.date||'-'}</div>{log.date&&<div className="text-[10px] text-indigo-400 font-semibold">{_dayNamesRek[new Date(log.date+'T00:00:00').getDay()]}</div>}</td><td className="py-2 px-3"><div className="flex flex-wrap items-center gap-1">{isAuto&&<span className="text-[10px] font-black bg-amber-100 text-amber-700 border border-amber-300 rounded px-1.5 py-0.5 leading-none">AUTO</span>}<span>{log.note||'Masuk Kerja'}</span></div></td><td className="py-2 px-3 text-right">{log.workDays||0} hari</td><td className="py-2 px-3 text-right">{formatRupiah(log.dailySalary)}</td><td className="py-2 px-3 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>{hasAdj&&<tr className={`${isSel?'bg-indigo-50/60':''}`}><td colSpan="6" className="px-3 pb-2 pt-0"><div className="ml-6 border-l-2 border-indigo-200 pl-2 space-y-0.5">{log.hourAdjDetails.map((d,i)=><div key={i} className="flex justify-between text-[11px]"><span className="text-gray-500">{d.date} {formatSelisihJamLabel(d)}</span><span className={d.amount>0?'text-green-700 font-bold':'text-red-600 font-bold'}>{d.amount>0?'+':''}{formatRupiah(d.amount)}</span></div>)}{log.hourAdjDetails.length>1&&<div className="flex justify-between text-[11px] border-t border-indigo-200 pt-0.5 mt-0.5"><span className="text-gray-600 font-semibold">Penyesuaian Jam Kerja</span><span className={t.adj>0?'text-green-700 font-black':'text-red-600 font-black'}>{t.adj>0?'+':''}{formatRupiah(t.adj)}</span></div>}</div></td></tr>}</React.Fragment>);})}
                                                     <tr className="bg-indigo-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Gaji Harian</td><td className="py-2 px-3 text-right text-indigo-800">{formatRupiah(modalDailySalary)}</td></tr>
                                                 </tbody>
                                             </table>
@@ -17991,7 +18025,7 @@ ${getRekapShareLink(rekap)}
                                                 <ItemRow label={log.date || '-'} sub={`${log.note || 'Gaji harian'} | ${log.workDays || 0} hari`} value={formatReceiptMoney(t.base)} />
                                                 {hasAdj && log.hourAdjDetails.map((d, di) => (
                                                     <div key={di} className="flex justify-between gap-2 py-0.5 border-b border-dashed border-gray-200 pl-2" style={{background:'#fafafa'}}>
-                                                        <span className="text-[9px] text-gray-500">↳ <b className="text-gray-700">{d.date}</b> | {d.selisihJam > 0 ? '+' : ''}{d.selisihJam} jam</span>
+                                                        <span className="text-[9px] text-gray-500">↳ <b className="text-gray-700">{d.date}</b> | {formatSelisihJamLabel(d)}</span>
                                                         <span className="text-[9px] font-bold whitespace-nowrap" style={{color: d.amount > 0 ? '#15803d' : '#dc2626'}}>{d.amount > 0 ? '+' : ''}{formatReceiptMoney(d.amount)}</span>
                                                     </div>
                                                 ))}
@@ -18100,10 +18134,13 @@ ${getRekapShareLink(rekap)}
                 showToast(value ? `Perangkat ini memakai mode cetak ${value === 'tajam' ? 'Tajam' : 'Warna'}.` : 'Perangkat ini mengikuti mode cetak bawaan.', 'success');
             };
             const loadedOnce = React.useRef(false);
+            // Salinan saat halaman dibuka: hanya kolom yang benar-benar diubah di halaman ini yang disimpan
+            const baselineTemplatesRef = React.useRef(templates || initialTemplates);
 
             useEffect(() => {
                 if (templates && Object.keys(templates).length > 0 && !loadedOnce.current) {
                     setLocalTemplates(templates);
+                    baselineTemplatesRef.current = templates;
                     loadedOnce.current = true;
                 }
             }, [templates]);
@@ -18165,7 +18202,15 @@ ${getRekapShareLink(rekap)}
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                setTemplates(prev => ({...prev, ...localTemplates}));
+                const base = baselineTemplatesRef.current || {};
+                // Pengaturan absensi diatur di menu Absensi Finger — tidak pernah ditimpa dari halaman ini
+                const changed = {};
+                Object.keys(localTemplates).forEach(k => {
+                    if (k.startsWith('absensi')) return;
+                    if (localTemplates[k] !== base[k]) changed[k] = localTemplates[k];
+                });
+                if (Object.keys(changed).length > 0) setTemplates(prev => ({ ...prev, ...changed }));
+                baselineTemplatesRef.current = localTemplates;
                 showToast("Pengaturan disimpan!", "success");
             };
 
@@ -18268,64 +18313,6 @@ ${getRekapShareLink(rekap)}
                                     <div><label className="block text-xs text-gray-500 mb-1">Nama Bank</label><input className="w-full border rounded p-2 text-sm" placeholder="Contoh: BCA, Mandiri, BRI..." value={localTemplates.paymentBank2 || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank2: e.target.value}))} /></div>
                                     <div><label className="block text-xs text-gray-500 mb-1">No. Rekening</label><input className="w-full border rounded p-2 text-sm" placeholder="Contoh: 1234567890" value={localTemplates.paymentBank2No || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank2No: e.target.value}))} /></div>
                                     <div><label className="block text-xs text-gray-500 mb-1">Atas Nama</label><input className="w-full border rounded p-2 text-sm" placeholder="Nama pemilik rekening" value={localTemplates.paymentBank2Name || ''} onChange={e => setLocalTemplates(p => ({...p, paymentBank2Name: e.target.value}))} /></div>
-                                </div>
-                            </div>
-                        </Card>
-                        <Card>
-                            <h3 className="font-bold border-b pb-2 mb-4">Absensi Finger (Mesin AT-620)</h3>
-                            <p className="text-xs text-gray-500 mb-4">Masukkan URL server backend yang berjalan di PC lokal Anda. Contoh: <code className="bg-gray-100 px-1 rounded">http://192.168.1.10:8081</code></p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="md:col-span-2"><label className="block text-sm mb-1">URL Server Absensi</label><input type="text" name="absensiServerUrl" className="w-full p-2 border rounded font-mono text-sm" placeholder="http://192.168.1.10:8081" value={localTemplates.absensiServerUrl || ''} onChange={handleChange} /></div>
-                                <div className="md:col-span-2"><p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Jam Aktif (Kerja Normal)</p></div>
-                                <div><label className="block text-sm mb-1">Jam Masuk Normal</label><input type="time" name="absensiJamMasuk" className="w-full p-2 border rounded" value={localTemplates.absensiJamMasuk || '07:00'} onChange={handleChange} /></div>
-                                <div><label className="block text-sm mb-1">Batas Jam Terlambat</label><input type="time" name="absensiJamTelat" className="w-full p-2 border rounded" value={localTemplates.absensiJamTelat || '07:30'} onChange={handleChange} /></div>
-                                <div><label className="block text-sm mb-1">Jam Pulang Normal</label><input type="time" name="absensiJamPulang" className="w-full p-2 border rounded" value={localTemplates.absensiJamPulang || '16:30'} onChange={handleChange} /></div>
-                                <div className="flex flex-col justify-end">
-                                    {(() => {
-                                        const toM = t => { if(!t) return null; const [h,m] = (t||'').split(':').map(Number); return h*60+m; };
-                                        const fromM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
-                                        const a = toM(localTemplates.absensiJamMasuk || '07:00');
-                                        const b = toM(localTemplates.absensiJamPulang || '16:30');
-                                        const autoMid = (a!=null && b!=null) ? fromM((a+b)/2) : '-';
-                                        const isManual = !!(localTemplates.absensiTitikTengah);
-                                        const display = isManual ? localTemplates.absensiTitikTengah : autoMid;
-                                        return (
-                                            <div className={`border rounded-lg px-3 py-2 text-xs ${isManual ? 'bg-indigo-50 border-indigo-300' : 'bg-blue-50 border-blue-200'}`}>
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <p className={`font-bold uppercase tracking-wide ${isManual ? 'text-indigo-600' : 'text-blue-500'}`}>Titik Tengah Aktif {isManual ? '(manual)' : '(otomatis)'}</p>
-                                                    {isManual && <button type="button" onClick={() => setLocalTemplates(p => ({...p, absensiTitikTengah: ''}))} className="text-[10px] text-red-400 hover:text-red-600 font-bold">↺ Reset Otomatis</button>}
-                                                </div>
-                                                <input type="time" name="absensiTitikTengah" value={localTemplates.absensiTitikTengah || ''} onChange={handleChange} placeholder={autoMid} className={`w-full p-1.5 border rounded text-sm font-bold mb-1 ${isManual ? 'border-indigo-300 text-indigo-800' : 'border-blue-200 text-blue-700'}`} />
-                                                <p className="text-gray-400">Scan ≤{display} → Jam Masuk &nbsp;·&nbsp; Scan &gt;{display} → Jam Pulang</p>
-                                                {!isManual && <p className="text-blue-300 italic mt-0.5">Kosongkan = hitung otomatis dari Masuk+Pulang</p>}
-                                            </div>
-                                        );
-                                    })()}
-                                </div>
-                                <div className="md:col-span-2 mt-2"><p className="text-xs font-bold text-orange-500 uppercase tracking-wide mb-2">Sesi Lembur</p></div>
-                                <div><label className="block text-sm mb-1">Mulai Lembur</label><input type="time" name="absensiLemburMulai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburMulai || '18:00'} onChange={handleChange} /></div>
-                                <div><label className="block text-sm mb-1">Selesai Lembur</label><input type="time" name="absensiLemburSelesai" className="w-full p-2 border rounded border-orange-200" value={localTemplates.absensiLemburSelesai || '21:00'} onChange={handleChange} /></div>
-                                <div className="md:col-span-2">
-                                    {(() => {
-                                        const toM = t => { if(!t) return null; const [h,m] = (t||'').split(':').map(Number); return h*60+m; };
-                                        const fromM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
-                                        const a = toM(localTemplates.absensiLemburMulai || '18:00');
-                                        const b = toM(localTemplates.absensiLemburSelesai || '21:00');
-                                        const autoMid = (a!=null && b!=null) ? fromM((a+b)/2) : '-';
-                                        const isManual = !!(localTemplates.absensiTitikTengahLembur);
-                                        const display = isManual ? localTemplates.absensiTitikTengahLembur : autoMid;
-                                        return (
-                                            <div className={`border rounded-lg px-3 py-2 text-xs ${isManual ? 'bg-amber-50 border-amber-300' : 'bg-orange-50 border-orange-200'}`}>
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <p className={`font-bold uppercase tracking-wide ${isManual ? 'text-amber-600' : 'text-orange-500'}`}>Titik Tengah Lembur {isManual ? '(manual)' : '(otomatis)'}</p>
-                                                    {isManual && <button type="button" onClick={() => setLocalTemplates(p => ({...p, absensiTitikTengahLembur: ''}))} className="text-[10px] text-red-400 hover:text-red-600 font-bold">↺ Reset Otomatis</button>}
-                                                </div>
-                                                <input type="time" name="absensiTitikTengahLembur" value={localTemplates.absensiTitikTengahLembur || ''} onChange={handleChange} placeholder={autoMid} className={`w-full p-1.5 border rounded text-sm font-bold mb-1 ${isManual ? 'border-amber-300 text-amber-800' : 'border-orange-200 text-orange-700'}`} />
-                                                <p className="text-gray-400">Scan ≤{display} → Masuk Lembur &nbsp;·&nbsp; Scan &gt;{display} → Pulang Lembur</p>
-                                                {!isManual && <p className="text-orange-300 italic mt-0.5">Kosongkan = hitung otomatis dari Mulai+Selesai Lembur</p>}
-                                            </div>
-                                        );
-                                    })()}
                                 </div>
                             </div>
                         </Card>
@@ -25499,16 +25486,79 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
             }, [activeTab, authUser, isReady]);
             
+            // Pengaturan disimpan per bagian: hanya kolom yang diubah di perangkat ini yang menimpa data cloud,
+            // kolom lain diambil dari cloud (perubahan perangkat lain tidak tertimpa data lama).
+            const templatesLatestRef = React.useRef(templates);
+            const templatesPendingKeysRef = React.useRef(new Set());
+            const templatesSaveChainRef = React.useRef(Promise.resolve());
+            useEffect(() => { templatesLatestRef.current = templates; }, [templates]);
+            const flushTemplatesSave = async () => {
+                const keys = [...templatesPendingKeysRef.current];
+                templatesPendingKeysRef.current.clear();
+                if (keys.length === 0) return;
+                const local = templatesLatestRef.current || initialTemplates;
+                const coreKeys = keys.filter(k => k !== 'labelTemplates');
+                if (coreKeys.length > 0) {
+                    const { labelTemplates: _lt, ...localCore } = local;
+                    let remote = null;
+                    if (supabaseClient) {
+                        beginSync('templates');
+                        try {
+                            const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', 'templates').single();
+                            if (!error && data?.data && typeof data.data === 'object' && !Array.isArray(data.data)) remote = data.data;
+                        } catch (err) {
+                            console.error('Gagal membaca pengaturan cloud sebelum simpan:', err);
+                        } finally {
+                            endSync('templates');
+                        }
+                    }
+                    let toSave = localCore;
+                    if (remote) {
+                        toSave = { ...remote };
+                        coreKeys.forEach(k => { if (Object.prototype.hasOwnProperty.call(localCore, k)) toSave[k] = localCore[k]; else delete toSave[k]; });
+                        // Ambil perubahan perangkat lain (kolom yang tidak sedang diubah di sini)
+                        setTemplates(cur => {
+                            if (!cur || typeof cur !== 'object') return cur;
+                            let out = null;
+                            Object.keys(remote).forEach(k => {
+                                if (k === 'labelTemplates' || coreKeys.includes(k) || templatesPendingKeysRef.current.has(k)) return;
+                                if (JSON.stringify(cur[k]) !== JSON.stringify(remote[k])) { out = out || { ...cur }; out[k] = remote[k]; }
+                            });
+                            if (!out) return cur;
+                            templatesLatestRef.current = out;
+                            setTimeout(() => safeLocalSet('simpati_templates_sync', JSON.stringify(out)), 0);
+                            return out;
+                        });
+                    }
+                    await saveToSupabase('templates', toSave);
+                    // Gagal tersimpan: kolom ini tetap ikut di simpanan berikutnya
+                    if (syncFailedRef.current.has('templates')) coreKeys.forEach(k => templatesPendingKeysRef.current.add(k));
+                }
+                if (keys.includes('labelTemplates')) {
+                    const lt = local.labelTemplates;
+                    await saveToSupabase('labelTemplates', Array.isArray(lt) ? lt : []);
+                }
+            };
             const updateTemplates = (updater) => {
                 setTemplates(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = (nextVal && typeof nextVal === 'object') ? nextVal : initialTemplates;
+                    const base = (prev && typeof prev === 'object') ? prev : {};
+                    const changedKeys = [...new Set([...Object.keys(base), ...Object.keys(valid)])].filter(k => base[k] !== valid[k]);
+                    templatesLatestRef.current = valid;
                     setTimeout(() => {
                         safeLocalSet('simpati_templates_sync', JSON.stringify(valid));
-                        // Pisahkan labelTemplates ke key Supabase tersendiri agar templates inti tetap kecil
-                        const { labelTemplates: lt, ...templatesCore } = valid;
-                        saveToSupabase('templates', templatesCore);
-                        if (lt !== undefined) saveToSupabase('labelTemplates', Array.isArray(lt) ? lt : []);
+                        let keysToSave = changedKeys;
+                        if (keysToSave.length === 0 && templatesPendingKeysRef.current.size === 0) {
+                            // Coba ulang simpanan yang gagal (updater(prev => prev)): kirim ulang data perangkat ini
+                            const failed = syncFailedRef.current;
+                            keysToSave = [];
+                            if (failed.has('templates')) keysToSave.push(...Object.keys(valid).filter(k => k !== 'labelTemplates'));
+                            if (failed.has('labelTemplates')) keysToSave.push('labelTemplates');
+                            if (keysToSave.length === 0) return;
+                        }
+                        keysToSave.forEach(k => templatesPendingKeysRef.current.add(k));
+                        templatesSaveChainRef.current = templatesSaveChainRef.current.then(flushTemplatesSave).catch(err => console.error('Gagal menyimpan pengaturan:', err));
                     }, 0);
                     return valid;
                 });
@@ -25977,6 +26027,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const lemburSelesaiConfig = templates?.absensiLemburSelesai || '21:00';
             const titikTengahConfig = templates?.absensiTitikTengah || '';
             const titikTengahLemburConfig = templates?.absensiTitikTengahLembur || '';
+            const toleransiMenit = getAbsensiToleransiMenit(templates);
             const absensiShifts = templates?.absensiShifts || [
                 { id: 'shift1', name: 'Shift 1', jamMasuk: '07:00', jamTelat: '07:30', jamPulang: '16:30', scanMulai: '', scanSelesai: '' },
                 { id: 'shift2', name: 'Shift 2', jamMasuk: '13:00', jamTelat: '13:30', jamPulang: '22:30', scanMulai: '', scanSelesai: '' },
@@ -26081,7 +26132,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const primaryShift = primaryId ? absensiShifts.find(s => s.id === primaryId) : null;
                 const shift3 = hasShift3 ? absensiShifts.find(s => s.id === 'shift3') : null;
                 if (!primaryShift) return null;
-                return { jamMasuk: primaryShift.jamMasuk, jamTelat: primaryShift.jamTelat, jamPulang: primaryShift.jamPulang, shift3: shift3 || null, scanMulai: primaryShift.scanMulai || '', scanSelesai: primaryShift.scanSelesai || '' };
+                return { jamMasuk: primaryShift.jamMasuk, jamTelat: primaryShift.jamTelat, jamPulang: primaryShift.jamPulang, shift3: shift3 || null, scanMulai: primaryShift.scanMulai || '', scanSelesai: primaryShift.scanSelesai || '', titikTengah: primaryShift.titikTengah || '' };
             };
 
             const checkShiftOverlap = (shiftIds) => {
@@ -26104,6 +26155,73 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setTemplates(prev => ({ ...prev, absensiShifts: newShifts, _syncUpdatedAt: now }));
                 setEditShiftModal(null);
                 showToast(`${updatedShift.name} berhasil disimpan.`, 'success');
+            };
+
+            // Cek isian Edit Shift; setiap masalah ditampilkan merah di bawah kolomnya
+            const getShiftFormIssues = (f, isLembur) => {
+                const issues = {};
+                const mMasuk = timeToMinutes(f.jamMasuk), mTelat = timeToMinutes(f.jamTelat), mPulang = timeToMinutes(f.jamPulang);
+                const mScanMulai = timeToMinutes(f.scanMulai), mScanSelesai = timeToMinutes(f.scanSelesai), mTengah = timeToMinutes(f.titikTengah);
+                if (mMasuk == null) issues.jamMasuk = 'Jam masuk wajib diisi.';
+                if (mTelat == null) issues.jamTelat = 'Batas telat wajib diisi.';
+                else if (mMasuk != null && mTelat < mMasuk) issues.jamTelat = 'Batas telat harus sama atau sesudah jam masuk.';
+                if (mPulang == null) issues.jamPulang = 'Jam pulang wajib diisi.';
+                else if (mMasuk != null && mPulang <= mMasuk) issues.jamPulang = 'Jam pulang harus lebih dari jam masuk.';
+                if (!isLembur) {
+                    if (mScanMulai != null && mMasuk != null && mScanMulai > mMasuk) issues.scanMulai = 'Mulai scan masuk harus sebelum atau sama dengan jam masuk.';
+                    if (mScanSelesai != null && mPulang != null && mScanSelesai < mPulang) issues.scanSelesai = 'Akhir scan pulang harus sesudah atau sama dengan jam pulang.';
+                    else if (mScanSelesai != null && mScanMulai != null && mScanSelesai <= mScanMulai) issues.scanSelesai = 'Akhir scan harus lebih dari mulai scan.';
+                    if (mTengah != null && mMasuk != null && mPulang != null && (mTengah <= mMasuk || mTengah >= mPulang)) issues.titikTengah = 'Titik tengah harus di antara jam masuk dan jam pulang.';
+                }
+                return issues;
+            };
+
+            // Aturan lebih/kurang jam & jadwal bawaan (karyawan tanpa shift) — dulu di Pengaturan Cetak
+            const [aturanModal, setAturanModal] = React.useState(false);
+            const [aturanForm, setAturanForm] = React.useState({});
+            const ATURAN_KEYS = ['absensiToleransiMenit', 'absensiJamMasuk', 'absensiJamTelat', 'absensiJamPulang', 'absensiTitikTengah', 'absensiLemburMulai', 'absensiLemburSelesai', 'absensiTitikTengahLembur'];
+            const openAturanModal = () => {
+                setAturanForm({
+                    absensiToleransiMenit: String(toleransiMenit),
+                    absensiJamMasuk: jamMasukConfig, absensiJamTelat: jamTelatConfig, absensiJamPulang: jamPulangConfig,
+                    absensiTitikTengah: titikTengahConfig,
+                    absensiLemburMulai: lemburMulaiConfig, absensiLemburSelesai: lemburSelesaiConfig,
+                    absensiTitikTengahLembur: titikTengahLemburConfig,
+                });
+                setAturanModal(true);
+            };
+            const getAturanIssues = (f) => {
+                const issues = {};
+                const tol = String(f.absensiToleransiMenit ?? '').trim();
+                if (tol === '' || !/^\d+$/.test(tol) || Number(tol) > 240) issues.absensiToleransiMenit = 'Isi angka menit 0 sampai 240.';
+                const mMasuk = timeToMinutes(f.absensiJamMasuk), mTelat = timeToMinutes(f.absensiJamTelat), mPulang = timeToMinutes(f.absensiJamPulang), mTengah = timeToMinutes(f.absensiTitikTengah);
+                if (mMasuk == null) issues.absensiJamMasuk = 'Wajib diisi.';
+                if (mTelat == null) issues.absensiJamTelat = 'Wajib diisi.';
+                else if (mMasuk != null && mTelat < mMasuk) issues.absensiJamTelat = 'Harus sama atau sesudah jam masuk.';
+                if (mPulang == null) issues.absensiJamPulang = 'Wajib diisi.';
+                else if (mMasuk != null && mPulang <= mMasuk) issues.absensiJamPulang = 'Harus lebih dari jam masuk.';
+                if (mTengah != null && mMasuk != null && mPulang != null && (mTengah <= mMasuk || mTengah >= mPulang)) issues.absensiTitikTengah = 'Harus di antara jam masuk dan jam pulang.';
+                const mLM = timeToMinutes(f.absensiLemburMulai), mLS = timeToMinutes(f.absensiLemburSelesai), mLT = timeToMinutes(f.absensiTitikTengahLembur);
+                if (mLM == null) issues.absensiLemburMulai = 'Wajib diisi.';
+                if (mLS == null) issues.absensiLemburSelesai = 'Wajib diisi.';
+                else if (mLM != null && mLS <= mLM) issues.absensiLemburSelesai = 'Harus lebih dari mulai lembur.';
+                if (mLT != null && mLM != null && mLS != null && (mLT <= mLM || mLT >= mLS)) issues.absensiTitikTengahLembur = 'Harus di antara mulai dan selesai lembur.';
+                return issues;
+            };
+            const saveAturan = () => {
+                if (Object.keys(getAturanIssues(aturanForm)).length > 0) { showToast('Periksa isian yang bertanda merah.', 'error'); return; }
+                const fields = {};
+                ATURAN_KEYS.forEach(k => { fields[k] = k === 'absensiToleransiMenit' ? Number(String(aturanForm[k]).trim()) : (aturanForm[k] || ''); });
+                const now = new Date().toISOString();
+                setTemplates(prev => {
+                    const changed = ATURAN_KEYS.filter(k => (prev || {})[k] !== fields[k]);
+                    if (changed.length === 0) return prev;
+                    const next = { ...prev, _syncUpdatedAt: now };
+                    changed.forEach(k => { next[k] = fields[k]; });
+                    return next;
+                });
+                setAturanModal(false);
+                showToast('Aturan absensi disimpan.', 'success');
             };
 
             const saveShiftAssignment = (pin, selectedShifts) => {
@@ -26147,9 +26265,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                 const mMasukCfg = timeToMinutes(jamMasukEff);
                 const mPulangCfg = timeToMinutes(jamPulangEff);
-                const mMid = titikTengahConfig
-                    ? timeToMinutes(titikTengahConfig)
-                    : (mMasukCfg != null && mPulangCfg != null) ? (mMasukCfg + mPulangCfg) / 2 : null;
+                const mMid = getTitikTengahMenit(shiftConfig, titikTengahConfig, jamMasukEff, jamPulangEff);
                 let masukZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) <= mMid) : aktifEntries;
                 let pulangZone = mMid != null ? aktifEntries.filter(e => timeToMinutes(e.jam) > mMid) : [];
                 // Bug fix: jika scan tunggal jatuh di pulangZone (setelah midpoint), perlakukan sebagai masuk
@@ -26192,10 +26308,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) {
                     lemburMenit = mLPulang - mLMasuk;
                 }
-                // Lebih/kurang jam dari jam kerja standar shift (selisih bersih; di bawah 30 menit = toleransi, tidak dihitung)
+                // Lebih/kurang jam dari jam kerja standar shift (selisih bersih; di bawah toleransi tidak dihitung)
                 const mPulangHari = timeToMinutes(jamPulang);
                 const selisihJamMenit = (mMasuk != null && mPulangHari != null && mMasukCfg != null && mPulangCfg != null) ? (mPulangHari - mMasuk) - (mPulangCfg - mMasukCfg) : 0;
-                const lebihKurangMenit = Math.abs(selisihJamMenit) >= 30 ? selisihJamMenit : 0;
+                const lebihKurangMenit = hitungLebihKurangMenit(selisihJamMenit, toleransiMenit);
 
                 return { jamMasuk, jamPulang, rawMasuk, rawPulang, jamLemburMasuk, jamLemburPulang, rawLemburMasuk, rawLemburPulang, status, lemburMenit, lebihKurangMenit };
             };
@@ -26666,7 +26782,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 {detailRow.lebihKurangMenit !== 0 && detailRow.lebihKurangMenit != null && (
                                                     <div className={`${detailRow.lebihKurangMenit > 0 ? 'bg-emerald-50' : 'bg-red-50'} rounded-xl p-3 mb-3`}>
                                                         <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">{detailRow.lebihKurangMenit > 0 ? 'Lebih Jam' : 'Kurang Jam'}</div>
-                                                        <div className={`font-bold ${detailRow.lebihKurangMenit > 0 ? 'text-emerald-700' : 'text-red-700'}`}>{detailRow.lebihKurangMenit > 0 ? '+' : '−'}{durasiLabel(Math.abs(detailRow.lebihKurangMenit))} <span className="font-normal text-xs text-gray-500">dari jam kerja standar shift (selisih di bawah 30 menit tidak dihitung)</span></div>
+                                                        <div className={`font-bold ${detailRow.lebihKurangMenit > 0 ? 'text-emerald-700' : 'text-red-700'}`}>{detailRow.lebihKurangMenit > 0 ? '+' : '−'}{durasiLabel(Math.abs(detailRow.lebihKurangMenit))} <span className="font-normal text-xs text-gray-500">dari jam kerja standar shift ({toleransiMenit > 0 ? `selisih di bawah ${toleransiMenit} menit tidak dihitung` : 'dihitung per menit'})</span></div>
                                                     </div>
                                                 )}
                                                 {(detailRow.jamLemburMasuk || detailRow.lemburMenit > 0) && (
@@ -26989,74 +27105,268 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </div>
                         )}
 
-                        {activeTab === 'shift_config' && (
+                        {activeTab === 'shift_config' && (() => {
+                            const fmtM = (m) => m == null ? '–' : minutesToTime(Math.min(1439, Math.max(0, Math.round(m))));
+                            const tambahKurang = (menit) => {
+                                const v = hitungLebihKurangMenit(menit, toleransiMenit);
+                                if (v === 0) return { text: menit === 0 ? 'pas, tidak ada tambahan/potongan' : 'tidak dihitung (di bawah toleransi)', cls: 'text-gray-500' };
+                                return v > 0 ? { text: `+${durasiLabel(v)} tambahan lebih jam`, cls: 'text-emerald-700 font-bold' } : { text: `−${durasiLabel(-v)} potongan kurang jam`, cls: 'text-red-600 font-bold' };
+                            };
+                            const Ket = ({ children }) => <p className="text-[11px] text-gray-500 mt-1 leading-snug">{children}</p>;
+                            const Contoh = ({ children }) => <p className="text-[11px] text-indigo-700 bg-indigo-50 rounded px-2 py-1 mt-1 leading-snug">{children}</p>;
+                            const Salah = ({ msg }) => msg ? <p className="text-[11px] text-red-600 font-semibold mt-1">⚠ {msg}</p> : null;
+                            const f = editShiftForm || {};
+                            const isLemburShift = f.id === 'shift3';
+                            const issues = editShiftModal ? getShiftFormIssues(f, isLemburShift) : {};
+                            const mMasukF = timeToMinutes(f.jamMasuk), mPulangF = timeToMinutes(f.jamPulang), mTelatF = timeToMinutes(f.jamTelat);
+                            const mScanMulaiF = timeToMinutes(f.scanMulai), mScanSelesaiF = timeToMinutes(f.scanSelesai);
+                            const jamValid = mMasukF != null && mPulangF != null && mPulangF > mMasukF;
+                            const standarF = jamValid ? mPulangF - mMasukF : null;
+                            const autoTengahF = jamValid ? getTitikTengahMenit({ ...f, titikTengah: '' }, titikTengahConfig, f.jamMasuk, f.jamPulang) : null;
+                            const tengahF = jamValid ? getTitikTengahMenit(f, titikTengahConfig, f.jamMasuk, f.jamPulang) : null;
+                            // Contoh hitungan jam pulang (datang tepat jam masuk), ikut Batas Scan
+                            const contohPulang = jamValid ? [0, toleransiMenit > 1 ? toleransiMenit - 1 : null, 30, 60, -20].filter(v => v != null).filter((v, i, arr) => arr.indexOf(v) === i).map(delta => {
+                                let mPulangAkt = mPulangF + delta;
+                                if (mScanSelesaiF != null && mPulangAkt > mScanSelesaiF) mPulangAkt = mScanSelesaiF;
+                                return { jam: fmtM(mPulangF + delta), terhitung: mPulangAkt !== mPulangF + delta ? fmtM(mPulangAkt) : null, hasil: tambahKurang(mPulangAkt - mPulangF) };
+                            }) : [];
+                            const inputCls = (k) => `w-full p-2 border rounded ${issues[k] ? 'border-red-400 bg-red-50' : ''}`;
+                            const af = aturanForm || {};
+                            const aIssues = aturanModal ? getAturanIssues(af) : {};
+                            const aInputCls = (k) => `w-full p-2 border rounded text-sm ${aIssues[k] ? 'border-red-400 bg-red-50' : ''}`;
+                            const tolPreview = Number.isFinite(Number(af.absensiToleransiMenit)) && String(af.absensiToleransiMenit).trim() !== '' ? Math.max(0, Math.floor(Number(af.absensiToleransiMenit))) : toleransiMenit;
+                            const contohTol = [3, 5, 10, 20, 45].map(m => ({ m, v: hitungLebihKurangMenit(m, tolPreview) }));
+                            return (
                             <div>
+                                {/* Aturan lebih / kurang jam */}
+                                <div className="mb-4 border border-emerald-200 bg-emerald-50 rounded-lg p-4">
+                                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                                        <div className="min-w-0">
+                                            <div className="font-bold text-sm text-emerald-800">Aturan Lebih / Kurang Jam</div>
+                                            <p className="text-xs text-gray-600 mt-1">Gaji harian dihitung dari <b>lama kerja</b> (scan pulang − scan masuk) dibanding <b>jam kerja shift</b>. Lebih = tambahan, kurang = potongan, dihitung <b>per menit</b>.</p>
+                                            <p className="text-xs text-gray-700 mt-1">Toleransi: <b className="text-emerald-800">{toleransiMenit} menit</b> {toleransiMenit > 0 ? `— selisih di bawah ${toleransiMenit} menit tidak dihitung.` : '— setiap menit dihitung.'}</p>
+                                            <p className="text-[11px] text-gray-500 mt-1">Karyawan tanpa shift memakai Jadwal Bawaan: masuk {jamMasukConfig}, telat {jamTelatConfig}, pulang {jamPulangConfig} · lembur {lemburMulaiConfig}–{lemburSelesaiConfig}.</p>
+                                        </div>
+                                        <button onClick={openAturanModal} className="px-3 py-1.5 bg-white border border-emerald-300 text-emerald-800 rounded text-sm font-semibold hover:bg-emerald-100 whitespace-nowrap">⚙ Ubah Aturan</button>
+                                    </div>
+                                </div>
                                 <div className="mb-4">
                                     <p className="text-sm text-gray-500">Atur jam kerja untuk setiap shift. Shift 3 berfungsi sebagai blok lembur — karyawan yang ditugaskan Shift 3 akan dihitung lembur berdasarkan jam ini.</p>
                                 </div>
                                 <div className="space-y-3">
-                                    {absensiShifts.map(shift => (
+                                    {absensiShifts.map(shift => {
+                                        const mM = timeToMinutes(shift.jamMasuk), mP = timeToMinutes(shift.jamPulang);
+                                        const durasi = (mM != null && mP != null && mP > mM) ? mP - mM : null;
+                                        const tengah = shift.id !== 'shift3' && durasi != null ? getTitikTengahMenit(shift, titikTengahConfig, shift.jamMasuk, shift.jamPulang) : null;
+                                        return (
                                         <div key={shift.id} className={`border rounded-lg p-4 flex items-center justify-between flex-wrap gap-3 ${shift.id === 'shift3' ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-gray-50'}`}>
-                                            <div>
+                                            <div className="min-w-0">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className={`font-bold text-sm ${shift.id === 'shift3' ? 'text-orange-700' : 'text-gray-800'}`}>{shift.name}</span>
                                                     {shift.id === 'shift3' && <span className="text-xs bg-orange-100 text-orange-700 font-bold px-2 py-0.5 rounded-full">Lembur</span>}
                                                 </div>
                                                 <div className="text-sm text-gray-600">
                                                     Masuk: <strong>{shift.jamMasuk}</strong> · Batas Telat: <strong>{shift.jamTelat}</strong> · Pulang: <strong>{shift.jamPulang}</strong>
-                                                    <span className="ml-3 text-gray-400">({Math.round((timeToMinutes(shift.jamPulang) - timeToMinutes(shift.jamMasuk)))} menit = {((timeToMinutes(shift.jamPulang) - timeToMinutes(shift.jamMasuk))/60).toFixed(1)} jam)</span>
+                                                    {durasi != null && <span className="ml-2 text-gray-400">(jam kerja {durasiLabel(durasi)})</span>}
                                                 </div>
-                                                {(shift.scanMulai || shift.scanSelesai) && (
+                                                {shift.id !== 'shift3' && (
                                                     <div className="text-xs text-indigo-700 mt-0.5">
-                                                        Batas Scan: {shift.scanMulai || '–'} s/d {shift.scanSelesai || '–'}
+                                                        Batas Scan: {shift.scanMulai || 'bebas'} s/d {shift.scanSelesai || 'bebas'} · Titik Tengah: {tengah != null ? fmtM(tengah) : '–'}{shift.titikTengah ? '' : ' (otomatis)'}
                                                     </div>
                                                 )}
                                             </div>
-                                            <button onClick={() => { setEditShiftForm({ ...shift }); setEditShiftModal(shift.id); }} className="px-3 py-1.5 bg-white border border-gray-300 rounded text-sm font-semibold hover:bg-gray-50">✏ Edit Jam</button>
+                                            <button onClick={() => { setEditShiftForm({ ...shift, titikTengah: shift.titikTengah || '' }); setEditShiftModal(shift.id); }} className="px-3 py-1.5 bg-white border border-gray-300 rounded text-sm font-semibold hover:bg-gray-50">✏ Edit Jam</button>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                                 <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                                    <strong>Catatan:</strong> Perubahan jam shift berlaku untuk semua karyawan yang sudah ditugaskan ke shift tersebut. Data absensi lama tetap aman karena hanya cara pembacaan yang berubah, bukan data tap-nya.
+                                    <strong>Catatan:</strong> Perubahan jam shift berlaku untuk semua karyawan yang sudah ditugaskan ke shift tersebut. Data absensi lama tetap aman karena hanya cara pembacaan yang berubah, bukan data tap-nya. Rekap kinerja yang sudah dibuat tidak berubah.
                                 </div>
 
                                 {editShiftModal && (
                                     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-                                        <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
-                                            <h3 className="text-lg font-bold mb-4">Edit {editShiftForm.name}</h3>
-                                            <div className="space-y-3">
-                                                <div><label className="block text-sm font-semibold mb-1">Jam Masuk</label><input type="time" className="w-full p-2 border rounded" value={editShiftForm.jamMasuk || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamMasuk: e.target.value }))} /></div>
-                                                <div><label className="block text-sm font-semibold mb-1">Batas Telat</label><input type="time" className="w-full p-2 border rounded" value={editShiftForm.jamTelat || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamTelat: e.target.value }))} /></div>
-                                                <div><label className="block text-sm font-semibold mb-1">Jam Pulang</label><input type="time" className="w-full p-2 border rounded" value={editShiftForm.jamPulang || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamPulang: e.target.value }))} /></div>
-                                                {editShiftForm.jamMasuk && editShiftForm.jamPulang && timeToMinutes(editShiftForm.jamPulang) > timeToMinutes(editShiftForm.jamMasuk) && (
-                                                    <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">Durasi: {Math.round(timeToMinutes(editShiftForm.jamPulang) - timeToMinutes(editShiftForm.jamMasuk))} menit ({((timeToMinutes(editShiftForm.jamPulang) - timeToMinutes(editShiftForm.jamMasuk))/60).toFixed(1)} jam)</div>
-                                                )}
-                                                <div className="border-t pt-3 mt-1">
-                                                    <div className="text-xs font-bold text-indigo-700 mb-2">Batas Waktu Scan <span className="font-normal text-gray-400">(opsional)</span></div>
-                                                    <p className="text-xs text-gray-500 mb-2">Tap di luar rentang ini akan diabaikan. Kosongkan jika tidak ada batas.</p>
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        <div><label className="block text-xs font-semibold mb-1">Mulai Scan</label><input type="time" className="w-full p-2 border rounded text-sm" value={editShiftForm.scanMulai || ''} onChange={e => setEditShiftForm(p => ({ ...p, scanMulai: e.target.value }))} /></div>
-                                                        <div><label className="block text-xs font-semibold mb-1">Akhir Scan</label><input type="time" className="w-full p-2 border rounded text-sm" value={editShiftForm.scanSelesai || ''} onChange={e => setEditShiftForm(p => ({ ...p, scanSelesai: e.target.value }))} /></div>
+                                        <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[92vh] flex flex-col">
+                                            <div className="px-5 pt-5 pb-3 border-b">
+                                                <h3 className="text-lg font-bold">Edit {f.name}</h3>
+                                                {!isLemburShift && <p className="text-xs text-gray-500 mt-0.5">Isi dari atas ke bawah. Keterangan & contoh di bawah tiap kolom ikut berubah sesuai isian.</p>}
+                                            </div>
+                                            <div className="px-5 py-4 space-y-4 overflow-y-auto">
+                                                {/* Garis waktu */}
+                                                {jamValid && !isLemburShift && (
+                                                    <div className="bg-slate-50 border rounded-lg p-2">
+                                                        <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Urutan waktu</div>
+                                                        <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                                                            {[
+                                                                { l: 'Mulai scan', v: f.scanMulai || 'bebas', c: 'bg-indigo-100 text-indigo-800' },
+                                                                { l: 'Masuk', v: f.jamMasuk, c: 'bg-blue-600 text-white' },
+                                                                { l: 'Telat', v: f.jamTelat || '–', c: 'bg-amber-100 text-amber-800' },
+                                                                { l: 'Titik tengah', v: fmtM(tengahF), c: 'bg-slate-200 text-slate-700' },
+                                                                { l: 'Pulang', v: f.jamPulang, c: 'bg-blue-600 text-white' },
+                                                                { l: 'Akhir scan', v: f.scanSelesai || 'bebas', c: 'bg-indigo-100 text-indigo-800' },
+                                                            ].map((t, i, arr) => (
+                                                                <React.Fragment key={t.l}>
+                                                                    <span className={`rounded px-1.5 py-0.5 whitespace-nowrap ${t.c}`}>{t.l} <b>{t.v}</b></span>
+                                                                    {i < arr.length - 1 && <span className="text-gray-400">›</span>}
+                                                                </React.Fragment>
+                                                            ))}
+                                                        </div>
                                                     </div>
-                                                    {(editShiftForm.scanMulai || editShiftForm.scanSelesai) && (
-                                                        <button onClick={() => setEditShiftForm(p => ({ ...p, scanMulai: '', scanSelesai: '' }))} className="mt-1.5 text-xs text-red-500 hover:underline">Hapus batas scan</button>
+                                                )}
+
+                                                {!isLemburShift && (
+                                                    <div>
+                                                        <label className="block text-sm font-semibold mb-1">1. Mulai Scan Masuk <span className="font-normal text-gray-400">(opsional)</span></label>
+                                                        <div className="flex gap-2">
+                                                            <input type="time" className={`${inputCls('scanMulai')} min-w-0`} value={f.scanMulai || ''} onChange={e => setEditShiftForm(p => ({ ...p, scanMulai: e.target.value }))} />
+                                                            {f.scanMulai && <button type="button" onClick={() => setEditShiftForm(p => ({ ...p, scanMulai: '' }))} className="shrink-0 px-1 text-xs text-red-500 font-bold whitespace-nowrap hover:underline">✕ Hapus</button>}
+                                                        </div>
+                                                        <Salah msg={issues.scanMulai} />
+                                                        <Ket>Scan paling awal yang dihitung. Datang lebih pagi dari jam ini tetap dianggap jam ini. Kosongkan bila tidak ada batas.</Ket>
+                                                        {mScanMulaiF != null && mMasukF != null && mScanMulaiF <= mMasukF
+                                                            ? <Contoh>Contoh: datang {fmtM(mScanMulaiF - 30)} → dihitung {f.scanMulai}. Datang lebih awal paling banyak dihitung {mMasukF - mScanMulaiF > 0 ? `${durasiLabel(mMasukF - mScanMulaiF)} tambahan` : '0 (tidak ada tambahan datang awal)'}.</Contoh>
+                                                            : (!f.scanMulai && <Contoh>Kosong: datang jam berapa pun dihitung apa adanya (datang lebih awal = tambahan lebih jam).</Contoh>)}
+                                                    </div>
+                                                )}
+
+                                                <div>
+                                                    <label className="block text-sm font-semibold mb-1">{isLemburShift ? 'Jam Mulai Lembur' : '2. Jam Masuk'}</label>
+                                                    <input type="time" className={inputCls('jamMasuk')} value={f.jamMasuk || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamMasuk: e.target.value }))} />
+                                                    <Salah msg={issues.jamMasuk} />
+                                                    <Ket>{isLemburShift ? 'Scan sesudah jam ini dihitung sebagai lembur (untuk karyawan yang ditugaskan Shift 3).' : 'Jam mulai kerja. Bersama Jam Pulang menentukan jam kerja standar.'}</Ket>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-sm font-semibold mb-1">{isLemburShift ? 'Batas Telat Lembur' : '3. Batas Telat'}</label>
+                                                    <input type="time" className={inputCls('jamTelat')} value={f.jamTelat || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamTelat: e.target.value }))} />
+                                                    <Salah msg={issues.jamTelat} />
+                                                    {!isLemburShift && <Ket>Datang lewat jam ini diberi tanda <b>"Terlambat"</b> di laporan. Tanda ini tidak memotong gaji; potongan hanya dari kurang jam.</Ket>}
+                                                    {!isLemburShift && mMasukF != null && mTelatF != null && mTelatF >= mMasukF && <Contoh>Contoh: masuk {fmtM(mTelatF + 1)} → tanda Terlambat. Masuk {fmtM(mTelatF)} → tepat waktu.</Contoh>}
+                                                </div>
+
+                                                {!isLemburShift && (
+                                                    <div>
+                                                        <label className="block text-sm font-semibold mb-1">4. Titik Tengah <span className="font-normal text-gray-400">(opsional)</span></label>
+                                                        <div className="flex gap-2">
+                                                            <input type="time" className={`${inputCls('titikTengah')} min-w-0`} value={f.titikTengah || ''} onChange={e => setEditShiftForm(p => ({ ...p, titikTengah: e.target.value }))} />
+                                                            {f.titikTengah && <button type="button" onClick={() => setEditShiftForm(p => ({ ...p, titikTengah: '' }))} className="shrink-0 px-1 text-xs text-red-500 font-bold whitespace-nowrap hover:underline">↺ Otomatis</button>}
+                                                        </div>
+                                                        <Salah msg={issues.titikTengah} />
+                                                        <Ket>Pemisah scan masuk dan scan pulang. Kosongkan agar otomatis{autoTengahF != null ? ` (${fmtM(autoTengahF)})` : ''}.</Ket>
+                                                        {tengahF != null && <Contoh>Scan sampai {fmtM(tengahF)} = scan masuk · scan sesudah {fmtM(tengahF)} = scan pulang.</Contoh>}
+                                                    </div>
+                                                )}
+
+                                                <div>
+                                                    <label className="block text-sm font-semibold mb-1">{isLemburShift ? 'Jam Selesai Lembur' : '5. Jam Pulang'}</label>
+                                                    <input type="time" className={inputCls('jamPulang')} value={f.jamPulang || ''} onChange={e => setEditShiftForm(p => ({ ...p, jamPulang: e.target.value }))} />
+                                                    <Salah msg={issues.jamPulang} />
+                                                    {jamValid && <Ket>{isLemburShift ? 'Durasi blok lembur' : 'Jam kerja standar'}: <b>{durasiLabel(standarF)}</b>{isLemburShift ? '. Lembur dihitung bila minimal 1 jam.' : '.'}</Ket>}
+                                                    {!isLemburShift && jamValid && (
+                                                        <div className="mt-1 bg-emerald-50 border border-emerald-200 rounded p-2">
+                                                            <p className="text-[11px] text-gray-700 leading-snug">Pulang <b>lebih lama</b> dari jam ini = <b className="text-emerald-700">tambahan lebih jam</b>. Pulang <b>lebih cepat</b> = <b className="text-red-600">potongan kurang jam</b>. Dihitung per menit; {toleransiMenit > 0 ? `selisih di bawah ${toleransiMenit} menit tidak dihitung` : 'tanpa toleransi'}.</p>
+                                                            <div className="text-[11px] mt-1.5 text-gray-500">Contoh (datang tepat {f.jamMasuk}):</div>
+                                                            <table className="w-full text-[11px] mt-0.5">
+                                                                <tbody>
+                                                                    {contohPulang.map(r => (
+                                                                        <tr key={r.jam} className="border-t border-emerald-100">
+                                                                            <td className="py-0.5 pr-2 whitespace-nowrap">Pulang {r.jam}{r.terhitung ? <span className="text-gray-400"> (dihitung {r.terhitung})</span> : ''}</td>
+                                                                            <td className={`py-0.5 text-right ${r.hasil.cls}`}>{r.hasil.text}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                            <p className="text-[11px] text-gray-500 mt-1">Telat 15 menit lalu pulang 15 menit lebih lama = impas. Atur toleransi di "Ubah Aturan".</p>
+                                                        </div>
                                                     )}
                                                 </div>
+
+                                                {!isLemburShift && (
+                                                    <div>
+                                                        <label className="block text-sm font-semibold mb-1">6. Akhir Scan Pulang <span className="font-normal text-gray-400">(opsional)</span></label>
+                                                        <div className="flex gap-2">
+                                                            <input type="time" className={`${inputCls('scanSelesai')} min-w-0`} value={f.scanSelesai || ''} onChange={e => setEditShiftForm(p => ({ ...p, scanSelesai: e.target.value }))} />
+                                                            {f.scanSelesai && <button type="button" onClick={() => setEditShiftForm(p => ({ ...p, scanSelesai: '' }))} className="shrink-0 px-1 text-xs text-red-500 font-bold whitespace-nowrap hover:underline">✕ Hapus</button>}
+                                                        </div>
+                                                        <Salah msg={issues.scanSelesai} />
+                                                        <Ket>Scan paling akhir yang dihitung. Pulang lewat jam ini tetap dianggap jam ini. Kosongkan bila tidak ada batas.</Ket>
+                                                        {mScanSelesaiF != null && mPulangF != null && mScanSelesaiF >= mPulangF
+                                                            ? <Contoh>Contoh: pulang {fmtM(mScanSelesaiF + 30)} → dihitung {f.scanSelesai}. Tambahan pulang lebih lama paling banyak {mScanSelesaiF - mPulangF > 0 ? durasiLabel(mScanSelesaiF - mPulangF) : '0'}.</Contoh>
+                                                            : (!f.scanSelesai && <Contoh>Kosong: pulang jam berapa pun dihitung apa adanya (sampai batas jam lembur).</Contoh>)}
+                                                    </div>
+                                                )}
+                                                {isLemburShift && <p className="text-xs text-orange-700 bg-orange-50 rounded p-2">Shift 3 adalah blok lembur. Batas scan dan titik tengah lembur diatur di "Ubah Aturan" (bagian Jam Lembur).</p>}
                                             </div>
-                                            <div className="flex gap-2 mt-4">
+                                            <div className="flex gap-2 px-5 py-3 border-t">
                                                 <button onClick={() => setEditShiftModal(null)} className="flex-1 px-4 py-2 border rounded font-semibold text-gray-700 hover:bg-gray-50">Batal</button>
                                                 <button onClick={() => {
-                                                    if (!editShiftForm.jamMasuk || !editShiftForm.jamTelat || !editShiftForm.jamPulang) { showToast('Semua jam wajib diisi.', 'error'); return; }
-                                                    if (timeToMinutes(editShiftForm.jamPulang) <= timeToMinutes(editShiftForm.jamMasuk)) { showToast('Jam pulang harus lebih dari jam masuk.', 'error'); return; }
-                                                    if (editShiftForm.scanMulai && editShiftForm.scanSelesai && timeToMinutes(editShiftForm.scanSelesai) <= timeToMinutes(editShiftForm.scanMulai)) { showToast('Akhir scan harus lebih dari mulai scan.', 'error'); return; }
-                                                    saveShiftConfig(editShiftForm);
+                                                    if (Object.keys(getShiftFormIssues(f, isLemburShift)).length > 0) { showToast('Periksa isian yang bertanda merah.', 'error'); return; }
+                                                    saveShiftConfig(f);
                                                 }} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700">Simpan</button>
                                             </div>
                                         </div>
                                     </div>
                                 )}
+
+                                {aturanModal && (
+                                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                                        <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[92vh] flex flex-col">
+                                            <div className="px-5 pt-5 pb-3 border-b">
+                                                <h3 className="text-lg font-bold">Aturan Absensi</h3>
+                                            </div>
+                                            <div className="px-5 py-4 space-y-5 overflow-y-auto">
+                                                <div>
+                                                    <div className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-2">Lebih / Kurang Jam</div>
+                                                    <label className="block text-sm font-semibold mb-1">Toleransi (menit)</label>
+                                                    <input type="number" min="0" max="240" inputMode="numeric" className={aInputCls('absensiToleransiMenit')} value={af.absensiToleransiMenit ?? ''} onChange={e => setAturanForm(p => ({ ...p, absensiToleransiMenit: e.target.value }))} />
+                                                    <Salah msg={aIssues.absensiToleransiMenit} />
+                                                    <Ket>Selisih lebih/kurang <b>di bawah</b> angka ini tidak dihitung. Kalau sudah sama atau lebih, <b>semua menitnya</b> dihitung. Isi 0 = setiap menit dihitung.</Ket>
+                                                    <div className="flex flex-wrap gap-1 mt-1.5">
+                                                        {contohTol.map(c => (
+                                                            <span key={c.m} className={`text-[11px] rounded px-1.5 py-0.5 ${c.v ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>selisih {c.m} mnt → {c.v ? `dihitung ${c.m} mnt` : 'tidak dihitung'}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Jadwal Bawaan</div>
+                                                    <Ket>Dipakai karyawan yang <b>belum ditugaskan shift</b>.</Ket>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                                                        <div><label className="block text-xs font-semibold mb-1">Jam Masuk</label><input type="time" className={aInputCls('absensiJamMasuk')} value={af.absensiJamMasuk || ''} onChange={e => setAturanForm(p => ({ ...p, absensiJamMasuk: e.target.value }))} /><Salah msg={aIssues.absensiJamMasuk} /></div>
+                                                        <div><label className="block text-xs font-semibold mb-1">Batas Telat</label><input type="time" className={aInputCls('absensiJamTelat')} value={af.absensiJamTelat || ''} onChange={e => setAturanForm(p => ({ ...p, absensiJamTelat: e.target.value }))} /><Salah msg={aIssues.absensiJamTelat} /></div>
+                                                        <div><label className="block text-xs font-semibold mb-1">Jam Pulang</label><input type="time" className={aInputCls('absensiJamPulang')} value={af.absensiJamPulang || ''} onChange={e => setAturanForm(p => ({ ...p, absensiJamPulang: e.target.value }))} /><Salah msg={aIssues.absensiJamPulang} /></div>
+                                                        <div>
+                                                            <label className="block text-xs font-semibold mb-1">Titik Tengah <span className="font-normal text-gray-400">(opsional)</span></label>
+                                                            <input type="time" className={aInputCls('absensiTitikTengah')} value={af.absensiTitikTengah || ''} onChange={e => setAturanForm(p => ({ ...p, absensiTitikTengah: e.target.value }))} />
+                                                            <Salah msg={aIssues.absensiTitikTengah} />
+                                                            <Ket>Kosong = otomatis di tengah jam masuk & pulang. Shift yang titik tengahnya kosong juga memakai ini bila jatuh di dalam jam kerjanya.</Ket>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-xs font-bold text-orange-600 uppercase tracking-wide mb-1">Jam Lembur</div>
+                                                    <Ket>Dipakai karyawan tanpa shift; karyawan Shift 3 memakai jam Shift 3. Lembur dihitung bila minimal 1 jam.</Ket>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                                                        <div><label className="block text-xs font-semibold mb-1">Mulai Lembur</label><input type="time" className={aInputCls('absensiLemburMulai')} value={af.absensiLemburMulai || ''} onChange={e => setAturanForm(p => ({ ...p, absensiLemburMulai: e.target.value }))} /><Salah msg={aIssues.absensiLemburMulai} /></div>
+                                                        <div><label className="block text-xs font-semibold mb-1">Selesai Lembur</label><input type="time" className={aInputCls('absensiLemburSelesai')} value={af.absensiLemburSelesai || ''} onChange={e => setAturanForm(p => ({ ...p, absensiLemburSelesai: e.target.value }))} /><Salah msg={aIssues.absensiLemburSelesai} /></div>
+                                                        <div className="sm:col-span-2">
+                                                            <label className="block text-xs font-semibold mb-1">Titik Tengah Lembur <span className="font-normal text-gray-400">(opsional)</span></label>
+                                                            <input type="time" className={aInputCls('absensiTitikTengahLembur')} value={af.absensiTitikTengahLembur || ''} onChange={e => setAturanForm(p => ({ ...p, absensiTitikTengahLembur: e.target.value }))} />
+                                                            <Salah msg={aIssues.absensiTitikTengahLembur} />
+                                                            <Ket>Pemisah scan masuk lembur dan pulang lembur. Kosong = otomatis.</Ket>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2 px-5 py-3 border-t">
+                                                <button onClick={() => setAturanModal(false)} className="flex-1 px-4 py-2 border rounded font-semibold text-gray-700 hover:bg-gray-50">Batal</button>
+                                                <button onClick={saveAturan} className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded font-semibold hover:bg-emerald-700">Simpan Aturan</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                        )}
+                            );
+                        })()}
 
                         {activeTab === 'shift_assign' && (
                             <div>
