@@ -9999,7 +9999,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         : { bar:'#EF4444', bg:'#FEE2E2', text:'#991B1B', label:'✗ BELUM BAYAR' };
                     return (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[150] p-3" onClick={() => setDetailInvId(null)}>
-                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
 
                                 {/* Header gradient */}
                                 <div className="px-5 py-4 flex items-start justify-between shrink-0" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a6a7a 100%)' }}>
@@ -10018,66 +10018,56 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                                 <div className="overflow-y-auto flex-1 p-5 space-y-5">
 
-                                    {/* Tampilan nota: tabel produk -> hitungan -> sisa tagihan */}
-                                    <div className="-mx-1 overflow-x-auto">
-                                        <table className="w-full text-sm">
+                                    {/* Tampilan nota: setiap ukuran satu baris, kolom tetap & sejajar di semua invoice */}
+                                    <div className="-mx-1">
+                                        <table className="w-full table-fixed tabular-nums">
+                                            <colgroup>
+                                                <col className="w-[30%] sm:w-[46%]" />
+                                                <col className="w-[13%] sm:w-[12%]" />
+                                                <col className="w-[26%] sm:w-[20%]" />
+                                                <col className="w-[31%] sm:w-[22%]" />
+                                            </colgroup>
                                             <thead>
-                                                <tr className="border-b-2 border-gray-200 text-[11px] uppercase tracking-wide text-gray-500">
-                                                    <th className="text-left font-bold px-1 py-1.5">Produk &amp; Ukuran</th>
-                                                    <th className="text-right font-bold px-1 py-1.5">Qty</th>
-                                                    <th className="text-right font-bold px-1 py-1.5 hidden sm:table-cell">Harga</th>
-                                                    <th className="text-right font-bold px-1 py-1.5">Subtotal</th>
+                                                <tr className="border-b-2 border-gray-300 text-[12px] uppercase tracking-wide text-gray-600">
+                                                    <th className="text-left font-bold px-1.5 py-2">Produk / Ukuran</th>
+                                                    <th className="text-right font-bold px-1.5 py-2">Qty</th>
+                                                    <th className="text-right font-bold px-1.5 py-2">Harga</th>
+                                                    <th className="text-right font-bold px-1.5 py-2">Subtotal</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {invItems.map((item, i) => {
                                                     const itemSizes = (item.sizes || []).filter(s => (safeMoney(s.qty) > 0 || s.size));
-                                                    const itemDiscount = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).discount, 0);
                                                     const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
                                                     const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
-                                                    const prices = [...new Set(itemSizes.map(s => safeMoney(s.pricePerPcs)))];
-                                                    const samePrice = prices.length === 1;
                                                     const fmtNum = (n) => formatRupiah(n).replace(/^Rp\s*/, '');
-                                                    if (samePrice) {
-                                                        return (
-                                                            <tr key={i} className="border-b border-gray-100 align-top">
-                                                                <td className="px-1 py-2.5">
-                                                                    <div className="font-bold text-gray-900 leading-snug">{item.productionType || '-'}</div>
-                                                                    <div className="text-[12.5px] text-gray-600 mt-0.5 leading-snug">{itemSizes.map(s => `${s.size || '-'} ${safeMoney(s.qty)}`).join(' · ')}</div>
-                                                                    <div className="text-[11.5px] text-gray-500 sm:hidden">@ {formatRupiah(prices[0])}</div>
-                                                                </td>
-                                                                <td className="px-1 py-2.5 text-right tabular-nums">{itemPcs}</td>
-                                                                <td className="px-1 py-2.5 text-right tabular-nums hidden sm:table-cell">{fmtNum(prices[0])}</td>
-                                                                <td className="px-1 py-2.5 text-right tabular-nums whitespace-nowrap">
-                                                                    <div className="font-semibold text-gray-900">{fmtNum(itemTotal)}</div>
-                                                                    {itemDiscount > 0 && <div className="text-[11px] text-amber-700">diskon −{fmtNum(itemDiscount)}</div>}
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    }
-                                                    // Harga berbeda per ukuran: baris produk + satu baris per ukuran (semua baris tampil sama)
                                                     return (
                                                         <React.Fragment key={i}>
-                                                            <tr className="align-top">
-                                                                <td className="px-1 pt-2.5 pb-1 font-bold text-gray-900 leading-snug">{item.productionType || '-'}</td>
-                                                                <td className="px-1 pt-2.5 pb-1 text-right tabular-nums font-bold">{itemPcs}</td>
-                                                                <td className="px-1 pt-2.5 pb-1 hidden sm:table-cell"></td>
-                                                                <td className="px-1 pt-2.5 pb-1 text-right tabular-nums whitespace-nowrap font-bold text-gray-900">{fmtNum(itemTotal)}</td>
+                                                            <tr className={`align-top hidden sm:table-row ${i > 0 ? 'border-t border-gray-200' : ''}`}>
+                                                                <td className="px-1.5 pt-3.5 pb-1.5 text-[16px] font-extrabold text-gray-900 leading-snug break-words">{item.productionType || '-'}</td>
+                                                                <td className="px-1.5 pt-3.5 pb-1.5 text-right text-[16px] font-extrabold text-gray-900">{itemPcs}</td>
+                                                                <td className="px-1.5 pt-3.5 pb-1.5"></td>
+                                                                <td className="px-1.5 pt-3.5 pb-1.5 text-right text-[16px] font-extrabold text-gray-900 whitespace-nowrap">{fmtNum(itemTotal)}</td>
+                                                            </tr>
+                                                            {/* HP: nama produk selebar tabel agar tidak terpotong-potong */}
+                                                            <tr className={`sm:hidden ${i > 0 ? 'border-t border-gray-200' : ''}`}>
+                                                                <td colSpan={4} className="px-1.5 pt-3.5 pb-1.5">
+                                                                    <div className="flex items-start justify-between gap-3">
+                                                                        <span className="text-[16px] font-extrabold text-gray-900 leading-snug min-w-0 break-words">{item.productionType || '-'}</span>
+                                                                        <span className="shrink-0 text-right whitespace-nowrap"><span className="text-[13px] font-bold text-gray-500">{itemPcs} pcs</span> <span className="text-[16px] font-extrabold text-gray-900">{fmtNum(itemTotal)}</span></span>
+                                                                    </div>
+                                                                </td>
                                                             </tr>
                                                             {itemSizes.map((sz, si) => {
                                                                 const st = getInvoiceSizeTotal(sz);
-                                                                const last = si === itemSizes.length - 1;
                                                                 return (
-                                                                    <tr key={`${i}-${si}`} className={`align-top text-[13px] text-gray-700 ${last ? 'border-b border-gray-100' : ''}`}>
-                                                                        <td className={`pl-4 pr-1 py-1 ${last ? 'pb-2.5' : ''}`}>
-                                                                            <span className="font-semibold text-gray-800">{sz.size || '-'}</span>
-                                                                            <span className="text-[11.5px] text-gray-500 sm:hidden"> @ {fmtNum(sz.pricePerPcs)}</span>
-                                                                        </td>
-                                                                        <td className={`px-1 py-1 text-right tabular-nums ${last ? 'pb-2.5' : ''}`}>{safeMoney(sz.qty)}</td>
-                                                                        <td className={`px-1 py-1 text-right tabular-nums hidden sm:table-cell ${last ? 'pb-2.5' : ''}`}>{fmtNum(sz.pricePerPcs)}</td>
-                                                                        <td className={`px-1 py-1 text-right tabular-nums whitespace-nowrap ${last ? 'pb-2.5' : ''}`}>
+                                                                    <tr key={`${i}-${si}`} className={`align-top text-[15px] text-gray-800 ${si % 2 === 1 ? 'bg-slate-50' : ''}`}>
+                                                                        <td className="pl-5 pr-1.5 py-2 font-bold text-gray-900 break-words">{sz.size || '-'}</td>
+                                                                        <td className="px-1.5 py-2 text-right">{safeMoney(sz.qty)}</td>
+                                                                        <td className="px-1.5 py-2 text-right whitespace-nowrap">{fmtNum(sz.pricePerPcs)}</td>
+                                                                        <td className="px-1.5 py-2 text-right whitespace-nowrap">
                                                                             {fmtNum(st.total)}
-                                                                            {st.discount > 0 && <div className="text-[11px] text-amber-700">diskon −{fmtNum(st.discount)}</div>}
+                                                                            {st.discount > 0 && <div className="text-[11.5px] text-amber-700 whitespace-normal leading-tight">diskon −{fmtNum(st.discount)}</div>}
                                                                         </td>
                                                                     </tr>
                                                                 );
@@ -10091,60 +10081,60 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                                     <div className="space-y-0.5">
                                         {(totals.globalDiscount > 0 || totals.shippingCost > 0) && (
-                                            <div className="flex justify-between px-1 py-1.5 text-sm text-gray-600">
+                                            <div className="flex justify-between px-1.5 py-2 text-[15px] text-gray-600">
                                                 <span>Jumlah produk</span>
-                                                <span className="tabular-nums">{formatRupiah(totals.subtotal - totals.lineDiscount)}</span>
+                                                <span className="tabular-nums whitespace-nowrap">{formatRupiah(totals.subtotal - totals.lineDiscount)}</span>
                                             </div>
                                         )}
                                         {totals.globalDiscount > 0 && (
-                                            <div className="flex justify-between px-1 py-1.5 text-sm text-amber-700">
+                                            <div className="flex justify-between px-1.5 py-2 text-[15px] text-amber-700">
                                                 <span>Diskon{inv.globalDiscountType === '%' ? ` (${safeMoney(inv.globalDiscountValue)}%)` : ''}</span>
-                                                <span className="tabular-nums">− {formatRupiah(totals.globalDiscount)}</span>
+                                                <span className="tabular-nums whitespace-nowrap">− {formatRupiah(totals.globalDiscount)}</span>
                                             </div>
                                         )}
                                         {totals.shippingCost > 0 && (
-                                            <div className="flex justify-between px-1 py-1.5 text-sm text-gray-600">
+                                            <div className="flex justify-between px-1.5 py-2 text-[15px] text-gray-600">
                                                 <span>Ongkos kirim</span>
-                                                <span className="tabular-nums">+ {formatRupiah(totals.shippingCost)}</span>
+                                                <span className="tabular-nums whitespace-nowrap">+ {formatRupiah(totals.shippingCost)}</span>
                                             </div>
                                         )}
-                                        <div className="flex justify-between items-baseline px-1 pt-2.5 pb-1.5 border-t-2 border-gray-900 mt-1">
-                                            <span className="font-black text-gray-900">Total Invoice <span className="text-xs font-bold text-gray-500">({totalPcs} pcs)</span></span>
-                                            <span className="font-black text-gray-900 text-base tabular-nums">{formatRupiah(totals.total)}</span>
+                                        <div className="flex justify-between items-baseline px-1.5 pt-3 pb-2 border-t-2 border-gray-900 mt-1">
+                                            <span className="font-black text-gray-900 text-[18px]">Total Invoice <span className="block sm:inline text-[13px] font-bold text-gray-500 whitespace-nowrap">({totalPcs} pcs)</span></span>
+                                            <span className="font-black text-gray-900 text-[18px] tabular-nums whitespace-nowrap">{formatRupiah(totals.total)}</span>
                                         </div>
                                         {dpAmt > 0 && (
-                                            <div className="flex justify-between items-center px-1 py-1.5 text-sm text-emerald-700">
-                                                <span>DP Awal <span className="text-[11px] text-gray-500">{getInvoiceDp(inv).date || ''}{getInvoiceDp(inv).method ? ` · ${getInvoiceDp(inv).method}` : ''}</span></span>
-                                                <span className="flex items-center gap-2">
+                                            <div className="flex justify-between items-center px-1.5 py-2 text-[15px] text-emerald-700">
+                                                <span className="min-w-0">DP Awal <span className="block sm:inline text-[12.5px] text-gray-500">{getInvoiceDp(inv).date || ''}{getInvoiceDp(inv).method ? ` · ${getInvoiceDp(inv).method}` : ''}</span></span>
+                                                <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
                                                     <button onClick={() => { const dpObj = getInvoiceDp(inv); const cum = dpAmt + getInvoiceLinkedDpAmount(inv); printInvoicePayment(inv, { id: (dpObj.id || inv.id+'-DP'), date: dpObj.date, amount: dpAmt, method: dpObj.method || 'Transfer', note: dpObj.note || '' }, 'DP / Uang Muka', cum >= totals.total); }} title="Cetak Kwitansi DP" className="text-slate-400 hover:text-blue-600 transition-colors"><IconPrinter /></button>
-                                                    <span className="tabular-nums">− {formatRupiah(dpAmt)}</span>
+                                                    <span className="tabular-nums whitespace-nowrap">− {formatRupiah(dpAmt)}</span>
                                                 </span>
                                             </div>
                                         )}
                                         {linkedDp > 0 && (
-                                            <div className="flex justify-between items-center px-1 py-1.5 text-sm text-emerald-700">
+                                            <div className="flex justify-between items-center px-1.5 py-2 text-[15px] text-emerald-700">
                                                 <span>Saldo klien dipakai</span>
-                                                <span className="tabular-nums">− {formatRupiah(linkedDp)}</span>
+                                                <span className="tabular-nums whitespace-nowrap">− {formatRupiah(linkedDp)}</span>
                                             </div>
                                         )}
                                         {termins.map((pay, pi) => (
-                                            <div key={pay.id || pi} className="flex justify-between items-center px-1 py-1.5 text-sm text-emerald-700">
-                                                <span className="min-w-0">Termin {pi + 1} <span className="text-[11px] text-gray-500">{pay.date} · {pay.method || 'Transfer'}{pay.note ? ` · ${pay.note}` : ''}</span></span>
-                                                <span className="flex items-center gap-2 shrink-0">
+                                            <div key={pay.id || pi} className="flex justify-between items-center px-1.5 py-2 text-[15px] text-emerald-700">
+                                                <span className="min-w-0">Termin {pi + 1} <span className="block sm:inline text-[12.5px] text-gray-500">{pay.date} · {pay.method || 'Transfer'}{pay.note ? ` · ${pay.note}` : ''}</span></span>
+                                                <span className="flex items-center gap-2 shrink-0 whitespace-nowrap">
                                                     <button onClick={() => { const cum = dpAmt + linkedDp + termins.slice(0, pi+1).reduce((s,p) => s + safeMoney(p.amount), 0); printInvoicePayment(inv, pay, `Termin ke-${pi+1}`, cum >= totals.total); }} title="Cetak Kwitansi" className="text-slate-400 hover:text-blue-600 transition-colors"><IconPrinter /></button>
-                                                    <span className="tabular-nums">− {formatRupiah(safeMoney(pay.amount))}</span>
+                                                    <span className="tabular-nums whitespace-nowrap">− {formatRupiah(safeMoney(pay.amount))}</span>
                                                 </span>
                                             </div>
                                         ))}
                                     </div>
 
                                     <div className={`flex justify-between items-center rounded-xl px-4 py-3 ${remaining > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-                                        <span className={`font-black ${remaining > 0 ? 'text-red-800' : 'text-green-800'}`}>{remaining > 0 ? 'Sisa Tagihan' : '✓ Lunas'}</span>
-                                        <span className={`text-xl font-black tabular-nums ${remaining > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatRupiah(remaining)}</span>
+                                        <span className={`text-[17px] font-black ${remaining > 0 ? 'text-red-800' : 'text-green-800'}`}>{remaining > 0 ? 'Sisa Tagihan' : '✓ Lunas'}</span>
+                                        <span className={`text-[23px] font-black tabular-nums ${remaining > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatRupiah(remaining)}</span>
                                     </div>
 
                                     {commission > 0 && (
-                                        <div className="rounded-xl border border-purple-100 bg-purple-50 px-4 py-2.5 flex items-center justify-between gap-3 text-sm text-purple-800">
+                                        <div className="rounded-xl border border-purple-100 bg-purple-50 px-4 py-2.5 flex items-center justify-between gap-3 text-[14px] text-purple-800">
                                             <span className="min-w-0">Komisi marketing{inv.commissionValue > 0 ? ` ${inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${inv.commissionValue}%`}` : ''}{inv.marketing ? ` · ${inv.marketing}` : ''}{inv.commissionRekapId ? <b> · sudah direkap</b> : ''}</span>
                                             <b className="tabular-nums shrink-0">{formatRupiah(commission)}</b>
                                         </div>
