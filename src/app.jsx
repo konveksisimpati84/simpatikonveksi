@@ -13970,6 +13970,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         .sig-img { max-height: 48px; max-width: 90px; object-fit: contain; display: block; margin: 6px auto 0; }
                         .signature-line { margin-top: auto; border-top: 1px solid #000; padding-top: 3px; width: 100%; }
                         .footer-note { text-align: center; font-size: 9px; margin-top: 9px; color: #444; }
+                        .bonus-box { margin: 9px 0 4px; border: 2px solid #000; border-radius: 6px; overflow: hidden; text-align: center; page-break-inside: avoid; }
+                        .bonus-box .bonus-head { background: #000; color: #fff; font-size: 11px; font-weight: 900; letter-spacing: 2px; padding: 4px 0; }
+                        .bonus-box .bonus-amount { font-size: 20px; font-weight: 900; padding: 6px 0 1px; }
+                        .bonus-box .bonus-note { font-size: 10px; padding: 0 4px 3px; overflow-wrap: anywhere; }
+                        .bonus-box .bonus-thanks { font-size: 9.5px; border-top: 1px dashed #000; padding: 4px 4px 5px; font-style: italic; }
+                        .total-sub { font-size: 9px; color: #444; margin: -2px 0 3px; }
                         @media screen {
                             body { background: #f3f4f6; padding: 12px 0; }
                             .receipt { background: #fff; padding: 4mm; box-shadow: 0 10px 30px rgba(0,0,0,0.12); }
@@ -13995,12 +14001,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         ${productionRows.length > 0 ? sectionRows('Gaji Produksi', productionRows) : ''}
                         ${dailyRows.length > 0 ? sectionRows('Gaji Harian', dailyRows) : ''}
                         ${overtimeRows.length > 0 ? sectionRows('Lembur', overtimeRows) : ''}
-                        ${safeMoney(data.bonusSalary) > 0 ? sectionRows('Bonus Kinerja', [`<div class="item-row"><span><b>${data.bonusNote || 'Bonus Kinerja'}</b></span><span style="color:#92400e;font-weight:700">${formatReceiptMoney(data.bonusSalary || 0)}</span></div>`]) : ''}
+                        ${safeMoney(data.bonusSalary) > 0 ? `<div class="bonus-box"><div class="bonus-head">★ BONUS KINERJA ★</div><div class="bonus-amount">${formatReceiptMoney(data.bonusSalary || 0)}</div>${data.bonusNote ? `<div class="bonus-note">${String(data.bonusNote).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))}</div>` : ''}<div class="bonus-thanks">Selamat &amp; terima kasih atas kerja kerasnya!</div></div>` : ''}
                         ${safeMoney(data.bagiHasilDireksiAmount) > 0 ? sectionRows('Bagi Hasil Direksi', [`<div class="item-row"><span><b>Periode ${data.bagiHasilDireksiMonth || '-'}</b></span><span style="color:#b45309;font-weight:700">${formatReceiptMoney(data.bagiHasilDireksiAmount || 0)}</span></div>`]) : ''}
                         ${safeMoney(data.cashAdvanceDeduction) > 0 ? sectionRows('Potongan - Kasbon', [`<div class="item-row"><span><b>Bayar kasbon sekarang</b><small>Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</small></span><span>${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>`]) : ''}
 
                         <div class="total-box">
                             <div class="total-row"><span>Total Pendapatan</span><span class="font-bold">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
+                            ${safeMoney(data.bonusSalary) > 0 ? `<div class="total-sub">★ termasuk bonus kinerja ${formatReceiptMoney(data.bonusSalary || 0)}</div>` : ''}
                             <div class="total-row"><span>Total Potongan</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
                             <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction)))}</span></div>
                         </div>
@@ -17996,10 +18003,12 @@ ${getRekapShareLink(rekap)}
                             )}
 
                             {safeMoney(rekap.bonusSalary) > 0 && (
-                                <>
-                                    <SectionTitle title="Bonus Kinerja" />
-                                    <ItemRow label={rekap.bonusNote || 'Bonus Kinerja'} value={formatReceiptMoney(rekap.bonusSalary || 0)} />
-                                </>
+                                <div className="mt-3 mb-1 rounded-lg overflow-hidden border-2 border-amber-500 text-center" style={{ breakInside: 'avoid' }}>
+                                    <div className="text-white text-[11px] font-black tracking-[0.2em] py-1" style={{ background: 'linear-gradient(90deg,#d97706,#f59e0b,#d97706)' }}>★ BONUS KINERJA ★</div>
+                                    <div className="text-[20px] font-black text-amber-700 pt-2 leading-tight">{formatReceiptMoney(rekap.bonusSalary || 0)}</div>
+                                    {rekap.bonusNote && <div className="text-[10.5px] text-gray-700 px-2 pb-1.5 break-words">{rekap.bonusNote}</div>}
+                                    <div className="text-[10px] italic border-t border-dashed border-amber-400 py-1.5 px-2 text-amber-800 bg-amber-50">Selamat &amp; terima kasih atas kerja kerasnya!</div>
+                                </div>
                             )}
 
                             {safeMoney(rekap.cashAdvanceDeduction) > 0 && (
@@ -18011,6 +18020,7 @@ ${getRekapShareLink(rekap)}
 
                             <div className="border-t border-b border-dashed border-black py-2 mt-2 text-[11px]">
                                 <div className="flex justify-between gap-2 mt-0.5"><span>Total Pendapatan</span><span className="font-bold">{formatReceiptMoney(rekap.grossSalary || rekap.totalWage || 0)}</span></div>
+                                {safeMoney(rekap.bonusSalary) > 0 && <div className="text-[9px] text-gray-500 -mt-0.5 mb-0.5">★ termasuk bonus kinerja {formatReceiptMoney(rekap.bonusSalary || 0)}</div>}
                                 <div className="flex justify-between gap-2 mt-0.5"><span>Total Potongan</span><span className="font-bold">{formatReceiptMoney(rekap.cashAdvanceDeduction || 0)}</span></div>
                                 <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Total Diterima</span><span>{formatReceiptMoney(rekap.netSalary ?? Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)))}</span></div>
                             </div>
