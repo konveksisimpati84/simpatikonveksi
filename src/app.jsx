@@ -10037,10 +10037,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </thead>
                                             <tbody>
                                                 {invItems.map((item, i) => {
-                                                    const itemSizes = (item.sizes || []).filter(s => (safeMoney(s.qty) > 0 || s.size));
+                                                    // Ukuran ber-qty 0 tidak ditampilkan (tidak memengaruhi total); produk kosong dilewati
+                                                    const itemSizes = (item.sizes || []).filter(s => safeMoney(s.qty) > 0 || getInvoiceSizeTotal(s).total > 0);
                                                     const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
                                                     const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
+                                                    if (itemSizes.length === 0 && itemTotal === 0) return null;
                                                     const fmtNum = (n) => formatRupiah(n).replace(/^Rp\s*/, '');
+                                                    // Nominal sangat besar (≥ 100 juta) dikecilkan sedikit di HP agar tidak menyentuh tepi layar
+                                                    const bigNum = (n) => Math.abs(safeMoney(n)) >= 100000000 ? 'text-[13px] sm:text-[15px]' : '';
                                                     return (
                                                         <React.Fragment key={i}>
                                                             <tr className={`align-top hidden sm:table-row ${i > 0 ? 'border-t border-gray-200' : ''}`}>
@@ -10064,8 +10068,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                     <tr key={`${i}-${si}`} className={`align-top text-[15px] text-gray-800 ${si % 2 === 1 ? 'bg-slate-50' : ''}`}>
                                                                         <td className="pl-5 pr-1.5 py-2 font-bold text-gray-900 break-words">{sz.size || '-'}</td>
                                                                         <td className="px-1.5 py-2 text-right">{safeMoney(sz.qty)}</td>
-                                                                        <td className="px-1.5 py-2 text-right whitespace-nowrap">{fmtNum(sz.pricePerPcs)}</td>
-                                                                        <td className="px-1.5 py-2 text-right whitespace-nowrap">
+                                                                        <td className={`px-1.5 py-2 text-right whitespace-nowrap ${bigNum(sz.pricePerPcs)}`}>{fmtNum(sz.pricePerPcs)}</td>
+                                                                        <td className={`px-1.5 py-2 text-right whitespace-nowrap ${bigNum(st.total)}`}>
                                                                             {fmtNum(st.total)}
                                                                             {st.discount > 0 && <div className="text-[11.5px] text-amber-700 whitespace-normal leading-tight">diskon −{fmtNum(st.discount)}</div>}
                                                                         </td>
