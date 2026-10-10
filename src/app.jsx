@@ -1028,6 +1028,56 @@
         };
         installPrintSharpener();
 
+        // ===== Data Kalkulator HPP: salinan di perangkat + gabung 3 arah dengan cloud =====
+        // base  = nilai cloud terakhir yang diketahui perangkat ini
+        // local = nilai di perangkat sekarang (bisa berisi perubahan yang belum terkirim)
+        // remote = nilai cloud terbaru
+        const HPP_CACHE_PREFIX = 'simpati_hpp_cache:';
+        const readHppCache = (key) => {
+            try {
+                const raw = localStorage.getItem(HPP_CACHE_PREFIX + key);
+                if (!raw) return null;
+                const c = JSON.parse(raw);
+                return c && typeof c === 'object' && Object.prototype.hasOwnProperty.call(c, 'value') ? c : null;
+            } catch (e) { return null; }
+        };
+        const writeHppCache = (key, value, base) => {
+            try { localStorage.setItem(HPP_CACHE_PREFIX + key, JSON.stringify({ value, base, at: Date.now() })); }
+            catch (e) { try { localStorage.removeItem(HPP_CACHE_PREFIX + key); } catch (e2) {} } // penuh: lewati salinan untuk data ini
+        };
+        const hppJson = (v) => JSON.stringify(v === undefined ? null : v);
+        const hppItemKey = (item) => (item !== null && typeof item === 'object')
+            ? (item.id !== undefined && item.id !== null && item.id !== '' ? 'o:' + String(item.id) : null)
+            : 's:' + String(item);
+        const mergeHpp3 = (base, local, remote) => {
+            if (remote === undefined) return local;
+            if (hppJson(local) === hppJson(base)) return remote;   // tidak ada perubahan di perangkat ini
+            if (hppJson(remote) === hppJson(base)) return local;   // tidak ada perubahan di perangkat lain
+            if (!Array.isArray(local) || !Array.isArray(remote) || !Array.isArray(base)) return local; // nilai tunggal: perubahan terbaru di sini menang
+            const keyed = (arr) => { const m = new Map(); for (const it of arr) { const k = hppItemKey(it); if (k === null || m.has(k)) return null; m.set(k, it); } return m; };
+            const B = keyed(base), L = keyed(local), R = keyed(remote);
+            if (!B || !L || !R) return local;
+            const result = [];
+            const seen = new Set();
+            for (const [k, lit] of L) {
+                seen.add(k);
+                const inBase = B.has(k), inRemote = R.has(k);
+                if (!inRemote && inBase) { if (hppJson(lit) !== hppJson(B.get(k))) result.push(lit); continue; } // dihapus di perangkat lain (kecuali baru diubah di sini)
+                if (inRemote && inBase && hppJson(lit) === hppJson(B.get(k))) result.push(R.get(k));          // tidak diubah di sini -> versi cloud
+                else result.push(lit);
+            }
+            // Item baru dari perangkat lain: yang ada di urutan depan cloud ditaruh di depan, sisanya di belakang
+            const firstShared = remote.findIndex(it => seen.has(hppItemKey(it)));
+            const front = [], back = [];
+            remote.forEach((rit, idx) => {
+                const k = hppItemKey(rit);
+                if (seen.has(k)) return;
+                if (B.has(k) && hppJson(rit) === hppJson(B.get(k))) return; // dihapus di perangkat ini
+                ((firstShared === -1 || idx < firstShared) ? front : back).push(rit);
+            });
+            return [...front, ...result, ...back];
+        };
+
         // Absensi: scan di luar Batas Scan shift dianggap jam batasnya (mis. batas 06:00–17:30: datang 05:30 -> 06:00, pulang 18:00 -> 17:30)
         const clampJamKeBatasScan = (jam, scanMulai, scanSelesai) => {
             if (!jam) return jam;
@@ -20259,13 +20309,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const PRESET_CATEGORIES = ['SD', 'SMP', 'SMA', 'Dewasa'];
 
             const [activeSection, setActiveSection] = React.useState('calculator');
-            const [masterMaterials, setMasterMaterials] = React.useState(DEFAULT_MASTER_MATERIALS);
-            const [masterLabor, setMasterLabor] = React.useState(DEFAULT_MASTER_LABOR);
-            const [customPresets, setCustomPresets] = React.useState([]);
-            const [hiddenBuiltinPresets, setHiddenBuiltinPresets] = React.useState([]);
+            const [masterMaterials, setMasterMaterials] = React.useState(() => readHppCache(DB_KEY_MATERIALS)?.value ?? DEFAULT_MASTER_MATERIALS);
+            const [masterLabor, setMasterLabor] = React.useState(() => readHppCache(DB_KEY_LABOR)?.value ?? DEFAULT_MASTER_LABOR);
+            const [customPresets, setCustomPresets] = React.useState(() => readHppCache(DB_KEY_PRESETS)?.value ?? []);
+            const [hiddenBuiltinPresets, setHiddenBuiltinPresets] = React.useState(() => readHppCache(DB_KEY_HIDDEN_PRESETS)?.value ?? []);
             const [editingPresetId, setEditingPresetId] = React.useState(null);
             const [editingPresetTitle, setEditingPresetTitle] = React.useState('');
-            const [savedOrders, setSavedOrders] = React.useState([]);
+            const [savedOrders, setSavedOrders] = React.useState(() => readHppCache(DB_KEY_ORDERS)?.value ?? []);
             const [activeMaterials, setActiveMaterials] = React.useState([
                 { masterId: 'MAT-1', usagePerPcs: 0.25 },
                 { masterId: 'MAT-5', usagePerPcs: 0.05 },
@@ -20330,14 +20380,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 ro.observe(el);
                 return () => ro.disconnect();
             });
-            const [savedQuotations, setSavedQuotations] = React.useState([]);
+            const [savedQuotations, setSavedQuotations] = React.useState(() => readHppCache(DB_KEY_QUOTATIONS)?.value ?? []);
             const [selectedHistoryIds, setSelectedHistoryIds] = React.useState(new Set());
             const [quotationItems, setQuotationItems] = React.useState([]);
-            const [priceListItems, setPriceListItems] = React.useState([]);
-            const [priceListTitle, setPriceListTitle] = React.useState('DAFTAR HARGA');
-            const [priceListNote,  setPriceListNote]  = React.useState('');
-            const [priceListDate,  setPriceListDate]  = React.useState('');
-            const [savedPriceLists, setSavedPriceLists] = React.useState([]);
+            const [priceListItems, setPriceListItems] = React.useState(() => readHppCache(DB_KEY_PRICE_LIST_ITEMS)?.value ?? []);
+            const [priceListTitle, setPriceListTitle] = React.useState(() => readHppCache(DB_KEY_PRICE_LIST_TITLE)?.value ?? 'DAFTAR HARGA');
+            const [priceListNote,  setPriceListNote]  = React.useState(() => readHppCache(DB_KEY_PRICE_LIST_NOTE)?.value ?? '');
+            const [priceListDate,  setPriceListDate]  = React.useState(() => readHppCache(DB_KEY_PRICE_LIST_DATE)?.value ?? '');
+            const [savedPriceLists, setSavedPriceLists] = React.useState(() => readHppCache(DB_KEY_SAVED_PRICE_LISTS)?.value ?? []);
             const [plSubTab, setPlSubTab] = React.useState('editor');
             const [editingOrderId, setEditingOrderId] = React.useState(null);
             const [orderKategori,       setOrderKategori]       = React.useState('');
@@ -20356,10 +20406,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const MASTER_PAGE_SIZE = 8;
             const chartRef  = React.useRef(null);
             const chartInst = React.useRef(null);
-            const initializedRef = React.useRef(false);
             const [pendingPrint, setPendingPrint] = React.useState(false);
             const printMetaRef = React.useRef({ clientName: '' });
-            const [panduanBahan, setPanduanBahan] = React.useState([]);
+            const [panduanBahan, setPanduanBahan] = React.useState(() => readHppCache(DB_KEY_PANDUAN_BAHAN)?.value ?? []);
             const [showPanduanForm, setShowPanduanForm] = React.useState(false);
             const [editingPanduanId, setEditingPanduanId] = React.useState(null);
             const [panduanForm, setPanduanForm] = React.useState({ jenisProduk: '', kat: '', bahan: '', lebarBahan: '', lebarSat: 'cm', qty: '', sat: 'meter', ket: '' });
@@ -20374,67 +20423,161 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             const formatRp = (v) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(v || 0);
 
-            // ── Supabase helpers ──────────────────────────────────────────────────
-            const sbGet = async (key, fallback) => {
-                try {
-                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
-                    if (error || !data) return fallback;
-                    return data.data ?? fallback;
-                } catch { return fallback; }
+            // ── Sinkron data HPP ──────────────────────────────────────────────────
+            // - Data langsung tampil dari salinan di perangkat; data cloud terbaru diambil di belakang layar
+            // - Ke cloud hanya ditulis bila benar-benar ada perubahan, dan SELALU setelah membaca cloud dulu lalu
+            //   digabung per item (gabung 3 arah) agar perubahan dari perangkat lain tidak tertimpa
+            // - Gagal membaca cloud -> tidak pernah menimpa cloud; dicoba ulang otomatis
+            const HPP_SMALL_KEYS = [DB_KEY_PRESETS, DB_KEY_HIDDEN_PRESETS, DB_KEY_MATERIALS, DB_KEY_LABOR, DB_KEY_PANDUAN_BAHAN];
+            const HPP_LARGE_KEYS = [DB_KEY_ORDERS, DB_KEY_QUOTATIONS, DB_KEY_PRICE_LIST_ITEMS, DB_KEY_PRICE_LIST_TITLE, DB_KEY_PRICE_LIST_NOTE, DB_KEY_PRICE_LIST_DATE, DB_KEY_SAVED_PRICE_LISTS];
+            const HPP_ALL_KEYS = [...HPP_SMALL_KEYS, ...HPP_LARGE_KEYS];
+            const hppValues = {
+                [DB_KEY_MATERIALS]: masterMaterials, [DB_KEY_LABOR]: masterLabor, [DB_KEY_PRESETS]: customPresets,
+                [DB_KEY_HIDDEN_PRESETS]: hiddenBuiltinPresets, [DB_KEY_ORDERS]: savedOrders, [DB_KEY_QUOTATIONS]: savedQuotations,
+                [DB_KEY_PRICE_LIST_ITEMS]: priceListItems, [DB_KEY_PRICE_LIST_TITLE]: priceListTitle, [DB_KEY_PRICE_LIST_NOTE]: priceListNote,
+                [DB_KEY_PRICE_LIST_DATE]: priceListDate, [DB_KEY_SAVED_PRICE_LISTS]: savedPriceLists, [DB_KEY_PANDUAN_BAHAN]: panduanBahan,
             };
-            const sbSet = async (key, value) => {
+            const hppSetters = {
+                [DB_KEY_MATERIALS]: setMasterMaterials, [DB_KEY_LABOR]: setMasterLabor, [DB_KEY_PRESETS]: setCustomPresets,
+                [DB_KEY_HIDDEN_PRESETS]: setHiddenBuiltinPresets, [DB_KEY_ORDERS]: setSavedOrders, [DB_KEY_QUOTATIONS]: setSavedQuotations,
+                [DB_KEY_PRICE_LIST_ITEMS]: setPriceListItems, [DB_KEY_PRICE_LIST_TITLE]: setPriceListTitle, [DB_KEY_PRICE_LIST_NOTE]: setPriceListNote,
+                [DB_KEY_PRICE_LIST_DATE]: setPriceListDate, [DB_KEY_SAVED_PRICE_LISTS]: setSavedPriceLists, [DB_KEY_PANDUAN_BAHAN]: setPanduanBahan,
+            };
+            const hppValuesRef = React.useRef(hppValues);
+            hppValuesRef.current = hppValues;
+            const hppSync = React.useRef(null);
+            if (hppSync.current === null) {
+                const base = {}, prevJson = {}, prevRef = {};
+                HPP_ALL_KEYS.forEach(k => {
+                    const c = readHppCache(k);
+                    // Tanpa salinan: nilai bawaan dianggap "belum diubah" sehingga data cloud langsung dipakai
+                    base[k] = c ? c.base : hppValues[k];
+                    prevJson[k] = hppJson(hppValues[k]);
+                    prevRef[k] = hppValues[k];
+                });
+                hppSync.current = { base, prevJson, prevRef, applied: {}, timers: {}, busy: {}, again: {}, retryTimer: null, alive: true };
+            }
+            const [hppPresetsReady, setHppPresetsReady] = React.useState(() => !!(readHppCache(DB_KEY_PRESETS) && readHppCache(DB_KEY_HIDDEN_PRESETS)));
+            const [hppSyncIssue, setHppSyncIssue] = React.useState(false);
+
+            const hppFetchRemote = async (key) => {
                 try {
-                    await supabaseClient.from('app_data').upsert({ id: key, data: value }, { onConflict: 'id' });
-                } catch (e) { console.error('hpp sbSet', key, e); }
+                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key);
+                    if (error) return { ok: false };
+                    const row = Array.isArray(data) ? data[0] : null;
+                    return { ok: true, exists: !!row, value: row ? row.data : undefined };
+                } catch (e) { return { ok: false }; }
+            };
+            // Ganti nilai di layar dari hasil sinkron (bukan perubahan pengguna -> tidak memicu tulis ulang)
+            const hppApply = (key, value) => {
+                const sync = hppSync.current;
+                const j = hppJson(value);
+                if (j === hppJson(hppValuesRef.current[key])) return;
+                sync.applied[key] = j;
+                hppSetters[key](value);
+            };
+            const hppScheduleRetry = () => {
+                const sync = hppSync.current;
+                setHppSyncIssue(true);
+                if (sync.retryTimer || !sync.alive) return;
+                sync.retryTimer = setTimeout(() => { sync.retryTimer = null; if (sync.alive) hppLoad(HPP_ALL_KEYS); }, 15000);
+            };
+            const hppWrite = async (key) => {
+                const sync = hppSync.current;
+                if (!supabaseClient) return;
+                if (sync.busy[key]) { sync.again[key] = true; return; }
+                sync.busy[key] = true;
+                const localAtStart = hppValuesRef.current[key];
+                try {
+                    const remote = await hppFetchRemote(key);
+                    if (!remote.ok) throw new Error('baca cloud gagal');
+                    const merged = remote.exists ? mergeHpp3(sync.base[key], localAtStart, remote.value) : localAtStart;
+                    if (!remote.exists || hppJson(merged) !== hppJson(remote.value)) {
+                        const { error } = await supabaseClient.from('app_data').upsert({ id: key, data: merged }, { onConflict: 'id' });
+                        if (error) throw error;
+                    }
+                    sync.base[key] = merged;
+                    // Jangan timpa perubahan yang dibuat selama proses simpan berlangsung
+                    if (hppJson(hppValuesRef.current[key]) === hppJson(localAtStart)) {
+                        hppApply(key, merged);
+                        writeHppCache(key, merged, merged);
+                    } else {
+                        sync.again[key] = true;
+                        writeHppCache(key, hppValuesRef.current[key], merged);
+                    }
+                } catch (e) {
+                    console.error('Simpan data HPP gagal', key, e);
+                    hppScheduleRetry();
+                } finally {
+                    sync.busy[key] = false;
+                    if (sync.again[key]) { sync.again[key] = false; hppWrite(key); }
+                }
+            };
+            const hppLoadKey = async (key) => {
+                const sync = hppSync.current;
+                const remote = await hppFetchRemote(key);
+                if (!remote.ok) return false;
+                if (sync.busy[key]) { sync.again[key] = true; return true; } // sedang menyimpan: hasil simpan sudah menggabung data cloud
+                const local = hppValuesRef.current[key];
+                const base = sync.base[key];
+                if (remote.exists) {
+                    const merged = mergeHpp3(base, local, remote.value);
+                    sync.base[key] = remote.value;
+                    hppApply(key, merged);
+                    writeHppCache(key, merged, remote.value);
+                    if (hppJson(merged) !== hppJson(remote.value)) hppWrite(key); // ada perubahan di perangkat ini yang belum terkirim
+                } else if (hppJson(local) !== hppJson(base)) {
+                    hppWrite(key); // belum ada di cloud & ada perubahan di perangkat ini
+                }
+                return true;
+            };
+            const hppLoad = async (keys) => {
+                if (!supabaseClient) { setHppPresetsReady(true); return; }
+                const small = keys.filter(k => HPP_SMALL_KEYS.includes(k));
+                const large = keys.filter(k => !HPP_SMALL_KEYS.includes(k));
+                // Data kecil (preset, bahan, ongkos) dimuat duluan agar preset cepat tampil
+                const okSmall = await Promise.all(small.map(hppLoadKey));
+                if (!hppSync.current.alive) return;
+                if (small.includes(DB_KEY_PRESETS) || small.includes(DB_KEY_HIDDEN_PRESETS)) setHppPresetsReady(true);
+                const okLarge = await Promise.all(large.map(hppLoadKey));
+                if (!hppSync.current.alive) return;
+                if ([...okSmall, ...okLarge].every(Boolean)) setHppSyncIssue(false); else hppScheduleRetry();
             };
 
-            // ── Load on mount ─────────────────────────────────────────────────────
+            // Muat saat menu dibuka, ambil ulang saat aplikasi kembali dibuka/aktif, kirim sisa perubahan saat menu ditutup
             React.useEffect(() => {
-                (async () => {
-                    const [mm, ml, cp, so, sq, hbp, pli, plt, pln, pld, spl, pb] = await Promise.all([
-                        sbGet(DB_KEY_MATERIALS,  DEFAULT_MASTER_MATERIALS),
-                        sbGet(DB_KEY_LABOR,      DEFAULT_MASTER_LABOR),
-                        sbGet(DB_KEY_PRESETS,    []),
-                        sbGet(DB_KEY_ORDERS,     []),
-                        sbGet(DB_KEY_QUOTATIONS, []),
-                        sbGet(DB_KEY_HIDDEN_PRESETS, []),
-                        sbGet(DB_KEY_PRICE_LIST_ITEMS, []),
-                        sbGet(DB_KEY_PRICE_LIST_TITLE, 'DAFTAR HARGA'),
-                        sbGet(DB_KEY_PRICE_LIST_NOTE,  ''),
-                        sbGet(DB_KEY_PRICE_LIST_DATE,  ''),
-                        sbGet(DB_KEY_SAVED_PRICE_LISTS, []),
-                        sbGet(DB_KEY_PANDUAN_BAHAN, []),
-                    ]);
-                    setMasterMaterials(mm);
-                    setMasterLabor(ml);
-                    setCustomPresets(cp);
-                    setSavedOrders(so);
-                    setSavedQuotations(sq);
-                    setHiddenBuiltinPresets(hbp);
-                    setPriceListItems(pli);
-                    setPriceListTitle(plt);
-                    setPriceListNote(pln);
-                    setPriceListDate(pld);
-                    setSavedPriceLists(spl);
-                    setPanduanBahan(pb);
-                    // Flag ditetapkan SETELAH semua setState agar React effects tidak menulis ke Supabase sebelum data load selesai
-                    initializedRef.current = true;
-                })();
+                const sync = hppSync.current;
+                sync.alive = true;
+                hppLoad(HPP_ALL_KEYS);
+                const onVisible = () => { if (!document.hidden) hppLoad(HPP_ALL_KEYS); };
+                const onOnline = () => hppLoad(HPP_ALL_KEYS);
+                document.addEventListener('visibilitychange', onVisible);
+                window.addEventListener('online', onOnline);
+                return () => {
+                    sync.alive = false;
+                    document.removeEventListener('visibilitychange', onVisible);
+                    window.removeEventListener('online', onOnline);
+                    if (sync.retryTimer) { clearTimeout(sync.retryTimer); sync.retryTimer = null; }
+                    Object.keys(sync.timers).forEach(k => { clearTimeout(sync.timers[k]); delete sync.timers[k]; hppWrite(k); });
+                };
             }, []);
 
-            // ── Persist to Supabase on change (after initial load) ────────────────
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_MATERIALS,  masterMaterials);  }, [masterMaterials]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_LABOR,      masterLabor);      }, [masterLabor]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRESETS,    customPresets);    }, [customPresets]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_HIDDEN_PRESETS, hiddenBuiltinPresets); }, [hiddenBuiltinPresets]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_ORDERS,     savedOrders);      }, [savedOrders]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_QUOTATIONS, savedQuotations);  }, [savedQuotations]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_ITEMS, priceListItems); }, [priceListItems]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_TITLE, priceListTitle); }, [priceListTitle]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_NOTE,  priceListNote);  }, [priceListNote]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PRICE_LIST_DATE,  priceListDate);  }, [priceListDate]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_SAVED_PRICE_LISTS, savedPriceLists); }, [savedPriceLists]);
-            React.useEffect(() => { if (initializedRef.current) sbSet(DB_KEY_PANDUAN_BAHAN, panduanBahan); }, [panduanBahan]);
+            // Perubahan oleh pengguna: simpan salinan di perangkat seketika, kirim ke cloud setelah jeda singkat
+            React.useEffect(() => {
+                const sync = hppSync.current;
+                HPP_ALL_KEYS.forEach(k => {
+                    // Cek cepat: data yang tidak disentuh tetap objek yang sama (tidak perlu dibandingkan isinya)
+                    if (hppValues[k] === sync.prevRef[k]) return;
+                    sync.prevRef[k] = hppValues[k];
+                    const j = hppJson(hppValues[k]);
+                    if (j === sync.prevJson[k]) return;
+                    sync.prevJson[k] = j;
+                    writeHppCache(k, hppValues[k], sync.base[k]);
+                    if (sync.applied[k] === j) { delete sync.applied[k]; return; }
+                    if (sync.timers[k]) clearTimeout(sync.timers[k]);
+                    sync.timers[k] = setTimeout(() => { delete sync.timers[k]; hppWrite(k); }, 800);
+                });
+            });
             React.useEffect(() => {
                 if (activeSection !== 'panduan_bahan') {
                     setShowPanduanForm(false);
@@ -21052,25 +21195,32 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     </div>
                                 ) : null;
                             })()}
+                            {hppSyncIssue && (
+                                <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl px-4 py-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                                    <span><i className="fa-solid fa-triangle-exclamation mr-1"></i>Sebagian data HPP belum tersambung ke cloud (koneksi bermasalah). Data di perangkat ini tetap aman dan akan dikirim otomatis.</span>
+                                    <button onClick={() => hppLoad(HPP_ALL_KEYS)} className="font-bold px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700">Coba lagi</button>
+                                </div>
+                            )}
                             {/* Preset bar */}
                             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-xs font-bold text-slate-600 uppercase tracking-wider whitespace-nowrap">
                                         <i className="fa-solid fa-wand-magic-sparkles text-amber-500 mr-1"></i>Preset:
                                     </span>
-                                    {!hiddenBuiltinPresets.includes('kaos') && (
+                                    {!hppPresetsReady && <span className="text-xs text-slate-400 italic"><i className="fa-solid fa-spinner fa-spin mr-1"></i>Memuat preset…</span>}
+                                    {hppPresetsReady && !hiddenBuiltinPresets.includes('kaos') && (
                                         <span className="inline-flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
                                             <button onClick={loadPresetKaos} className="text-xs text-white font-semibold px-3 py-1.5 hover:bg-slate-700 transition">Kaos</button>
                                             <button onClick={() => hideBuiltinPreset('kaos')} className="text-slate-400 hover:text-rose-400 px-1.5 py-1.5 hover:bg-slate-700 transition" title="Sembunyikan"><i className="fa-solid fa-xmark text-xs"></i></button>
                                         </span>
                                     )}
-                                    {!hiddenBuiltinPresets.includes('kemeja') && (
+                                    {hppPresetsReady && !hiddenBuiltinPresets.includes('kemeja') && (
                                         <span className="inline-flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
                                             <button onClick={loadPresetKemeja} className="text-xs text-white font-semibold px-3 py-1.5 hover:bg-slate-700 transition">Kemeja</button>
                                             <button onClick={() => hideBuiltinPreset('kemeja')} className="text-slate-400 hover:text-rose-400 px-1.5 py-1.5 hover:bg-slate-700 transition" title="Sembunyikan"><i className="fa-solid fa-xmark text-xs"></i></button>
                                         </span>
                                     )}
-                                    {customPresets.map(p => (
+                                    {hppPresetsReady && customPresets.map(p => (
                                         <span key={p.id} className="inline-flex items-center text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg px-2 py-1 font-semibold gap-1">
                                             {editingPresetId === p.id ? (
                                                 <input autoFocus type="text" value={editingPresetTitle}
