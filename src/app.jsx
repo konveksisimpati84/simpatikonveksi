@@ -14392,8 +14392,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     // Shift 2 (jamPulang > lemburMulai, mis. 22:30 > 18:00) & tidak ada Shift 3:
                     // zona pulang diperluas sampai tengah malam agar scan lewat jadwal tetap tercatat
                     // Shift 1 (jamPulang ≤ lemburMulai, mis. 16:30 ≤ 18:00): gunakan lemburMulai sebagai batas
-                    const isLateShift = hasEmpShiftAssignment && mPrimPulang != null && mLM != null && mPrimPulang > mLM && !empHasShift3;
-                    const mAktifBoundary = isLateShift ? 1440 : (mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase);
+                    // Karyawan ber-shift tanpa Shift 3 tidak dihitung lembur: semua scan hari itu = scan kerja
+                    // (pulang lewat jam mulai lembur tetap tercatat pulang, lalu mengikuti Akhir Scan shift)
+                    const tanpaLembur = hasEmpShiftAssignment && !empHasShift3;
+                    const mAktifBoundary = tanpaLembur ? 1440 : (mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase);
                     const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mAktifBoundary);
                     let masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
                     let pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
@@ -14402,8 +14404,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         masukZone = [pulangZone[0]];
                         pulangZone = pulangZone.slice(1);
                     }
+                    // Hanya 1 scan sesudah jam lembur & belum ada scan pulang: itu scan pulang (1 scan tidak bisa jadi sesi lembur)
+                    const lembAll = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mAktifBoundary);
+                    const shift3LewatMalam = empShift3obj != null && ttm(empShift3obj.jamPulang) != null && ttm(empShift3obj.jamPulang) < mAktifBoundary;
+                    const lateAsPulang = (masukZone.length > 0 && pulangZone.length === 0 && lembAll.length === 1 && !shift3LewatMalam && !override?.jamLemburMasuk) ? lembAll[0] : null;
                     const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
-                    const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
+                    const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : (lateAsPulang ? lateAsPulang.jam : null);
                     // Ikuti Batas Scan shift (sama dengan menu Absensi Finger); jam yang diedit manual tidak diubah
                     const jamMasuk = override?.jamMasuk || clampJamKeBatasScan(rawMasuk, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
                     const jamPulang = override?.jamPulang || clampJamKeBatasScan(rawPulang, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
@@ -14431,7 +14437,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const mShift3Pulang = empShift3obj ? ttm(empShift3obj.jamPulang) : null;
                     const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : mLS;
                     const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (mAktifBoundary != null && mLemburSelesaiRef != null ? (mAktifBoundary + mLemburSelesaiRef) / 2 : null);
-                    const lembForLembur = shouldCalcLembur ? sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mAktifBoundary) : [];
+                    const lembForLembur = shouldCalcLembur ? lembAll.filter(e => e !== lateAsPulang) : [];
                     const lMasukZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= effectiveMidLembur) : lembForLembur;
                     const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
                     const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
@@ -25489,17 +25495,19 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // Pengaturan disimpan per bagian: hanya kolom yang diubah di perangkat ini yang menimpa data cloud,
             // kolom lain diambil dari cloud (perubahan perangkat lain tidak tertimpa data lama).
             const templatesLatestRef = React.useRef(templates);
-            const templatesPendingKeysRef = React.useRef(new Set());
+            // kolom -> nilai saat diubah (diambil saat itu juga, agar refresh dari cloud di tengah proses simpan tidak mengganti nilainya)
+            const templatesPendingKeysRef = React.useRef(new Map());
             const templatesSaveChainRef = React.useRef(Promise.resolve());
             useEffect(() => { templatesLatestRef.current = templates; }, [templates]);
             const flushTemplatesSave = async () => {
-                const keys = [...templatesPendingKeysRef.current];
+                const pending = new Map(templatesPendingKeysRef.current);
                 templatesPendingKeysRef.current.clear();
+                const keys = [...pending.keys()];
                 if (keys.length === 0) return;
-                const local = templatesLatestRef.current || initialTemplates;
                 const coreKeys = keys.filter(k => k !== 'labelTemplates');
                 if (coreKeys.length > 0) {
-                    const { labelTemplates: _lt, ...localCore } = local;
+                    const localCore = {};
+                    coreKeys.forEach(k => { const v = pending.get(k); if (v.ada) localCore[k] = v.nilai; });
                     let remote = null;
                     if (supabaseClient) {
                         beginSync('templates');
@@ -25512,17 +25520,28 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             endSync('templates');
                         }
                     }
-                    let toSave = localCore;
-                    if (remote) {
+                    let toSave = null;
+                    if (!remote) {
+                        // Cloud tidak terbaca: kirim seluruh pengaturan perangkat ini (seperti sebelumnya)
+                        const { labelTemplates: _lt, ...allCore } = templatesLatestRef.current || initialTemplates;
+                        toSave = { ...allCore, ...localCore };
+                        coreKeys.forEach(k => { if (!pending.get(k).ada) delete toSave[k]; });
+                    } else {
                         toSave = { ...remote };
                         coreKeys.forEach(k => { if (Object.prototype.hasOwnProperty.call(localCore, k)) toSave[k] = localCore[k]; else delete toSave[k]; });
-                        // Ambil perubahan perangkat lain (kolom yang tidak sedang diubah di sini)
+                        // Ambil perubahan perangkat lain (kolom yang tidak sedang diubah di sini),
+                        // dan pastikan kolom yang disimpan perangkat ini tetap tampil (bila sempat tertimpa refresh)
                         setTemplates(cur => {
                             if (!cur || typeof cur !== 'object') return cur;
                             let out = null;
                             Object.keys(remote).forEach(k => {
                                 if (k === 'labelTemplates' || coreKeys.includes(k) || templatesPendingKeysRef.current.has(k)) return;
                                 if (JSON.stringify(cur[k]) !== JSON.stringify(remote[k])) { out = out || { ...cur }; out[k] = remote[k]; }
+                            });
+                            coreKeys.forEach(k => {
+                                if (templatesPendingKeysRef.current.has(k)) return;
+                                const v = pending.get(k);
+                                if (v.ada ? cur[k] !== v.nilai : (k in cur)) { out = out || { ...cur }; if (v.ada) out[k] = v.nilai; else delete out[k]; }
                             });
                             if (!out) return cur;
                             templatesLatestRef.current = out;
@@ -25532,10 +25551,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     }
                     await saveToSupabase('templates', toSave);
                     // Gagal tersimpan: kolom ini tetap ikut di simpanan berikutnya
-                    if (syncFailedRef.current.has('templates')) coreKeys.forEach(k => templatesPendingKeysRef.current.add(k));
+                    if (syncFailedRef.current.has('templates')) coreKeys.forEach(k => { if (!templatesPendingKeysRef.current.has(k)) templatesPendingKeysRef.current.set(k, pending.get(k)); });
                 }
                 if (keys.includes('labelTemplates')) {
-                    const lt = local.labelTemplates;
+                    const v = pending.get('labelTemplates');
+                    const lt = v.ada ? v.nilai : [];
                     await saveToSupabase('labelTemplates', Array.isArray(lt) ? lt : []);
                 }
             };
@@ -25557,7 +25577,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             if (failed.has('labelTemplates')) keysToSave.push('labelTemplates');
                             if (keysToSave.length === 0) return;
                         }
-                        keysToSave.forEach(k => templatesPendingKeysRef.current.add(k));
+                        keysToSave.forEach(k => templatesPendingKeysRef.current.set(k, { ada: Object.prototype.hasOwnProperty.call(valid, k), nilai: valid[k] }));
                         templatesSaveChainRef.current = templatesSaveChainRef.current.then(flushTemplatesSave).catch(err => console.error('Gagal menyimpan pengaturan:', err));
                     }, 0);
                     return valid;
@@ -26150,9 +26170,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const saveShiftConfig = (updatedShift) => {
-                const newShifts = absensiShifts.map(s => s.id === updatedShift.id ? { ...s, ...updatedShift } : s);
                 const now = new Date().toISOString();
-                setTemplates(prev => ({ ...prev, absensiShifts: newShifts, _syncUpdatedAt: now }));
+                // Dari data terbaru (bukan salinan saat layar dibuka) agar shift lain tidak tertimpa
+                setTemplates(prev => {
+                    const base = Array.isArray(prev?.absensiShifts) && prev.absensiShifts.length ? prev.absensiShifts : absensiShifts;
+                    return { ...prev, absensiShifts: base.map(s => s.id === updatedShift.id ? { ...s, ...updatedShift } : s), _syncUpdatedAt: now };
+                });
                 setEditShiftModal(null);
                 showToast(`${updatedShift.name} berhasil disimpan.`, 'success');
             };
@@ -26235,10 +26258,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     showToast('Shift 3 (Lembur) membutuhkan Shift 1 atau Shift 2 sebagai shift utama.', 'error');
                     return;
                 }
-                const newAssignments = safeArray(absensiShiftAssignments).filter(a => String(a.pin) !== String(pin));
-                if (selectedShifts.length > 0) newAssignments.push({ pin: String(pin), shifts: selectedShifts });
                 const now = new Date().toISOString();
-                setTemplates(prev => ({ ...prev, absensiShiftAssignments: newAssignments, _syncUpdatedAt: now }));
+                setTemplates(prev => {
+                    const newAssignments = safeArray(prev?.absensiShiftAssignments).filter(a => String(a.pin) !== String(pin));
+                    if (selectedShifts.length > 0) newAssignments.push({ pin: String(pin), shifts: selectedShifts });
+                    return { ...prev, absensiShiftAssignments: newAssignments, _syncUpdatedAt: now };
+                });
                 showToast('Penugasan shift disimpan.', 'success');
             };
 
@@ -26255,13 +26280,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const mShift3Pulang = shift3 ? timeToMinutes(shift3.jamPulang) : null;
                 const mLemburFloor = mShift3Masuk !== null ? mShift3Masuk : timeToMinutes(lemburMulaiConfig);
                 const mPulangEff = timeToMinutes(jamPulangEff);
-                const mAktifBoundary = (mPulangEff != null) ? Math.max(mLemburFloor, mPulangEff) : mLemburFloor;
+                // Sama dengan Laporan Kinerja: karyawan ber-shift tanpa Shift 3 -> semua scan hari itu = scan kerja
+                const tanpaLembur = hasShiftAssignment && !shift3;
+                const mAktifBoundary = tanpaLembur ? 1440 : ((mPulangEff != null) ? Math.max(mLemburFloor, mPulangEff) : mLemburFloor);
 
                 const sorted = [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1);
 
                 // Batas Scan: scan di luar batas tidak dibuang, tapi dianggap jam batasnya (lihat clampJamKeBatasScan)
                 const aktifEntries = sorted.filter(e => timeToMinutes(e.jam) < mAktifBoundary);
-                const lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mAktifBoundary);
+                let lemburEntries = sorted.filter(e => timeToMinutes(e.jam) >= mAktifBoundary);
 
                 const mMasukCfg = timeToMinutes(jamMasukEff);
                 const mPulangCfg = timeToMinutes(jamPulangEff);
@@ -26273,8 +26300,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     masukZone = [pulangZone[0]];
                     pulangZone = pulangZone.slice(1);
                 }
+                // Sama dengan Laporan Kinerja: hanya 1 scan sesudah jam lembur & belum ada scan pulang -> itu scan pulang
+                const shift3LewatMalam = shift3 != null && mShift3Pulang != null && mShift3Pulang < mAktifBoundary;
+                const lateAsPulang = (masukZone.length > 0 && pulangZone.length === 0 && lemburEntries.length === 1 && !shift3LewatMalam && !override?.jamLemburMasuk) ? lemburEntries[0] : null;
+                if (lateAsPulang) lemburEntries = [];
                 const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
-                const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : null;
+                const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : (lateAsPulang ? lateAsPulang.jam : null);
 
                 // Lembur: hitung jika ada shift3 (atau fallback jika belum ada assignment sama sekali)
                 let rawLemburMasuk = null, rawLemburPulang = null;
@@ -27292,7 +27323,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                         <Ket>Scan paling akhir yang dihitung. Pulang lewat jam ini tetap dianggap jam ini. Kosongkan bila tidak ada batas.</Ket>
                                                         {mScanSelesaiF != null && mPulangF != null && mScanSelesaiF >= mPulangF
                                                             ? <Contoh>Contoh: pulang {fmtM(mScanSelesaiF + 30)} → dihitung {f.scanSelesai}. Tambahan pulang lebih lama paling banyak {mScanSelesaiF - mPulangF > 0 ? durasiLabel(mScanSelesaiF - mPulangF) : '0'}.</Contoh>
-                                                            : (!f.scanSelesai && <Contoh>Kosong: pulang jam berapa pun dihitung apa adanya (sampai batas jam lembur).</Contoh>)}
+                                                            : (!f.scanSelesai && <Contoh>Kosong: pulang jam berapa pun dihitung apa adanya. Sebaiknya diisi agar tambahan pulang lebih lama ada batasnya.</Contoh>)}
                                                     </div>
                                                 )}
                                                 {isLemburShift && <p className="text-xs text-orange-700 bg-orange-50 rounded p-2">Shift 3 adalah blok lembur. Batas scan dan titik tengah lembur diatur di "Ubah Aturan" (bagian Jam Lembur).</p>}
