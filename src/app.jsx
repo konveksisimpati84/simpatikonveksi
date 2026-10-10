@@ -315,6 +315,15 @@
                         'simpati_investor_bagi_hasil_sync','simpati_invoices_sync',
                         'simpati_expenses_sync','simpati_rekap_sync','simpati_dana_operasional_sync'
                     ];
+                    // Salinan data Kalkulator HPP dibuang paling dulu (datanya aman di cloud), baru cache data utama
+                    try {
+                        const hppCacheKeys = [];
+                        for (let i = 0; i < window.localStorage.length; i++) { const key = window.localStorage.key(i); if (key && key.indexOf('simpati_hpp_cache:') === 0 && key !== k) hppCacheKeys.push(key); }
+                        for (const hk of hppCacheKeys) {
+                            window.localStorage.removeItem(hk);
+                            try { window.localStorage.setItem(k, v); return; } catch(e3) {}
+                        }
+                    } catch(e3) {}
                     for (const pk of purgeKeys) {
                         if (pk !== k) {
                             window.localStorage.removeItem(pk);
@@ -1041,8 +1050,13 @@
                 return c && typeof c === 'object' && Object.prototype.hasOwnProperty.call(c, 'value') ? c : null;
             } catch (e) { return null; }
         };
+        const HPP_CACHE_MAX_CHARS = 600000; // ±600 KB per jenis data; lebih besar tidak disalin (tetap aman di cloud)
         const writeHppCache = (key, value, base) => {
-            try { localStorage.setItem(HPP_CACHE_PREFIX + key, JSON.stringify({ value, base, at: Date.now() })); }
+            try {
+                const raw = JSON.stringify({ value, base, at: Date.now() });
+                if (raw.length > HPP_CACHE_MAX_CHARS) { localStorage.removeItem(HPP_CACHE_PREFIX + key); return; }
+                localStorage.setItem(HPP_CACHE_PREFIX + key, raw);
+            }
             catch (e) { try { localStorage.removeItem(HPP_CACHE_PREFIX + key); } catch (e2) {} } // penuh: lewati salinan untuk data ini
         };
         const hppJson = (v) => JSON.stringify(v === undefined ? null : v);
