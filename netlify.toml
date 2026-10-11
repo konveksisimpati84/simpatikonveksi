@@ -15,12 +15,18 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
 
+# Aplikasi boleh disimpan di perangkat, tapi selalu dicek ke server tiap dibuka (must-revalidate):
+# bila tidak ada versi baru, server cukup menjawab "tidak berubah" (tanpa mengunduh ulang ±1,9 MB);
+# bila ada versi baru, langsung diunduh. Jadi versi baru tetap langsung terpakai.
 [[headers]]
   for = "/index.html"
   [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
-    Pragma = "no-cache"
-    Expires = "0"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
 
 [[headers]]
   for = "/*.js"

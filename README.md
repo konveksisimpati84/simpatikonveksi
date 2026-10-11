@@ -31,7 +31,7 @@ Aplikasi web manajemen operasional pabrik konveksi, dibangun sebagai Single-Page
 
 | Layer | Teknologi |
 |-------|-----------|
-| Frontend | React 18.3.1 (CDN) + Tailwind CSS (CDN); JSX diterjemahkan saat build (tanpa Babel di browser) |
+| Frontend | React 18.3.1 (CDN) + Tailwind CSS 3.4.17 (CSS dibuat saat build); JSX diterjemahkan saat build (tanpa Babel di browser) |
 | Backend / DB | Supabase (PostgreSQL) |
 | Cache Offline | localStorage |
 | AI (opsional) | Google Gemini API |
@@ -46,7 +46,7 @@ Aplikasi web manajemen operasional pabrik konveksi, dibangun sebagai Single-Page
 Setelah mengubah salah satu file di atas, rakit ulang:
 
 ```bash
-npm install --no-save @babel/core@8 @babel/preset-react@8   # sekali saja
+npm install --no-save @babel/core@8 @babel/preset-react@8 tailwindcss@3.4.17   # sekali saja
 node scripts/build.cjs
 ```
 

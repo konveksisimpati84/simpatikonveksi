@@ -8,21 +8,15 @@
     <meta name="description" content="Sistem Manajemen Produksi Simpati Konveksi" />
     <meta name="robots" content="noindex, nofollow" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
-    <!-- React & Tailwind (tiap library punya CDN cadangan kalau CDN utama gagal/diblokir). Versi dikunci agar tidak berubah sendiri. -->
-    <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/react@18.3.1/umd/react.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
-    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Supabase SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/@supabase/supabase-js@2.117.3/dist/umd/supabase.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
-    <!-- jsPDF — label export PDF -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
-    <!-- Chart.js — HPP Kalkulator doughnut chart -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" crossorigin="anonymous"></script>
-    <!-- Font Awesome — HPP Kalkulator icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" />
-    
+    <!-- Sambungan ke server dibuka lebih awal (sambil halaman diunduh) -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://rnmbsjntfdamuhkejpxx.supabase.co" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Font Inter dimuat tanpa menahan tampilan (sementara memakai font bawaan) -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap"></noscript>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -136,6 +130,8 @@
 
         @keyframes boot-spin { to { transform: rotate(360deg); } }
     </style>
+    <!-- Tailwind: CSS dibuat sekali saat build (scripts/build.cjs), bukan disusun di browser. Diletakkan di akhir <head> seperti dulu oleh Tailwind CDN agar urutan prioritas gaya sama. -->
+    <style id="tailwind-css">/*__TAILWIND_CSS__*/</style>
 </head>
 <body>
     <div id="root">
@@ -144,6 +140,12 @@
             <p style="margin-top:16px;color:#475569;font-size:14px;">Memuat aplikasi...</p>
         </div>
     </div>
+
+    <!-- React & Supabase (tiap library punya CDN cadangan kalau CDN utama gagal/diblokir). Versi dikunci agar tidak berubah sendiri.
+         Diletakkan di sini (bukan di <head>) agar tulisan "Memuat aplikasi..." langsung tampil selama library diunduh. -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/react@18.3.1/umd/react.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js" crossorigin="anonymous" onerror="document.write('<script src=&quot;https://unpkg.com/@supabase/supabase-js@2.117.3/dist/umd/supabase.js&quot; crossorigin=&quot;anonymous&quot;></script>')"></script>
 
     <script>
         window.__APP_BOOT_OK = false;

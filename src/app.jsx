@@ -230,6 +230,33 @@
         const isSensitiveSalaryEmp = (emp) => !!emp && getEmployeeDivisions(emp).some(d => SENSITIVE_SALARY_DIVISIONS.includes(d));
         const GAJI_SENSITIF_LABEL = 'Gaji Direksi & Marketing (disembunyikan)';
 
+        // Library berat dimuat hanya saat dibutuhkan (tidak ikut di halaman share & menu lain)
+        const lazyLibPromises = {};
+        const loadScriptOnce = (key, urls) => {
+            if (lazyLibPromises[key]) return lazyLibPromises[key];
+            lazyLibPromises[key] = new Promise((resolve, reject) => {
+                const coba = (i) => {
+                    if (i >= urls.length) { delete lazyLibPromises[key]; reject(new Error(`Gagal memuat ${key}`)); return; }
+                    const el = document.createElement('script');
+                    el.src = urls[i]; el.async = true; el.crossOrigin = 'anonymous';
+                    el.onload = () => resolve();
+                    el.onerror = () => { el.remove(); coba(i + 1); };
+                    document.head.appendChild(el);
+                };
+                coba(0);
+            });
+            return lazyLibPromises[key];
+        };
+        const loadCssOnce = (key, href) => {
+            if (document.querySelector(`link[data-lazy-css="${key}"]`)) return;
+            const el = document.createElement('link');
+            el.rel = 'stylesheet'; el.href = href; el.crossOrigin = 'anonymous'; el.setAttribute('data-lazy-css', key);
+            document.head.appendChild(el);
+        };
+        const loadJsPdf = () => window.jspdf ? Promise.resolve() : loadScriptOnce('jspdf', ['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js']);
+        const loadChartJs = () => window.Chart ? Promise.resolve() : loadScriptOnce('chartjs', ['https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js', 'https://unpkg.com/chart.js@4.4.0/dist/chart.umd.min.js']);
+        const loadFontAwesome = () => loadCssOnce('fontawesome', 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+
         const stripCredentials = (account) => {
             if (!account) return account;
             const { password, passwordHash, passwordSalt, passwordAlgo, ...rest } = account;
@@ -396,8 +423,22 @@
             }
         };
 
+        // Kelas bawaan kartu dilewati bila className sudah mengatur hal yang sama (mis. bg-blue-50 menggantikan bg-white),
+        // agar warna/jarak kartu tidak bergantung pada urutan aturan CSS
+        const CARD_BASE = [
+            ['bg-white', /^bg-(?:transparent|white|black|current|inherit|[a-z]+-\d{2,3}(?:\/\d+)?|\[#[0-9a-fA-F]+\](?:\/\d+)?)$/],
+            ['p-6', /^p-(?:\d+(?:\.\d+)?|px|\[[^\]]+\])$/],
+            ['rounded-xl', /^rounded(?:-(?:none|sm|md|lg|xl|2xl|3xl|full|\[[^\]]+\]))?$/],
+            ['shadow-sm', /^shadow(?:-(?:sm|md|lg|xl|2xl|inner|none))?$/],
+            ['border-gray-100', /^border-(?:transparent|white|black|current|inherit|[a-z]+-\d{2,3}(?:\/\d+)?)$/],
+        ];
+        const cardClassName = (className = '') => {
+            const extra = String(className || '').split(/\s+/).filter(Boolean);
+            const base = CARD_BASE.filter(([, rx]) => !extra.some(t => rx.test(t))).map(([cls]) => cls);
+            return ['border', ...base, ...extra].join(' ');
+        };
         const Card = ({ children, className = "" }) => (
-            <div className={`bg-white p-6 rounded-xl shadow-sm border border-gray-100 ${className}`}>{children}</div>
+            <div className={cardClassName(className)}>{children}</div>
         );
 
         const collectSearchText = (value) => {
@@ -8583,7 +8624,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                             </div>
                         </div>
                     )}
-                    {activeClient && <div className="fixed inset-0 bg-black/50 overflow-y-auto z-[100]" style={{ WebkitOverflowScrolling: 'touch' }}><div className="flex min-h-full items-center justify-center p-4"><div className="bg-white rounded-xl shadow-xl p-3 sm:p-6 w-full max-w-5xl"><div className="flex justify-between border-b pb-3 mb-4"><div><h3 className="font-black text-lg">Saldo Klien</h3><p className="text-sm text-gray-500">{activeClient.name}</p></div><div className="flex items-center gap-2"><button onClick={() => printSaldoLaporan(activeClient, activeSummary, getClientDpRows(activeClient), getClientInvoices(activeClient), templates)} className="text-xs font-bold bg-blue-600 text-white px-3 py-1.5 rounded">Cetak Laporan</button><button onClick={() => { setSelectedClient(null); setDpForm(emptyDp); setEditDpId(null); }} className="text-2xl text-gray-400">&times;</button></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"><Card><h4 className="text-xs font-bold text-gray-500">Total Saldo Masuk</h4><p className="text-xl font-black text-green-700">{formatRupiah(activeSummary.dp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Saldo Dipakai Invoice</h4><p className="text-xl font-black text-orange-600">{formatRupiah(activeSummary.usedDp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Sisa Saldo</h4><p className="text-xl font-black text-emerald-700">{formatRupiah(activeSummary.saldoDp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Piutang</h4><p className="text-xl font-black text-red-700">{formatRupiah(activeSummary.receivable)}</p></Card></div><form onSubmit={saveDp} className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 border rounded-lg p-4 mb-4"><input type="date" className="p-2 border rounded" value={dpForm.date} onChange={e => setDpForm({ ...dpForm, date: e.target.value })}/><input type="number" min="0" className="p-2 border rounded text-right" placeholder="Nominal DP" value={dpForm.amount} onChange={e => setDpForm({ ...dpForm, amount: e.target.value })} required/><select className="p-2 border rounded" value={dpForm.method} onChange={e => setDpForm({ ...dpForm, method: e.target.value })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select><input className="p-2 border rounded" placeholder="Nomor Order (opsional)" value={dpForm.orderId || ''} onChange={e => setDpForm({ ...dpForm, orderId: e.target.value })}/><input className="p-2 border rounded" placeholder="Catatan Saldo" value={dpForm.note} onChange={e => setDpForm({ ...dpForm, note: e.target.value })}/><div className="md:col-span-3 flex justify-end gap-2"><button type="button" onClick={() => { setDpForm(emptyDp); setEditDpId(null); }} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-green-600 text-white rounded font-bold">{editDpId ? 'Simpan Edit' : 'Tambah Saldo'}</button></div></form><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Tanggal</th><th className="p-3 text-right">Nominal</th><th className="p-3">Metode</th><th className="p-3">Order</th><th className="p-3">Catatan</th><th className="p-3 text-center">Status</th><th className="p-3 text-center">Aksi</th></tr></thead><tbody>{getClientDpRows(activeClient).map(dp => { return <tr key={dp.id} className="border-t"><td className="p-3 text-sm">{dp.date}</td><td className="p-3 text-right font-bold text-green-700">{formatRupiah(dp.amount)}</td><td className="p-3 text-sm">{dp.method || '-'}</td><td className="p-3 text-sm font-mono text-xs">{dp.orderId || '-'}</td><td className="p-3 text-sm">{dp.note || '-'}</td><td className="p-3 text-center"><span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">Aktif</span></td><td className="p-3"><div className="flex justify-center gap-1 flex-wrap"><button onClick={() => printDpReceipt(dp, activeClient?.name)} className="text-xs font-bold text-slate-700 bg-gray-50 border border-gray-200 px-2 py-1 rounded">Cetak</button><button onClick={() => { setEditDpId(dp.id); setDpForm({ ...emptyDp, ...dp }); }} className="text-blue-600 bg-blue-50 p-1 rounded"><IconEdit /></button><button onClick={() => deleteDp(dp.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>; })}</tbody></table></div>{(() => { const linkedInvs = getClientInvoices(activeClient).filter(inv => getInvoiceLinkedDpAmount(inv) > 0); return linkedInvs.length > 0 && (<div className="mt-4 border-t pt-4"><h4 className="font-bold text-sm text-gray-700 mb-3">Invoice yang Memakai Saldo</h4><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">No Invoice</th><th className="p-3 text-left">Tanggal</th><th className="p-3 text-right">Total Invoice</th><th className="p-3 text-right">Saldo Dipakai</th></tr></thead><tbody>{linkedInvs.map(inv => (<tr key={inv.id} className="border-t"><td className="p-3 font-mono text-xs">{inv.id}</td><td className="p-3">{inv.date}</td><td className="p-3 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td><td className="p-3 text-right font-bold text-orange-600">{formatRupiah(getInvoiceLinkedDpAmount(inv))}</td></tr>))}<tr className="bg-gray-50 border-t"><td colSpan="3" className="p-3 text-right font-bold">Total Saldo Dipakai</td><td className="p-3 text-right font-black text-orange-600">{formatRupiah(activeSummary.usedDp)}</td></tr></tbody></table></div></div>); })()}</div></div></div>}
+                    {activeClient && <div className="fixed inset-0 bg-black/50 overflow-y-auto z-[100]" style={{ WebkitOverflowScrolling: 'touch' }}><div className="flex min-h-full items-center justify-center p-4"><div className="bg-white rounded-xl shadow-xl p-3 sm:p-6 w-full max-w-5xl"><div className="flex justify-between border-b pb-3 mb-4"><div><h3 className="font-black text-lg">Saldo Klien</h3><p className="text-sm text-gray-500">{activeClient.name}</p></div><div className="flex items-center gap-2"><button onClick={() => printSaldoLaporan(activeClient, activeSummary, getClientDpRows(activeClient), getClientInvoices(activeClient), templates)} className="text-xs font-bold bg-blue-600 text-white px-3 py-1.5 rounded">Cetak Laporan</button><button onClick={() => { setSelectedClient(null); setDpForm(emptyDp); setEditDpId(null); }} className="text-2xl text-gray-400">&times;</button></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"><Card><h4 className="text-xs font-bold text-gray-500">Total Saldo Masuk</h4><p className="text-xl font-black text-green-700">{formatRupiah(activeSummary.dp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Saldo Dipakai Invoice</h4><p className="text-xl font-black text-orange-600">{formatRupiah(activeSummary.usedDp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Sisa Saldo</h4><p className="text-xl font-black text-emerald-700">{formatRupiah(activeSummary.saldoDp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Piutang</h4><p className="text-xl font-black text-red-700">{formatRupiah(activeSummary.receivable)}</p></Card></div><form onSubmit={saveDp} className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 border rounded-lg p-4 mb-4"><input type="date" className="p-2 border rounded" value={dpForm.date} onChange={e => setDpForm({ ...dpForm, date: e.target.value })}/><input type="number" min="0" className="p-2 border rounded text-right" placeholder="Nominal DP" value={dpForm.amount} onChange={e => setDpForm({ ...dpForm, amount: e.target.value })} required/><select className="p-2 border rounded" value={dpForm.method} onChange={e => setDpForm({ ...dpForm, method: e.target.value })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select><input className="p-2 border rounded" placeholder="Nomor Order (opsional)" value={dpForm.orderId || ''} onChange={e => setDpForm({ ...dpForm, orderId: e.target.value })}/><input className="p-2 border rounded" placeholder="Catatan Saldo" value={dpForm.note} onChange={e => setDpForm({ ...dpForm, note: e.target.value })}/><div className="md:col-span-3 flex justify-end gap-2"><button type="button" onClick={() => { setDpForm(emptyDp); setEditDpId(null); }} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-green-600 text-white rounded font-bold">{editDpId ? 'Simpan Edit' : 'Tambah Saldo'}</button></div></form><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Tanggal</th><th className="p-3 text-right">Nominal</th><th className="p-3">Metode</th><th className="p-3">Order</th><th className="p-3">Catatan</th><th className="p-3 text-center">Status</th><th className="p-3 text-center">Aksi</th></tr></thead><tbody>{getClientDpRows(activeClient).map(dp => { return <tr key={dp.id} className="border-t"><td className="p-3 text-sm">{dp.date}</td><td className="p-3 text-right font-bold text-green-700">{formatRupiah(dp.amount)}</td><td className="p-3 text-sm">{dp.method || '-'}</td><td className="p-3 font-mono text-xs">{dp.orderId || '-'}</td><td className="p-3 text-sm">{dp.note || '-'}</td><td className="p-3 text-center"><span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">Aktif</span></td><td className="p-3"><div className="flex justify-center gap-1 flex-wrap"><button onClick={() => printDpReceipt(dp, activeClient?.name)} className="text-xs font-bold text-slate-700 bg-gray-50 border border-gray-200 px-2 py-1 rounded">Cetak</button><button onClick={() => { setEditDpId(dp.id); setDpForm({ ...emptyDp, ...dp }); }} className="text-blue-600 bg-blue-50 p-1 rounded"><IconEdit /></button><button onClick={() => deleteDp(dp.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>; })}</tbody></table></div>{(() => { const linkedInvs = getClientInvoices(activeClient).filter(inv => getInvoiceLinkedDpAmount(inv) > 0); return linkedInvs.length > 0 && (<div className="mt-4 border-t pt-4"><h4 className="font-bold text-sm text-gray-700 mb-3">Invoice yang Memakai Saldo</h4><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">No Invoice</th><th className="p-3 text-left">Tanggal</th><th className="p-3 text-right">Total Invoice</th><th className="p-3 text-right">Saldo Dipakai</th></tr></thead><tbody>{linkedInvs.map(inv => (<tr key={inv.id} className="border-t"><td className="p-3 font-mono text-xs">{inv.id}</td><td className="p-3">{inv.date}</td><td className="p-3 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td><td className="p-3 text-right font-bold text-orange-600">{formatRupiah(getInvoiceLinkedDpAmount(inv))}</td></tr>))}<tr className="bg-gray-50 border-t"><td colSpan="3" className="p-3 text-right font-bold">Total Saldo Dipakai</td><td className="p-3 text-right font-black text-orange-600">{formatRupiah(activeSummary.usedDp)}</td></tr></tbody></table></div></div>); })()}</div></div></div>}
                 </div>
             );
         };
@@ -15897,7 +15938,7 @@ ${getRekapShareLink(rekap)}
                                     { key: 'lunas', label: `Lunas (${lunasCount})`, cls: 'bg-green-50 text-green-700 border-green-300' },
                                 ].map(f => (
                                     <button key={f.key} onClick={() => { setRekapStatusFilter(f.key); setRekapListPage(1); }}
-                                        className={`text-xs font-semibold px-2.5 py-1 rounded-full border transition-all ${rekapStatusFilter === f.key ? f.cls + ' ring-2 ring-offset-1 ring-current font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                                        className={`text-xs px-2.5 py-1 rounded-full border transition-all ${rekapStatusFilter === f.key ? f.cls + ' ring-2 ring-offset-1 ring-current font-bold' : 'font-semibold bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
                                         {f.label}
                                     </button>
                                 ))}
@@ -19374,7 +19415,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     <div className="flex flex-wrap gap-2 mb-5">
                         {subTabs.map(st => (
                             <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);}}
-                                className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-1.5 ${activeSubTab===st.id ? st.activeClass+' shadow-md' : st.inactiveClass}`}>
+                                className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 ${activeSubTab===st.id ? st.activeClass+' shadow-md' : st.inactiveClass+' shadow-sm'}`}>
                                 <span>{st.icon}</span>{st.label}
                             </button>
                         ))}
@@ -20568,6 +20609,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const MASTER_PAGE_SIZE = 8;
             const chartRef  = React.useRef(null);
             const chartInst = React.useRef(null);
+            // Ikon (Font Awesome) & grafik (Chart.js) hanya dimuat saat Kalkulator HPP dibuka
+            const [chartLibReady, setChartLibReady] = React.useState(() => !!window.Chart);
+            React.useEffect(() => {
+                loadFontAwesome();
+                let aktif = true;
+                loadChartJs().then(() => { if (aktif) setChartLibReady(true); }).catch(err => console.error(err));
+                return () => { aktif = false; };
+            }, []);
             const [pendingPrint, setPendingPrint] = React.useState(false);
             const printMetaRef = React.useRef({ clientName: '' });
             const [panduanBahan, setPanduanBahan] = React.useState(() => readHppCache(DB_KEY_PANDUAN_BAHAN)?.value ?? []);
@@ -20829,7 +20878,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             // ── Chart.js doughnut ─────────────────────────────────────────────────
             React.useEffect(() => {
-                if (!chartRef.current || !window.Chart) return;
+                if (!chartLibReady || !chartRef.current || !window.Chart) return;
                 if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; }
                 const chartLabels = ['Bahan Baku (BBB)', 'Upah Kerja (BTKL)', 'Overhead (BOP)'];
                 const chartData   = [calc.bbbTotal, calc.btklTotal, calc.bopTotal];
@@ -20846,7 +20895,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } } }, cutout: '65%' },
                 });
                 return () => { if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; } };
-            }, [calc.bbbTotal, calc.btklTotal, calc.bopTotal, calc.komisiTotal, calc.entertainTotal, calc.profitTotal, komisiPct, entertainPct]);
+            }, [chartLibReady, calc.bbbTotal, calc.btklTotal, calc.bopTotal, calc.komisiTotal, calc.entertainTotal, calc.profitTotal, komisiPct, entertainPct]);
 
             // ── Preset logic ──────────────────────────────────────────────────────
             const loadPresetKaos = () => {
@@ -26006,7 +26055,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             return (
                 <div className="flex h-screen bg-gray-100 font-sans print:bg-white print:h-auto">
-                    <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex flex-col hidden md:flex shrink-0 print:hidden shadow-xl z-10 transition-all duration-200`}>
+                    <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex-col hidden md:flex shrink-0 print:hidden shadow-xl z-10 transition-all duration-200`}>
                         <div className={`bg-slate-950 border-b border-slate-800 flex items-center ${sidebarCollapsed ? 'justify-center py-4 px-2' : 'p-4 flex-col text-center'}`}>
                             {!sidebarCollapsed && (
                                 <>
@@ -27480,7 +27529,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     </>) : '—'}
                                                                     {x.used.lebihKurangMenit > 0 && <span className="text-gray-500 font-normal"> (+{durasiLabel(x.used.lebihKurangMenit)})</span>}
                                                                     {x.used.lebihKurangMenit < 0 && <span className="text-gray-500 font-normal"> (−{durasiLabel(-x.used.lebihKurangMenit)})</span>}
-                                                                    {(x.used.jamLemburMasuk || x.used.jamLemburPulang) && <span className={`font-normal ${x.changed.includes('jamLemburMasuk') || x.changed.includes('jamLemburPulang') ? 'text-orange-700 font-bold' : 'text-gray-600'}`}> · lembur {x.used.jamLemburMasuk || '—'}–{x.used.jamLemburPulang || '—'}</span>}
+                                                                    {(x.used.jamLemburMasuk || x.used.jamLemburPulang) && <span className={x.changed.includes('jamLemburMasuk') || x.changed.includes('jamLemburPulang') ? 'text-orange-700 font-bold' : 'text-gray-600 font-normal'}> · lembur {x.used.jamLemburMasuk || '—'}–{x.used.jamLemburPulang || '—'}</span>}
                                                                 </span>
                                                             </div>
                                                         )}
@@ -27523,8 +27572,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                 <div className="text-[10.5px] text-gray-500">{r.lastEdit ? `terakhir: ${r.lastEdit.byName} · ${fmtWaktuEdit(r.lastEdit.createdAt)}` : r.diedit > 0 ? 'diedit (sebelum riwayat aktif)' : 'tidak ada edit'}</div>
                                                             </td>
                                                             <td className="py-2 px-1.5 text-right tabular-nums">{r.hadir}</td>
-                                                            <td className={`py-2 px-1.5 text-right tabular-nums font-bold ${r.diedit >= 3 ? 'text-red-700' : r.diedit > 0 ? 'text-orange-700' : 'text-gray-400 font-normal'}`}>{r.diedit}</td>
-                                                            <td className={`py-2 px-1.5 text-right tabular-nums whitespace-nowrap font-bold ${!r.isHarian ? 'text-gray-400 font-normal' : r.pengaruh !== 0 ? (r.diedit >= 3 ? 'text-red-700' : 'text-orange-700') : 'text-gray-400 font-normal'}`}>{r.isHarian ? rp(r.pengaruh) : '—'}</td>
+                                                            <td className={`py-2 px-1.5 text-right tabular-nums ${r.diedit >= 3 ? 'text-red-700 font-bold' : r.diedit > 0 ? 'text-orange-700 font-bold' : 'text-gray-400 font-normal'}`}>{r.diedit}</td>
+                                                            <td className={`py-2 px-1.5 text-right tabular-nums whitespace-nowrap ${!r.isHarian ? 'text-gray-400 font-normal' : r.pengaruh !== 0 ? (r.diedit >= 3 ? 'text-red-700 font-bold' : 'text-orange-700 font-bold') : 'text-gray-400 font-normal'}`}>{r.isHarian ? rp(r.pengaruh) : '—'}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
@@ -28462,6 +28511,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
         // ── LABEL MAKER ──────────────────────────────────────────────────────────
         const LabelMakerView = ({ templates, setTemplates }) => {
+            // Siapkan library PDF di belakang layar saat Label Maker dibuka, agar tombol Export PDF langsung jalan
+            React.useEffect(() => { loadJsPdf().catch(() => {}); }, []);
             const LM_PAPER_SIZES = { A4:{width:210,height:297}, F4:{width:210,height:330}, Letter:{width:215.9,height:279.4} };
             const LM_FONTS = [
                 { label:'Serif (Times)', value:'serif' },
@@ -28652,7 +28703,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setTimeout(() => w.print(), 700);
             };
             const handleExportPDF = async () => {
-                if (!window.jspdf) { alert('Library PDF belum dimuat. Coba refresh halaman.'); return; }
+                if (!window.jspdf) {
+                    try { await loadJsPdf(); } catch (e) { /* ditangani di bawah */ }
+                }
+                if (!window.jspdf) { alert('Library PDF gagal dimuat. Periksa koneksi internet lalu coba lagi.'); return; }
                 const { jsPDF } = window.jspdf;
                 const lw = labelW(), lh = labelH();
                 const hexRgb = h => { const c = (h||'#000000').replace('#',''); return [parseInt(c.slice(0,2),16)||0, parseInt(c.slice(2,4),16)||0, parseInt(c.slice(4,6),16)||0]; };
