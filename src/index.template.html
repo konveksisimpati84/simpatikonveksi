@@ -21,7 +21,11 @@
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-        /* Larger touch targets on mobile for small icon buttons */
+        /* Larger touch targets for small icon buttons: phones and all touch screens (iPad/tablet).
+           PC with a mouse (pointer: fine) is unchanged. */
+        @media (pointer: coarse) {
+            button { min-height: 36px; min-width: 36px; }
+        }
         @media (max-width: 767px) {
             button { min-height: 36px; min-width: 36px; }
             /* Bottom tab bar safe area */

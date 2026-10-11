@@ -723,6 +723,28 @@
 
         const genId = (prefix = '') => `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+        // Lebar elemen (px) yang selalu diperbarui saat ukuran layar/kartu berubah.
+        // Dipakai grafik SVG agar di layar sempit (HP) tulisannya tidak mengecil.
+        const useElementWidth = () => {
+            const [width, setWidth] = React.useState(0);
+            const roRef = React.useRef(null);
+            const ref = React.useCallback((el) => {
+                if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+                if (!el) return;
+                const update = () => setWidth(Math.round(el.getBoundingClientRect().width));
+                update();
+                if (typeof ResizeObserver !== 'undefined') {
+                    const ro = new ResizeObserver(update);
+                    ro.observe(el);
+                    roRef.current = ro;
+                }
+            }, []);
+            React.useEffect(() => () => { if (roRef.current) roRef.current.disconnect(); }, []);
+            return [ref, width];
+        };
+        // Grafik di bawah lebar ini digambar 1:1 piksel (tulisan tetap terbaca); di atasnya tampilan lama.
+        const CHART_NARROW_PX = 560;
+
         const usePagination = (items, pageSize = 20) => {
             const [page, setPage] = React.useState(1);
             const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
@@ -1204,7 +1226,7 @@
             const bgClass = type === 'error' ? 'bg-red-600' : 'bg-green-600';
             const icon = type === 'error' ? <IconAlertCircle /> : <IconCheckCircle />;
             return (
-                <div className="fixed bottom-4 right-4 z-[110] toast-enter">
+                <div className="fixed bottom-20 lg:bottom-4 right-4 z-[110] toast-enter">
                     <div className={`${bgClass} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3`}>
                         {icon}
                         <span className="font-medium text-sm">{message}</span>
@@ -1392,6 +1414,7 @@
         };
 
         const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman }) => {
+            const [dashChartRef, dashChartW] = useElementWidth();
             const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
             const { totalOrders, activeOrders, doneOrders, shippedOrders } = React.useMemo(() => ({
                 totalOrders: safeOrders.filter(o => !o?.isArchived).length,
@@ -1697,19 +1720,25 @@
                                 ))}
                             </select>
                         </div>
+                        <div ref={dashChartRef}>
                         {(() => {
-                            const W = 700, H = 220;
-                            const PAD = { top: 40, right: 10, bottom: 36, left: 44 };
-                            const cW = W - PAD.left - PAD.right;
-                            const cH = H - PAD.top - PAD.bottom;
-                            const colW = cW / 12;
-                            const barGap = 7;
-                            const barW = colW - barGap;
+                            // HP (kartu sempit): gambar 1:1 piksel supaya tulisan tetap ±10px; layar lebar: tampilan lama
+                            const narrow = dashChartW > 0 && dashChartW < CHART_NARROW_PX;
                             const maxVal = Math.max(...monthlyPcs, 1);
                             const rawStep = maxVal / 4;
                             const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
                             const gridStep = Math.ceil(rawStep / (mag || 1)) * (mag || 1) || 1;
                             const gridMax = gridStep * 4;
+                            const W = narrow ? dashChartW : 700, H = 220;
+                            const FS = narrow ? { axis: 10, value: 10, calloutTop: 10, calloutVal: 10, month: 10 } : { axis: 9, value: 9, calloutTop: 8.5, calloutVal: 9, month: 9 };
+                            // Lebar kiri menyesuaikan angka sumbu terpanjang (mis. "16.000") agar tidak terpotong
+                            const axisLblLen = Math.max(...[1,2,3,4].map(g => (gridStep * g).toLocaleString('id').length));
+                            const PAD = narrow ? { top: 40, right: 2, bottom: 30, left: Math.max(24, Math.ceil(axisLblLen * FS.axis * 0.6) + 8) } : { top: 40, right: 10, bottom: 36, left: 44 };
+                            const cW = W - PAD.left - PAD.right;
+                            const cH = H - PAD.top - PAD.bottom;
+                            const colW = cW / 12;
+                            const barGap = narrow ? 4 : 7;
+                            const barW = colW - barGap;
                             const yPos = v => PAD.top + cH - (v / gridMax * cH);
                             const xPos = i => PAD.left + i * colW + barGap / 2;
                             const hasPeak = totalPcsYear > 0;
@@ -1732,7 +1761,7 @@
                                         return (
                                             <g key={g}>
                                                 <line x1={PAD.left} y1={y} x2={W-PAD.right} y2={y} stroke="#e5e7eb" strokeWidth={g===0?1.5:1} strokeDasharray={g===0?'0':'5 4'}/>
-                                                <text x={PAD.left-7} y={y+4} textAnchor="end" fontSize="9" fill="#9ca3af">{lbl}</text>
+                                                <text x={PAD.left-(narrow ? 4 : 7)} y={y+4} textAnchor="end" fontSize={FS.axis} fill="#9ca3af">{lbl}</text>
                                             </g>
                                         );
                                     })}
@@ -1754,17 +1783,19 @@
                                                     : <rect x={x} y={PAD.top+cH-2} width={barW} height="2" rx="1" fill="#e5e7eb"/>
                                                 }
                                                 {/* Label angka: hanya tampil untuk bar NON-peak */}
-                                                {lbl && !isPeak && <text x={cx} y={y-5} textAnchor="middle" fontSize="9" fontWeight="700" fill="#6366f1">{lbl}</text>}
+                                                {lbl && !isPeak && (narrow && lbl.length * FS.value * 0.6 > colW
+                                                    ? <text x={cx} y={y-4} transform={`rotate(-90 ${cx} ${y-4})`} textAnchor="start" dominantBaseline="central" fontSize={FS.value} fontWeight="700" fill="#6366f1">{lbl}</text>
+                                                    : <text x={cx} y={y-5} textAnchor="middle" fontSize={FS.value} fontWeight="700" fill="#6366f1">{lbl}</text>)}
                                                 {/* Callout bubble untuk bar tertinggi: angka di dalam bubble */}
                                                 {isPeak && (
                                                     <g>
                                                         <rect x={calloutX} y={calloutY} width={calloutW} height={calloutH} rx="6" fill="#f59e0b"/>
                                                         <polygon points={`${cx},${y-2} ${cx-5},${calloutY+calloutH} ${cx+5},${calloutY+calloutH}`} fill="#f59e0b"/>
-                                                        <text x={calloutX+calloutW/2} y={calloutY+12} textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#fff">↑ {MONTHS_FULL[i]}</text>
-                                                        <text x={calloutX+calloutW/2} y={calloutY+24} textAnchor="middle" fontSize="9" fontWeight="800" fill="#fff">{lbl} pcs</text>
+                                                        <text x={calloutX+calloutW/2} y={calloutY+12} textAnchor="middle" fontSize={FS.calloutTop} fontWeight="700" fill="#fff">↑ {MONTHS_FULL[i]}</text>
+                                                        <text x={calloutX+calloutW/2} y={calloutY+24} textAnchor="middle" fontSize={FS.calloutVal} fontWeight="800" fill="#fff">{lbl} pcs</text>
                                                     </g>
                                                 )}
-                                                <text x={cx} y={PAD.top+cH+14} textAnchor="middle" fontSize="9" fontWeight="600" fill={isPeak?'#f59e0b':'#9ca3af'}>{MONTHS_SHORT[i]}</text>
+                                                <text x={cx} y={PAD.top+cH+14} textAnchor="middle" fontSize={FS.month} fontWeight={narrow && !isPeak ? '500' : '600'} fill={isPeak?'#f59e0b':'#9ca3af'}>{MONTHS_SHORT[i]}</text>
                                             </g>
                                         );
                                     })}
@@ -1772,6 +1803,7 @@
                                 </svg>
                             );
                         })()}
+                        </div>
                         <div className="flex items-center gap-4 mt-2 justify-end flex-wrap">
                             <span className="flex items-center gap-1.5 text-xs text-gray-400">
                                 <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{background:'linear-gradient(180deg,#818cf8,#6366f1)'}}></span>
@@ -4668,8 +4700,8 @@ window.addEventListener('load',function(){
                                     )}
 
                                     <div className="p-5 flex-1 flex flex-col">
-                                        <div className="flex justify-between items-start mb-2 pl-1">
-                                            <h3 className={`font-black text-lg ${textColor}`}>{order.id}</h3>
+                                        <div className="flex justify-between items-start gap-2 mb-2 pl-1">
+                                            <h3 className={`font-black text-lg whitespace-nowrap ${textColor}`}>{order.id}</h3>
                                             <Badge status={order.status} />
                                         </div>
                                         {(() => {
@@ -6609,7 +6641,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountType: 'Rp' }))} className={`px-3 py-2.5 text-sm font-black transition-colors ${(noteForm.globalDiscountType || 'Rp') === 'Rp' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Rp</button>
                                                 <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountType: '%' }))} className={`px-3 py-2.5 text-sm font-black transition-colors ${noteForm.globalDiscountType === '%' ? 'bg-green-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>%</button>
                                             </div>
-                                            <input type="number" min="0" max={noteForm.globalDiscountType === '%' ? 100 : undefined} className="flex-1 px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-orange-400 focus:border-orange-400 text-right" placeholder={noteForm.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={noteForm.globalDiscountValue || ''} onChange={e => setNoteForm(f => ({ ...f, globalDiscountValue: e.target.value }))} />
+                                            <input type="number" min="0" max={noteForm.globalDiscountType === '%' ? 100 : undefined} className="flex-1 min-w-0 px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-orange-400 focus:border-orange-400 text-right" placeholder={noteForm.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={noteForm.globalDiscountValue || ''} onChange={e => setNoteForm(f => ({ ...f, globalDiscountValue: e.target.value }))} />
                                             {safeMoney(noteForm.globalDiscountValue) > 0 && <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountValue: '' }))} className="text-gray-400 hover:text-red-500 font-black text-lg shrink-0 leading-none">✕</button>}
                                         </div>
                                         {safeMoney(noteForm.globalDiscountValue) > 0 && (
@@ -8021,7 +8053,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         <span className="text-xs font-black text-gray-600 uppercase tracking-wide">Rincian Item</span>
                                         <button type="button" onClick={addItem} className="text-xs font-black text-blue-600 hover:text-blue-800 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">+ Tambah Item</button>
                                     </div>
-                                    <div className="overflow-x-auto">
+                                    <div className="overflow-x-auto hidden sm:block">
                                         <table className="w-full text-sm">
                                             <thead className="bg-gray-50 border-b border-gray-200">
                                                 <tr>
@@ -8053,6 +8085,40 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 </tr>
                                             </tfoot>
                                         </table>
+                                    </div>
+                                    {/* Tampilan HP: tiap item jadi kartu bertumpuk */}
+                                    <div className="sm:hidden divide-y divide-gray-100">
+                                        {form.items.map((it, idx) => (
+                                            <div key={it.id} className="px-3 py-3 space-y-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[11px] font-bold text-gray-400 w-5 shrink-0">{idx + 1}.</span>
+                                                    <input className="flex-1 min-w-0 px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-300 outline-none" placeholder="Uraian item" value={it.desc} onChange={e => updateItem(idx, 'desc', e.target.value)} />
+                                                    <button type="button" onClick={() => removeItem(idx)} disabled={form.items.length <= 1} className="text-red-300 hover:text-red-500 font-black text-base leading-none disabled:opacity-20 transition-colors shrink-0" title="Hapus item">✕</button>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-2 pl-7">
+                                                    <label className="block">
+                                                        <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Qty</span>
+                                                        <input type="number" min="0" className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:ring-1 focus:ring-blue-300 outline-none" value={it.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
+                                                    </label>
+                                                    <label className="block">
+                                                        <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Satuan</span>
+                                                        <input className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:ring-1 focus:ring-blue-300 outline-none" placeholder="pcs" value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)} />
+                                                    </label>
+                                                    <label className="block">
+                                                        <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Harga/Unit</span>
+                                                        <input type="number" min="0" className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm text-right focus:ring-1 focus:ring-blue-300 outline-none" placeholder="0" value={it.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                                                    </label>
+                                                </div>
+                                                <div className="flex justify-between items-center pl-7 text-sm">
+                                                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Subtotal</span>
+                                                    <span className="font-bold text-gray-700 tabular-nums">{formatRupiah(safeMoney(it.qty) * safeMoney(it.price))}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div className="px-3 py-2.5 bg-gray-50 border-t-2 border-gray-200 flex justify-between items-center">
+                                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Subtotal</span>
+                                            <span className="font-black text-base text-gray-700 tabular-nums">{formatRupiah(formGross)}</span>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -9810,14 +9876,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 {/* Harga & Diskon level item */}
                                                 <div className="grid grid-cols-2 gap-2 mb-3">
                                                     <div className="flex flex-col gap-0.5">
-                                                        <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Harga/pcs</span>
+                                                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Harga/pcs</span>
                                                         <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={item.pricePerPcs || ''} onChange={e => patchItemPrice(item.id, e.target.value)}/>
                                                     </div>
                                                     <div className="flex flex-col gap-0.5">
-                                                        <span className="text-[9.5px] font-bold text-orange-500 uppercase tracking-wide px-0.5">Diskon</span>
+                                                        <span className="text-[11px] font-bold text-orange-500 uppercase tracking-wide px-0.5">Diskon</span>
                                                         <div className="flex gap-1">
                                                             <button type="button" onClick={() => patchItemDiscount(item.id, item.discountType === 'Rp' ? '%' : 'Rp', '')} className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors ${item.discountType === '%' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>{item.discountType || 'Rp'}</button>
-                                                            <input type="number" className="flex-1 p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={item.discountValue || ''} onChange={e => patchItemDiscount(item.id, item.discountType || 'Rp', e.target.value)}/>
+                                                            <input type="number" className="flex-1 min-w-0 p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={item.discountValue || ''} onChange={e => patchItemDiscount(item.id, item.discountType || 'Rp', e.target.value)}/>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -9828,15 +9894,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     {(item.sizes || []).map(size => (
                                                         <div key={size.id} className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
                                                             <div className="flex flex-col gap-0.5">
-                                                                <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Ukuran</span>
+                                                                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Ukuran</span>
                                                                 <input className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm" placeholder="M / L / XL" value={size.size || ''} onChange={e => patchSize(item.id, size.id, { size: e.target.value })}/>
                                                             </div>
                                                             <div className="flex flex-col gap-0.5">
-                                                                <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Jumlah</span>
+                                                                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Jumlah</span>
                                                                 <input type="number" className="p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={size.qty} onChange={e => patchSize(item.id, size.id, { qty: e.target.value })}/>
                                                             </div>
                                                             <div className="flex flex-col gap-0.5 items-end">
-                                                                <span className="text-[9.5px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Subtotal</span>
+                                                                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide px-0.5">Subtotal</span>
                                                                 <div className="text-right font-black text-blue-700 text-sm py-2">{formatRupiah(getInvoiceSizeTotal(size).total)}</div>
                                                             </div>
                                                             {(item.sizes || []).length > 1 && <button type="button" onClick={() => removeSize(item.id, size.id)} className="text-red-500 bg-red-50 p-2 rounded-xl hover:bg-red-100 transition-colors self-end"><IconTrash /></button>}
@@ -9941,7 +10007,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountType: 'Rp' }))} className={`px-3 py-2 text-sm font-black transition-colors ${(form.globalDiscountType || 'Rp') === 'Rp' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Rp</button>
                                             <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountType: '%' }))} className={`px-3 py-2 text-sm font-black transition-colors ${form.globalDiscountType === '%' ? 'bg-green-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>%</button>
                                         </div>
-                                        <input type="number" min="0" max={form.globalDiscountType === '%' ? 100 : undefined} className="flex-1 p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right" placeholder={form.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={form.globalDiscountValue || ''} onChange={e => setForm(f => ({ ...f, globalDiscountValue: e.target.value }))}/>
+                                        <input type="number" min="0" max={form.globalDiscountType === '%' ? 100 : undefined} className="flex-1 min-w-0 p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right" placeholder={form.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={form.globalDiscountValue || ''} onChange={e => setForm(f => ({ ...f, globalDiscountValue: e.target.value }))}/>
                                         {safeMoney(form.globalDiscountValue) > 0 && <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountValue: '' }))} className="text-gray-400 hover:text-red-500 font-black text-lg shrink-0 leading-none">✕</button>}
                                     </div>
                                     {safeMoney(form.globalDiscountValue) > 0 && (
@@ -12091,6 +12157,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
         };
 
         const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null }) => {
+            const [finChartRef, finChartW] = useElementWidth();
             // Gaji Direksi & Marketing: tanpa akses "Lihat", tetap DIHITUNG di semua total (kas & laba benar),
             // tapi ditampilkan gabungan tanpa nama/rincian per orang
             const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : authUser?.role === 'Admin';
@@ -12807,10 +12874,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <button onClick={handlePrint} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Biaya Order</button>
                         </div>
                     </div>
-                    <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                    <div className={`grid ${financeTabList.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'} sm:flex gap-1 bg-gray-100 p-1 rounded-xl`}>
                         {financeTabList.map(tab => (
                             <button key={tab.id} onClick={() => setActiveFinanceTab(tab.id)}
-                                className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${activeFinanceTab === tab.id ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
+                                className={`sm:flex-1 min-w-0 py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm leading-tight sm:leading-5 font-bold transition-all ${activeFinanceTab === tab.id ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
                                 {tab.label}
                             </button>
                         ))}
@@ -13059,36 +13126,54 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     </select>
                                                 </div>
                                             </div>
-                                            <div className="overflow-x-auto">
-                                                <svg viewBox="0 0 540 160" style={{width:'100%',minWidth:'320px',display:'block'}}>
+                                            <div className="overflow-x-auto" ref={finChartRef}>
+                                                {(() => {
+                                                    // HP (kartu sempit): gambar 1:1 piksel supaya tulisan tetap ±10px; layar lebar: tampilan lama
+                                                    const narrow = finChartW > 0 && finChartW < CHART_NARROW_PX;
+                                                    const G = narrow
+                                                        ? { W: finChartW, H: 172, base: 145, maxH: 100, left: 6, step: (finChartW - 12) / 12, valFs: 10, monFs: 10, monY: 162 }
+                                                        : { W: 540, H: 160, base: 130, maxH: 110, left: 10, step: 43, valFs: 8, monFs: 9, monY: 148 };
+                                                    const barW = narrow ? G.step * 0.75 : 33;
+                                                    return (
+                                                <svg viewBox={`0 0 ${G.W} ${G.H}`} style={narrow ? {width:'100%',display:'block'} : {width:'100%',minWidth:'320px',display:'block'}}>
                                                     {activeData.map((val, i) => {
-                                                        const barH = maxVal > 0 ? Math.max(2, Math.round((val / maxVal) * 110)) : 2;
-                                                        const x = 10 + i * 43;
+                                                        const barH = maxVal > 0 ? Math.max(2, Math.round((val / maxVal) * G.maxH)) : 2;
+                                                        const x = narrow ? G.left + i * G.step + (G.step - barW) / 2 : 10 + i * 43;
+                                                        const cx = x + barW / 2;
                                                         const isPeak = i === peakIdx && val > 0;
+                                                        const valLbl = formatShort(val);
+                                                        const rotateVal = narrow && valLbl.length * G.valFs * 0.6 > G.step;
                                                         return (
                                                             <g key={i}>
-                                                                <rect x={x} y={130 - barH} width={33} height={barH}
+                                                                <rect x={x} y={G.base - barH} width={barW} height={barH}
                                                                     rx="3"
                                                                     fill={isPeak ? peakColor : barColor}
                                                                     opacity={val > 0 ? 1 : 0.15}
                                                                 />
-                                                                {val > 0 && (
-                                                                    <text x={x+16.5} y={130 - barH - 4} textAnchor="middle"
-                                                                        fontSize="8" fontWeight="600"
+                                                                {val > 0 && (rotateVal
+                                                                    ? <text x={cx} y={G.base - barH - 4} transform={`rotate(-90 ${cx} ${G.base - barH - 4})`} textAnchor="start" dominantBaseline="central"
+                                                                        fontSize={G.valFs} fontWeight="600"
                                                                         fill={isPeak ? peakColor : '#374151'}>
-                                                                        {formatShort(val)}
+                                                                        {valLbl}
+                                                                    </text>
+                                                                    : <text x={cx} y={G.base - barH - 4} textAnchor="middle"
+                                                                        fontSize={G.valFs} fontWeight="600"
+                                                                        fill={isPeak ? peakColor : '#374151'}>
+                                                                        {valLbl}
                                                                     </text>
                                                                 )}
-                                                                <text x={x+16.5} y={148} textAnchor="middle"
-                                                                    fontSize="9" fontWeight={isPeak ? '700' : '500'}
+                                                                <text x={cx} y={G.monY} textAnchor="middle"
+                                                                    fontSize={G.monFs} fontWeight={isPeak ? '700' : '500'}
                                                                     fill={isPeak ? peakColor : '#6b7280'}>
                                                                     {monthNames[i]}
                                                                 </text>
                                                             </g>
                                                         );
                                                     })}
-                                                    <line x1="8" y1="130" x2="532" y2="130" stroke="#e5e7eb" strokeWidth="1"/>
+                                                    <line x1={narrow ? 4 : 8} y1={G.base} x2={narrow ? G.W - 4 : 532} y2={G.base} stroke="#e5e7eb" strokeWidth="1"/>
                                                 </svg>
+                                                    );
+                                                })()}
                                             </div>
                                             <div className="flex flex-wrap gap-4 mt-2 pt-3 border-t border-gray-100 text-xs text-gray-500">
                                                 <span>Total {finChartYear}: <strong className={finChartMode==='masuk' ? 'text-green-700' : 'text-red-700'}>{formatRupiah(totalYear)}</strong></span>
@@ -26055,7 +26140,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             return (
                 <div className="flex h-screen bg-gray-100 font-sans print:bg-white print:h-auto">
-                    <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex-col hidden md:flex shrink-0 print:hidden shadow-xl z-10 transition-all duration-200`}>
+                    <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex-col hidden lg:flex shrink-0 print:hidden shadow-xl z-10 transition-all duration-200`}>
                         <div className={`bg-slate-950 border-b border-slate-800 flex items-center ${sidebarCollapsed ? 'justify-center py-4 px-2' : 'p-4 flex-col text-center'}`}>
                             {!sidebarCollapsed && (
                                 <>
@@ -26107,7 +26192,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     </div>
 
                     <div className="flex-1 flex flex-col overflow-hidden print:overflow-visible">
-                        <div className="md:hidden bg-slate-900 text-white px-4 py-3 flex justify-between items-center shadow-md print:hidden">
+                        <div className="lg:hidden bg-slate-900 text-white px-4 py-3 flex justify-between items-center shadow-md print:hidden">
                             <div className="flex items-center gap-2 min-w-0">
                                 {templates?.companyLogo ? (
                                     <img src={templates.companyLogo} alt="Logo" className="max-h-8 object-contain bg-white/5 p-0.5 rounded" />
@@ -26130,13 +26215,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </div>
                         </div>
                         {showMobileNav && (
-                            <div className="md:hidden fixed inset-0 z-[200] bg-black/60 print:hidden" onClick={() => setShowMobileNav(false)}>
+                            <div className="lg:hidden fixed inset-0 z-[200] bg-black/60 print:hidden" onClick={() => setShowMobileNav(false)}>
                                 <div className="absolute bottom-0 left-0 right-0 bg-slate-900 rounded-t-2xl overflow-hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} onClick={e => e.stopPropagation()}>
                                     <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
                                         <span className="font-bold text-white text-sm">Menu</span>
                                         <button onClick={() => setShowMobileNav(false)} className="text-slate-400 p-1">✕</button>
                                     </div>
-                                    <div className="overflow-y-auto max-h-[60vh]" style={{ WebkitOverflowScrolling: 'touch' }}>
+                                    <div className="overflow-y-auto max-h-[60vh] md:grid md:grid-cols-2" style={{ WebkitOverflowScrolling: 'touch' }}>
                                         {navItems.map(item => (
                                             <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileNav(false); }}
                                                 className={`w-full text-left flex items-center gap-3 px-5 py-3 text-sm transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
@@ -26157,7 +26242,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 { id: 'laporan', label: 'Laporan', icon: <IconBarChart /> },
                             ].filter(t => navItems.some(n => n.id === t.id));
                             return (
-                                <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-700 flex z-[150] print:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                                <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-700 flex z-[150] print:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                                     {bottomTabs.map(tab => (
                                         <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMobileNav(false); }}
                                             className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] transition-colors ${activeTab === tab.id ? 'text-blue-400' : 'text-slate-400 active:text-white'}`}>
@@ -26174,7 +26259,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             );
                         })()}
 
-                        <header className="hidden md:flex bg-white h-16 border-b border-gray-200 items-center px-6 justify-between shrink-0 print:hidden shadow-sm z-0">
+                        <header className="hidden lg:flex bg-white h-16 border-b border-gray-200 items-center px-6 justify-between shrink-0 print:hidden shadow-sm z-0">
                             <h2 className="text-lg font-bold text-gray-700 capitalize">{navItems.find(n => n.id === activeTab)?.label || activeTab.split('_').join(' ')}</h2>
                             <div className="flex items-center space-x-4">
                                 <div className="text-right hidden md:block">
@@ -26198,7 +26283,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </div>
                         </header>
 
-                        <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'p-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:pb-8 md:p-8 bg-gray-50/50 overflow-y-auto'}`}>
+                        <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'p-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
