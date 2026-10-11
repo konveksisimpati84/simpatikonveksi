@@ -89,7 +89,6 @@
             { id: 'stock_barang', label: 'Stock Barang' },
             { id: 'absensi_finger', label: 'Absensi Finger' },
             { id: 'hpp_kalkulator', label: 'Kalkulator HPP' },
-            { id: 'laporan_sensitif', label: 'Laporan Direksi & Marketing' },
         ];
 
         const getDefaultMenuAccess = (role) => {
@@ -223,6 +222,13 @@
             return list.find(a => user.id != null && String(a.id) === String(user.id)) || list.find(a => String(a.username || '').toLowerCase() === String(user.username || '').toLowerCase()) || null;
         };
         const userHasCekScanAccess = (accounts, user) => hasCekScanAccess(findAccountOfUser(accounts, user));
+        // Akses gaji Direksi (Direktur/Komisaris) & Marketing: akun Admin lama yang belum pernah diatur otomatis punya,
+        // selain itu harus dicentang di Master Akun. Akses Edit otomatis termasuk Lihat.
+        const SENSITIVE_SALARY_DIVISIONS = ['Direktur', 'Komisaris', 'Marketing'];
+        const hasGajiSensitifEdit = (account) => !!account && !account.isDeleted && (account.gajiSensitifEdit === true || (account.gajiSensitifEdit == null && account.role === 'Admin'));
+        const hasGajiSensitifLihat = (account) => hasGajiSensitifEdit(account) || (!!account && !account.isDeleted && (account.gajiSensitifLihat === true || (account.gajiSensitifLihat == null && account.role === 'Admin')));
+        const isSensitiveSalaryEmp = (emp) => !!emp && getEmployeeDivisions(emp).some(d => SENSITIVE_SALARY_DIVISIONS.includes(d));
+        const GAJI_SENSITIF_LABEL = 'Gaji Direksi & Marketing (disembunyikan)';
 
         const stripCredentials = (account) => {
             if (!account) return account;
@@ -2246,7 +2252,18 @@
             );
         };
 
-        const KaryawanView = ({ employees, setEmployees, showToast, templates }) => {
+        const KaryawanView = ({ employees, setEmployees, showToast, templates, gajiSensitif = null }) => {
+            // Gaji Direksi & Marketing: tanpa "Lihat" -> pengaturan gaji disembunyikan; "Lihat" saja -> terkunci; "Edit" -> bisa diubah
+            const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : true;
+            const canEditSens = gajiSensitif ? !!gajiSensitif.edit : true;
+            const gajiTersembunyi = (emp) => isSensitiveSalaryEmp(emp) && !canViewSens;
+            const gajiTerkunci = (emp) => isSensitiveSalaryEmp(emp) && !canEditSens;
+            const SALARY_FIELDS = ['salaryTypes', 'salaryType', 'dailySalary', 'overtimeRate', 'rateKurang', 'rateLebih', 'commissionType', 'commissionValue', 'bagiHasilTipe', 'bagiHasilNilai'];
+            const tolakGajiTerkunci = (emp) => {
+                if (gajiTerkunci(emp)) { showToast('Data gaji Direksi & Marketing hanya bisa diubah oleh akun dengan akses Edit Gaji Direksi & Marketing.', 'error'); return true; }
+                return false;
+            };
+            const divisiBolehDipilih = (d) => canEditSens || !SENSITIVE_SALARY_DIVISIONS.includes(d);
             const [showForm, setShowForm] = useState(false);
             const [newEmp, setNewEmp] = useState({ name: '', divisions: ['Cutting'], phone: '', status: 'Aktif', salaryTypes: ['Produksi'], dailySalary: '' });
             
@@ -2282,6 +2299,7 @@
 
             const handleAdd = (e) => {
                 e.preventDefault();
+                if (!canEditSens && isSensitiveSalaryEmp(newEmp)) { showToast('Karyawan divisi Direktur/Komisaris/Marketing hanya bisa ditambahkan oleh akun dengan akses Edit Gaji Direksi & Marketing.', 'error'); return; }
                 const now = new Date().toISOString();
                 setEmployees(prev => [...(prev||[]), { ...newEmp, id: genId('EMP-'), _syncUpdatedAt: now }]);
                 setShowForm(false);
@@ -2292,7 +2310,21 @@
             const handleSaveEdit = (e) => {
                 e.preventDefault();
                 const now = new Date().toISOString();
-                setEmployees(prev => prev.map(emp => String(emp.id) === String(editEmp.id) ? { ...editEmp, _syncUpdatedAt: now } : emp));
+                const original = safeEmployees.find(emp => String(emp.id) === String(editEmp.id));
+                let next = { ...editEmp };
+                if (!canEditSens && original) {
+                    // Divisi Direktur/Komisaris/Marketing tidak bisa ditambah/dihapus, dan pengaturan gajinya tidak bisa diubah
+                    const sensAsli = getEmployeeDivisions(original).filter(d => SENSITIVE_SALARY_DIVISIONS.includes(d));
+                    const sensBaru = getEmployeeDivisions(next).filter(d => SENSITIVE_SALARY_DIVISIONS.includes(d));
+                    if (sensBaru.slice().sort().join('|') !== sensAsli.slice().sort().join('|')) {
+                        const nonSens = getEmployeeDivisions(next).filter(d => !SENSITIVE_SALARY_DIVISIONS.includes(d));
+                        const divs = [...nonSens, ...sensAsli];
+                        next.divisions = divs.length ? divs : getEmployeeDivisions(original);
+                        if (next.division !== undefined) next.division = next.divisions[0];
+                    }
+                    if (isSensitiveSalaryEmp(original)) SALARY_FIELDS.forEach(k => { if (k in original) next[k] = original[k]; else delete next[k]; });
+                }
+                setEmployees(prev => prev.map(emp => String(emp.id) === String(editEmp.id) ? { ...next, _syncUpdatedAt: now } : emp));
                 setEditEmp(null);
                 showToast("Data Karyawan diperbarui!", "success");
             };
@@ -2546,6 +2578,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 if(deleteConfirmId !== null && deleteConfirmId !== undefined) {
                     const now = new Date().toISOString();
                     const deletedEmployee = safeEmployees.find(emp => String(emp.id) === String(deleteConfirmId));
+                    if (tolakGajiTerkunci(deletedEmployee)) { setDeleteConfirmId(null); return; }
                     setEmployees(prev => (prev || []).map(emp => String(emp.id) === String(deleteConfirmId) ? { ...emp, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : emp));
                     setDeleteConfirmId(null);
                     showToast("Karyawan dihapus.", "success");
@@ -2558,12 +2591,14 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             };
 
             const openCashAdvanceModal = (emp) => {
+                if (gajiTersembunyi(emp)) { showToast('Kasbon karyawan Direksi & Marketing disembunyikan untuk akun ini.', 'error'); return; }
                 setCashAdvanceEmp(emp);
                 resetCashAdvanceForm();
             };
 
             const saveCashAdvance = (e) => {
                 e.preventDefault();
+                if (tolakGajiTerkunci(activeCashAdvanceEmp)) return;
                 if (!activeCashAdvanceEmp) return;
                 const amount = safeMoney(cashAdvanceForm.amount);
                 if (amount <= 0) {
@@ -2615,6 +2650,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
 
             const deleteCashAdvance = (cashAdvanceId) => {
                 if (!activeCashAdvanceEmp) return;
+                if (tolakGajiTerkunci(activeCashAdvanceEmp)) return;
                 const target = getEmployeeCashAdvances(activeCashAdvanceEmp).find(item => String(item.id) === String(cashAdvanceId));
                 if (getCashAdvanceDeducted(target) > 0) {
                     showToast("Kasbon ini sudah dipotong dari gaji, tidak bisa dihapus. Batalkan dulu rekap gaji yang memotongnya.", "error");
@@ -2639,6 +2675,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             };
 
             const openDailySalaryModal = (emp) => {
+                if (gajiTersembunyi(emp)) { showToast('Gaji karyawan Direksi & Marketing disembunyikan untuk akun ini.', 'error'); return; }
                 setDailySalaryEmp(emp);
                 setDailySalaryForm({ date: toLocalDateStr(), workDays: '', dailySalary: emp.dailySalary || '', overtimeCount: '', overtimeRate: '', note: '' });
                 setEditingDailySalaryId(null);
@@ -2647,6 +2684,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             const saveDailySalaryLog = (e) => {
                 e.preventDefault();
                 if (!activeDailySalaryEmp) return;
+                if (tolakGajiTerkunci(activeDailySalaryEmp)) return;
                 const now = new Date().toISOString();
                 const _wd = safeMoney(dailySalaryForm.workDays);
                 const _ds = safeMoney(dailySalaryForm.dailySalary);
@@ -2691,6 +2729,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
 
             const deleteDailySalaryLog = (logId) => {
                 if (!activeDailySalaryEmp) return;
+                if (tolakGajiTerkunci(activeDailySalaryEmp)) return;
                 const now = new Date().toISOString();
                 setEmployees(prev => (prev || []).map(emp => {
                     if (String(emp.id) !== String(activeDailySalaryEmp.id)) return emp;
@@ -2716,7 +2755,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                 <div>
                                     <label className="block text-sm mb-1 font-semibold">Divisi</label>
                                     <div className="flex flex-wrap gap-2 mb-2">{(newEmp.divisions||['Cutting']).map(div => (<span key={div} className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">{div}{(newEmp.divisions||[]).length > 1 && <button type="button" onClick={() => setNewEmp({...newEmp, divisions: (newEmp.divisions||[]).filter(d => d !== div)})} className="ml-1 text-green-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>
-                                    {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(newEmp.divisions||['Cutting']).includes(d)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setNewEmp({...newEmp, divisions: [...(newEmp.divisions||['Cutting']), e.target.value]}); }}><option value="">+ Tambah Divisi</option>{['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(newEmp.divisions||['Cutting']).includes(d)).map(d => <option key={d} value={d}>{d}</option>)}</select>}
+                                    {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(newEmp.divisions||['Cutting']).includes(d) && divisiBolehDipilih(d)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setNewEmp({...newEmp, divisions: [...(newEmp.divisions||['Cutting']), e.target.value]}); }}><option value="">+ Tambah Divisi</option>{['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(newEmp.divisions||['Cutting']).includes(d) && divisiBolehDipilih(d)).map(d => <option key={d} value={d}>{d}</option>)}</select>}
                                 </div>
                                 <div><label className="block text-sm mb-1 font-semibold">No HP</label><input type="text" className="w-full p-2 border rounded" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Status</label><select className="w-full p-2 border rounded" value={newEmp.status} onChange={e => setNewEmp({...newEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
@@ -2780,8 +2819,9 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                 <div className="col-span-2 text-center">Aksi</div>
                             </div>
                             {pagedEmployees.map(emp => {
-                                const kasbonSummary = getEmployeeCashAdvanceSummary(emp);
-                                const totalUnrekapedSalary = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId).reduce((sum, log) => sum + getDailySalaryLogTotal(log).total, 0);
+                                const sembunyiGajiEmp = gajiTersembunyi(emp);
+                                const kasbonSummary = sembunyiGajiEmp ? { total: 0, deducted: 0, remaining: 0, advances: [] } : getEmployeeCashAdvanceSummary(emp);
+                                const totalUnrekapedSalary = sembunyiGajiEmp ? 0 : getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId).reduce((sum, log) => sum + getDailySalaryLogTotal(log).total, 0);
                                 const isAktif = (emp.status || 'Aktif') === 'Aktif';
                                 const borderColor = isAktif ? 'border-l-green-400' : 'border-l-gray-300';
                                 const rowBg = isAktif ? '' : 'opacity-60';
@@ -3121,12 +3161,17 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                     <div><label className="block text-sm mb-1 font-semibold">Nama Karyawan</label><input required type="text" className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.name} onChange={e => setEditEmp({...editEmp, name: e.target.value})} /></div>
                                     <div>
                                         <label className="block text-sm mb-1 font-semibold">Divisi</label>
-                                        <div className="flex flex-wrap gap-2 mb-2">{(editEmp.divisions||getEmployeeDivisions(editEmp)).map(div => (<span key={div} className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">{div}{(editEmp.divisions||[]).length > 1 && <button type="button" onClick={() => setEditEmp({...editEmp, divisions: (editEmp.divisions||[]).filter(d => d !== div)})} className="ml-1 text-green-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>
-                                        {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(editEmp.divisions||getEmployeeDivisions(editEmp)).includes(d)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, divisions: [...(editEmp.divisions||getEmployeeDivisions(editEmp)), e.target.value]}); }}><option value="">+ Tambah Divisi</option>{['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(editEmp.divisions||getEmployeeDivisions(editEmp)).includes(d)).map(d => <option key={d} value={d}>{d}</option>)}</select>}
+                                        <div className="flex flex-wrap gap-2 mb-2">{(editEmp.divisions||getEmployeeDivisions(editEmp)).map(div => (<span key={div} className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-bold px-3 py-1.5 rounded-full">{div}{(editEmp.divisions||[]).length > 1 && divisiBolehDipilih(div) && <button type="button" onClick={() => setEditEmp({...editEmp, divisions: (editEmp.divisions||[]).filter(d => d !== div)})} className="ml-1 text-green-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>
+                                        {['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(editEmp.divisions||getEmployeeDivisions(editEmp)).includes(d) && divisiBolehDipilih(d)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, divisions: [...(editEmp.divisions||getEmployeeDivisions(editEmp)), e.target.value]}); }}><option value="">+ Tambah Divisi</option>{['Cutting','Sablon/Bordir','Jahit','Pasang Kancing','Finishing','Marketing','Administrasi','Direktur','Komisaris'].filter(d => !(editEmp.divisions||getEmployeeDivisions(editEmp)).includes(d) && divisiBolehDipilih(d)).map(d => <option key={d} value={d}>{d}</option>)}</select>}
                                     </div>
                                     <div><label className="block text-sm mb-1 font-semibold">Nomor HP</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.phone} onChange={e => setEditEmp({...editEmp, phone: e.target.value})} /></div>
                                     <div><label className="block text-sm mb-1 font-semibold">Status Pekerja</label><select className="w-full p-2 border rounded focus:ring-blue-500" value={editEmp.status} onChange={e => setEditEmp({...editEmp, status: e.target.value})}><option>Aktif</option><option>Nonaktif</option></select></div>
                                     <div><label className="block text-sm mb-1 font-semibold">PIN Finger</label><input type="text" className="w-full p-2 border rounded focus:ring-blue-500" placeholder="PIN di mesin absensi" value={editEmp.fingerPin || ''} onChange={e => setEditEmp({...editEmp, fingerPin: e.target.value})} /></div>
+                                    {(() => { const asli = safeEmployees.find(x => String(x.id) === String(editEmp.id)) || editEmp; return gajiTersembunyi(asli); })() ? (
+                                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-600">🔒 Pengaturan gaji karyawan Direksi &amp; Marketing disembunyikan untuk akun ini.</div>
+                                    ) : (
+                                    <fieldset disabled={(() => { const asli = safeEmployees.find(x => String(x.id) === String(editEmp.id)) || editEmp; return gajiTerkunci(asli); })()} className="space-y-4 min-w-0 border-0 p-0 m-0">
+                                    {(() => { const asli = safeEmployees.find(x => String(x.id) === String(editEmp.id)) || editEmp; return gajiTerkunci(asli); })() && <div className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">🔒 Hanya bisa dilihat. Pengaturan gaji Direksi &amp; Marketing hanya bisa diubah oleh akun dengan akses Edit.</div>}
                                     <div><label className="block text-sm mb-1 font-semibold">Tipe Gaji</label><div className="flex flex-wrap gap-2 mb-2">{(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).map(type => (<span key={type} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full">{type}{(editEmp.salaryTypes||[]).length > 1 && <button type="button" onClick={() => setEditEmp({...editEmp, salaryTypes: (editEmp.salaryTypes||[]).filter(t => t !== type)})} className="ml-1 text-blue-400 hover:text-red-500 font-black">✕</button>}</span>))}</div>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).length > 0 && <select className="p-2 border rounded text-sm text-gray-500 bg-gray-50" value="" onChange={e => { if(e.target.value) setEditEmp({...editEmp, salaryTypes: [...(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)), e.target.value]}); }}><option value="">+ Tambah Tipe Gaji</option>{['Produksi','Harian','Marketing'].filter(t => !(editEmp.salaryTypes||getEmployeeSalaryTypes(editEmp)).includes(t)).map(t => <option key={t} value={t}>{t}</option>)}</select>}</div>
                                     <div><label className="block text-sm mb-1 font-semibold">Nominal Gaji Harian</label><input type="number" min="0" className="w-full p-2 border rounded" value={editEmp.dailySalary || ''} onChange={e => setEditEmp({...editEmp, dailySalary: e.target.value})} /></div>
                                     <div><label className="block text-sm mb-1 font-semibold">Tarif Lembur/jam</label><input type="number" min="0" className="w-full p-2 border rounded" placeholder="Nominal lembur per jam" value={editEmp.overtimeRate || ''} onChange={e => setEditEmp({...editEmp, overtimeRate: e.target.value})} /></div>
@@ -3157,6 +3202,8 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                           <input type="number" min="0" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={editEmp.bagiHasilNilai || ''} onChange={e => setEditEmp({ ...editEmp, bagiHasilNilai: e.target.value })}/>
                                         </div>
                                       </div>
+                                    )}
+                                    </fieldset>
                                     )}
                                     <div className="flex justify-end space-x-3 pt-4 border-t">
                                         <button type="button" onClick={() => setEditEmp(null)} className="px-4 py-2 bg-gray-200 rounded font-medium">Batal</button>
@@ -7130,7 +7177,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast }) => {
+        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast, gajiSensitif = null }) => {
+            const canViewSensDana = gajiSensitif ? !!gajiSensitif.lihat : false;
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const [selectedEmpId, setSelectedEmpId] = useState('');
             const emptyTransferForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '', type: 'keluar' };
@@ -7238,7 +7286,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const empDana = safeDana.filter(d => String(d.karyawanId) === selectedEmpId && d.type !== 'aktivasi').sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
             const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, notaId: n.id, vendor: n.vendor, notaDate: n.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted).flatMap(ex => safeArray(ex.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, expId: ex.id, category: ex.category, expDate: ex.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-            const linkedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, rekapId: r.id, empName: r.empName, dateProcessed: r.dateProcessed }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            // Pembayaran gaji Direksi & Marketing tetap dihitung di saldo, tapi namanya disembunyikan tanpa akses "Lihat"
+            const rekapGajiSensitif = (r) => { const e = safeArray(employees).find(x => String(x.id) === String(r.empId)); return e ? isSensitiveSalaryEmp(e) : SENSITIVE_SALARY_DIVISIONS.some(d => String(r.division || '').includes(d)); };
+            const linkedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => {
+                const sembunyi = !canViewSensDana && rekapGajiSensitif(r);
+                return { ...p, rekapId: sembunyi ? '-' : r.id, empName: sembunyi ? GAJI_SENSITIF_LABEL : r.empName, dateProcessed: r.dateProcessed };
+            })).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const linkedBHP = safeArray(bagiHasilPromosi).filter(b => !b.isDeleted).flatMap(b => safeArray(b.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, bhpId: b.id, bhpNama: b.nama }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const stats = selectedEmp ? getDanaSaldoKaryawan(selectedEmp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi) : null;
 
@@ -9042,7 +9095,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             );
         };
 
-        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi, danaOperasional, purchaseNotes, expenses, rekapKinerja }) => {
+        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi, danaOperasional, purchaseNotes, expenses, rekapKinerja, gajiSensitif = null }) => {
+            // Komisi marketing hanya untuk akun dengan akses "Lihat Gaji Direksi & Marketing"
+            const canViewKomisi = gajiSensitif ? !!gajiSensitif.lihat : true;
             const newSize = () => ({ id: `SIZE-${Date.now()}-${Math.random()}`, size: '', qty: '', pricePerPcs: '', discountPerPcs: '', discountPercent: '' });
             const newItem = () => ({ id: `ITEM-${Date.now()}-${Math.random()}`, productionType: '', pricePerPcs: '', discountType: 'Rp', discountValue: '', sizes: [newSize()] });
             // Konversi item dari data tersimpan ke format form (harga ke level item)
@@ -9989,7 +10044,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </>
                     }
                     {activeInvoiceTab === 'marketing' &&
-                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Marketing</h3><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th><th className="p-3 text-right">Total Komisi</th><th className="p-3 text-center">Share Link</th></tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td><td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td><td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td></tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div><div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)}</div></div>{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
+                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Marketing</h3><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th>{canViewKomisi && <th className="p-3 text-right">Total Komisi</th>}{canViewKomisi && <th className="p-3 text-center">Share Link</th>}</tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td>{canViewKomisi && <td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td>}{canViewKomisi && <td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td>}</tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div>{canViewKomisi && <div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)}</div>}</div>{canViewKomisi && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
                     }
                     {activeInvoiceTab === 'bagi_hasil' &&
                     <BagiHasilPromosiTab bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />
@@ -10243,7 +10298,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <span className={`text-[23px] font-black tabular-nums ${remaining > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatRupiah(remaining)}</span>
                                     </div>
 
-                                    {commission > 0 && (
+                                    {canViewKomisi && commission > 0 && (
                                         <div className="rounded-xl border border-purple-100 bg-purple-50 px-4 py-2.5 flex items-center justify-between gap-3 text-[14px] text-purple-800">
                                             <span className="min-w-0">Komisi marketing{inv.commissionValue > 0 ? ` ${inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${inv.commissionValue}%`}` : ''}{inv.marketing ? ` · ${inv.marketing}` : ''}{inv.commissionRekapId ? <b> · sudah direkap</b> : ''}</span>
                                             <b className="tabular-nums shrink-0">{formatRupiah(commission)}</b>
@@ -10270,7 +10325,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                     );
                 })()}
-                {mktShareModal && (() => {
+                {mktShareModal && canViewKomisi && (() => {
                     const shareUrl = `${window.location.origin}${window.location.pathname}#marketing-share=${encodeURIComponent(mktShareModal.token)}`;
                     return (
                         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4">
@@ -11994,8 +12049,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null }) => {
-            const isSuperAdmin = authUser?.role === 'Admin';
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null }) => {
+            // Gaji Direksi & Marketing: tanpa akses "Lihat", tetap DIHITUNG di semua total (kas & laba benar),
+            // tapi ditampilkan gabungan tanpa nama/rincian per orang
+            const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : authUser?.role === 'Admin';
+            const SENS_ID = '__gaji_sensitif__', SENS_DIV = 'Direksi & Marketing';
+            const isRekapSensitif = (rekap, emp) => emp ? isSensitiveSalaryEmp(emp) : SENSITIVE_SALARY_DIVISIONS.some(d => String(rekap?.division || '').includes(d));
+            const gabungBarisSensitif = (rows) => {
+                const out = [], byKey = new Map();
+                rows.forEach(row => {
+                    if (row.ket !== GAJI_SENSITIF_LABEL) { out.push(row); return; }
+                    const k = `${row.sumber}|${row.date}`;
+                    if (byKey.has(k)) { byKey.get(k).nominal += row.nominal; return; }
+                    const merged = { ...row, ref: '-' };
+                    byKey.set(k, merged); out.push(merged);
+                });
+                return out;
+            };
             const [period, setPeriod] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
             const [searchInput, setSearchInput] = React.useState('');
@@ -12052,21 +12122,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const allWageRows = React.useMemo(() => safeFinanceRekaps
                 .filter(isVisibleRecord)
-                .filter(rekap => {
-                    if (isSuperAdmin) return true;
-                    const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
-                    if (!emp) return true;
-                    const SENSITIVE_DIV = ['Direktur', 'Komisaris', 'Marketing'];
-                    return !getEmployeeDivisions(emp).some(d => SENSITIVE_DIV.includes(d));
-                })
                 .map(rekap => {
                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
+                    const sembunyi = !canViewSens && isRekapSensitif(rekap, emp);
                     return {
-                        id: rekap.id,
+                        id: sembunyi ? '-' : rekap.id,
                         date: rekap.dateProcessed,
-                        empId: rekap.empId,
-                        empName: emp?.name || rekap.empName || rekap.empId || '-',
-                        division: emp?.division || '-',
+                        empId: sembunyi ? SENS_ID : rekap.empId,
+                        empName: sembunyi ? GAJI_SENSITIF_LABEL : (emp?.name || rekap.empName || rekap.empId || '-'),
+                        division: sembunyi ? SENS_DIV : (emp?.division || '-'),
                         totalPcs: parseInt(rekap.total) || 0,
                         total: safeMoney(rekap.netSalary ?? rekap.totalWage),
                         grossSalary: safeMoney(rekap.grossSalary ?? rekap.totalWage),
@@ -12078,19 +12142,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         payments: rekap.payments,
                         paymentStatus: rekap.paymentStatus
                     };
-                }), [rekapKinerja, employees, isSuperAdmin]);
+                }), [rekapKinerja, employees, canViewSens]);
             const allCashAdvanceRows = React.useMemo(() => visibleEmployees.flatMap(emp => getEmployeeCashAdvances(emp).map(item => ({
-                id: `${emp.id}-${item.id}`,
-                empId: emp.id,
-                empName: emp.name || '-',
-                division: getEmployeeDivisions(emp).join(', ') || '-',
+                id: (!canViewSens && isSensitiveSalaryEmp(emp)) ? '-' : `${emp.id}-${item.id}`,
+                empId: (!canViewSens && isSensitiveSalaryEmp(emp)) ? SENS_ID : emp.id,
+                empName: (!canViewSens && isSensitiveSalaryEmp(emp)) ? GAJI_SENSITIF_LABEL : (emp.name || '-'),
+                division: (!canViewSens && isSensitiveSalaryEmp(emp)) ? SENS_DIV : (getEmployeeDivisions(emp).join(', ') || '-'),
                 date: item.date,
                 amount: getCashAdvanceAmount(item),
                 deducted: getCashAdvanceDeducted(item),
                 remaining: getCashAdvanceRemaining(item),
                 status: normalizeCashAdvanceStatus(item),
-                note: item.note || ''
-            }))), [employees]);
+                note: (!canViewSens && isSensitiveSalaryEmp(emp)) ? '' : (item.note || '')
+            }))), [employees, canViewSens]);
 
             const materialRows = allMaterialRows.filter(row => {
                 if (!isInPeriod(row.date)) return false;
@@ -12318,7 +12382,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const isLegacy = !Array.isArray(r.payments);
                 return (isLegacy || r.paymentStatus === 'lunas') ? [{ date: r.date, amount: r.netSalary }] : [];
             };
-            const cashOutRows = [
+            const cashOutRows = gabungBarisSensitif([
                 ...allUnifiedNotes.flatMap(note => {
                     const base = { ref: note.id || '-', sumber: 'Pembelian Bahan', ket: note.vendor || '-' };
                     const pays = safeArray(note.payments).filter(p => (parseFloat(p.amount) || 0) > 0);
@@ -12331,7 +12395,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 ...(expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Keluar').flatMap(e => getExpensePaidEvents(e).map(ev => ({ date: ev.date || '-', ref: e.id || '-', sumber: 'Biaya Operasional', ket: e.category || e.note || '-', nominal: ev.amount }))),
                 ...safeArray(bagiHasilPromosi).filter(isVisibleRecord).flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
             ].filter(r => r.nominal > 0 && isInPeriod(r.date) && (!normalizedSearch || [r.date, r.ref, r.sumber, r.ket].join(' ').toLowerCase().includes(normalizedSearch)))
-             .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+             .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)));
             const totalBebanKas = cashOutRows.reduce((s, r) => s + r.nominal, 0);
             // Tagihan periode ini yang belum dibayar — tidak masuk kas, ditampilkan terpisah agar tidak tersembunyi
             const unpaidExpenseTotal = expenseRows.filter(e => e.type === 'Uang Keluar').reduce((s, e) => s + Math.max(0, safeMoney(e.amount) - getExpensePaidEvents(e).reduce((ps, ev) => ps + ev.amount, 0)), 0);
@@ -12686,7 +12750,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 { id: 'laba-rugi', label: 'Laporan L/R' },
                 { id: 'buku-kas', label: 'Buku Kas' },
                 { id: 'detail', label: 'Detail' },
-                { id: 'komisi-marketing', label: 'Komisi Marketing' },
+                ...(canViewSens ? [{ id: 'komisi-marketing', label: 'Komisi Marketing' }] : []),
             ];
 
             return (
@@ -12726,14 +12790,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <label className="block text-xs font-bold text-gray-600 mb-1">Karyawan</label>
                                 <select className="w-full p-3 border border-gray-300 rounded-lg text-sm" value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)}>
                                     <option value="Semua">Semua Karyawan</option>
-                                    {visibleEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                                    {visibleEmployees.filter(emp => canViewSens || !isSensitiveSalaryEmp(emp)).map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-gray-600 mb-1">Divisi</label>
                                 <select className="w-full p-3 border border-gray-300 rounded-lg text-sm" value={divisionFilter} onChange={e => setDivisionFilter(e.target.value)}>
                                     <option value="Semua">Semua Divisi</option>
-                                    {[...new Set(visibleEmployees.flatMap(emp => getEmployeeDivisions(emp)).filter(Boolean))].map(div => <option key={div} value={div}>{div}</option>)}
+                                    {[...new Set(visibleEmployees.flatMap(emp => getEmployeeDivisions(emp)).filter(Boolean).filter(div => canViewSens || !SENSITIVE_SALARY_DIVISIONS.includes(div)))].map(div => <option key={div} value={div}>{div}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -13372,7 +13436,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     )}
 
 
-                    {activeFinanceTab === 'komisi-marketing' && (() => {
+                    {activeFinanceTab === 'komisi-marketing' && canViewSens && (() => {
                         const safeInvForComm = (Array.isArray(invoices) ? invoices : []).filter(inv => !inv.isDeleted);
                         const filtered = safeInvForComm.filter(inv => {
                             if (!inv.marketing) return false;
@@ -13683,7 +13747,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilPromosi = [], authUser = null }) => {
+        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
@@ -13779,9 +13843,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const visibleRekapsBase = React.useMemo(() => safeRekapForReport.filter(isVisibleRecord), [rekapKinerja]);
             const visibleInvoicesForPending = React.useMemo(() => safeInvoicesForReport.filter(isVisibleRecord), [invoices]);
             const visibleOrdersForPending = React.useMemo(() => safeOrdersForReport.filter(isVisibleOrder), [orders]);
-            const isSuperAdmin = authUser?.role === 'Admin';
-            const SENSITIVE_DIVISIONS = ['Direktur', 'Komisaris', 'Marketing'];
-            const isSensitiveEmp = (emp) => getEmployeeDivisions(emp).some(d => SENSITIVE_DIVISIONS.includes(d));
+            // Gaji Direksi & Marketing: lihat/edit mengikuti centang di Master Akun
+            const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : authUser?.role === 'Admin';
+            const canEditSens = gajiSensitif ? !!gajiSensitif.edit : authUser?.role === 'Admin';
+            const isSensitiveEmp = (emp) => isSensitiveSalaryEmp(emp);
+            // true (dan beri pesan) bila akun ini tidak boleh mengubah gaji karyawan tersebut
+            const tolakEditSensitif = (empOrId) => {
+                const emp = (empOrId && typeof empOrId === 'object') ? empOrId : visibleEmployees.find(e => String(e.id) === String(empOrId));
+                if (emp && isSensitiveEmp(emp) && !canEditSens) { showToast('Gaji Direksi & Marketing hanya bisa diubah oleh akun dengan akses Edit Gaji Direksi & Marketing.', 'error'); return true; }
+                return false;
+            };
 
             const empIdsWithPendingSalary = React.useMemo(() => {
                 const ids = new Set();
@@ -13822,10 +13893,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             }, [searchInput]);
 
             const filteredReportEmployees = React.useMemo(() => visibleEmployees.filter(emp => {
-                if (!isSuperAdmin && isSensitiveEmp(emp)) return false;
+                if (!canViewSens && isSensitiveEmp(emp)) return false;
                 if (showOnlyReady && !empIdsWithPendingSalary.has(String(emp.id))) return false;
                 return matchesSearch([emp.name, ...getEmployeeDivisions(emp), emp.phone, emp.status], searchTerm);
-            }), [visibleEmployees, isSuperAdmin, showOnlyReady, empIdsWithPendingSalary, searchTerm]);
+            }), [visibleEmployees, canViewSens, showOnlyReady, empIdsWithPendingSalary, searchTerm]);
             const sortedReportEmployees = React.useMemo(() => [...filteredReportEmployees].sort((a, b) => {
                 const aPinned = pinnedEmpIds.has(a.id) ? 0 : 1;
                 const bPinned = pinnedEmpIds.has(b.id) ? 0 : 1;
@@ -14118,6 +14189,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const handleDeleteRekap = () => {
                 const rekapToDelete = (rekapKinerja || []).find(r => String(r.id) === String(deleteRekapConfirmId));
                 if (!rekapToDelete) return;
+                if (tolakEditSensitif(rekapToDelete.empId)) { setDeleteRekapConfirmId(null); return; }
                 
                 const logsToUnlock = (rekapToDelete.items || []).flatMap(item => 
                     (item.logIds || []).map(l => ({ orderId: item.orderId, stageId: l.stageId, logId: l.logId }))
@@ -14182,6 +14254,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const handleRestoreRekap = () => {
                 const rekap = (rekapKinerja || []).find(r => String(r.id) === String(restoreRekapConfirmId));
                 if (!rekap) return;
+                if (tolakEditSensitif(rekap.empId)) { setRestoreRekapConfirmId(null); return; }
                 if (rekap.restoredForEdit) {
                     setRestoreRekapConfirmId(null);
                     showToast('Rekap ini sudah dikembalikan ke Input untuk diedit ulang. Rekap ulang dari tab Input Laporan Kinerja.', 'error');
@@ -14270,6 +14343,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const getRekapItemKey = (item) => `${item.orderId}-${item.stage}`;
 
             const handleSaveManualProd = (empId) => {
+                if (tolakEditSensitif(empId)) return;
                 const { date, description, qty, unitPrice } = manualProdForm;
                 if (!description.trim()) { showToast('Keterangan pekerjaan wajib diisi.', 'error'); return; }
                 if (!qty || parseFloat(qty) <= 0) { showToast('Qty harus lebih dari 0.', 'error'); return; }
@@ -14285,6 +14359,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const handleSaveDailyInput = (empId) => {
+                if (tolakEditSensitif(empId)) return;
                 const { date, workDays, dailySalary, overtimeCount, overtimeRate, note, mode } = dailyInputForm;
                 if (mode === 'lembur') {
                     if (!overtimeCount || safeMoney(overtimeCount) <= 0) { showToast('Jumlah lembur wajib diisi.', 'error'); return; }
@@ -14314,6 +14389,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const handleDeleteDailyLog = (empId, logId) => {
+                if (tolakEditSensitif(empId)) return;
                 if (!window.confirm('Hapus entri ini?')) return;
                 const now = new Date().toISOString();
                 setEmployees(prev => (prev||[]).map(emp => {
@@ -14324,6 +14400,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const handleDeleteManualProd = (empId, logId) => {
+                if (tolakEditSensitif(empId)) return;
                 if (!window.confirm('Hapus entri gaji produksi manual ini?')) return;
                 const now = new Date().toISOString();
                 setEmployees(prev => (prev || []).map(emp => {
@@ -14482,6 +14559,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const handleOpenRekapModal = (empId, items) => {
                 const emp = visibleEmployees.find(e => String(e.id) === String(empId));
+                if (tolakEditSensitif(emp)) return;
                 const selectedKeys = new Set((items || []).map(getRekapItemKey));
                 const allDailyLogs = getEmployeeDailySalaryLogs(emp).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
                 const selectedDailyKeys = new Set(allDailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0).map(log => String(log.id || log.date)));
@@ -14656,8 +14734,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setIsRekapProcessing(false);
                     return;
                 }
-                if (isSensitiveEmp(empForRekap) && authUser?.role !== 'Admin') {
-                    showToast("Hanya Admin yang dapat merekap gaji karyawan Direktur/Komisaris/Marketing.", "error");
+                if (isSensitiveEmp(empForRekap) && !canEditSens) {
+                    showToast('Gaji Direksi & Marketing hanya bisa direkap oleh akun dengan akses Edit Gaji Direksi & Marketing.', 'error');
                     setIsRekapProcessing(false);
                     return;
                 }
@@ -14927,6 +15005,7 @@ ${getRekapShareLink(rekap)}
                 if (!amount || amount <= 0) { showToast('Jumlah pembayaran tidak valid.', 'error'); return; }
                 const rekap = (rekapKinerja || []).find(r => String(r.id) === String(rekapId));
                 if (!rekap || rekap.isDeleted) return;
+                if (tolakEditSensitif(rekap.empId)) return;
                 const net = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
                 const alreadyPaid = (rekap.payments || []).reduce((s, p) => s + safeMoney(p.amount), 0);
                 if (amount > net - alreadyPaid + 0.01) { showToast('Jumlah melebihi sisa yang harus dibayar.', 'error'); return; }
@@ -14945,6 +15024,8 @@ ${getRekapShareLink(rekap)}
             };
 
             const handleDeletePayment = (rekapId, paymentId) => {
+                const rekapForDel = (rekapKinerja || []).find(r => String(r.id) === String(rekapId));
+                if (rekapForDel && tolakEditSensitif(rekapForDel.empId)) return;
                 setRekapKinerja(prev => (prev || []).map(r => {
                     if (String(r.id) !== String(rekapId)) return r;
                     if (r.isDeleted) return r;
@@ -14973,6 +15054,7 @@ ${getRekapShareLink(rekap)}
             const editExistingRekap = (rekap) => {
                 const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                 const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
+                if (tolakEditSensitif(emp)) return;
                 const currentSummary = getEmployeeCashAdvanceSummary(emp);
                 const currentDeduction = safeMoney(rekap.cashAdvanceDeduction);
                 const maxDeduction = Math.min(grossSalary, currentSummary.remaining + currentDeduction);
@@ -15046,7 +15128,7 @@ ${getRekapShareLink(rekap)}
             const openBonusEdit = (rekap) => {
                 if (!rekap || rekap.isDeleted) return;
                 const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
-                if (emp && isSensitiveEmp(emp) && authUser?.role !== 'Admin') { showToast("Hanya Admin yang dapat mengubah gaji karyawan Direktur/Komisaris/Marketing.", "error"); return; }
+                if (tolakEditSensitif(emp)) return;
                 if (getRekapPaidTotal(rekap) === null) { showToast("Rekap ini tercatat lunas tanpa rincian pembayaran (data lama), jadi bonusnya tidak bisa diubah agar Buku Kas tetap benar.", "error"); return; }
                 setBonusEdit({ rekapId: rekap.id, amount: String(safeMoney(rekap.bonusSalary) || ''), note: rekap.bonusNote || '' });
             };
@@ -15071,6 +15153,7 @@ ${getRekapShareLink(rekap)}
                 if (!bonusEdit) return;
                 const rekap = (rekapKinerja || []).find(r => String(r.id) === String(bonusEdit.rekapId));
                 if (!rekap || rekap.isDeleted) { setBonusEdit(null); showToast("Rekap tidak ditemukan atau sudah dibatalkan.", "error"); return; }
+                if (tolakEditSensitif(rekap.empId)) { setBonusEdit(null); return; }
                 if (getRekapPaidTotal(rekap) === null) { showToast("Rekap ini tercatat lunas tanpa rincian pembayaran (data lama), jadi bonusnya tidak bisa diubah agar Buku Kas tetap benar.", "error"); return; }
                 const calc = calcRekapWithBonus(rekap, bonusEdit.amount);
                 if (calc.error) { showToast(calc.error, "error"); return; }
@@ -15091,6 +15174,7 @@ ${getRekapShareLink(rekap)}
 
             const restoreRekapToInput = (rekap) => {
                 if (!rekap) return;
+                if (tolakEditSensitif(rekap.empId)) return;
                 // Rekap yang sudah ada pembayarannya tidak boleh dikembalikan: catatan bayar ikut hilang & bisa terbayar dua kali
                 const paidForRestore = getRekapPaidTotal(rekap);
                 if (paidForRestore === null || paidForRestore > 0) {
@@ -15183,7 +15267,7 @@ ${getRekapShareLink(rekap)}
                 .filter(isVisibleRecord)
                 .filter(rekap => {
                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
-                    if (!isSuperAdmin && emp && isSensitiveEmp(emp)) return false;
+                    if (!canViewSens && emp && isSensitiveEmp(emp)) return false;
                     const itemText = (rekap.items || []).map(item => `${item.orderId} ${item.client} ${item.type} ${item.stageLabel || item.stage} ${item.sizes} ${item.qty} ${item.wageTotal}`).join(' ');
                     const statusText = rekap.paymentStatus === 'lunas' ? 'Sudah Dibayar' : rekap.paymentStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
                     return matchesSearch([
@@ -15208,7 +15292,7 @@ ${getRekapShareLink(rekap)}
                 .filter(({ rekap, pays }) => {
                     if (pays.length === 0) return false;
                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
-                    return isSuperAdmin || !(emp && isSensitiveEmp(emp));
+                    return canViewSens || !(emp && isSensitiveEmp(emp));
                 })
                 .sort((a, b) => (b.rekap.dateProcessed || '').localeCompare(a.rekap.dateProcessed || ''));
             // Kunci per rekap; peringatan hanya muncul lagi bila ada rekap batal-berbayar yang BELUM pernah ditandai "sudah dicek"
@@ -15491,7 +15575,7 @@ ${getRekapShareLink(rekap)}
                     if (rankMonth && !(r.dateProcessed || '').startsWith(rankMonth)) return;
                     const id = String(r.empId);
                     const emp = visibleEmployees.find(e => String(e.id) === id);
-                    if (!isSuperAdmin && emp && isSensitiveEmp(emp)) return;
+                    if (!canViewSens && emp && isSensitiveEmp(emp)) return;
                     if (!empMap[id]) empMap[id] = { id, name: r.empName || emp?.name || '', division: r.division || (emp ? getEmployeeDivisions(emp).join(', ') : ''), direkap: 0, pending: 0, gajiDirekap: 0 };
                     empMap[id].direkap += safeMoney(r.total);
                     empMap[id].gajiDirekap += safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage);
@@ -15504,7 +15588,7 @@ ${getRekapShareLink(rekap)}
                         safeArray(data?.workLogs).filter(l => !l.isDeleted && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter && (!rankMonth || (l.submittedAt || l.checkAfterChangedAt || '').startsWith(rankMonth))).forEach(l => {
                             const emp = visibleEmployees.find(e => String(e.id) === String(l.empId));
                             if (!emp) return;
-                            if (!isSuperAdmin && isSensitiveEmp(emp)) return;
+                            if (!canViewSens && isSensitiveEmp(emp)) return;
                             const id = String(l.empId);
                             if (!empMap[id]) empMap[id] = { id, name: emp.name || '', division: getEmployeeDivisions(emp).join(', '), direkap: 0, pending: 0, gajiDirekap: 0 };
                             empMap[id].pending += getWorkLogSubmittedQty(l);
@@ -15819,13 +15903,13 @@ ${getRekapShareLink(rekap)}
                                 ))}
                             </div>
                             <div className="text-xs text-gray-400 ml-auto">{rekapListTotal} rekap</div>
-                            <button onClick={() => setShowAuditPanel(v => !v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${showAuditPanel ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                            {canViewSens && <button onClick={() => setShowAuditPanel(v => !v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${showAuditPanel ? 'bg-purple-100 border-purple-300 text-purple-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                                 Audit Rekap
                                 {auditKomisi.totalIssues > 0 && <span className="bg-red-500 text-white rounded-full px-1.5 text-[10px] font-black">{auditKomisi.totalIssues}</span>}
-                            </button>
+                            </button>}
                         </div>
-                        {showAuditPanel && (() => {
+                        {showAuditPanel && canViewSens && (() => {
                             const { bulkRekaps, doubleInvoices, wrongRateInvoices, perMarketing, doubleProduksi, doubleHarian, ghostInvoices, unpaidOldRekaps, totalIssues } = auditKomisi;
                             const AuditRow = ({ color, ok, warn, children }) => (
                                 <div className={`rounded-lg p-3 space-y-1.5 ${ok ? 'bg-green-50 border border-green-200' : warn === 'orange' ? 'bg-orange-50 border border-orange-200' : warn === 'yellow' ? 'bg-yellow-50 border border-yellow-200' : 'bg-red-50 border border-red-200'}`}>
@@ -18443,26 +18527,39 @@ ${getRekapShareLink(rekap)}
                 const linkedEmp = acc.role === 'Karyawan' ? findEmployeeById(acc.linkedEmpId) : null;
                 return matchesSearch([acc.username, acc.name, acc.role, linkedEmp?.name, linkedEmp?.division], searchTerm);
             });
-            // Minimal satu akun aktif harus tetap punya akses Cek Scan Asli (agar tidak terkunci)
-            const cekScanMasihAda = (nextAccounts) => (nextAccounts || []).filter(isVisibleRecord).some(hasCekScanAccess);
-            // Pemegang akses yang boleh mengatur; bila (karena data lama) tidak ada pemegang sama sekali, Admin boleh mengatur
-            const canManageCekScan = userHasCekScanAccess(accounts, authUser) || (!cekScanMasihAda(safeAccounts) && findAccountOfUser(accounts, authUser)?.role === 'Admin');
-            const renderCekScanControl = (target, setTarget) => {
-                const checked = target.cekScanAsli === true;
-                return (
-                    <div className="md:col-span-2 border-2 border-amber-400 bg-amber-50 rounded-lg p-3">
-                        <div className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-2">🔒 Akses Khusus</div>
-                        <label className={`flex items-start gap-3 bg-white border border-amber-300 rounded-lg p-3 ${canManageCekScan ? 'cursor-pointer' : 'opacity-70'}`}>
-                            <input type="checkbox" className="mt-1 w-4 h-4" disabled={!canManageCekScan} checked={checked} onChange={() => setTarget({ ...target, cekScanAsli: !checked })} />
-                            <span>
-                                <span className="block text-sm font-bold text-gray-900">Cek Scan Asli Absensi</span>
-                                <span className="block text-xs text-gray-600 mt-0.5">Boleh membuka tab <b>Cek Scan Asli</b> (scan asli mesin dibanding yang dipakai gaji) dan melihat <b>nama pengedit</b> di Log Absensi.</span>
-                            </span>
-                        </label>
-                        <p className="text-[11px] text-amber-800 mt-2">{canManageCekScan ? 'Hanya akun yang punya akses ini yang bisa mengubahnya. Minimal satu akun harus tetap punya akses.' : 'Hanya bisa diubah oleh akun yang punya akses Cek Scan Asli.'}</p>
-                    </div>
-                );
+            // Akses khusus (bisa diatur juga untuk Admin). Tiap akses hanya bisa diubah oleh pemegangnya,
+            // dan minimal satu akun aktif harus tetap memegang akses kunci (agar tidak terkunci).
+            const masihAdaPemegang = (list, has) => (list || []).filter(isVisibleRecord).some(has);
+            const myAccount = findAccountOfUser(accounts, authUser);
+            const bolehAturAkses = (has) => has(myAccount) || (!masihAdaPemegang(safeAccounts, has) && myAccount?.role === 'Admin');
+            const canManageCekScan = bolehAturAkses(hasCekScanAccess);
+            const canManageGaji = bolehAturAkses(hasGajiSensitifEdit);
+            const AKSES_KHUSUS = [
+                { key: 'cekScanAsli', label: 'Cek Scan Asli', boleh: canManageCekScan },
+                { key: 'gajiSensitifLihat', label: 'Lihat Gaji Direksi & Marketing', boleh: canManageGaji },
+                { key: 'gajiSensitifEdit', label: 'Edit Gaji Direksi & Marketing', boleh: canManageGaji },
+            ];
+            // Nilai centang dibuat tegas saat form dibuka (akun Admin lama: tercentang)
+            const aksesKhususAwal = (acc) => ({ cekScanAsli: hasCekScanAccess(acc), gajiSensitifLihat: hasGajiSensitifLihat(acc), gajiSensitifEdit: hasGajiSensitifEdit(acc) });
+            const AKSES_KUNCI = [
+                { has: hasCekScanAccess, pesan: 'Minimal satu akun harus tetap punya akses Cek Scan Asli.' },
+                { has: hasGajiSensitifEdit, pesan: 'Minimal satu akun harus tetap punya akses Edit Gaji Direksi & Marketing.' },
+            ];
+            const cekPemegangTerakhir = (nextList) => {
+                for (const k of AKSES_KUNCI) if (masihAdaPemegang(safeAccounts, k.has) && !masihAdaPemegang(nextList, k.has)) return k.pesan;
+                return null;
             };
+            const renderAksesKhususItems = (target, setTarget) => AKSES_KHUSUS.map(a => {
+                const editOn = target.gajiSensitifEdit === true;
+                const checked = a.key === 'gajiSensitifLihat' ? (target.gajiSensitifLihat === true || editOn) : target[a.key] === true;
+                const disabled = !a.boleh || (a.key === 'gajiSensitifLihat' && editOn);
+                return (
+                    <label key={a.key} className={`flex items-center gap-2 text-xs border rounded p-2 ${disabled ? 'bg-gray-50 text-gray-500' : 'bg-white hover:bg-blue-50 cursor-pointer'}`}>
+                        <input type="checkbox" disabled={disabled} checked={checked} onChange={() => setTarget({ ...target, [a.key]: !checked })} />
+                        <span className="font-semibold">{a.label}</span>
+                    </label>
+                );
+            });
             const toggleMenuAccess = (target, setTarget, menuId) => {
                 if (target.role === 'Admin') return;
                 const current = Array.isArray(target.menuAccess) ? target.menuAccess : getDefaultMenuAccess(target.role);
@@ -18488,7 +18585,9 @@ ${getRekapShareLink(rekap)}
                                     <span className="font-semibold">{menu.label}</span>
                                 </label>
                             ))}
+                            {renderAksesKhususItems(target, setTarget)}
                         </div>
+                        <p className="text-[11px] text-gray-500 mt-2">Cek Scan Asli dan Gaji Direksi & Marketing bisa diatur juga untuk Admin, dan hanya bisa diubah oleh akun yang punya akses tersebut. Edit gaji otomatis termasuk Lihat.</p>
                     </div>
                 );
             };
@@ -18505,9 +18604,13 @@ ${getRekapShareLink(rekap)}
                 const now = new Date().toISOString();
                 if (!String(newAcc.password || '').trim()) { showToast("Password wajib diisi.", "error"); return; }
                 const { password: newPlainPassword, ...newAccRest } = newAcc;
-                // Akun baru: akses Cek Scan Asli hanya bila dicentang (juga untuk Admin)
-                const cekScanAsli = canManageCekScan && newAcc.cekScanAsli === true;
-                setAccounts(prev => [...(prev||[]), { ...newAccRest, cekScanAsli, ...makePasswordFields(newPlainPassword), id: genId('ACC-'), _syncUpdatedAt: now }]);
+                // Akun baru: akses khusus hanya bila dicentang (juga untuk Admin)
+                const aksesBaru = {
+                    cekScanAsli: canManageCekScan && newAcc.cekScanAsli === true,
+                    gajiSensitifLihat: canManageGaji && (newAcc.gajiSensitifLihat === true || newAcc.gajiSensitifEdit === true),
+                    gajiSensitifEdit: canManageGaji && newAcc.gajiSensitifEdit === true,
+                };
+                setAccounts(prev => [...(prev||[]), { ...newAccRest, ...aksesBaru, ...makePasswordFields(newPlainPassword), id: genId('ACC-'), _syncUpdatedAt: now }]);
                 setShowForm(false);
                 setNewAcc({ username: '', password: '', name: '', role: 'Mandor', linkedEmpId: '', menuAccess: getDefaultMenuAccess('Mandor') });
                 showToast("Akun ditambahkan!", "success");
@@ -18526,11 +18629,13 @@ ${getRekapShareLink(rekap)}
                 // Password baru (jika diisi) disimpan sebagai hash; kosong = password lama tetap
                 const { password: legacyPlain, newPassword, ...editRest } = editAcc;
                 const accBefore = safeAccounts.find(a => String(a.id) === String(editAcc.id));
-                // Hanya pemegang akses yang boleh mengubah centang Cek Scan Asli
-                if (!canManageCekScan) editRest.cekScanAsli = hasCekScanAccess(accBefore);
-                if (cekScanMasihAda(safeAccounts) && !cekScanMasihAda(safeAccounts.map(a => String(a.id) === String(editAcc.id) ? { ...a, ...editRest } : a))) {
-                    showToast("Minimal satu akun harus tetap punya akses Cek Scan Asli.", "error"); return;
-                }
+                // Hanya pemegang akses yang boleh mengubah centang akses khusus
+                const awalSebelum = aksesKhususAwal(accBefore);
+                if (!canManageCekScan) editRest.cekScanAsli = awalSebelum.cekScanAsli;
+                if (!canManageGaji) { editRest.gajiSensitifLihat = awalSebelum.gajiSensitifLihat; editRest.gajiSensitifEdit = awalSebelum.gajiSensitifEdit; }
+                if (editRest.gajiSensitifEdit === true) editRest.gajiSensitifLihat = true;
+                const pesanTerakhir = cekPemegangTerakhir(safeAccounts.map(a => String(a.id) === String(editAcc.id) ? { ...a, ...editRest } : a));
+                if (pesanTerakhir) { showToast(pesanTerakhir, "error"); return; }
                 const passwordFields = String(newPassword || '').trim()
                     ? makePasswordFields(newPassword)
                     : (hasPlainPassword({ password: legacyPlain }) ? makePasswordFields(legacyPlain) : {});
@@ -18547,7 +18652,8 @@ ${getRekapShareLink(rekap)}
                 if(deleteConfirmId !== null && deleteConfirmId !== undefined) {
                     const accToDelete = safeAccounts.find(a => String(a.id) === String(deleteConfirmId));
                     if (accToDelete?.username === 'admin') { showToast("Akun admin utama tidak bisa dihapus!", "error"); setDeleteConfirmId(null); return; }
-                    if (cekScanMasihAda(safeAccounts) && !cekScanMasihAda(safeAccounts.filter(a => String(a.id) !== String(deleteConfirmId)))) { showToast("Akun ini satu-satunya yang punya akses Cek Scan Asli. Berikan akses ke akun lain dulu.", "error"); setDeleteConfirmId(null); return; }
+                    const pesanHapus = cekPemegangTerakhir(safeAccounts.filter(a => String(a.id) !== String(deleteConfirmId)));
+                    if (pesanHapus) { showToast(`Akun ini tidak bisa dihapus. ${pesanHapus} Berikan akses ke akun lain dulu.`, "error"); setDeleteConfirmId(null); return; }
                     const now = new Date().toISOString();
                     setAccounts(prev => (prev || []).map(a => String(a.id) === String(deleteConfirmId) ? { ...a, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : a));
                     setDeleteConfirmId(null);
@@ -18589,7 +18695,6 @@ ${getRekapShareLink(rekap)}
                                 <div><label className="block text-sm mb-1 font-semibold">Username Login</label><input required type="text" className="w-full p-2 border rounded" value={newAcc.username} onChange={e => setNewAcc({...newAcc, username: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Password</label><input required type="password" className="w-full p-2 border rounded" value={newAcc.password} onChange={e => setNewAcc({...newAcc, password: e.target.value})} /></div>
                                 {renderMenuAccessControls(newAcc, setNewAcc)}
-                                {renderCekScanControl(newAcc, setNewAcc)}
                                 <div className="md:col-span-2 flex justify-end mt-2"><button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded">Simpan Akun</button></div>
                             </form>
                         </Card>
@@ -18613,7 +18718,7 @@ ${getRekapShareLink(rekap)}
                                             </td>
                                             <td className="p-3 text-sm"><span className={`px-2 py-1 text-xs font-semibold rounded ${acc.role === 'Karyawan' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>{acc.role}</span></td>
                                             <td className="p-3 text-center flex justify-center space-x-2">
-                                                <button onClick={() => setEditAcc({ ...acc, newPassword: '', cekScanAsli: hasCekScanAccess(acc) })} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded" title="Edit Akun"><IconEdit /></button>
+                                                <button onClick={() => setEditAcc({ ...acc, newPassword: '', ...aksesKhususAwal(acc) })} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded" title="Edit Akun"><IconEdit /></button>
                                                 {acc.username !== 'admin' ? (
                                                     <button onClick={() => setDeleteConfirmId(acc.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded" title="Hapus Akun"><IconTrash /></button>
                                                 ) : <span className="text-xs text-gray-400 italic flex items-center">Protected</span>}
@@ -18658,7 +18763,6 @@ ${getRekapShareLink(rekap)}
                                     </div>
                                     <div><label className="block text-sm mb-1 font-semibold">Password Baru</label><input type="password" autoComplete="new-password" className="w-full p-2 border rounded focus:ring-blue-500" placeholder="Kosongkan jika tidak ingin mengganti password" value={editAcc.newPassword || ''} onChange={e => setEditAcc({...editAcc, newPassword: e.target.value})} /><p className="text-[11px] text-gray-500 mt-1">Password tersimpan dalam bentuk teracak dan tidak bisa ditampilkan. Isi hanya jika ingin mengganti.</p></div>
                                     {renderMenuAccessControls(editAcc, setEditAcc)}
-                                    {renderCekScanControl(editAcc, setEditAcc)}
                                     {editAcc.username === 'admin' && <p className="text-xs text-red-500 italic">*Username & Role akun utama (admin) tidak dapat diubah.</p>}
                                     <div className="flex justify-end space-x-3 pt-4 border-t">
                                         <button type="button" onClick={() => setEditAcc(null)} className="px-4 py-2 bg-gray-200 rounded font-medium">Batal</button>
@@ -25650,6 +25754,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (isReady && authUser) migrateAccountPasswords(accounts);
             }, [isReady, !!authUser, accounts]);
 
+            // Akses gaji Direksi & Marketing untuk akun yang sedang login (dicentang di Master Akun)
+            const myLoginAccount = findAccountOfUser(accounts, authUser);
+            const gajiSensitif = React.useMemo(() => ({ lihat: hasGajiSensitifLihat(myLoginAccount), edit: hasGajiSensitifEdit(myLoginAccount) }), [myLoginAccount?.id, myLoginAccount?.role, myLoginAccount?.gajiSensitifLihat, myLoginAccount?.gajiSensitifEdit, myLoginAccount?.isDeleted]);
+
             // Coba ulang lewat fungsi update yang sama dengan simpan normal: ambil data cloud terbaru, gabungkan dengan data lokal, lalu simpan
             const retryUpdaters = {
                 orders: updateOrders, employees: updateEmployees, accounts: updateAccounts, rekapKinerja: updateRekapKinerja,
@@ -26046,16 +26154,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
-                                {tabMounted('karyawan', canOpen('karyawan')) && <div hidden={!tabVisible('karyawan')}><KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} /></div>}
+                                {tabMounted('karyawan', canOpen('karyawan')) && <div hidden={!tabVisible('karyawan')}><KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} gajiSensitif={gajiSensitif} /></div>}
+                                {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} /></div>}
                                 {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} /></div>}
+                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
-                                {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} /></div>}
+                                {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('klien_instansi', canOpen('klien_instansi')) && <div hidden={!tabVisible('klien_instansi')}><ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} /></div>}
+                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} /></div>}
