@@ -214,6 +214,16 @@
             if (!hasPlainPassword(account)) return account;
             return { ...account, ...makePasswordFields(account.password) };
         };
+        // Akses khusus "Cek Scan Asli" (tab audit absensi + nama pengedit): akun Admin lama yang belum pernah diatur otomatis punya,
+        // selain itu harus dicentang di Master Akun
+        const hasCekScanAccess = (account) => !!account && !account.isDeleted && (account.cekScanAsli === true || (account.cekScanAsli == null && account.role === 'Admin'));
+        const findAccountOfUser = (accounts, user) => {
+            if (!user) return null;
+            const list = (Array.isArray(accounts) ? accounts : []).filter(a => a && !a.isDeleted);
+            return list.find(a => user.id != null && String(a.id) === String(user.id)) || list.find(a => String(a.username || '').toLowerCase() === String(user.username || '').toLowerCase()) || null;
+        };
+        const userHasCekScanAccess = (accounts, user) => hasCekScanAccess(findAccountOfUser(accounts, user));
+
         const stripCredentials = (account) => {
             if (!account) return account;
             const { password, passwordHash, passwordSalt, passwordAlgo, ...rest } = account;
@@ -18433,6 +18443,26 @@ ${getRekapShareLink(rekap)}
                 const linkedEmp = acc.role === 'Karyawan' ? findEmployeeById(acc.linkedEmpId) : null;
                 return matchesSearch([acc.username, acc.name, acc.role, linkedEmp?.name, linkedEmp?.division], searchTerm);
             });
+            // Minimal satu akun aktif harus tetap punya akses Cek Scan Asli (agar tidak terkunci)
+            const cekScanMasihAda = (nextAccounts) => (nextAccounts || []).filter(isVisibleRecord).some(hasCekScanAccess);
+            // Pemegang akses yang boleh mengatur; bila (karena data lama) tidak ada pemegang sama sekali, Admin boleh mengatur
+            const canManageCekScan = userHasCekScanAccess(accounts, authUser) || (!cekScanMasihAda(safeAccounts) && findAccountOfUser(accounts, authUser)?.role === 'Admin');
+            const renderCekScanControl = (target, setTarget) => {
+                const checked = target.cekScanAsli === true;
+                return (
+                    <div className="md:col-span-2 border-2 border-amber-400 bg-amber-50 rounded-lg p-3">
+                        <div className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-2">🔒 Akses Khusus</div>
+                        <label className={`flex items-start gap-3 bg-white border border-amber-300 rounded-lg p-3 ${canManageCekScan ? 'cursor-pointer' : 'opacity-70'}`}>
+                            <input type="checkbox" className="mt-1 w-4 h-4" disabled={!canManageCekScan} checked={checked} onChange={() => setTarget({ ...target, cekScanAsli: !checked })} />
+                            <span>
+                                <span className="block text-sm font-bold text-gray-900">Cek Scan Asli Absensi</span>
+                                <span className="block text-xs text-gray-600 mt-0.5">Boleh membuka tab <b>Cek Scan Asli</b> (scan asli mesin dibanding yang dipakai gaji) dan melihat <b>nama pengedit</b> di Log Absensi.</span>
+                            </span>
+                        </label>
+                        <p className="text-[11px] text-amber-800 mt-2">{canManageCekScan ? 'Hanya akun yang punya akses ini yang bisa mengubahnya. Minimal satu akun harus tetap punya akses.' : 'Hanya bisa diubah oleh akun yang punya akses Cek Scan Asli.'}</p>
+                    </div>
+                );
+            };
             const toggleMenuAccess = (target, setTarget, menuId) => {
                 if (target.role === 'Admin') return;
                 const current = Array.isArray(target.menuAccess) ? target.menuAccess : getDefaultMenuAccess(target.role);
@@ -18475,7 +18505,9 @@ ${getRekapShareLink(rekap)}
                 const now = new Date().toISOString();
                 if (!String(newAcc.password || '').trim()) { showToast("Password wajib diisi.", "error"); return; }
                 const { password: newPlainPassword, ...newAccRest } = newAcc;
-                setAccounts(prev => [...(prev||[]), { ...newAccRest, ...makePasswordFields(newPlainPassword), id: genId('ACC-'), _syncUpdatedAt: now }]);
+                // Akun baru: akses Cek Scan Asli hanya bila dicentang (juga untuk Admin)
+                const cekScanAsli = canManageCekScan && newAcc.cekScanAsli === true;
+                setAccounts(prev => [...(prev||[]), { ...newAccRest, cekScanAsli, ...makePasswordFields(newPlainPassword), id: genId('ACC-'), _syncUpdatedAt: now }]);
                 setShowForm(false);
                 setNewAcc({ username: '', password: '', name: '', role: 'Mandor', linkedEmpId: '', menuAccess: getDefaultMenuAccess('Mandor') });
                 showToast("Akun ditambahkan!", "success");
@@ -18493,6 +18525,12 @@ ${getRekapShareLink(rekap)}
                 const now = new Date().toISOString();
                 // Password baru (jika diisi) disimpan sebagai hash; kosong = password lama tetap
                 const { password: legacyPlain, newPassword, ...editRest } = editAcc;
+                const accBefore = safeAccounts.find(a => String(a.id) === String(editAcc.id));
+                // Hanya pemegang akses yang boleh mengubah centang Cek Scan Asli
+                if (!canManageCekScan) editRest.cekScanAsli = hasCekScanAccess(accBefore);
+                if (cekScanMasihAda(safeAccounts) && !cekScanMasihAda(safeAccounts.map(a => String(a.id) === String(editAcc.id) ? { ...a, ...editRest } : a))) {
+                    showToast("Minimal satu akun harus tetap punya akses Cek Scan Asli.", "error"); return;
+                }
                 const passwordFields = String(newPassword || '').trim()
                     ? makePasswordFields(newPassword)
                     : (hasPlainPassword({ password: legacyPlain }) ? makePasswordFields(legacyPlain) : {});
@@ -18509,6 +18547,7 @@ ${getRekapShareLink(rekap)}
                 if(deleteConfirmId !== null && deleteConfirmId !== undefined) {
                     const accToDelete = safeAccounts.find(a => String(a.id) === String(deleteConfirmId));
                     if (accToDelete?.username === 'admin') { showToast("Akun admin utama tidak bisa dihapus!", "error"); setDeleteConfirmId(null); return; }
+                    if (cekScanMasihAda(safeAccounts) && !cekScanMasihAda(safeAccounts.filter(a => String(a.id) !== String(deleteConfirmId)))) { showToast("Akun ini satu-satunya yang punya akses Cek Scan Asli. Berikan akses ke akun lain dulu.", "error"); setDeleteConfirmId(null); return; }
                     const now = new Date().toISOString();
                     setAccounts(prev => (prev || []).map(a => String(a.id) === String(deleteConfirmId) ? { ...a, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : a));
                     setDeleteConfirmId(null);
@@ -18550,6 +18589,7 @@ ${getRekapShareLink(rekap)}
                                 <div><label className="block text-sm mb-1 font-semibold">Username Login</label><input required type="text" className="w-full p-2 border rounded" value={newAcc.username} onChange={e => setNewAcc({...newAcc, username: e.target.value})} /></div>
                                 <div><label className="block text-sm mb-1 font-semibold">Password</label><input required type="password" className="w-full p-2 border rounded" value={newAcc.password} onChange={e => setNewAcc({...newAcc, password: e.target.value})} /></div>
                                 {renderMenuAccessControls(newAcc, setNewAcc)}
+                                {renderCekScanControl(newAcc, setNewAcc)}
                                 <div className="md:col-span-2 flex justify-end mt-2"><button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded">Simpan Akun</button></div>
                             </form>
                         </Card>
@@ -18573,7 +18613,7 @@ ${getRekapShareLink(rekap)}
                                             </td>
                                             <td className="p-3 text-sm"><span className={`px-2 py-1 text-xs font-semibold rounded ${acc.role === 'Karyawan' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>{acc.role}</span></td>
                                             <td className="p-3 text-center flex justify-center space-x-2">
-                                                <button onClick={() => setEditAcc({ ...acc, newPassword: '' })} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded" title="Edit Akun"><IconEdit /></button>
+                                                <button onClick={() => setEditAcc({ ...acc, newPassword: '', cekScanAsli: hasCekScanAccess(acc) })} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded" title="Edit Akun"><IconEdit /></button>
                                                 {acc.username !== 'admin' ? (
                                                     <button onClick={() => setDeleteConfirmId(acc.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1.5 rounded" title="Hapus Akun"><IconTrash /></button>
                                                 ) : <span className="text-xs text-gray-400 italic flex items-center">Protected</span>}
@@ -18618,6 +18658,7 @@ ${getRekapShareLink(rekap)}
                                     </div>
                                     <div><label className="block text-sm mb-1 font-semibold">Password Baru</label><input type="password" autoComplete="new-password" className="w-full p-2 border rounded focus:ring-blue-500" placeholder="Kosongkan jika tidak ingin mengganti password" value={editAcc.newPassword || ''} onChange={e => setEditAcc({...editAcc, newPassword: e.target.value})} /><p className="text-[11px] text-gray-500 mt-1">Password tersimpan dalam bentuk teracak dan tidak bisa ditampilkan. Isi hanya jika ingin mengganti.</p></div>
                                     {renderMenuAccessControls(editAcc, setEditAcc)}
+                                    {renderCekScanControl(editAcc, setEditAcc)}
                                     {editAcc.username === 'admin' && <p className="text-xs text-red-500 italic">*Username & Role akun utama (admin) tidak dapat diubah.</p>}
                                     <div className="flex justify-end space-x-3 pt-4 border-t">
                                         <button type="button" onClick={() => setEditAcc(null)} className="px-4 py-2 bg-gray-200 rounded font-medium">Batal</button>
@@ -23852,7 +23893,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             // Hanya daftar yang penghapusannya memakai tanda isDeleted (bukan dibuang) — kalau dibuang, union akan "menghidupkan" item yang sudah dihapus.
             const getNestedMergeFields = (record) => {
-                const fields = ['cashAdvances', 'dailySalaryLogs', 'manualProductionLogs', 'clientDpPayments'];
+                const fields = ['cashAdvances', 'dailySalaryLogs', 'manualProductionLogs', 'clientDpPayments', 'editHistory'];
                 if (record && (Array.isArray(record.invoiceItems) || record.invoiceDp !== undefined)) fields.push('payments');
                 return fields;
             };
@@ -26023,7 +26064,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} /></div>}
                                 {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} authUser={authUser} /></div>}
                                 {tabMounted('stock_barang', canOpen('stock_barang')) && <div hidden={!tabVisible('stock_barang')}><StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('absensi_finger', canOpen('absensi_finger')) && <div hidden={!tabVisible('absensi_finger')}><AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></div>}
+                                {tabMounted('absensi_finger', canOpen('absensi_finger')) && <div hidden={!tabVisible('absensi_finger')}><AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} authUser={authUser} accounts={accounts} /></div>}
                                 {activeTab === 'hpp_kalkulator' && canOpen('hpp_kalkulator') && <HppKalkulatorView supabaseClient={supabaseClient} showToast={showToast} templates={templates} />}
                                 {activeMenuAllowed === false && (
                                     <Card>
@@ -26039,7 +26080,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
         };
 
         // ── ABSENSI FINGER ────────────────────────────────────────────────────────
-        const AbsensiFingerView = ({ employees, setEmployees, absensiEdits, setAbsensiEdits, absensiRawLogs, refreshAbsensiRawLogs, showToast, templates, setTemplates }) => {
+        const AbsensiFingerView = ({ employees, setEmployees, absensiEdits, setAbsensiEdits, absensiRawLogs, refreshAbsensiRawLogs, showToast, templates, setTemplates, authUser, accounts }) => {
+            // Akses khusus (dicentang di Master Akun): tab Cek Scan Asli & nama pengedit
+            const canCekScan = userHasCekScanAccess(accounts, authUser);
             const jamMasukConfig = templates?.absensiJamMasuk || '07:00';
             const jamTelatConfig = templates?.absensiJamTelat || '07:30';
             const jamPulangConfig = templates?.absensiJamPulang || '16:30';
@@ -26565,14 +26608,111 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
             const rekapDetail = React.useMemo(() => buildRekapDetail(), [monthLogs, rekapMonth, rekapEmpPin, absensiEdits, employees, templates]);
 
+            // ── Cek Scan Asli (hanya akun yang dicentang di Master Akun) ──
+            const [cekMode, setCekMode] = React.useState('per');
+            const [cekMonth, setCekMonth] = React.useState(toLocalMonthStr());
+            const [cekPinSel, setCekPinSel] = React.useState('');
+            const [cekBedaSaja, setCekBedaSaja] = React.useState(false);
+            const cekPin = cekPinSel || (empsFP[0] ? String(empsFP[0].fingerPin).trim() : '');
+            const fmtWaktuEdit = (iso) => { const d = new Date(iso || 0); if (!Number.isFinite(d.getTime()) || d.getTime() === 0) return ''; return `${d.getDate()} ${d.toLocaleDateString('id-ID', { month: 'short' }).replace('.', '')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+            // Gaji satu hari dari jam absensi (sama dengan Laporan Kinerja: gaji harian + lebih/kurang jam, minimal 0; lembur ≥ 1 jam)
+            const hitungGajiHariAbsensi = (m, emp, shiftConfig) => {
+                const mStdMasuk = timeToMinutes(shiftConfig?.jamMasuk || jamMasukConfig), mStdPulang = timeToMinutes(shiftConfig?.jamPulang || jamPulangConfig);
+                const std = (mStdMasuk != null && mStdPulang != null) ? mStdPulang - mStdMasuk : 0;
+                const rateKurang = safeMoney(emp.rateKurang) || 0, rateLebih = safeMoney(emp.rateLebih) || 0;
+                let harian = 0, lembur = 0;
+                if (m.jamMasuk && m.jamPulang) {
+                    let adj = 0;
+                    if (std > 0 && (rateKurang > 0 || rateLebih > 0)) {
+                        const sel = hitungLebihKurangMenit((timeToMinutes(m.jamPulang) - timeToMinutes(m.jamMasuk)) - std, toleransiMenit);
+                        if (sel !== 0) adj = sel > 0 ? Math.round((sel / 60) * rateLebih) : -Math.round((Math.abs(sel) / 60) * rateKurang);
+                    }
+                    harian = Math.max(0, (safeMoney(emp.dailySalary) || 0) + adj);
+                }
+                if ((m.lemburMenit || 0) >= 60) lembur = Math.max(0, (Math.round(m.lemburMenit / 60 * 10) / 10) * (safeMoney(emp.overtimeRate) || 0));
+                return harian + lembur;
+            };
+            const CEK_JAM_FIELDS = ['jamMasuk', 'jamPulang', 'jamLemburMasuk', 'jamLemburPulang'];
+            const buildCekScanEmp = (emp, month, logsByKey) => {
+                const pin = String(emp.fingerPin).trim();
+                const [y, mo] = month.split('-').map(Number);
+                const dim = new Date(y, mo, 0).getDate();
+                const today = toLocalDateStr();
+                const shiftConfig = getShiftConfigForPin(pin);
+                const isHarian = getEmployeeSalaryTypes(emp).includes('Harian');
+                const days = [];
+                for (let d = 1; d <= dim; d++) {
+                    const dateStr = `${month}-${String(d).padStart(2, '0')}`;
+                    if (dateStr > today) break;
+                    const entries = logsByKey.get(`${pin}|${dateStr}`) || [];
+                    const editKey = getEditKey(pin, dateStr);
+                    const override = getEditOverride(pin, dateStr);
+                    const editRecs = safeArray(absensiEdits).filter(e => e && e.editKey === editKey);
+                    const history = editRecs.flatMap(e => safeArray(e.editHistory)).filter(h => h && h.createdAt).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+                    const raw = computeDayMetrics(entries, null, shiftConfig);
+                    const used = override ? computeDayMetrics(entries, override, shiftConfig) : raw;
+                    const changed = CEK_JAM_FIELDS.filter(k => (raw[k] || '') !== (used[k] || ''));
+                    let kategori = 'sama';
+                    if (changed.length > 0) kategori = 'diedit';
+                    else if (entries.length === 0 && !used.jamMasuk) kategori = 'kosong';
+                    else if (!(used.jamMasuk && used.jamPulang)) kategori = 'tidak_lengkap';
+                    else if ((raw.rawMasuk && raw.jamMasuk && raw.rawMasuk !== raw.jamMasuk) || (raw.rawPulang && raw.jamPulang && raw.rawPulang !== raw.jamPulang)) kategori = 'batas';
+                    const pengaruh = (isHarian && changed.length > 0) ? hitungGajiHariAbsensi(used, emp, shiftConfig) - hitungGajiHariAbsensi(raw, emp, shiftConfig) : 0;
+                    days.push({
+                        dateStr, d, entries: [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1).map(e => e.jam),
+                        raw, used, override, changed, kategori, pengaruh, history,
+                        hadir: !!(used.jamMasuk && used.jamPulang), lamaTanpaRiwayat: !!override && history.length === 0,
+                    });
+                }
+                const lastEdit = days.flatMap(x => x.history).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
+                return {
+                    emp, pin, isHarian, days, lastEdit,
+                    hadir: days.filter(x => x.hadir).length,
+                    sama: days.filter(x => x.kategori === 'sama').length,
+                    batas: days.filter(x => x.kategori === 'batas').length,
+                    diedit: days.filter(x => x.kategori === 'diedit').length,
+                    pengaruh: days.reduce((s, x) => s + x.pengaruh, 0),
+                };
+            };
+            const cekScanData = React.useMemo(() => {
+                if (!canCekScan || activeTab !== 'cek_scan') return null;
+                const logsByKey = new Map();
+                safeArray(monthLogs).forEach(l => {
+                    if (!l || l.isDeleted || !String(l.tanggal || '').startsWith(cekMonth)) return;
+                    const k = `${String(l.pin).trim()}|${l.tanggal}`;
+                    if (!logsByKey.has(k)) logsByKey.set(k, []);
+                    logsByKey.get(k).push(l);
+                });
+                if (cekMode === 'semua') {
+                    return { mode: 'semua', rows: empsFP.map(emp => buildCekScanEmp(emp, cekMonth, logsByKey)).sort((a, b) => (b.diedit - a.diedit) || (b.pengaruh - a.pengaruh) || String(a.emp.name).localeCompare(String(b.emp.name))) };
+                }
+                const emp = empsFP.find(e => String(e.fingerPin).trim() === cekPin);
+                return { mode: 'per', data: emp ? buildCekScanEmp(emp, cekMonth, logsByKey) : null };
+            }, [canCekScan, activeTab, cekMode, cekMonth, cekPin, monthLogs, absensiEdits, employees, templates]);
+
             const openEdit = (row) => {
                 setEditForm({ pin: row.pin, tanggal: row.tanggal, nama: row.nama, jamMasuk: row.jamMasuk || '', jamPulang: row.jamPulang || '', jamLemburMasuk: row.jamLemburMasuk || '', jamLemburPulang: row.jamLemburPulang || '', note: row.note || '' });
                 setEditModal(row);
             };
 
+            // Riwayat edit absensi: siapa, kapan, sebelum -> sesudah (tidak pernah ditimpa, hanya ditambah)
+            const ABS_EDIT_FIELDS = ['jamMasuk', 'jamPulang', 'jamLemburMasuk', 'jamLemburPulang', 'note'];
+            const pickAbsFields = (src) => { const o = {}; ABS_EDIT_FIELDS.forEach(k => { o[k] = (src && src[k]) || ''; }); return o; };
+            const makeEditHistoryEntry = (aksi, sebelum, sesudah) => {
+                const editor = findAccountOfUser(accounts, authUser) || authUser || {};
+                const now = new Date().toISOString();
+                return { id: `abshist-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, createdAt: now, _syncUpdatedAt: now, aksi, byId: editor.id != null ? String(editor.id) : '', byName: editor.name || editor.username || 'Tidak diketahui', byUsername: editor.username || '', sebelum, sesudah };
+            };
+
             const saveEdit = () => {
                 const key = getEditKey(editForm.pin, editForm.tanggal);
                 const existing = getEditOverride(editForm.pin, editForm.tanggal);
+                // Nilai sebelum: koreksi yang ada, atau jam yang tampil dari data mesin
+                const sebelum = existing ? pickAbsFields(existing) : pickAbsFields(editModal || {});
+                if (!existing) sebelum.note = '';
+                const sesudah = pickAbsFields(editForm);
+                const berubah = ABS_EDIT_FIELDS.some(k => sebelum[k] !== sesudah[k]);
+                const histEntry = (berubah || !existing) ? makeEditHistoryEntry('edit', sebelum, sesudah) : null;
                 const record = {
                     id: existing?.id || `absedit-${editForm.pin}-${editForm.tanggal}-${Date.now()}`,
                     editKey: key,
@@ -26583,12 +26723,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     jamPulang: editForm.jamPulang || null,
                     jamLemburMasuk: editForm.jamLemburMasuk || null,
                     jamLemburPulang: editForm.jamLemburPulang || null,
-                    note: editForm.note || ''
+                    note: editForm.note || '',
+                    ...(histEntry ? { editedAt: histEntry.createdAt, editedByName: histEntry.byName, editedById: histEntry.byId } : {})
                 };
                 if (existing) {
-                    setAbsensiEdits(prev => prev.map(e => e.id === existing.id ? { ...e, ...record } : e));
+                    setAbsensiEdits(prev => prev.map(e => e.id === existing.id ? { ...e, ...record, editHistory: histEntry ? [...safeArray(e.editHistory), histEntry] : safeArray(e.editHistory) } : e));
                 } else {
-                    setAbsensiEdits(prev => [...prev, record]);
+                    setAbsensiEdits(prev => [...prev, { ...record, editHistory: histEntry ? [histEntry] : [] }]);
                 }
                 showToast('Data absensi disimpan');
                 setEditModal(null);
@@ -26597,7 +26738,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const deleteEdit = (row) => {
                 const existing = getEditOverride(row.pin, row.tanggal);
                 if (!existing) return;
-                setAbsensiEdits(prev => prev.map(e => e.id === existing.id ? { ...e, isDeleted: true } : e));
+                const histEntry = makeEditHistoryEntry('hapus', pickAbsFields(existing), null);
+                setAbsensiEdits(prev => prev.map(e => e.id === existing.id ? { ...e, isDeleted: true, deletedAt: histEntry.createdAt, editedAt: histEntry.createdAt, editedByName: histEntry.byName, editedById: histEntry.byId, editHistory: [...safeArray(e.editHistory), histEntry] } : e));
                 showToast('Override dihapus, kembali ke data mesin');
             };
 
@@ -26660,6 +26802,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             <button onClick={() => setActiveTab('log')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'log' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Log Absensi</button>
                             <button onClick={() => setActiveTab('rekap')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'rekap' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Rekap Bulanan</button>
                             <button onClick={() => setActiveTab('raw')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'raw' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Data Raw Mesin</button>
+                            {canCekScan && <button onClick={() => setActiveTab('cek_scan')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'cek_scan' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>🔒 Cek Scan Asli</button>}
                             <button onClick={() => setActiveTab('shift_config')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'shift_config' ? 'bg-purple-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Konfigurasi Shift</button>
                             <button onClick={() => setActiveTab('shift_assign')} className={`px-3 py-1.5 rounded text-sm font-semibold ${activeTab === 'shift_assign' ? 'bg-purple-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Penugasan Shift</button>
                         </div>
@@ -26715,6 +26858,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <tr key={`${row.pin}-${row.tanggal}`} className={`border-t ${idx % 2 === 0 ? '' : 'bg-gray-50'}`} style={rowStyle}>
                                                     <td className="py-2 px-3">
                                                         <div className="font-semibold text-gray-800 text-sm leading-tight">{row.nama}{hasLembur && <span className="ml-1 text-[10px] opacity-40">🌙</span>}{row.hasCustomShift && <span className="ml-1 text-[10px] text-purple-500 font-bold" title="Shift khusus">⚙</span>}{row.override && <span className="ml-1 text-[10px] text-blue-500 font-bold">[edit]</span>}{row.note && <span className="ml-1 text-[11px]" title={row.note}>📝</span>}</div>
+                                                        {canCekScan && row.override?.editedByName && <div className="text-[10px] font-bold text-orange-800 bg-orange-100 rounded px-1.5 py-0.5 mt-0.5 inline-block whitespace-nowrap">✏ diedit oleh {row.override.editedByName} · {fmtWaktuEdit(row.override.editedAt)}</div>}
                                                         <div className="text-[10px] text-gray-400 font-mono mt-0.5">PIN: {row.pin}</div>
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
@@ -26826,6 +26970,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     </div>
                                                 )}
                                                 {detailRow.note && <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mb-3 italic">📝 {detailRow.note}</div>}
+                                                {canCekScan && detailRow.override?.editedByName && <div className="text-xs font-bold text-orange-800 bg-orange-50 rounded-lg px-3 py-2 mb-3">✏ diedit oleh {detailRow.override.editedByName} · {fmtWaktuEdit(detailRow.override.editedAt)}</div>}
                                                 <div className="flex gap-2">
                                                     <button onClick={() => { openEdit(detailRow); setDetailRow(null); }} className="flex-1 py-2 bg-yellow-400 hover:bg-yellow-500 text-white font-bold rounded-xl text-sm">✎ Edit</button>
                                                     {detailRow.override && <button onClick={() => { deleteEdit(detailRow); setDetailRow(null); }} className="py-2 px-3 bg-red-100 hover:bg-red-200 text-red-600 font-bold rounded-xl text-sm">✕</button>}
@@ -27135,6 +27280,157 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 )}
                             </div>
                         )}
+
+                        {activeTab === 'cek_scan' && canCekScan && (() => {
+                            const HARI = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+                            const tglLabel = (dateStr) => { const dt = new Date(dateStr + 'T00:00:00'); return `${HARI[dt.getDay()]}, ${dateStr.slice(8, 10)} ${dt.toLocaleDateString('id-ID', { month: 'short' }).replace('.', '')}`; };
+                            const rp = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}Rp ${Math.abs(Math.round(n)).toLocaleString('id-ID')}`;
+                            const jamPair = (m) => m.jamMasuk || m.jamPulang ? `${m.jamMasuk || '—'} – ${m.jamPulang || '—'}` : '—';
+                            const FIELD_LABEL = { jamMasuk: 'Masuk', jamPulang: 'Pulang', jamLemburMasuk: 'Masuk lembur', jamLemburPulang: 'Pulang lembur', note: 'Catatan' };
+                            const histText = (h) => {
+                                if (h.aksi === 'hapus') return 'Menghapus koreksi → kembali ke data mesin';
+                                const parts = Object.keys(FIELD_LABEL).filter(k => ((h.sebelum || {})[k] || '') !== ((h.sesudah || {})[k] || '')).map(k => {
+                                    const a = (h.sebelum || {})[k] || '', b = (h.sesudah || {})[k] || '';
+                                    if (k === 'note') return `Catatan: ${a ? `"${a}"` : '(kosong)'} → ${b ? `"${b}"` : '(kosong)'}`;
+                                    return `${FIELD_LABEL[k]}: ${a || '(kosong)'} → ${b || '(kosong)'}`;
+                                });
+                                return parts.length ? parts.join(' · ') : 'Disimpan tanpa perubahan jam';
+                            };
+                            const KAT = {
+                                sama: { kartu: 'border-l-emerald-500 bg-white', badge: 'bg-emerald-100 text-emerald-800', teks: '✓ sama dengan mesin' },
+                                batas: { kartu: 'border-l-blue-500 bg-blue-50/40', badge: 'bg-blue-100 text-blue-800', teks: 'dibatasi Batas Scan' },
+                                diedit: { kartu: 'border-l-orange-500 bg-orange-50/40', badge: 'bg-orange-100 text-orange-800', teks: '✏ diedit' },
+                                kosong: { kartu: 'border-l-gray-300 bg-gray-50', badge: 'bg-gray-100 text-gray-500', teks: 'tidak ada scan' },
+                                tidak_lengkap: { kartu: 'border-l-amber-500 bg-amber-50/50', badge: 'bg-amber-100 text-amber-800', teks: '⚠ tidak lengkap' },
+                            };
+                            const data = cekScanData || {};
+                            return (
+                                <div className="space-y-3">
+                                    <div className="text-xs text-gray-500">Membandingkan <b>scan asli dari mesin</b> dengan jam yang <b>dipakai untuk gaji</b>. Hanya untuk dilihat; tab ini hanya tampil untuk akun yang dicentang di Master Akun.</div>
+                                    <div className="flex border border-gray-300 rounded-lg overflow-hidden">
+                                        {[['per', 'Per Karyawan'], ['semua', 'Semua Karyawan']].map(([k, l]) => (
+                                            <button key={k} onClick={() => setCekMode(k)} className={`flex-1 py-2 text-sm font-bold ${cekMode === k ? 'bg-blue-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{l}</button>
+                                        ))}
+                                    </div>
+                                    <div className={`grid gap-2 ${cekMode === 'per' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Bulan</label>
+                                            <input type="month" value={cekMonth} onChange={e => e.target.value && setCekMonth(e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                                        </div>
+                                        {cekMode === 'per' && (
+                                            <div className="min-w-0">
+                                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Karyawan</label>
+                                                <select value={cekPin} onChange={e => setCekPinSel(e.target.value)} className="w-full p-2 border rounded-lg text-sm bg-white">
+                                                    {empsFP.map(e => <option key={e.fingerPin} value={String(e.fingerPin).trim()}>{e.name} (PIN {e.fingerPin})</option>)}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {empsFP.length === 0 && <div className="text-center py-10 text-gray-400 italic text-sm">Belum ada karyawan dengan PIN Finger.</div>}
+
+                                    {cekMode === 'per' && data.data && (() => {
+                                        const r = data.data;
+                                        const shown = cekBedaSaja ? r.days.filter(x => x.kategori === 'diedit' || x.kategori === 'batas' || x.kategori === 'tidak_lengkap' || x.history.length > 0) : r.days;
+                                        return (<>
+                                            <div className="border rounded-xl p-3">
+                                                <div className="grid grid-cols-4 gap-1.5 text-center">
+                                                    <div className="bg-gray-100 rounded-lg py-1.5"><div className="text-xl font-black tabular-nums">{r.hadir}</div><div className="text-[10px] font-bold text-gray-600">hari hadir</div></div>
+                                                    <div className="bg-emerald-50 rounded-lg py-1.5"><div className="text-xl font-black tabular-nums text-emerald-700">{r.sama}</div><div className="text-[10px] font-bold text-gray-600">sama mesin</div></div>
+                                                    <div className="bg-blue-50 rounded-lg py-1.5"><div className="text-xl font-black tabular-nums text-blue-700">{r.batas}</div><div className="text-[10px] font-bold text-gray-600">batas scan</div></div>
+                                                    <div className="bg-orange-50 rounded-lg py-1.5"><div className="text-xl font-black tabular-nums text-orange-700">{r.diedit}</div><div className="text-[10px] font-bold text-gray-600">diedit</div></div>
+                                                </div>
+                                                <div className={`flex justify-between items-center gap-2 mt-2 rounded-lg px-3 py-2 border ${r.pengaruh !== 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                    <span className={`text-xs font-bold ${r.pengaruh !== 0 ? 'text-red-900' : 'text-gray-600'}`}>Pengaruh edit ke gaji bulan ini</span>
+                                                    <span className={`text-lg font-black tabular-nums whitespace-nowrap shrink-0 ${r.pengaruh !== 0 ? 'text-red-700' : 'text-gray-500'}`}>{r.isHarian ? rp(r.pengaruh) : '—'}</span>
+                                                </div>
+                                                {!r.isHarian && <div className="text-[11px] text-gray-500 mt-1">Karyawan ini tidak bergaji harian, jadi pengaruh ke gaji tidak dihitung.</div>}
+                                            </div>
+                                            <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
+                                                <input type="checkbox" checked={cekBedaSaja} onChange={e => setCekBedaSaja(e.target.checked)} /> Tampilkan yang berbeda saja
+                                            </label>
+                                            {shown.length === 0 && <div className="text-center py-6 text-gray-400 italic text-sm">{cekBedaSaja ? 'Tidak ada hari yang berbeda dengan mesin.' : 'Belum ada data di bulan ini.'}</div>}
+                                            {shown.map(x => {
+                                                const kat = KAT[x.kategori];
+                                                const merah = x.kategori === 'diedit' && x.changed.length >= 2;
+                                                return (
+                                                    <div key={x.dateStr} className={`border border-l-[5px] rounded-lg px-3 py-2 ${merah ? 'border-l-red-600 bg-red-50/50' : kat.kartu}`}>
+                                                        <div className="flex justify-between items-baseline gap-2">
+                                                            <b className="text-sm">{tglLabel(x.dateStr)}</b>
+                                                            <span className={`text-[10.5px] font-extrabold rounded-full px-2 py-0.5 whitespace-nowrap ${merah ? 'bg-red-100 text-red-800' : kat.badge}`}>{kat.teks}{merah ? ` · ${x.changed.length} jam diubah` : ''}</span>
+                                                        </div>
+                                                        {x.kategori !== 'kosong' && (
+                                                            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12.5px] mt-1">
+                                                                <span className="text-gray-500">Scan mesin</span>
+                                                                <span className="font-semibold tabular-nums">{x.entries.length ? x.entries.join(' · ') : <span className="text-gray-400 font-normal">tidak ada scan</span>}</span>
+                                                                <span className="text-gray-500">Dipakai gaji</span>
+                                                                <span className="font-semibold tabular-nums">
+                                                                    {x.used.jamMasuk || x.used.jamPulang ? (<>
+                                                                        <span className={x.changed.includes('jamMasuk') ? 'text-orange-700 font-extrabold' : (x.raw.rawMasuk && x.raw.rawMasuk !== x.used.jamMasuk && !x.changed.includes('jamMasuk')) ? 'text-blue-700 font-extrabold' : ''}>{x.used.jamMasuk || '—'}</span>
+                                                                        {' – '}
+                                                                        <span className={x.changed.includes('jamPulang') ? 'text-orange-700 font-extrabold' : (x.raw.rawPulang && x.used.jamPulang && x.raw.rawPulang !== x.used.jamPulang && !x.changed.includes('jamPulang')) ? 'text-blue-700 font-extrabold' : ''}>{x.used.jamPulang || '—'}</span>
+                                                                    </>) : '—'}
+                                                                    {x.used.lebihKurangMenit > 0 && <span className="text-gray-500 font-normal"> (+{durasiLabel(x.used.lebihKurangMenit)})</span>}
+                                                                    {x.used.lebihKurangMenit < 0 && <span className="text-gray-500 font-normal"> (−{durasiLabel(-x.used.lebihKurangMenit)})</span>}
+                                                                    {(x.used.jamLemburMasuk || x.used.jamLemburPulang) && <span className={`font-normal ${x.changed.includes('jamLemburMasuk') || x.changed.includes('jamLemburPulang') ? 'text-orange-700 font-bold' : 'text-gray-600'}`}> · lembur {x.used.jamLemburMasuk || '—'}–{x.used.jamLemburPulang || '—'}</span>}
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                        {x.kategori === 'tidak_lengkap' && <div className="text-[11.5px] text-amber-800 mt-1">{x.used.jamMasuk ? 'Tidak ada scan pulang' : 'Tidak ada scan masuk'}, hari ini tidak dihitung hadir sampai dikoreksi.</div>}
+                                                        {x.kategori === 'batas' && <div className="text-[11.5px] text-blue-800 mt-1">Scan di luar Batas Scan dianggap jam batas (aturan shift, bukan diedit orang).</div>}
+                                                        {x.kategori === 'diedit' && (
+                                                            <div className="text-[11.5px] mt-1 text-gray-700">
+                                                                Sebelum diedit: <span className="tabular-nums">{jamPair(x.raw)}</span>
+                                                                {r.isHarian && <> · Pengaruh ke gaji: <b className={x.pengaruh > 0 ? 'text-red-700' : x.pengaruh < 0 ? 'text-emerald-700' : 'text-gray-600'}>{rp(x.pengaruh)}</b>{!(x.raw.jamMasuk && x.raw.jamPulang) && x.hadir ? ' (hari jadi dihitung hadir)' : ''}</>}
+                                                            </div>
+                                                        )}
+                                                        {(x.history.length > 0 || x.lamaTanpaRiwayat) && (
+                                                            <div className="mt-1.5 pt-1.5 border-t border-dashed border-orange-300 space-y-1">
+                                                                {x.history.map(h => (
+                                                                    <div key={h.id} className="text-[11.5px] text-gray-700 pl-3 relative leading-snug">
+                                                                        <span className="absolute left-0.5 top-1.5 w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                                                                        <b className="text-gray-900">{h.byName || 'Tidak diketahui'}</b> <span className="text-gray-500">· {fmtWaktuEdit(h.createdAt)}</span><br />{histText(h)}
+                                                                    </div>
+                                                                ))}
+                                                                {x.lamaTanpaRiwayat && <div className="text-[11.5px] text-gray-500 italic">Diedit sebelum riwayat aktif (nama & waktu tidak tercatat){x.override?.note ? ` · catatan: "${x.override.note}"` : ''}</div>}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </>);
+                                    })()}
+
+                                    {cekMode === 'semua' && data.rows && (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-[12.5px]">
+                                                <thead><tr className="text-[10px] uppercase tracking-wide text-gray-500 text-left border-b-2">
+                                                    <th className="py-2 px-1.5">Karyawan</th><th className="py-2 px-1.5 text-right">Hadir</th><th className="py-2 px-1.5 text-right">Diedit</th><th className="py-2 px-1.5 text-right">Pengaruh gaji</th>
+                                                </tr></thead>
+                                                <tbody>
+                                                    {data.rows.map(r => (
+                                                        <tr key={r.pin} className={`border-b ${r.diedit >= 3 ? 'bg-red-50' : ''}`}>
+                                                            <td className="py-2 px-1.5">
+                                                                <button onClick={() => { setCekPinSel(r.pin); setCekMode('per'); }} className="font-bold text-left text-gray-900 hover:underline">{r.emp.name}</button>
+                                                                <div className="text-[10.5px] text-gray-500">{r.lastEdit ? `terakhir: ${r.lastEdit.byName} · ${fmtWaktuEdit(r.lastEdit.createdAt)}` : r.diedit > 0 ? 'diedit (sebelum riwayat aktif)' : 'tidak ada edit'}</div>
+                                                            </td>
+                                                            <td className="py-2 px-1.5 text-right tabular-nums">{r.hadir}</td>
+                                                            <td className={`py-2 px-1.5 text-right tabular-nums font-bold ${r.diedit >= 3 ? 'text-red-700' : r.diedit > 0 ? 'text-orange-700' : 'text-gray-400 font-normal'}`}>{r.diedit}</td>
+                                                            <td className={`py-2 px-1.5 text-right tabular-nums whitespace-nowrap font-bold ${!r.isHarian ? 'text-gray-400 font-normal' : r.pengaruh !== 0 ? (r.diedit >= 3 ? 'text-red-700' : 'text-orange-700') : 'text-gray-400 font-normal'}`}>{r.isHarian ? rp(r.pengaruh) : '—'}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            <div className="flex justify-between font-extrabold text-sm border-t-2 border-gray-900 mt-2 pt-2">
+                                                <span>Total pengaruh edit</span>
+                                                <span className="tabular-nums text-red-700">{rp(data.rows.reduce((s, r) => s + (r.isHarian ? r.pengaruh : 0), 0))}</span>
+                                            </div>
+                                            <p className="text-[11px] text-gray-500 mt-2">Pengaruh gaji = gaji setelah diedit dikurangi gaji jika memakai scan asli mesin (mengikuti aturan shift, Batas Scan dan toleransi yang berlaku sekarang). Klik nama untuk melihat rinciannya.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
 
                         {activeTab === 'shift_config' && (() => {
                             const fmtM = (m) => m == null ? '–' : minutesToTime(Math.min(1439, Math.max(0, Math.round(m))));
