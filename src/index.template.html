@@ -32,7 +32,15 @@
             .mobile-safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
         }
         
+        /* Tinggi aplikasi = layar yang benar-benar terlihat (iPad/iPhone: ikut bilah alamat browser).
+           100vh sebagai cadangan untuk browser lama. */
+        .app-shell-root { height: 100vh; height: 100dvh; }
+        /* Selama aplikasi tampil, halaman utama dikunci; yang digulir hanya isi menu */
+        html.app-shell-active, html.app-shell-active body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+
         @media print {
+            .app-shell-root { height: auto; }
+            html.app-shell-active, html.app-shell-active body { height: auto; overflow: visible; }
             body { background-color: white; margin: 0; padding: 0; }
             @page {
                 size: A4 portrait;

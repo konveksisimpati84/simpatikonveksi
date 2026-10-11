@@ -745,6 +745,51 @@
         // Grafik di bawah lebar ini digambar 1:1 piksel (tulisan tetap terbaca); di atasnya tampilan lama.
         const CHART_NARROW_PX = 560;
 
+        // Kunci halaman utama selama aplikasi (menu samping/bawah) tampil, supaya di iPad/iPhone
+        // halaman tidak ikut bergeser (header hilang, menu bawah melayang di tengah).
+        // Yang digulir hanya isi menu (<main>). Halaman share link & login tidak terpengaruh.
+        const isTextEntryFocused = () => {
+            const el = document.activeElement;
+            if (!el) return false;
+            if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+            if (el.tagName !== 'INPUT') return false;
+            return !/^(checkbox|radio|button|submit|reset|file|color|range|image|hidden)$/i.test(el.type || 'text');
+        };
+        const ShellViewportLock = () => {
+            React.useEffect(() => {
+                const root = document.documentElement;
+                root.classList.add('app-shell-active');
+                let timer = null;
+                const reset = () => {
+                    // Saat keyboard masih terbuka untuk mengetik, biarkan browser mengatur posisinya
+                    if (isTextEntryFocused()) return;
+                    if (window.scrollY || window.scrollX || root.scrollTop || document.body.scrollTop) {
+                        window.scrollTo(0, 0);
+                        root.scrollTop = 0;
+                        document.body.scrollTop = 0;
+                    }
+                };
+                const later = () => { clearTimeout(timer); timer = setTimeout(reset, 120); };
+                window.addEventListener('scroll', later, { passive: true });
+                document.addEventListener('focusout', later);
+                document.addEventListener('change', later);
+                window.addEventListener('orientationchange', later);
+                const vv = window.visualViewport;
+                if (vv) vv.addEventListener('resize', later);
+                reset();
+                return () => {
+                    clearTimeout(timer);
+                    root.classList.remove('app-shell-active');
+                    window.removeEventListener('scroll', later);
+                    document.removeEventListener('focusout', later);
+                    document.removeEventListener('change', later);
+                    window.removeEventListener('orientationchange', later);
+                    if (vv) vv.removeEventListener('resize', later);
+                };
+            }, []);
+            return null;
+        };
+
         const usePagination = (items, pageSize = 20) => {
             const [page, setPage] = React.useState(1);
             const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
@@ -26139,7 +26184,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const activeMenuAllowed = navItems.some(item => item.id === activeTab);
 
             return (
-                <div className="flex h-screen bg-gray-100 font-sans print:bg-white print:h-auto">
+                <div className="flex app-shell-root bg-gray-100 font-sans print:bg-white print:h-auto">
+                    <ShellViewportLock />
                     <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex-col hidden lg:flex shrink-0 print:hidden shadow-xl z-10 transition-all duration-200`}>
                         <div className={`bg-slate-950 border-b border-slate-800 flex items-center ${sidebarCollapsed ? 'justify-center py-4 px-2' : 'p-4 flex-col text-center'}`}>
                             {!sidebarCollapsed && (
