@@ -26283,7 +26283,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </div>
                         </header>
 
-                        <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'p-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
+                        <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
