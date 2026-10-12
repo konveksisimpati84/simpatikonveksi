@@ -14581,6 +14581,28 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 showToast('Entri dihapus.', 'success');
             };
 
+            // "Daftar isi" scan mesin: dikelompokkan sekali per PIN lalu per tanggal (urutan asli dipertahankan),
+            // supaya hitung gaji harian tidak membaca ulang semua scan untuk tiap hari & tiap karyawan.
+            // Isi tiap kelompok sama persis dengan filter lama (tanggal sama, tidak dihapus, PIN sama).
+            const rawLogsByPinDate = React.useMemo(() => {
+                const byPin = new Map();
+                safeArray(absensiRawLogs).forEach(l => {
+                    if (!l || l.isDeleted) return;
+                    const pinKey = String(l.pin).trim();
+                    let byDate = byPin.get(pinKey);
+                    if (!byDate) { byDate = new Map(); byPin.set(pinKey, byDate); }
+                    const list = byDate.get(l.tanggal);
+                    if (list) list.push(l); else byDate.set(l.tanggal, [l]);
+                });
+                return byPin;
+            }, [absensiRawLogs]);
+            // Koreksi jam per "tanggal_pin": ambil koreksi aktif pertama (sama dengan .filter(isVisibleRecord).find(...))
+            const absensiEditByKey = React.useMemo(() => {
+                const map = new Map();
+                safeArray(absensiEdits).filter(isVisibleRecord).forEach(e => { if (!map.has(e.editKey)) map.set(e.editKey, e); });
+                return map;
+            }, [absensiEdits]);
+
             const computeAutoAbsensiForEmp = (emp, { includeGaps = false } = {}) => {
                 const ttm = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
                 const pin = String(emp?.fingerPin || '').trim();
@@ -14620,7 +14642,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const d = new Date(cutoffDate); d.setDate(d.getDate() + 1);
                     startDate = toLocalDateStr(d);
                 } else {
-                    const allPinDates = safeArray(absensiRawLogs).filter(l => !l.isDeleted && String(l.pin).trim() === pin).map(l => l.tanggal).filter(Boolean).sort();
+                    const allPinDates = [...(rawLogsByPinDate.get(pin) || new Map()).keys()].filter(Boolean).sort();
                     startDate = allPinDates[0] || null;
                 }
                 if (!startDate || startDate > today) return { previewLogs: [], warnings: [] };
@@ -14635,12 +14657,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const skipDay = isGap && coveredDayDates.has(date);
                     const skipOt = isGap && coveredOtDates.has(date);
                     if (skipDay && skipOt) return;
-                    const dayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === date && !l.isDeleted && String(l.pin).trim() === pin);
+                    const pinLogsByDate = rawLogsByPinDate.get(pin);
+                    const dayLogs = (pinLogsByDate && pinLogsByDate.get(date)) || [];
                     // Untuk shift malam yang melewati tengah malam, ambil scan dari tanggal berikutnya sebagai kandidat pulang
                     const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return toLocalDateStr(d); })();
                     // Hanya scan dari tanggal berikutnya yang terjadi SEBELUM jam masuk normal (cegah scan pagi hari kerja dihitung sebagai jam pulang lembur)
-                    const nextDayLogs = safeArray(absensiRawLogs).filter(l => l.tanggal === nextDate && !l.isDeleted && String(l.pin).trim() === pin && (ttm(l.jam) == null || mMasukCfg == null || ttm(l.jam) < mMasukCfg));
-                    const override = safeArray(absensiEdits).filter(isVisibleRecord).find(e => e.editKey === `${date}_${pin}`);
+                    const nextDayLogs = ((pinLogsByDate && pinLogsByDate.get(nextDate)) || []).filter(l => (ttm(l.jam) == null || mMasukCfg == null || ttm(l.jam) < mMasukCfg));
+                    const override = absensiEditByKey.get(`${date}_${pin}`);
                     // Untuk shift malam: konversi jam dari tanggal berikutnya ke menit > 1440 agar bisa dibandingkan
                     const nextDayLogsShifted = nextDayLogs.map(l => ({ ...l, _shiftedJam: l.jam, _shiftedMinutes: (ttm(l.jam) ?? 0) + 1440 }));
                     const sorted = [...dayLogs].sort((a, b) => a.jam > b.jam ? 1 : -1);
@@ -18404,7 +18427,59 @@ ${getRekapShareLink(rekap)}
             );
         };
 
-        const TemplateView = ({ templates, setTemplates, showToast }) => {
+        // Info ukuran data (hanya membaca, tidak mengubah apa pun): membantu mencari penyebab aplikasi lambat dibuka
+        const formatUkuranData = (chars) => {
+            const n = Number(chars) || 0;
+            if (n >= 1024 * 1024) return (n / (1024 * 1024)).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + ' MB';
+            return Math.max(n / 1024, n > 0 ? 0.1 : 0).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + ' KB';
+        };
+        const DataSizeCard = ({ getReport }) => {
+            const [report, setReport] = React.useState(null);
+            const [busy, setBusy] = React.useState(false);
+            const run = () => {
+                setBusy(true);
+                setTimeout(() => { try { setReport(getReport()); } finally { setBusy(false); } }, 30);
+            };
+            const BATAS = 5 * 1024 * 1024; // perkiraan batas penyimpanan browser per website
+            return (
+                <Card>
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-2 mb-4">
+                        <h3 className="font-bold">Ukuran Data</h3>
+                        <button type="button" onClick={run} disabled={busy} className="text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg disabled:opacity-60">{busy ? 'Menghitung…' : (report ? 'Hitung Ulang' : 'Cek Ukuran Data')}</button>
+                    </div>
+                    {!report && <p className="text-xs text-gray-500">Menampilkan besar tiap jenis data dan jumlah foto di dalamnya, untuk mengetahui penyebab aplikasi lambat dibuka. Hanya membaca — tidak mengubah data apa pun.</p>}
+                    {report && (
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3"><div className="text-[11px] font-bold text-gray-500 uppercase">Total data</div><div className="text-lg font-black text-gray-800">{formatUkuranData(report.total)}</div></div>
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3"><div className="text-[11px] font-bold text-gray-500 uppercase">Berupa foto</div><div className="text-lg font-black text-gray-800">{formatUkuranData(report.photoBytes)} <span className="text-xs font-bold text-gray-500">({report.photos} foto)</span></div></div>
+                                <div className={`border rounded-lg p-3 ${report.deviceUsed > BATAS * 0.85 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}><div className="text-[11px] font-bold text-gray-500 uppercase">Memori browser perangkat ini</div><div className="text-lg font-black text-gray-800">{formatUkuranData(report.deviceUsed)} <span className="text-xs font-bold text-gray-500">dari ±5 MB</span></div></div>
+                            </div>
+                            {report.missing > 0 && <div className="text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">⚠ {report.missing} jenis data tidak muat disalin di perangkat ini, sehingga selalu diunduh ulang setiap aplikasi dibuka.</div>}
+                            {report.photoBytes > report.total * 0.5 && report.total > 1024 * 1024 && <div className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">💡 Sebagian besar data berupa foto. Memindahkan foto ke penyimpanan terpisah akan membuat aplikasi jauh lebih ringan dibuka.</div>}
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                    <thead className="bg-gray-50 text-gray-500"><tr><th className="p-2 text-left">Jenis data</th><th className="p-2 text-right">Ukuran</th><th className="p-2 text-right">Foto</th><th className="p-2 text-center">Salinan di perangkat</th></tr></thead>
+                                    <tbody>
+                                        {report.rows.map(r => (
+                                            <tr key={r.key} className="border-t border-gray-100">
+                                                <td className="p-2 font-semibold text-gray-700">{r.label}</td>
+                                                <td className="p-2 text-right tabular-nums font-bold">{formatUkuranData(r.bytes)}</td>
+                                                <td className="p-2 text-right tabular-nums">{r.photos > 0 ? `${r.photos} (${formatUkuranData(r.photoBytes)})` : '-'}</td>
+                                                <td className="p-2 text-center">{r.onDevice === null ? <span className="text-gray-400">-</span> : r.onDevice ? <span className="text-green-700 font-bold">✓ Tersimpan</span> : <span className="text-red-600 font-bold">✗ Tidak tersimpan</span>}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p className="text-[11px] text-gray-400">Dihitung {report.at.toLocaleString('id-ID')}. Ukuran perkiraan (data yang diunduh dari cloud).</p>
+                        </div>
+                    )}
+                </Card>
+            );
+        };
+
+        const TemplateView = ({ templates, setTemplates, showToast, getDataSizeReport = null }) => {
             const [localTemplates, setLocalTemplates] = useState(templates || initialTemplates);
             const [devicePrintMode, setDevicePrintModeState] = useState(() => getDevicePrintMode());
             const LOGO_MAX_HEIGHT = 300, LOGO_MAX_WIDTH = 1200;
@@ -18639,8 +18714,9 @@ ${getRekapShareLink(rekap)}
                                 )}
                             </div>
                         </Card>
-                        <button type="submit" className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold float-right">Simpan Pengaturan</button>
+                        <div className="flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold">Simpan Pengaturan</button></div>
                     </form>
+                    {getDataSizeReport && <DataSizeCard getReport={getDataSizeReport} />}
                 </div>
             );
         };
@@ -23707,6 +23783,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [showMobileNav, setShowMobileNav] = useState(false);
             
             const [accounts, setAccounts] = useState([]);
+            // Layar login dini: akun diambil lebih dulu dari cloud agar login bisa diketik sambil data lain dimuat
+            const [earlyLogin, setEarlyLogin] = useState(null); // { accounts, templates }
+            const [loadProgress, setLoadProgress] = useState({ done: 0, total: 0 });
             const [orders, setOrders] = useState([]);
             const [employees, setEmployees] = useState([]);
             const [rekapKinerja, setRekapKinerja] = useState([]); 
@@ -23728,6 +23807,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [absensiEdits, setAbsensiEdits] = useState([]);
             const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
             const needsAbsensiRawRef = useRef(true);
+            const absensiRawLogsRef = useRef(absensiRawLogs);
+            absensiRawLogsRef.current = absensiRawLogs;
             const [templates, setTemplates] = useState({});
             // Mode cetak bawaan (Pengaturan Cetak) untuk penajam cetak; tiap perangkat bisa menimpa sendiri
             applyPrintSettingsFromTemplates(templates);
@@ -24045,17 +24126,76 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             // Fetch dengan cache: gunakan localStorage jika timestamp tidak berubah
+            // Nama penyimpanan salinan di perangkat untuk tiap jenis data (harus sama dengan safeLocalSet di bawah)
+            const STORE_LOCAL_KEYS = {
+                accounts: 'simpati_accounts_sync', employees: 'simpati_employees_sync', orders: 'simpati_orders_sync',
+                rekapKinerja: 'simpati_rekap_sync', riwayatPengiriman: 'simpati_riwayat_sj_sync', expenses: 'simpati_expenses_sync',
+                invoices: 'simpati_invoices_sync', clients: 'simpati_clients_sync', templates: 'simpati_templates_sync',
+                manualPurchases: 'simpati_manual_purchases_sync', investors: 'simpati_investors_sync', investorBagiHasil: 'simpati_investor_bagi_hasil_sync',
+                drivers: 'simpati_drivers_sync', driverTarifs: 'simpati_driver_tarifs_sync', driverTransactions: 'simpati_driver_trx_sync',
+                driverRekapGaji: 'simpati_driver_rekap_gaji_sync', driverKasbon: 'simpati_driver_kasbon_sync', stockItems: 'simpati_stock_items_sync',
+                absensiEdits: 'simpati_absensi_edits_sync', absensiRawLogs: 'simpati_absensiRawLogs_sync', kartu_kredit: 'simpati_kartu_kredit_sync',
+                transaksi_kartu: 'simpati_transaksi_kartu_sync', purchaseNotes: 'simpati_purchase_notes_sync', danaOperasional: 'simpati_dana_operasional_sync',
+                bagiHasilPromosi: 'simpati_bagi_hasil_promosi_sync'
+            };
+            const localCopyExists = (localKey) => { try { return window.localStorage.getItem(localKey) !== null; } catch { return false; } };
+            // Data yang baru diunduh dari cloud pada refresh ini (untuk dicatat "sudah terbaru" setelah salinan tersimpan)
+            const fetchedRemoteRef = useRef(new Map());
+
             const fetchStoreDataCached = async (key, defaultVal, remoteTsMap) => {
                 const localTs = getTsCache()[key];
                 const remoteTs = remoteTsMap[key];
+                const localKey = STORE_LOCAL_KEYS[key];
                 if (localTs && remoteTs && localTs >= remoteTs) {
-                    return loadLocalData(`simpati_${key}_sync`, defaultVal);
+                    // Pakai salinan perangkat hanya bila salinannya benar-benar masih ada
+                    // (bisa terhapus otomatis saat memori browser penuh) — kalau tidak, ambil dari cloud.
+                    if (!localKey) return loadLocalData(`simpati_${key}_sync`, defaultVal);
+                    if (localCopyExists(localKey)) return loadLocalData(localKey, defaultVal);
                 }
-                return fetchStoreData(key, defaultVal);
+                const meta = {};
+                const data = await fetchStoreData(key, defaultVal, meta);
+                if (meta.fromCloud && remoteTs && localKey) fetchedRemoteRef.current.set(key, { ts: remoteTs, data });
+                return data;
+            };
+
+            // Setelah data hasil unduhan tersimpan di perangkat, catat versinya agar pembukaan berikutnya
+            // tidak mengunduh ulang data yang sama. Hanya dicatat bila salinan di perangkat SAMA PERSIS
+            // dengan data cloud dan tidak ada simpanan yang sedang berjalan untuk data itu; selain itu
+            // (gagal simpan, memori penuh, data sedang digabung/dikirim) tidak dicatat -> tetap diunduh seperti biasa.
+            const commitFetchedTimestamps = () => {
+                const entries = [...fetchedRemoteRef.current.entries()];
+                fetchedRemoteRef.current.clear();
+                if (entries.length === 0) return;
+                const tryCommit = (list, attempt) => {
+                    const left = [];
+                    list.forEach(([key, info]) => {
+                        if (syncPendingRef.current.has(key) || syncFailedRef.current.has(key)) return;
+                        let stored = null;
+                        try { stored = window.localStorage.getItem(STORE_LOCAL_KEYS[key]); } catch {}
+                        let fetchedJson = null;
+                        try { fetchedJson = JSON.stringify(info.data); } catch {}
+                        // Pengaturan disimpan bersama desain label (data terpisah 'labelTemplates') -> bandingkan tanpa bagian itu
+                        if (key === 'templates' && stored !== null && fetchedJson !== null && stored !== fetchedJson) {
+                            try {
+                                const omitLabel = (o) => { if (!o || typeof o !== 'object' || Array.isArray(o)) return o; const { labelTemplates, ...rest } = o; return rest; };
+                                stored = JSON.stringify(omitLabel(JSON.parse(stored)));
+                                fetchedJson = JSON.stringify(omitLabel(info.data));
+                            } catch { stored = null; }
+                        }
+                        if (stored !== null && fetchedJson !== null && stored === fetchedJson) {
+                            const cur = getTsCache()[key];
+                            if (!cur || cur < info.ts) updateTsCache(key, info.ts);
+                        } else {
+                            left.push([key, info]);
+                        }
+                    });
+                    if (left.length > 0 && attempt < 2) setTimeout(() => tryCommit(left, attempt + 1), attempt === 0 ? 1500 : 4000);
+                };
+                setTimeout(() => tryCommit(entries, 0), 300);
             };
             // === END CACHE TIMESTAMP HELPERS ===
 
-            const fetchStoreData = async (key, defaultVal) => {
+            const fetchStoreData = async (key, defaultVal, meta = null) => {
                 if (!supabaseClient) return loadLocalData(`simpati_${key}_sync`, defaultVal);
 
                 try {
@@ -24067,6 +24207,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         }
                         throw error;
                     }
+                    if (meta && data?.data) meta.fromCloud = true;
                     return data?.data || loadLocalData(`simpati_${key}_sync`, defaultVal);
                 } catch (err) {
                     console.error(`Error fetching ${key}:`, err);
@@ -24779,6 +24920,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         return merged;
                     });
                 }
+                commitFetchedTimestamps();
             };
 
             useEffect(() => {
@@ -24938,6 +25080,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                     if (supabaseClient) {
                         try {
+                            // Belum login: ambil data akun lebih dulu (kecil) dari cloud, lalu tampilkan layar login
+                            // sambil data lain dimuat. Login hanya dicocokkan dengan akun dari cloud (bukan salinan lama).
+                            if (!savedUser) {
+                                supabaseClient.from('app_data').select('data').eq('id', 'accounts').single()
+                                    .then(({ data, error }) => {
+                                        if (error || !Array.isArray(data?.data) || data.data.filter(isVisibleRecord).length === 0) return;
+                                        setEarlyLogin({ accounts: data.data, templates: loadLocalData('simpati_templates_sync', null) });
+                                    })
+                                    .catch(() => {});
+                            }
                             // Deteksi mobile/iPad → timeout lebih panjang (koneksi lebih lambat)
                             const isMobile = /Mobi|Android|iPad|iPhone/i.test(navigator.userAgent);
                             const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), isMobile ? 10000 : 5000))]);
@@ -24945,7 +25097,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), isMobile ? 25000 : 10000)
                             );
                             const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi, remLabelTemplates] = await Promise.race([
-                                Promise.all([
+                                (() => {
+                                    const parts = [
                                     fetchStoreDataCached('accounts', [], initTsMap),
                                     fetchStoreDataCached('employees', initialEmployees, initTsMap),
                                     fetchStoreDataCached('orders', initialOrders, initTsMap),
@@ -24972,7 +25125,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     fetchStoreDataCached('danaOperasional', [], initTsMap),
                                     fetchStoreDataCached('bagiHasilPromosi', [], initTsMap),
                                     fetchStoreDataCached('labelTemplates', [], initTsMap)
-                                ]),
+                                    ];
+                                    // Hitung kemajuan pemuatan untuk layar "Memuat data… x dari y"
+                                    setLoadProgress({ done: 0, total: parts.length });
+                                    return Promise.all(parts.map(pr => Promise.resolve(pr).then(v => { setLoadProgress(prev => ({ ...prev, done: Math.min(prev.done + 1, prev.total) })); return v; })));
+                                })(),
                                 _fetchTimeout
                             ]);
 
@@ -25044,6 +25201,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 ? { ...tmpls, labelTemplates: (Array.isArray(remLabelTemplates) && remLabelTemplates.length) ? remLabelTemplates : (Array.isArray(tmpls.labelTemplates) ? tmpls.labelTemplates : (localTplFallback.labelTemplates || [])) }
                                 : localTplFallback;
                             setTemplates(mergedTpl2);
+                            // Simpan salinan pengaturan di perangkat (sama seperti saat refresh) agar pembukaan berikutnya tidak mengunduh ulang
+                            if (tmpls && typeof tmpls === 'object') safeLocalSet('simpati_templates_sync', JSON.stringify(mergedTpl2));
                             if (Array.isArray(remInvestors)) {
 
                                 const next = mergeRecordLists(loadLocalData('simpati_investors_sync', []), remInvestors);
@@ -25110,6 +25269,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 if (JSON.stringify(next) !== JSON.stringify(initTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', next), 0);
                             }
                             supabaseLoadedRef.current = true;
+                            commitFetchedTimestamps();
                             setTimeout(() => seedRemoteTimestamps(['accounts','employees','orders','rekapKinerja','riwayatPengiriman','expenses','invoices','clients','templates','manualPurchases','investors','investorBagiHasil','drivers','driverTarifs','driverTransactions','driverRekapGaji','driverKasbon','stockItems','absensiEdits','absensiRawLogs','kartu_kredit','transaksi_kartu','purchaseNotes','danaOperasional','bagiHasilPromosi']), 2000);
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });
                         } catch (error) {
@@ -25807,8 +25967,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
                 const remote = data?.data;
                 if (Array.isArray(remote)) {
+                    // Isi sama persis dengan yang sedang dipakai -> tidak perlu disimpan/dihitung ulang (Laporan Kinerja berat)
+                    const remoteJson = JSON.stringify(remote);
+                    if (remoteJson === JSON.stringify(absensiRawLogsRef.current || [])) return absensiRawLogsRef.current;
                     setAbsensiRawLogs(remote);
-                    safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(remote));
+                    safeLocalSet('simpati_absensiRawLogs_sync', remoteJson);
                     return remote;
                 }
                 return loadLocalData('simpati_absensiRawLogs_sync', []);
@@ -25839,6 +26002,40 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     document.removeEventListener('visibilitychange', onVisible);
                 };
             }, [isReady, authUser, activeTab]);
+
+            // Laporan ukuran data untuk kartu "Ukuran Data" (Pengaturan Cetak, khusus Admin). Hanya membaca.
+            const getDataSizeReport = () => {
+                const items = [
+                    ['orders', 'Order', orders], ['invoices', 'Invoice', invoices], ['absensiRawLogs', 'Scan Absensi (mesin)', absensiRawLogs],
+                    ['employees', 'Karyawan', employees], ['clients', 'Klien / Instansi', clients], ['expenses', 'Biaya', expenses],
+                    ['purchaseNotes', 'Pembelian Bahan', purchaseNotes], ['rekapKinerja', 'Rekap Kinerja', rekapKinerja], ['riwayatPengiriman', 'Pengiriman', riwayatPengiriman],
+                    ['templates', 'Pengaturan (logo, tanda tangan, label)', templates], ['absensiEdits', 'Koreksi Absensi', absensiEdits], ['danaOperasional', 'Dana Operasional', danaOperasional],
+                    ['bagiHasilPromosi', 'Bagi Hasil Promosi', bagiHasilPromosi], ['manualPurchases', 'Pembelian Manual', manualPurchases], ['investors', 'Investor', investors],
+                    ['investorBagiHasil', 'Bagi Hasil Investor', investorBagiHasil], ['drivers', 'Driver', drivers], ['driverTarifs', 'Tarif Driver', driverTarifs],
+                    ['driverTransactions', 'Transaksi Driver', driverTransactions], ['driverRekapGaji', 'Rekap Gaji Driver', driverRekapGaji], ['driverKasbon', 'Kasbon Driver', driverKasbon],
+                    ['stockItems', 'Stock Barang', stockItems], ['kartu_kredit', 'Kartu Kredit', kartuKredit], ['transaksi_kartu', 'Transaksi Kartu', transaksiKartu],
+                    ['accounts', 'Akun', accounts]
+                ];
+                const photoRe = /data:image\/[a-zA-Z+.-]+;base64,[A-Za-z0-9+/=]+/g;
+                const rows = items.map(([key, label, val]) => {
+                    let json = '';
+                    try { json = JSON.stringify(val ?? null) || ''; } catch {}
+                    const found = json.match(photoRe) || [];
+                    const localKey = STORE_LOCAL_KEYS[key];
+                    let onDevice = null;
+                    if (localKey) { try { onDevice = window.localStorage.getItem(localKey) !== null; } catch { onDevice = false; } }
+                    return { key, label, bytes: json.length, photos: found.length, photoBytes: found.reduce((sum, f) => sum + f.length, 0), onDevice };
+                }).sort((a, b) => b.bytes - a.bytes);
+                let deviceUsed = 0;
+                try { for (let i = 0; i < window.localStorage.length; i++) { const k = window.localStorage.key(i) || ''; deviceUsed += k.length + (window.localStorage.getItem(k) || '').length; } } catch {}
+                return {
+                    rows, at: new Date(), deviceUsed,
+                    total: rows.reduce((sum, r) => sum + r.bytes, 0),
+                    photos: rows.reduce((sum, r) => sum + r.photos, 0),
+                    photoBytes: rows.reduce((sum, r) => sum + r.photoBytes, 0),
+                    missing: rows.filter(r => r.onDevice === false && r.bytes > 2).length
+                };
+            };
 
             // Akun yang tidak bisa membuka Laporan Kinerja / Absensi Finger tidak perlu mengunduh data scan
             // (±1 MB) setiap ada perubahan data — hemat kuota HP karyawan.
@@ -26075,11 +26272,48 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return <span title="Semua data sudah tersimpan di cloud" className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap ${dark ? 'text-emerald-400' : 'text-emerald-600'}`}>✓ Tersimpan</span>;
             };
 
+            const handleLoginSuccess = (user) => {
+                setAuthUser(user);
+                saveAuthSession(user);
+                // Migrasi password lama hanya setelah semua data termuat (efek di atas juga menjalankannya saat siap)
+                if (isReady) setTimeout(() => migrateAccountPasswords(accounts), 500);
+                showToast(`Selamat datang, ${user.name}!`, 'success');
+                const userAccess = getAccountMenuAccess(user);
+                if (user.role === 'Karyawan' && userAccess.includes('produksi')) {
+                    setActiveTab('produksi');
+                } else {
+                    setActiveTab(userAccess.includes('dashboard') ? 'dashboard' : (userAccess[0] || 'dashboard'));
+                }
+            };
+
+            // Data akun sudah ada tapi data lain masih dimuat: tampilkan login lebih dulu
+            if (!isReady && earlyLogin && !authUser) {
+                return (
+                    <>
+                        <LoginView
+                            onLogin={handleLoginSuccess}
+                            accounts={earlyLogin.accounts}
+                            templates={earlyLogin.templates || templates}
+                            showToast={showToast}
+                            accountsFromFallback={false}
+                        />
+                        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    </>
+                );
+            }
+
             if (!isReady) {
                 return (
                     <div className="flex h-screen items-center justify-center bg-slate-900 text-white flex-col">
                         <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
                         <h2 className="text-xl font-bold tracking-wider">Memuat Data Aplikasi...</h2>
+                        {loadProgress.total > 0 && (
+                            <div className="mt-4 w-56 max-w-[80vw]">
+                                <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${Math.round(loadProgress.done / loadProgress.total * 100)}%` }}></div></div>
+                                <p className="text-xs text-slate-400 text-center mt-2">{loadProgress.done} dari {loadProgress.total} jenis data</p>
+                            </div>
+                        )}
+                        {authUser && <p className="text-xs text-slate-400 mt-2">Masuk sebagai {authUser.name}</p>}
                     </div>
                 );
             }
@@ -26170,18 +26404,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return (
                     <>
                         <LoginView 
-                            onLogin={(user) => {
-                                setAuthUser(user);
-                                saveAuthSession(user);
-                                setTimeout(() => migrateAccountPasswords(accounts), 500);
-                                showToast(`Selamat datang, ${user.name}!`, 'success'); 
-                                const userAccess = getAccountMenuAccess(user);
-                                if (user.role === 'Karyawan' && userAccess.includes('produksi')) {
-                                    setActiveTab('produksi');
-                                } else {
-                                    setActiveTab(userAccess.includes('dashboard') ? 'dashboard' : (userAccess[0] || 'dashboard'));
-                                }
-                            }} 
+                            onLogin={handleLoginSuccess}
                             accounts={accounts}
                             templates={templates}
                             showToast={showToast}
@@ -26397,7 +26620,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={orders} templates={templates} showToast={showToast} /></div>}
                                 {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
-                                {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} /></div>}
+                                {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} getDataSizeReport={authUser?.role === 'Admin' ? getDataSizeReport : null} /></div>}
                                 {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} authUser={authUser} /></div>}
                                 {tabMounted('stock_barang', canOpen('stock_barang')) && <div hidden={!tabVisible('stock_barang')}><StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('absensi_finger', canOpen('absensi_finger')) && <div hidden={!tabVisible('absensi_finger')}><AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} authUser={authUser} accounts={accounts} /></div>}
