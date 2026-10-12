@@ -28146,7 +28146,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <span>Total selisih gaji karena edit</span>
                                                 <span className="tabular-nums text-red-700">{rp(data.rows.reduce((s, r) => s + (r.isHarian ? r.pengaruh : 0), 0))}</span>
                                             </div>
-                                            <p className="text-[11px] text-gray-500 mt-2">Selisih karena edit = gaji setelah diedit dikurangi gaji jika memakai scan asli mesin (+ berarti gaji bertambah karena edit) (mengikuti aturan shift, Batas Scan dan toleransi yang berlaku sekarang). Klik nama untuk melihat rinciannya.</p>
+                                            <p className="text-[11px] text-gray-500 mt-2">Selisih karena edit = gaji setelah diedit dikurangi gaji jika memakai scan asli mesin, mengikuti aturan shift, Batas Scan dan toleransi yang berlaku sekarang. Tanda + berarti gaji bertambah karena edit. Klik nama untuk melihat rinciannya.</p>
                                         </div>
                                     )}
                                 </div>
