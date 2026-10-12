@@ -19037,6 +19037,7 @@ ${getRekapShareLink(rekap)}
                         <div className="mb-4 max-w-md">
                             <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari username, nama, role, karyawan..." />
                         </div>
+                        <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead><tr className="bg-gray-50 border-b"><th className="p-3 text-sm">Username</th><th className="p-3 text-sm">Nama</th><th className="p-3 text-sm">Role</th><th className="p-3 text-sm text-center">Aksi</th></tr></thead>
                             <tbody>
@@ -19064,6 +19065,7 @@ ${getRekapShareLink(rekap)}
                                 )}
                             </tbody>
                         </table>
+                        </div>
                         <Paginator page={accPage} setPage={setAccPage} totalPages={accTotalPages} total={accTotal} pageSize={20} label="akun" />
                     </Card>
 
