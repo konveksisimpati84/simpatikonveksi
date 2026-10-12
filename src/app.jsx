@@ -26693,7 +26693,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 { id: 'laporan', label: 'Laporan', icon: <IconBarChart /> },
                             ].filter(t => navItems.some(n => n.id === t.id));
                             return (
-                                <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-700 flex z-[150] print:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                                <div className="app-bottom-nav lg:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-700 flex z-[150] print:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                                     {bottomTabs.map(tab => (
                                         <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMobileNav(false); }}
                                             className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] transition-colors ${activeTab === tab.id ? 'text-blue-400' : 'text-slate-400 active:text-white'}`}>

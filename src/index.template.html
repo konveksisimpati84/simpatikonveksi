@@ -37,6 +37,15 @@
         .app-shell-root { height: 100vh; height: 100dvh; }
         /* Selama aplikasi tampil, halaman utama dikunci; yang digulir hanya isi menu */
         html.app-shell-active, html.app-shell-active body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+        /* Pop-up & halaman penuh: pakai tinggi layar yang terlihat (Safari iPad menghitung vh lebih tinggi
+           sehingga tombol paling bawah keluar layar). Browser lama tanpa dvh tetap memakai nilai vh bawaan. */
+        .max-h-\[90vh\] { max-height: 90dvh !important; }
+        .max-h-\[92vh\] { max-height: 92dvh !important; }
+        .max-h-\[60vh\] { max-height: 60dvh !important; }
+        .h-screen { height: 100dvh !important; }
+        .min-h-screen { min-height: 100dvh !important; }
+        /* Menu bawah (HP & iPad tegak) disembunyikan selama ada pop-up, agar tidak menutupi tombol Simpan/Batal */
+        body:has(.fixed.inset-0:not([hidden] *)) .app-bottom-nav { display: none; }
 
         @media print {
             .app-shell-root { height: auto; }
