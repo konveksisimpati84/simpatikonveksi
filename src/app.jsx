@@ -27297,17 +27297,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const mStdMasuk = timeToMinutes(shiftConfig?.jamMasuk || jamMasukConfig), mStdPulang = timeToMinutes(shiftConfig?.jamPulang || jamPulangConfig);
                 const std = (mStdMasuk != null && mStdPulang != null) ? mStdPulang - mStdMasuk : 0;
                 const rateKurang = safeMoney(emp.rateKurang) || 0, rateLebih = safeMoney(emp.rateLebih) || 0;
-                let harian = 0, lembur = 0;
-                if (m.jamMasuk && m.jamPulang) {
-                    let adj = 0;
-                    if (std > 0 && (rateKurang > 0 || rateLebih > 0)) {
-                        const sel = hitungLebihKurangMenit((timeToMinutes(m.jamPulang) - timeToMinutes(m.jamMasuk)) - std, toleransiMenit);
-                        if (sel !== 0) adj = sel > 0 ? Math.round((sel / 60) * rateLebih) : -Math.round((Math.abs(sel) / 60) * rateKurang);
-                    }
-                    harian = Math.max(0, (safeMoney(emp.dailySalary) || 0) + adj);
+                const hadir = !!(m.jamMasuk && m.jamPulang);
+                const pokok = hadir ? (safeMoney(emp.dailySalary) || 0) : 0;
+                let adj = 0, lembur = 0;
+                if (hadir && std > 0 && (rateKurang > 0 || rateLebih > 0)) {
+                    const sel = hitungLebihKurangMenit((timeToMinutes(m.jamPulang) - timeToMinutes(m.jamMasuk)) - std, toleransiMenit);
+                    if (sel !== 0) adj = sel > 0 ? Math.round((sel / 60) * rateLebih) : -Math.round((Math.abs(sel) / 60) * rateKurang);
                 }
+                const harian = hadir ? Math.max(0, pokok + adj) : 0;
                 if ((m.lemburMenit || 0) >= 60) lembur = Math.max(0, (Math.round(m.lemburMenit / 60 * 10) / 10) * (safeMoney(emp.overtimeRate) || 0));
-                return harian + lembur;
+                return { hadir, pokok, adj, lembur, total: harian + lembur };
             };
             const CEK_JAM_FIELDS = ['jamMasuk', 'jamPulang', 'jamLemburMasuk', 'jamLemburPulang'];
             const buildCekScanEmp = (emp, month, logsByKey) => {
@@ -27334,10 +27333,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     else if (entries.length === 0 && !used.jamMasuk) kategori = 'kosong';
                     else if (!(used.jamMasuk && used.jamPulang)) kategori = 'tidak_lengkap';
                     else if ((raw.rawMasuk && raw.jamMasuk && raw.rawMasuk !== raw.jamMasuk) || (raw.rawPulang && raw.jamPulang && raw.rawPulang !== raw.jamPulang)) kategori = 'batas';
-                    const pengaruh = (isHarian && changed.length > 0) ? hitungGajiHariAbsensi(used, emp, shiftConfig) - hitungGajiHariAbsensi(raw, emp, shiftConfig) : 0;
+                    const gaji = isHarian ? hitungGajiHariAbsensi(used, emp, shiftConfig) : null;
+                    const gajiTanpaEdit = (isHarian && changed.length > 0) ? hitungGajiHariAbsensi(raw, emp, shiftConfig) : gaji;
+                    const pengaruh = (isHarian && changed.length > 0) ? gaji.total - gajiTanpaEdit.total : 0;
                     days.push({
                         dateStr, d, entries: [...entries].sort((a, b) => a.jam > b.jam ? 1 : -1).map(e => e.jam),
-                        raw, used, override, changed, kategori, pengaruh, history,
+                        raw, used, override, changed, kategori, pengaruh, gaji, gajiTanpaEdit, history,
                         hadir: !!(used.jamMasuk && used.jamPulang), lamaTanpaRiwayat: !!override && history.length === 0,
                     });
                 }
@@ -27962,6 +27963,21 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             const HARI = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
                             const tglLabel = (dateStr) => { const dt = new Date(dateStr + 'T00:00:00'); return `${HARI[dt.getDay()]}, ${dateStr.slice(8, 10)} ${dt.toLocaleDateString('id-ID', { month: 'short' }).replace('.', '')}`; };
                             const rp = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}Rp ${Math.abs(Math.round(n)).toLocaleString('id-ID')}`;
+                            const rpAbs = (n) => `Rp ${Math.abs(Math.round(n)).toLocaleString('id-ID')}`;
+                            // "Rp 80.000 − Rp 61.900 (kurang jam) = Rp 18.100" (sama dengan rincian nota gaji)
+                            const rumusGaji = (g) => {
+                                const parts = [];
+                                if (g.hadir) parts.push({ teks: rpAbs(g.pokok) });
+                                if (g.hadir && g.adj < 0) parts.push({ op: '−', teks: `${rpAbs(g.adj)} (kurang jam)`, cls: 'text-red-700' });
+                                if (g.hadir && g.adj > 0) parts.push({ op: '+', teks: `${rpAbs(g.adj)} (lebih jam)`, cls: 'text-emerald-700' });
+                                if (g.lembur > 0) parts.push({ op: g.hadir ? '+' : '', teks: `${rpAbs(g.lembur)} (lembur)`, cls: 'text-emerald-700' });
+                                if (parts.length === 1 && g.hadir) return <b>{rpAbs(g.total)}</b>;
+                                return (<>
+                                    {parts.map((p, i) => <React.Fragment key={i}>{p.op ? ` ${p.op} ` : ''}<span className={p.cls || ''}>{p.teks}</span></React.Fragment>)}
+                                    {' = '}<b>{rpAbs(g.total)}</b>
+                                    {g.hadir && g.pokok + g.adj < 0 && <span className="text-gray-500 font-normal"> (gaji harian minimal Rp 0)</span>}
+                                </>);
+                            };
                             const jamPair = (m) => m.jamMasuk || m.jamPulang ? `${m.jamMasuk || '—'} – ${m.jamPulang || '—'}` : '—';
                             const FIELD_LABEL = { jamMasuk: 'Masuk', jamPulang: 'Pulang', jamLemburMasuk: 'Masuk lembur', jamLemburPulang: 'Pulang lembur', note: 'Catatan' };
                             const histText = (h) => {
@@ -28018,10 +28034,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     <div className="bg-orange-50 rounded-lg py-1.5"><div className="text-xl font-black tabular-nums text-orange-700">{r.diedit}</div><div className="text-[10px] font-bold text-gray-600">diedit</div></div>
                                                 </div>
                                                 <div className={`flex justify-between items-center gap-2 mt-2 rounded-lg px-3 py-2 border ${r.pengaruh !== 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                    <span className={`text-xs font-bold ${r.pengaruh !== 0 ? 'text-red-900' : 'text-gray-600'}`}>Pengaruh edit ke gaji bulan ini</span>
+                                                    <span className={`text-xs font-bold ${r.pengaruh !== 0 ? 'text-red-900' : 'text-gray-600'}`}>{r.isHarian && r.pengaruh > 0 ? 'Tambahan gaji karena edit (bulan ini)' : r.isHarian && r.pengaruh < 0 ? 'Potongan gaji karena edit (bulan ini)' : 'Selisih gaji karena edit (bulan ini)'}</span>
                                                     <span className={`text-lg font-black tabular-nums whitespace-nowrap shrink-0 ${r.pengaruh !== 0 ? 'text-red-700' : 'text-gray-500'}`}>{r.isHarian ? rp(r.pengaruh) : '—'}</span>
                                                 </div>
-                                                {!r.isHarian && <div className="text-[11px] text-gray-500 mt-1">Karyawan ini tidak bergaji harian, jadi pengaruh ke gaji tidak dihitung.</div>}
+                                                {!r.isHarian && <div className="text-[11px] text-gray-500 mt-1">Karyawan ini tidak bergaji harian, jadi gaji per hari dan selisih karena edit tidak dihitung.</div>}
                                             </div>
                                             <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
                                                 <input type="checkbox" checked={cekBedaSaja} onChange={e => setCekBedaSaja(e.target.checked)} /> Tampilkan yang berbeda saja
@@ -28051,14 +28067,26 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     {x.used.lebihKurangMenit < 0 && <span className="text-gray-500 font-normal"> (−{durasiLabel(-x.used.lebihKurangMenit)})</span>}
                                                                     {(x.used.jamLemburMasuk || x.used.jamLemburPulang) && <span className={x.changed.includes('jamLemburMasuk') || x.changed.includes('jamLemburPulang') ? 'text-orange-700 font-bold' : 'text-gray-600 font-normal'}> · lembur {x.used.jamLemburMasuk || '—'}–{x.used.jamLemburPulang || '—'}</span>}
                                                                 </span>
+                                                                {x.gaji && (x.gaji.hadir || x.gaji.lembur > 0) && (<>
+                                                                    <span className="text-gray-500">Gaji hari ini</span>
+                                                                    <span className="tabular-nums min-w-0">{rumusGaji(x.gaji)}</span>
+                                                                </>)}
                                                             </div>
                                                         )}
                                                         {x.kategori === 'tidak_lengkap' && <div className="text-[11.5px] text-amber-800 mt-1">{x.used.jamMasuk ? 'Tidak ada scan pulang' : 'Tidak ada scan masuk'}, hari ini tidak dihitung hadir sampai dikoreksi.</div>}
                                                         {x.kategori === 'batas' && <div className="text-[11.5px] text-blue-800 mt-1">Scan di luar Batas Scan dianggap jam batas (aturan shift, bukan diedit orang).</div>}
                                                         {x.kategori === 'diedit' && (
                                                             <div className="text-[11.5px] mt-1 text-gray-700">
-                                                                Sebelum diedit: <span className="tabular-nums">{jamPair(x.raw)}</span>
-                                                                {r.isHarian && <> · Pengaruh ke gaji: <b className={x.pengaruh > 0 ? 'text-red-700' : x.pengaruh < 0 ? 'text-emerald-700' : 'text-gray-600'}>{rp(x.pengaruh)}</b>{!(x.raw.jamMasuk && x.raw.jamPulang) && x.hadir ? ' (hari jadi dihitung hadir)' : ''}</>}
+                                                                Tanpa edit: <span className="tabular-nums">{jamPair(x.raw)}</span>
+                                                                {x.gajiTanpaEdit && (<>
+                                                                    {' → '}
+                                                                    {x.gajiTanpaEdit.hadir
+                                                                        ? <b className="tabular-nums">{rpAbs(x.gajiTanpaEdit.total)}</b>
+                                                                        : <span>tidak hadir (<b className="tabular-nums">{rpAbs(x.gajiTanpaEdit.total)}</b>{x.gajiTanpaEdit.total > 0 ? ' lembur' : ''})</span>}
+                                                                    {x.gajiTanpaEdit.hadir && (x.pengaruh === 0
+                                                                        ? <span className="text-gray-500"> · gaji tidak berubah</span>
+                                                                        : <span className={x.pengaruh > 0 ? 'text-red-700' : 'text-emerald-700'}> · {x.pengaruh > 0 ? 'naik' : 'turun'} <b className="tabular-nums">{rpAbs(x.pengaruh)}</b> karena edit</span>)}
+                                                                </>)}
                                                             </div>
                                                         )}
                                                         {(x.history.length > 0 || x.lamaTanpaRiwayat) && (
@@ -28082,7 +28110,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <div className="overflow-x-auto">
                                             <table className="w-full text-[12.5px]">
                                                 <thead><tr className="text-[10px] uppercase tracking-wide text-gray-500 text-left border-b-2">
-                                                    <th className="py-2 px-1.5">Karyawan</th><th className="py-2 px-1.5 text-right">Hadir</th><th className="py-2 px-1.5 text-right">Diedit</th><th className="py-2 px-1.5 text-right">Pengaruh gaji</th>
+                                                    <th className="py-2 px-1.5">Karyawan</th><th className="py-2 px-1.5 text-right">Hadir</th><th className="py-2 px-1.5 text-right">Diedit</th><th className="py-2 px-1.5 text-right">Selisih karena edit</th>
                                                 </tr></thead>
                                                 <tbody>
                                                     {data.rows.map(r => (
@@ -28099,10 +28127,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 </tbody>
                                             </table>
                                             <div className="flex justify-between font-extrabold text-sm border-t-2 border-gray-900 mt-2 pt-2">
-                                                <span>Total pengaruh edit</span>
+                                                <span>Total selisih gaji karena edit</span>
                                                 <span className="tabular-nums text-red-700">{rp(data.rows.reduce((s, r) => s + (r.isHarian ? r.pengaruh : 0), 0))}</span>
                                             </div>
-                                            <p className="text-[11px] text-gray-500 mt-2">Pengaruh gaji = gaji setelah diedit dikurangi gaji jika memakai scan asli mesin (mengikuti aturan shift, Batas Scan dan toleransi yang berlaku sekarang). Klik nama untuk melihat rinciannya.</p>
+                                            <p className="text-[11px] text-gray-500 mt-2">Selisih karena edit = gaji setelah diedit dikurangi gaji jika memakai scan asli mesin (+ berarti gaji bertambah karena edit) (mengikuti aturan shift, Batas Scan dan toleransi yang berlaku sekarang). Klik nama untuk melihat rinciannya.</p>
                                         </div>
                                     )}
                                 </div>
