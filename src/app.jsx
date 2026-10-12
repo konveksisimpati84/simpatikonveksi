@@ -1128,19 +1128,34 @@
             printModeState.logoSrc = tpl.companyLogo || '';
         };
         const hookPrintWindow = (w) => {
-            let done = false;
+            let done = false, thermal = false, revertThermal = null;
+            const sharpenThermal = (strict) => {
+                if (revertThermal) { try { revertThermal(); } catch (e) {} }
+                revertThermal = sharpenPrintDocument(w.document, { strict, logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc });
+            };
             const apply = () => {
                 if (done) return;
                 try {
                     const doc = w.document;
                     if (!doc || !doc.body || !doc.body.firstChild) return;
                     done = true;
-                    const mode = getEffectivePrintMode();
-                    sharpenPrintDocument(doc, { strict: mode === 'tajam' || isThermalPrintDoc(doc), logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc });
+                    thermal = isThermalPrintDoc(doc);
+                    if (!thermal) {
+                        sharpenPrintDocument(doc, { strict: getEffectivePrintMode() === 'tajam', logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc });
+                        return;
+                    }
+                    // Struk thermal: merah/hijau tetap tampil di layar, hitam pekat hanya saat dicetak
+                    sharpenThermal(false);
+                    w.addEventListener('beforeprint', () => { try { sharpenThermal(true); } catch (e) {} });
+                    w.addEventListener('afterprint', () => { try { sharpenThermal(false); } catch (e) {} });
                 } catch (e) { console.warn('Penajam cetak gagal:', e); }
             };
             const nativePrint = w.print;
-            w.print = function () { apply(); return nativePrint.call(w); };
+            w.print = function () {
+                apply();
+                if (thermal) { try { sharpenThermal(true); } catch (e) {} }
+                return nativePrint.call(w);
+            };
             try {
                 const d = w.document;
                 const nativeClose = d.close;
