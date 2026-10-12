@@ -24073,6 +24073,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const getTsCache = () => { try { return JSON.parse(localStorage.getItem(TS_CACHE_KEY) || '{}'); } catch { return {}; } };
             const setTsCache = (map) => { try { localStorage.setItem(TS_CACHE_KEY, JSON.stringify(map)); } catch {} };
             const updateTsCache = (key, ts) => { const c = getTsCache(); c[key] = ts; setTsCache(c); };
+            // Kapan salinan tiap data terakhir dipastikan sama dengan cloud (ms). Salinan hanya dipercaya maks. 6 jam,
+            // sebagai jaring pengaman bila catatan perubahan di cloud sempat tertimpa perangkat lain.
+            const TS_VERIFIED_KEY = 'simpati_ts_verified_at';
+            const CACHE_TRUST_MS = 6 * 60 * 60 * 1000;
+            const getVerifiedMap = () => { try { return JSON.parse(localStorage.getItem(TS_VERIFIED_KEY) || '{}') || {}; } catch { return {}; } };
+            const markVerified = (key) => { try { const m = getVerifiedMap(); m[key] = Date.now(); localStorage.setItem(TS_VERIFIED_KEY, JSON.stringify(m)); } catch {} };
 
             // Ambil timestamps dari meta-row '_timestamps' di Supabase (1 request ringan)
             const fetchRemoteTimestamps = async () => {
@@ -24093,8 +24099,20 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     existing[key] = ts;
                     await supabaseClient.from('app_data').upsert({ id: '_timestamps', data: existing });
                 };
+                // Dua perangkat yang menyimpan bersamaan bisa saling menimpa catatan ini: baca ulang sebentar
+                // kemudian, dan tulis ulang bila catatan kita hilang (maks. 3x).
+                const verifyStillSet = async () => {
+                    for (let i = 0; i < 3; i++) {
+                        await new Promise(r => setTimeout(r, 600 + Math.floor(Math.random() * 900)));
+                        const { data } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                        const cur = (data?.data && typeof data.data === 'object') ? data.data[key] : null;
+                        if (cur && cur >= ts) return;
+                        await tryUpdate();
+                    }
+                };
                 try {
                     await tryUpdate();
+                    verifyStillSet().catch(() => {});
                 } catch {
                     try {
                         await new Promise(r => setTimeout(r, 2000));
@@ -24148,9 +24166,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const localKey = STORE_LOCAL_KEYS[key];
                 if (localTs && remoteTs && localTs >= remoteTs) {
                     // Pakai salinan perangkat hanya bila salinannya benar-benar masih ada
-                    // (bisa terhapus otomatis saat memori browser penuh) — kalau tidak, ambil dari cloud.
+                    // (bisa terhapus otomatis saat memori browser penuh) dan dipastikan sama dengan cloud
+                    // dalam 6 jam terakhir — kalau tidak, ambil dari cloud.
                     if (!localKey) return loadLocalData(`simpati_${key}_sync`, defaultVal);
-                    if (localCopyExists(localKey)) return loadLocalData(localKey, defaultVal);
+                    const verifiedAt = getVerifiedMap()[key];
+                    if (localCopyExists(localKey) && verifiedAt && Date.now() - verifiedAt < CACHE_TRUST_MS) return loadLocalData(localKey, defaultVal);
                 }
                 const meta = {};
                 const data = await fetchStoreData(key, defaultVal, meta);
@@ -24185,6 +24205,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         if (stored !== null && fetchedJson !== null && stored === fetchedJson) {
                             const cur = getTsCache()[key];
                             if (!cur || cur < info.ts) updateTsCache(key, info.ts);
+                            markVerified(key);
                         } else {
                             left.push([key, info]);
                         }
@@ -25425,6 +25446,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         ok = true;
                         const now = new Date().toISOString();
                         updateTsCache(key, now);
+                        markVerified(key);
                         setTimeout(() => updateRemoteTimestamp(key, now), 0);
                     }
                 } catch (err) {
