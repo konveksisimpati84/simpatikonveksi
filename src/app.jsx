@@ -27971,7 +27971,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 if (g.hadir && g.adj < 0) parts.push({ op: '−', teks: `${rpAbs(g.adj)} (kurang jam)`, cls: 'text-red-700' });
                                 if (g.hadir && g.adj > 0) parts.push({ op: '+', teks: `${rpAbs(g.adj)} (lebih jam)`, cls: 'text-emerald-700' });
                                 if (g.lembur > 0) parts.push({ op: g.hadir ? '+' : '', teks: `${rpAbs(g.lembur)} (lembur)`, cls: 'text-emerald-700' });
-                                if (parts.length === 1 && g.hadir) return <b>{rpAbs(g.total)}</b>;
+                                if (parts.length === 1) return g.hadir ? <b>{rpAbs(g.total)}</b> : <><b>{rpAbs(g.total)}</b> <span className="text-gray-500">(lembur saja, tidak hadir)</span></>;
                                 return (<>
                                     {parts.map((p, i) => <React.Fragment key={i}>{p.op ? ` ${p.op} ` : ''}<span className={p.cls || ''}>{p.teks}</span></React.Fragment>)}
                                     {' = '}<b>{rpAbs(g.total)}</b>
