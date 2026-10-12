@@ -13918,7 +13918,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null }) => {
+        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null, absensiRawSync = 'idle', onRetryAbsensiRaw = null }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
@@ -15789,6 +15789,17 @@ ${getRekapShareLink(rekap)}
                         <h2 className="text-2xl font-bold text-gray-800">Laporan & Rekap Kinerja Karyawan</h2>
                         <p className="text-sm text-gray-500 mt-1">Input laporan kinerja dan rekap gaji produksi berada dalam satu menu.</p>
                     </div>
+                    {absensiRawSync === 'loading' && (
+                        <div className="flex items-center gap-2 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                            <IconRefresh spinning={true} /> Mengambil data scan absensi terbaru…
+                        </div>
+                    )}
+                    {absensiRawSync === 'error' && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                            <span className="flex-1 min-w-0">⚠ Gagal mengambil data scan absensi terbaru (cek internet). Gaji harian/lembur dari absensi bisa belum memuat scan terakhir.</span>
+                            {onRetryAbsensiRaw && <button type="button" onClick={onRetryAbsensiRaw} className="bg-white border border-red-300 text-red-700 px-3 py-1 rounded-lg">Coba lagi</button>}
+                        </div>
+                    )}
                     <div className="flex gap-4 border-b border-gray-200 pb-2">
                         <button onClick={() => setActiveReportTab('input')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Input Kinerja</button>
                         <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
@@ -23716,6 +23727,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [stockItems, setStockItems] = useState([]);
             const [absensiEdits, setAbsensiEdits] = useState([]);
             const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
+            const needsAbsensiRawRef = useRef(true);
             const [templates, setTemplates] = useState({});
             // Mode cetak bawaan (Pengaturan Cetak) untuk penajam cetak; tiap perangkat bisa menimpa sendiri
             applyPrintSettingsFromTemplates(templates);
@@ -24555,7 +24567,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     fetchStoreDataCached('driverKasbon', [], remoteTsMap),
                     fetchStoreDataCached('stockItems', [], remoteTsMap),
                     fetchStoreDataCached('absensiEdits', [], remoteTsMap),
-                    fetchStoreDataCached('absensiRawLogs', [], remoteTsMap),
+                    (needsAbsensiRawRef.current ? fetchStoreDataCached('absensiRawLogs', [], remoteTsMap) : Promise.resolve(null)),
                     fetchStoreDataCached('kartu_kredit', [], remoteTsMap),
                     fetchStoreDataCached('transaksi_kartu', [], remoteTsMap),
                     fetchStoreDataCached('purchaseNotes', [], remoteTsMap),
@@ -25784,20 +25796,56 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
+            // Ambil data scan mesin terbaru langsung dari cloud (tanpa cache). Melempar error bila gagal,
+            // agar menu yang memanggil tahu data mungkin belum terbaru.
             const refreshAbsensiRawLogs = async () => {
                 if (!supabaseClient) return loadLocalData('simpati_absensiRawLogs_sync', []);
-                try {
-                    const remote = await fetchStoreData('absensiRawLogs', []);
-                    if (Array.isArray(remote)) {
-                        setAbsensiRawLogs(remote);
-                        safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(remote));
-                    }
-                    return Array.isArray(remote) ? remote : [];
-                } catch(err) {
-                    console.error('Gagal refresh absensiRawLogs:', err);
-                    return loadLocalData('simpati_absensiRawLogs_sync', []);
+                const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', 'absensiRawLogs').single();
+                if (error && error.code !== 'PGRST116') {
+                    console.error('Gagal refresh absensiRawLogs:', error);
+                    throw new Error(error.message || 'Gagal mengambil data absensi');
                 }
+                const remote = data?.data;
+                if (Array.isArray(remote)) {
+                    setAbsensiRawLogs(remote);
+                    safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(remote));
+                    return remote;
+                }
+                return loadLocalData('simpati_absensiRawLogs_sync', []);
             };
+
+            // Laporan Kinerja (rekap gaji) selalu memakai scan mesin terbaru: ambil ulang dari cloud setiap
+            // menu dibuka / aplikasi kembali dilihat. Sebelumnya bisa memakai salinan lama di perangkat bila
+            // menu Absensi Finger belum dibuka.
+            const [absensiRawSync, setAbsensiRawSync] = useState('idle'); // idle | loading | ok | error
+            const absensiRawSyncAtRef = useRef(0);
+            const syncAbsensiRawForLaporan = (force = false) => {
+                if (!force && Date.now() - absensiRawSyncAtRef.current < 30000) return;
+                absensiRawSyncAtRef.current = Date.now();
+                setAbsensiRawSync('loading');
+                refreshAbsensiRawLogs()
+                    .then(() => setAbsensiRawSync('ok'))
+                    .catch(() => { absensiRawSyncAtRef.current = 0; setAbsensiRawSync('error'); });
+            };
+            useEffect(() => {
+                if (!isReady || !authUser || activeTab !== 'laporan') return;
+                syncAbsensiRawForLaporan();
+                const onFocus = () => syncAbsensiRawForLaporan();
+                const onVisible = () => { if (!document.hidden) syncAbsensiRawForLaporan(); };
+                window.addEventListener('focus', onFocus);
+                document.addEventListener('visibilitychange', onVisible);
+                return () => {
+                    window.removeEventListener('focus', onFocus);
+                    document.removeEventListener('visibilitychange', onVisible);
+                };
+            }, [isReady, authUser, activeTab]);
+
+            // Akun yang tidak bisa membuka Laporan Kinerja / Absensi Finger tidak perlu mengunduh data scan
+            // (±1 MB) setiap ada perubahan data — hemat kuota HP karyawan.
+            needsAbsensiRawRef.current = !authUser || (() => {
+                const menus = new Set(getAccountMenuAccess(authUser));
+                return menus.has('laporan') || menus.has('absensi_finger');
+            })();
 
             useEffect(() => {
                 const legacyTabRedirects = {
@@ -26339,7 +26387,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} /></div>}
                                 {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></div>}
+                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => syncAbsensiRawForLaporan(true)} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('klien_instansi', canOpen('klien_instansi')) && <div hidden={!tabVisible('klien_instansi')}><ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} /></div>}

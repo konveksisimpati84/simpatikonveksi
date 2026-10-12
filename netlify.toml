@@ -1,6 +1,13 @@
 [build]
   publish = "."
 
+# Program server absensi (dipakai di PC konveksi) tidak ikut dibuka di website
+[[redirects]]
+  from = "/server-absensi/*"
+  to = "/index.html"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

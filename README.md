@@ -197,6 +197,18 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
 
 ---
 
+## Server Absensi Finger (PC konveksi)
+
+File `server-absensi/backend_terpadu_absensi_konveksi.js` adalah program server yang berjalan di PC konveksi
+(folder `C:\AbsensiServer`). Mesin AT-620 mengirim scan ke server ini, lalu server mengirimnya ke Supabase
+(`app_data` id `absensiRawLogs`) dan memperbarui `_timestamps.absensiRawLogs` (paling sering 1x per 5 menit)
+agar aplikasi di semua perangkat tahu ada scan baru.
+
+Cara memperbarui di PC: tutup jendela CMD server, cadangkan file lama, salin file baru dengan nama yang sama
+ke `C:\AbsensiServer`, lalu jalankan `start_absensi_server.bat`. Jangan mengganti/menghapus `absensi_logs.json`.
+
+---
+
 ## Changelog Versi Terbaru
 
 - ✅ Fix: Komisi marketing tidak lagi menghitung saldo klien yang di-link ke invoice
