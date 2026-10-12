@@ -790,10 +790,13 @@
             return null;
         };
 
-        const usePagination = (items, pageSize = 20) => {
+        // resetKey (opsional): bila berubah (mis. kata pencarian/filter), kembali ke halaman 1
+        const usePagination = (items, pageSize = 20, resetKey = undefined) => {
             const [page, setPage] = React.useState(1);
             const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
             React.useEffect(() => { if (page > totalPages) setPage(Math.max(1, totalPages)); }, [totalPages]);
+            const firstResetRef = React.useRef(true);
+            React.useEffect(() => { if (firstResetRef.current) { firstResetRef.current = false; return; } setPage(1); }, [resetKey]);
             const safeP = Math.min(page, totalPages);
             const start = (safeP - 1) * pageSize;
             return { page: safeP, setPage, totalPages, paged: items.slice(start, start + pageSize), total: items.length };
@@ -813,14 +816,14 @@
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100 print:hidden">
                     <div className="text-xs text-gray-500">Menampilkan <span className="font-bold text-gray-700">{from}–{to}</span> dari <span className="font-bold text-gray-700">{total}</span> {label}</div>
                     <div className="flex items-center gap-1">
-                        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                        <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                             className="px-2.5 py-1.5 rounded text-sm font-bold border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
                         {pages.map((p, i) => p === '...'
                             ? <span key={`e${i}`} className="px-1.5 text-gray-400 text-sm">…</span>
-                            : <button key={p} onClick={() => setPage(p)}
+                            : <button type="button" key={p} onClick={() => setPage(p)}
                                 className={`px-2.5 py-1.5 rounded text-sm font-bold border transition-colors ${page === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-100'}`}>{p}</button>
                         )}
-                        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                        <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                             className="px-2.5 py-1.5 rounded text-sm font-bold border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
                     </div>
                 </div>
@@ -1185,6 +1188,33 @@
             catch (e) { try { localStorage.removeItem(HPP_CACHE_PREFIX + key); } catch (e2) {} } // penuh: lewati salinan untuk data ini
         };
         const hppJson = (v) => JSON.stringify(v === undefined ? null : v);
+        // Siapkan Kalkulator HPP di belakang (setelah aplikasi selesai dimuat & sedang tidak sibuk), agar saat menu
+        // dibuka ikon, grafik, dan datanya sudah ada. Data cloud hanya disalin ke perangkat bila salinan HPP di
+        // perangkat tidak punya perubahan yang belum terkirim (kalau ada, penggabungan tetap dilakukan menu HPP).
+        const HPP_PREFETCH_KEYS = [
+            'hpp_custom_presets', 'hpp_hidden_builtin_presets', 'hpp_master_materials', 'hpp_master_labor', 'hpp_panduan_bahan',
+            'hpp_saved_orders', 'hpp_saved_quotations', 'hpp_price_list_items', 'hpp_price_list_title', 'hpp_price_list_note',
+            'hpp_price_list_date', 'hpp_saved_price_lists'
+        ];
+        const prefetchHppMenu = async (client) => {
+            try { loadFontAwesome(); } catch (e) {}
+            try { loadChartJs().catch(() => {}); } catch (e) {}
+            if (!client) return;
+            const one = async (key) => {
+                try {
+                    const { data, error } = await client.from('app_data').select('data').eq('id', key);
+                    if (error) return;
+                    const row = Array.isArray(data) ? data[0] : null;
+                    if (!row) return;
+                    const c = readHppCache(key); // dicek tepat sebelum disimpan
+                    if (c && hppJson(c.value) !== hppJson(c.base)) return;
+                    writeHppCache(key, row.data, row.data);
+                } catch (e) {}
+            };
+            // Data kecil (preset, bahan, ongkos, panduan) dulu, lalu data besar
+            await Promise.all(HPP_PREFETCH_KEYS.slice(0, 5).map(one));
+            await Promise.all(HPP_PREFETCH_KEYS.slice(5).map(one));
+        };
         const hppItemKey = (item) => (item !== null && typeof item === 'object')
             ? (item.id !== undefined && item.id !== null && item.id !== '' ? 'o:' + String(item.id) : null)
             : 's:' + String(item);
@@ -2154,6 +2184,9 @@
                 .filter(o => !o?.isArchived && o?.status !== 'Terkirim')
                 .filter(o => matchesSearch(orderSearchFields(o), searchTerm))
                 .sort((a, b) => new Date(a.deadline || 0) - new Date(b.deadline || 0));
+            // Tampilan biasa dibagi per halaman (24 kartu); mode layar TV tetap menampilkan semua antrean
+            const QUEUE_PAGE_SIZE = 24;
+            const { page: queuePage, setPage: setQueuePage, totalPages: queueTotalPages, paged: pagedQueueOrders, total: queueTotal } = usePagination(sortedOrders, QUEUE_PAGE_SIZE, searchTerm);
 
             const openTVModeFullscreen = async () => {
                 setIsLocked(false);
@@ -2191,8 +2224,9 @@
                 return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
             }, [isTVMode, setIsTVMode]);
 
-            const renderCards = (isDark = false) => {
-                return sortedOrders.map((order, index) => {
+            const renderCards = (isDark = false, list = sortedOrders, offset = 0) => {
+                return list.map((order, listIdx) => {
+                    const index = listIdx + offset; // nomor antrean tetap berurutan di halaman berikutnya
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
                     const deadlineDate = order.deadline ? new Date(order.deadline + 'T00:00:00') : new Date();
@@ -2360,11 +2394,12 @@
                         </div>
                         {sortedOrders.length > 0 ? (
                             <div className="flex flex-col gap-4">
-                                {renderCards(false)}
+                                {renderCards(false, pagedQueueOrders, (queuePage - 1) * QUEUE_PAGE_SIZE)}
                             </div>
                         ) : (
                             <div className="text-center py-10 text-gray-500 italic">{searchTerm ? 'Tidak ada antrean yang cocok dengan pencarian.' : 'Belum ada pesanan aktif.'}</div>
                         )}
+                        <Paginator page={queuePage} setPage={setQueuePage} totalPages={queueTotalPages} total={queueTotal} pageSize={QUEUE_PAGE_SIZE} label="antrean" />
                     </Card>
                 </div>
             );
@@ -2501,7 +2536,7 @@ body{font-family:'Arial',sans-serif;font-size:10pt;color:#1C1C2E;background:#fff
 .cv-header{background:#1C1C2E;color:#fff;padding:22px 28px 20px;position:relative;overflow:hidden}
 .cv-header-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
 .brand-area{display:flex;align-items:center;gap:10px}
-.brand-logo{max-height:40px;max-width:120px;object-fit:contain;display:block}
+.brand-logo{max-height:56px;max-width:200px;object-fit:contain;display:block}
 .co-name{font-size:11pt;font-weight:900;color:#fff;letter-spacing:.3px;line-height:1}
 .co-sub{font-size:7.5pt;color:rgba(255,255,255,.55);margin-top:2px;letter-spacing:.2px}
 .co-contact{font-size:7pt;color:rgba(255,255,255,.4);margin-top:1px}
@@ -3705,6 +3740,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 return 'normal';
             };
             const displayProductionOrders = colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders;
+            const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}`);
 
             const isKaryawanMode = authUser?.role === 'Karyawan';
             const myEmpData = isKaryawanMode ? visibleEmployees.find(e => (
@@ -3990,7 +4026,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
 body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;display:flex;flex-direction:column;}
 .header{flex-shrink:0;display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:8px;border-bottom:3px solid #1e3a5f;margin-bottom:10px}
 .brand{display:flex;align-items:center;gap:10px}
-.brand img{max-height:50px;max-width:130px;object-fit:contain}
+.brand img{max-height:72px;max-width:260px;object-fit:contain}
 .co-name{font-size:17px;font-weight:900;color:#1e3a5f;line-height:1.1}
 .co-info{font-size:10px;color:#64748b;margin-top:2px}
 .spk-right{text-align:right}
@@ -4695,7 +4731,7 @@ window.addEventListener('load',function(){
                         {colorFilter && <button onClick={() => setColorFilter(null)} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {displayProductionOrders.map(order => {
+                        {pagedProductionOrders.map(order => {
                             const today = new Date();
                             const deadlineDate = new Date(order.deadline);
                             const diffTime = deadlineDate - today;
@@ -4790,6 +4826,7 @@ window.addEventListener('load',function(){
                             <div className="col-span-full p-8 text-center text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang diproses.'}</div>
                         )}
                     </div>
+                    <Paginator page={prodPage} setPage={setProdPage} totalPages={prodTotalPages} total={prodTotal} pageSize={24} label="order" />
                 </div>
             );
         };
@@ -4854,9 +4891,9 @@ window.addEventListener('load',function(){
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .page{width:210mm;min-height:297mm;padding:12mm 14mm;display:flex;flex-direction:column}
-.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10mm;border-bottom:3px solid #1e3a5f}
+.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;border-bottom:3px solid #1e3a5f}
 .brand{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
-.brand img{max-height:55px;max-width:150px;object-fit:contain}
+.brand img{max-height:80px;max-width:280px;object-fit:contain}
 .brand-text .co-name{font-size:18px;font-weight:900;color:#1e3a5f;line-height:1.1;margin-top:2px}
 .brand-text .co-sub{font-size:10px;color:#64748b;margin-top:2px}
 .brand-text .co-contact{font-size:10px;color:#64748b;margin-top:1px}
@@ -5053,6 +5090,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 return 'belum';
             };
             const displayShipOrders = shipColorFilter ? filteredActiveOrders.filter(o => getShipOrderColorKey(o) === shipColorFilter) : filteredActiveOrders;
+            // Dikelompokkan per klien lalu dibagi per halaman (15 klien per halaman)
+            const shipClientGroups = Object.entries(displayShipOrders.reduce((acc, o) => { if (!acc[o.client]) acc[o.client] = []; acc[o.client].push(o); return acc; }, {}));
+            const { page: shipPage, setPage: setShipPage, totalPages: shipTotalPages, paged: pagedShipClientGroups, total: shipTotal } = usePagination(shipClientGroups, 15, `${searchTerm}|${shipColorFilter}`);
 
             if (activeShippingTab === 'riwayat') {
                 return (
@@ -5150,7 +5190,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {Object.entries(displayShipOrders.reduce((acc, o) => { if (!acc[o.client]) acc[o.client] = []; acc[o.client].push(o); return acc; }, {})).map(([clientName, clientOrders]) => {
+                                    {pagedShipClientGroups.map(([clientName, clientOrders]) => {
                                         const isExpanded = !!expandedClients[clientName];
                                         let hasRed = false, hasYellow = false, hasGreen = false, allDone = true;
                                         clientOrders.forEach(o => {
@@ -5244,6 +5284,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     })}
                                 </div>
                             )}
+                            <Paginator page={shipPage} setPage={setShipPage} totalPages={shipTotalPages} total={shipTotal} pageSize={15} label="klien" />
 
                             {/* Modal Kirim Gabungan Per Klien */}
                             {shipModalOrderId && (() => {
@@ -5375,6 +5416,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 });
                 return Object.entries(map).sort((a, b) => b[1].totalPcs - a[1].totalPcs);
             }, [riwayatPengiriman, orders, searchTerm]);
+            // Daftar dibagi per halaman (mode pilih cetak rekap tetap menampilkan semua klien)
+            const { page: rkPage, setPage: setRkPage, totalPages: rkTotalPages, paged: pagedRekapPerKlien, total: rkTotal } = usePagination(rekapPerKlien, 15, searchTerm);
+            const shownRekapPerKlien = isPrintMode ? rekapPerKlien : pagedRekapPerKlien;
+            const { page: rwPage, setPage: setRwPage, totalPages: rwTotalPages, paged: pagedRiwayatPengiriman, total: rwTotal } = usePagination(filteredRiwayatPengiriman, 20, searchTerm);
 
             const enterPrintMode = () => {
                 prevExpandedRef.current = { ...expandedClientKeys };
@@ -5537,9 +5582,9 @@ ${clientBlocks}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .page{width:210mm;min-height:297mm;padding:12mm 14mm;display:flex;flex-direction:column}
-.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10mm;border-bottom:3px solid #1e3a5f}
+.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;border-bottom:3px solid #1e3a5f}
 .brand{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
-.brand img{max-height:55px;max-width:150px;object-fit:contain}
+.brand img{max-height:80px;max-width:280px;object-fit:contain}
 .brand-text .co-name{font-size:18px;font-weight:900;color:#1e3a5f;line-height:1.1;margin-top:2px}
 .brand-text .co-sub{font-size:10px;color:#64748b;margin-top:2px}
 .brand-text .co-contact{font-size:10px;color:#64748b;margin-top:1px}
@@ -5778,7 +5823,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             <p className="text-sm text-gray-500 italic text-center py-4">Belum ada data pengiriman.</p>
                         ) : (
                             <div className="divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                {rekapPerKlien.map(([client, data]) => {
+                                {shownRekapPerKlien.map(([client, data]) => {
                                     const clientTypes = Object.keys(data.byType);
                                     const allClientChecked = clientTypes.length > 0 && clientTypes.every(t => checkedItems[`${client}|||${t}`]);
                                     const someClientChecked = clientTypes.some(t => checkedItems[`${client}|||${t}`]);
@@ -5863,6 +5908,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 })}
                             </div>
                         )}
+                        {!isPrintMode && <Paginator page={rkPage} setPage={setRkPage} totalPages={rkTotalPages} total={rkTotal} pageSize={15} label="klien" />}
                     </Card>
 
                     <Card>
@@ -5882,7 +5928,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredRiwayatPengiriman.map(riwayat => (
+                                    {pagedRiwayatPengiriman.map(riwayat => (
                                         <React.Fragment key={riwayat.id}>
                                         <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                                             <td className="p-3 text-sm text-gray-600">{riwayat.date}</td>
@@ -5932,7 +5978,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </table>
                         </div>
                         <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                            {filteredRiwayatPengiriman.map(riwayat => (
+                            {pagedRiwayatPengiriman.map(riwayat => (
                                 <div key={riwayat.id} className="px-4 py-3">
                                     <div className="flex items-start gap-3">
                                         <div className="flex-1 min-w-0">
@@ -5968,6 +6014,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 </div>
                             )}
                         </div>
+                        <Paginator page={rwPage} setPage={setRwPage} totalPages={rwTotalPages} total={rwTotal} pageSize={20} label="surat jalan" />
                     </Card>
 
                     {deleteConfirmId && (
@@ -5994,7 +6041,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [quickPayForm, setQuickPayForm] = useState({ date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
             const [noteSearch, setNoteSearch] = useState('');
             const [filterStatus, setFilterStatus] = useState('Semua');
+            // Daftar nota dibagi per halaman; ringkasan & total tetap dari semua nota
+            const NOTE_PAGE_SIZE = 15;
+            const [notePage, setNotePage] = useState(1);
             const [sortBy, setSortBy] = useState('terbaru');
+            useEffect(() => { setNotePage(1); }, [noteSearch, filterStatus, sortBy]);
             const [expandedNotes, setExpandedNotes] = useState({});
             const toggleNote = (id) => setExpandedNotes(p => ({ ...p, [id]: !p[id] }));
 
@@ -6184,6 +6235,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     return (b._syncUpdatedAt || '').localeCompare(a._syncUpdatedAt || '');
                 });
                 const useGrouped = sortBy === 'terbaru' || sortBy === 'terlama';
+                const noteTotalPages = Math.max(1, Math.ceil(notes.length / NOTE_PAGE_SIZE));
+                const safeNotePage = Math.min(notePage, noteTotalPages);
+                const pagedNotes = notes.slice((safeNotePage - 1) * NOTE_PAGE_SIZE, safeNotePage * NOTE_PAGE_SIZE);
+                const pagedNoteSet = new Set(pagedNotes);
+                const setNotePageSafe = (next) => setNotePage(prev => {
+                    const cur = Math.min(prev, noteTotalPages);
+                    const val = typeof next === 'function' ? next(cur) : next;
+                    return Math.max(1, Math.min(noteTotalPages, val));
+                });
                 // Stat cards selalu dari allNotes (global) agar tetap informatif saat filter aktif
                 const totalAll = allNotes.reduce((sum, n) => sum + noteTotal(n), 0);
                 const allLunas = allNotes.filter(n => noteStatus(n) === 'Lunas');
@@ -6845,6 +6905,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </div>
                         ) : useGrouped ? groupKeys.map(groupKey => {
                             const groupNotes = grouped[groupKey];
+                            const pageGroupNotes = groupNotes.filter(n => pagedNoteSet.has(n));
+                            if (pageGroupNotes.length === 0) return null;
                             const groupTotal = groupNotes.reduce((sum, n) => sum + noteTotal(n), 0);
                             return (
                                 <div key={groupKey}>
@@ -6865,16 +6927,17 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         </div>
                                     </div>
                                     <div className="space-y-2.5">
-                                        {groupNotes.map(renderNoteCard)}
+                                        {pageGroupNotes.map(renderNoteCard)}
                                     </div>
                                     <div className="mb-6"></div>
                                 </div>
                             );
                         }) : (
                             <div className="space-y-2.5">
-                                {notes.map(renderNoteCard)}
+                                {pagedNotes.map(renderNoteCard)}
                             </div>
                         )}
+                        {notes.length > 0 && <Paginator page={safeNotePage} setPage={setNotePageSafe} totalPages={noteTotalPages} total={notes.length} pageSize={NOTE_PAGE_SIZE} label="nota" />}
 
                         {/* Sticky summary bar for checked notes */}
                         {checkedNoteIds.size > 0 && (() => {
@@ -7830,6 +7893,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             });
             const totalIn = visibleExpenses.filter(item => item.type === 'Uang Masuk').reduce((sum, item) => sum + safeMoney(item.amount), 0);
             const totalOut = visibleExpenses.filter(item => item.type === 'Uang Keluar').reduce((sum, item) => sum + safeMoney(item.amount), 0);
+            // Daftar dibagi per halaman; total di atas tetap dihitung dari semua data yang tersaring
+            const { page: expPage, setPage: setExpPage, totalPages: expTotalPages, paged: pagedExpenses, total: expTotal } = usePagination(visibleExpenses, 20, `${searchTerm}|${typeFilter}|${payStatusFilter}|${monthFilter}`);
 
             const printReceipt = (item) => {
                 const safe = (value) => String(value ?? '-').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -7849,8 +7914,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const printContent = `<!DOCTYPE html><html><head><title>Bukti Transaksi ${safe(item.id)}</title><style>
 @page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .page{width:210mm;min-height:297mm;padding:12mm 14mm;display:flex;flex-direction:column}
-.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10mm;border-bottom:3px solid ${ac}}
-.brand{display:flex;flex-direction:column;align-items:flex-start;gap:5px}.brand img{max-height:55px;max-width:150px;object-fit:contain}
+.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;border-bottom:3px solid ${ac}}
+.brand{display:flex;flex-direction:column;align-items:flex-start;gap:5px}.brand img{max-height:80px;max-width:280px;object-fit:contain}
 .brand-text .co-name{font-size:18px;font-weight:900;color:${ac};line-height:1.1;margin-top:2px}.brand-text .co-sub{font-size:10px;color:#64748b;margin-top:2px}.brand-text .co-contact{font-size:10px;color:#64748b;margin-top:1px}
 .inv-right{text-align:right}.inv-right .inv-label{font-size:26px;font-weight:900;color:${ac};letter-spacing:-1px;line-height:1}
 .inv-right .inv-subtitle{font-size:12px;color:${isKeluar?'#dc2626':'#16a34a'};font-weight:700;margin-top:3px;letter-spacing:2px;text-transform:uppercase}
@@ -8232,7 +8297,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     <span className="w-28 text-center hidden lg:block">Status</span>
                                     <span className="flex-shrink-0 text-center">Aksi</span>
                                 </div>
-                                {visibleExpenses.map(item => {
+                                {pagedExpenses.map(item => {
                                     const paid = getExpensePaid(item);
                                     const total = safeMoney(item.amount);
                                     const remaining = Math.max(0, total - paid);
@@ -8380,6 +8445,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 })}
                             </div>
                         )}
+                        <Paginator page={expPage} setPage={setExpPage} totalPages={expTotalPages} total={expTotal} pageSize={20} label="transaksi" />
                     </Card>
                     </>}
                 </div>
@@ -8531,7 +8597,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const safe = (v) => String(v ?? '-').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
                 const amount = safeMoney(dp.amount);
                 const receiptNo = dp.id || `DP-${Date.now()}`;
-                const printContent = `<!DOCTYPE html><html><head><title>Kwt - ${safe(clientName || receiptNo)}</title><style>@page{size:A5 landscape;margin:8mm}body{font-family:Arial,Helvetica,sans-serif;color:#10264a;margin:0;background:#fff}.sheet{width:100%;box-sizing:border-box;padding:10px 12px 8px}.top{display:flex;justify-content:space-between;align-items:flex-start}.brand img{max-height:48px;max-width:150px;object-fit:contain}.brand-text{line-height:.95}.brand-small{font-size:18px;font-weight:900;color:#111}.brand-main{font-size:38px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-1px}.title{text-align:right}.title h1{font-size:32px;letter-spacing:8px;margin:4px 0 10px;color:#10264a}.no-row{font-size:14px}.line{border-bottom:3px solid #10264a;margin:14px 0 18px}.field{display:grid;grid-template-columns:160px 12px 1fr;gap:8px;align-items:end;font-size:14px;margin:10px 0}.dots{border-bottom:1.5px dotted #222;min-height:19px;padding:0 6px;color:#111}.amount-words{margin-left:180px;background:#eef1f5;border-bottom:1.5px dotted #222;min-height:25px;padding:6px 8px;font-size:12px;color:#111}.pay-lines{margin-left:180px}.pay-lines .dots{margin:10px 0}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px;align-items:start}.rp-box{width:270px;height:42px;border:2px solid #10264a;display:grid;grid-template-columns:70px 1fr;transform:skewX(-10deg);overflow:hidden}.rp-label,.rp-value{display:flex;align-items:center;padding:0 14px;transform:skewX(10deg);font-size:19px;font-weight:900}.rp-label{border-right:2px solid #10264a}.rp-value{background:#d0d8e6;color:#111}.sign{text-align:center;font-size:13px}.date-line{border-bottom:1.5px dotted #10264a;display:inline-block;min-width:200px;text-align:left;color:#111}.receiver{margin-top:16px}.name-line{display:inline-block;min-width:80px;border-bottom:1.5px dotted #10264a;margin-top:42px;color:#111}.sign-box{text-align:center;width:190px;position:relative}.sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:0;position:relative;z-index:0}.sign-img{max-height:110px;max-width:160px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}.sign-space{height:65px}.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}.sign-name{font-size:12px;font-weight:700;color:#10264a;text-decoration:underline;text-underline-offset:3px;position:relative;z-index:0}.sign-sub{font-size:10px;color:#64748b;margin-top:3px;position:relative;z-index:0}.cut-wrap{border:1.5px dashed #bbb;border-radius:3px;position:relative;margin:4px}.cut-scr{position:absolute;font-size:15px;color:#999;background:#fff;padding:0 3px;line-height:1}.cut-scr-tl{top:-10px;left:2px}.cut-scr-br{bottom:-10px;right:2px;transform:rotate(180deg)}</style></head><body><div class="cut-wrap"><div class="cut-scr cut-scr-tl">✂</div><div class="cut-scr cut-scr-br">✂</div><div class="sheet"><div class="top"><div class="brand">${(templates||{}).companyLogo ? `<img src="${(templates||{}).companyLogo}" />` : `<div class="brand-text"><div class="brand-small">Konveksi</div><div class="brand-main">Simpati</div></div>`}</div><div class="title"><h1>KWITANSI SALDO</h1><div class="no-row">No. &nbsp;: <span class="dots" style="display:inline-block;min-width:160px">${safe(receiptNo)}</span></div></div></div><div class="line"></div><div class="field"><div>Diterima dari</div><div>:</div><div class="dots">${safe(clientName || '-')}</div></div><div class="field"><div>Uang sejumlah</div><div>:</div><div class="dots">${formatRupiah(amount)}</div></div><div class="amount-words">${safe(terbilangRupiah(amount))}</div><div class="field"><div>Untuk pembayaran</div><div>:</div><div class="dots">Titipan Saldo Klien${dp.orderId ? ' / Order ' + safe(dp.orderId) : ''}</div></div><div class="pay-lines"><div class="dots">Metode: ${safe(dp.method || '-')}${dp.note ? ' &nbsp;|&nbsp; ' + safe(dp.note) : ''}</div></div><div class="bottom"><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${formatRupiah(amount).replace('Rp ', '').replace('Rp ', '')}</div></div><div class="sign"><div><span class="date-line">${safe(dp.date || toLocalDateStr())}</span></div><div class="sign-box" style="margin:12px auto 0"><div class="sign-title">Hormat Kami,</div>${(templates||{}).signatureImage?`<img class="sign-img" src="${(templates||{}).signatureImage}" alt="ttd"/>`:'<div class="sign-space"></div>'}<div class="sign-name" style="margin-top:6px">${safe((templates||{}).companyName||'Simpati Konveksi')}</div><div class="sign-sub">Administration</div></div></div></div></div></div></body></html>`;
+                const printContent = `<!DOCTYPE html><html><head><title>Kwt - ${safe(clientName || receiptNo)}</title><style>@page{size:A5 landscape;margin:8mm}body{font-family:Arial,Helvetica,sans-serif;color:#10264a;margin:0;background:#fff}.sheet{width:100%;box-sizing:border-box;padding:10px 12px 8px}.top{display:flex;justify-content:space-between;align-items:flex-start}.brand img{max-height:70px;max-width:240px;object-fit:contain}.brand-text{line-height:.95}.brand-small{font-size:18px;font-weight:900;color:#111}.brand-main{font-size:38px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-1px}.title{text-align:right}.title h1{font-size:32px;letter-spacing:8px;margin:4px 0 10px;color:#10264a}.no-row{font-size:14px}.line{border-bottom:3px solid #10264a;margin:14px 0 18px}.field{display:grid;grid-template-columns:160px 12px 1fr;gap:8px;align-items:end;font-size:14px;margin:10px 0}.dots{border-bottom:1.5px dotted #222;min-height:19px;padding:0 6px;color:#111}.amount-words{margin-left:180px;background:#eef1f5;border-bottom:1.5px dotted #222;min-height:25px;padding:6px 8px;font-size:12px;color:#111}.pay-lines{margin-left:180px}.pay-lines .dots{margin:10px 0}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px;align-items:start}.rp-box{width:270px;height:42px;border:2px solid #10264a;display:grid;grid-template-columns:70px 1fr;transform:skewX(-10deg);overflow:hidden}.rp-label,.rp-value{display:flex;align-items:center;padding:0 14px;transform:skewX(10deg);font-size:19px;font-weight:900}.rp-label{border-right:2px solid #10264a}.rp-value{background:#d0d8e6;color:#111}.sign{text-align:center;font-size:13px}.date-line{border-bottom:1.5px dotted #10264a;display:inline-block;min-width:200px;text-align:left;color:#111}.receiver{margin-top:16px}.name-line{display:inline-block;min-width:80px;border-bottom:1.5px dotted #10264a;margin-top:42px;color:#111}.sign-box{text-align:center;width:190px;position:relative}.sign-title{font-size:11px;font-weight:700;color:#374151;margin-bottom:0;position:relative;z-index:0}.sign-img{max-height:110px;max-width:160px;object-fit:contain;display:block;margin:-14px auto -22px;position:relative;z-index:2;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center}.sign-space{height:65px}.sign-line{border-bottom:1.5px solid #374151;margin-bottom:5px}.sign-name{font-size:12px;font-weight:700;color:#10264a;text-decoration:underline;text-underline-offset:3px;position:relative;z-index:0}.sign-sub{font-size:10px;color:#64748b;margin-top:3px;position:relative;z-index:0}.cut-wrap{border:1.5px dashed #bbb;border-radius:3px;position:relative;margin:4px}.cut-scr{position:absolute;font-size:15px;color:#999;background:#fff;padding:0 3px;line-height:1}.cut-scr-tl{top:-10px;left:2px}.cut-scr-br{bottom:-10px;right:2px;transform:rotate(180deg)}</style></head><body><div class="cut-wrap"><div class="cut-scr cut-scr-tl">✂</div><div class="cut-scr cut-scr-br">✂</div><div class="sheet"><div class="top"><div class="brand">${(templates||{}).companyLogo ? `<img src="${(templates||{}).companyLogo}" />` : `<div class="brand-text"><div class="brand-small">Konveksi</div><div class="brand-main">Simpati</div></div>`}</div><div class="title"><h1>KWITANSI SALDO</h1><div class="no-row">No. &nbsp;: <span class="dots" style="display:inline-block;min-width:160px">${safe(receiptNo)}</span></div></div></div><div class="line"></div><div class="field"><div>Diterima dari</div><div>:</div><div class="dots">${safe(clientName || '-')}</div></div><div class="field"><div>Uang sejumlah</div><div>:</div><div class="dots">${formatRupiah(amount)}</div></div><div class="amount-words">${safe(terbilangRupiah(amount))}</div><div class="field"><div>Untuk pembayaran</div><div>:</div><div class="dots">Titipan Saldo Klien${dp.orderId ? ' / Order ' + safe(dp.orderId) : ''}</div></div><div class="pay-lines"><div class="dots">Metode: ${safe(dp.method || '-')}${dp.note ? ' &nbsp;|&nbsp; ' + safe(dp.note) : ''}</div></div><div class="bottom"><div class="rp-box"><div class="rp-label">Rp.</div><div class="rp-value">${formatRupiah(amount).replace('Rp ', '').replace('Rp ', '')}</div></div><div class="sign"><div><span class="date-line">${safe(dp.date || toLocalDateStr())}</span></div><div class="sign-box" style="margin:12px auto 0"><div class="sign-title">Hormat Kami,</div>${(templates||{}).signatureImage?`<img class="sign-img" src="${(templates||{}).signatureImage}" alt="ttd"/>`:'<div class="sign-space"></div>'}<div class="sign-name" style="margin-top:6px">${safe((templates||{}).companyName||'Simpati Konveksi')}</div><div class="sign-sub">Administration</div></div></div></div></div></div></body></html>`;
                 const w = window.open('', '_blank');
                 if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up!", "error");
                 w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
@@ -8544,7 +8610,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const coSub = safe((tmpl||{}).companySubtitle||'');
                 const coContact = safe((tmpl||{}).companyContact||'');
                 const logoHtml = (tmpl||{}).companyLogo
-                    ? `<img src="${(tmpl||{}).companyLogo}" style="max-height:55px;max-width:150px;object-fit:contain"/>`
+                    ? `<img src="${(tmpl||{}).companyLogo}" style="max-height:70px;max-width:240px;object-fit:contain"/>`
                     : `<div class="brand-name">${coNm}</div>`;
                 const dpRowsHtml = dpRows.length === 0
                     ? '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:16px">Belum ada setoran</td></tr>'
@@ -8553,7 +8619,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const printContent = `<!DOCTYPE html><html><head><title>Saldo - ${safe(client?.name)}</title><style>
 @page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .page{width:210mm;min-height:297mm;padding:12mm 14mm;display:flex;flex-direction:column;gap:0}
-.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10mm;border-bottom:3px solid #1e3a5f}
+.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;border-bottom:3px solid #1e3a5f}
 .brand{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
 .brand-name{font-size:20px;font-weight:900;color:#1e3a5f;line-height:1.1}
 .brand-sub{font-size:10px;color:#64748b;margin-top:2px}
@@ -9523,9 +9589,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .page{width:210mm;min-height:297mm;padding:0;display:flex;flex-direction:column}
-.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10mm;border-bottom:3px solid #1e3a5f}
+.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;border-bottom:3px solid #1e3a5f}
 .brand{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
-.brand img{max-height:55px;max-width:150px;object-fit:contain}
+.brand img{max-height:80px;max-width:280px;object-fit:contain}
 .brand-text .co-name{font-size:18px;font-weight:900;color:#1e3a5f;line-height:1.1;margin-top:2px}
 .brand-text .co-sub{font-size:10px;color:#64748b;margin-top:2px}
 .brand-text .co-contact{font-size:10px;color:#64748b;margin-top:1px}
@@ -9662,7 +9728,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const printContent = `<!DOCTYPE html><html><head><title>Kwt - ${safe(inv.customer || inv.id)}</title><style>
 @page{size:A5 landscape;margin:8mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Arial',Helvetica,sans-serif;color:#10264a;background:#fff}
 .sheet{width:100%;padding:10px 12px 8px}.top{display:flex;justify-content:space-between;align-items:flex-start}
-.brand img{max-height:48px;max-width:150px;object-fit:contain}.brand-text{line-height:.95}
+.brand img{max-height:70px;max-width:240px;object-fit:contain}.brand-text{line-height:.95}
 .brand-konveksi{font-size:11px;font-weight:700;color:#10264a;font-style:italic;letter-spacing:1px;display:block}
 .brand-main{font-size:34px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-1px;line-height:1;font-family:Georgia,serif;display:block}
 .title-block{text-align:right}.kw-title{font-size:26px;font-weight:900;letter-spacing:5px;color:#10264a;line-height:1}
@@ -9722,7 +9788,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const printContent = `<!DOCTYPE html><html><head><title>Kwt Pelunasan - ${safe(inv.customer || inv.id)}</title><style>
 @page{size:A5 landscape;margin:8mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Arial',Helvetica,sans-serif;color:#10264a;background:#fff}
 .sheet{width:100%;padding:10px 12px 8px}.top{display:flex;justify-content:space-between;align-items:flex-start}
-.brand img{max-height:48px;max-width:150px;object-fit:contain}.brand-text{line-height:.95}
+.brand img{max-height:70px;max-width:240px;object-fit:contain}.brand-text{line-height:.95}
 .brand-konveksi{font-size:11px;font-weight:700;color:#10264a;font-style:italic;letter-spacing:1px;display:block}
 .brand-main{font-size:34px;font-weight:900;color:#e31b23;font-style:italic;letter-spacing:-1px;line-height:1;font-family:Georgia,serif;display:block}
 .title-block{text-align:right}.kw-title{font-size:26px;font-weight:900;letter-spacing:5px;color:#10264a;line-height:1}
@@ -11624,7 +11690,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 : `Bagi hasil dihitung sebesar <strong>${formatRupiah(investor.bagiHasilPerPcs)} untuk setiap pcs</strong> yang diproduksi dan tercatat dalam invoice yang telah lunas. Total bagi hasil = jumlah pcs terproduksi × ${formatRupiah(investor.bagiHasilPerPcs)}.`;
             const statusLabel = investor.isLunas ? 'Lunas ✦' : 'Aktif ✦';
             const logoHtml = (tmpl||{}).companyLogo
-                ? `<img src="${(tmpl||{}).companyLogo}" style="height:28px;max-width:90px;object-fit:contain"/>`
+                ? `<img src="${(tmpl||{}).companyLogo}" style="height:40px;max-width:140px;object-fit:contain"/>`
                 : `<div class="banner-icon">SK</div>`;
             const coNm = safe((tmpl||{}).companyName || 'SIMPATI KONVEKSI');
             const coSub = safe((tmpl||{}).companySubtitle || 'Konveksi Profesional');
@@ -11833,6 +11899,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const totalModalSemua = safeInvestors.reduce((s,inv) => s + (parseFloat(inv.modalMasuk)||0), 0);
             const totalBHSemua = safeInvestors.reduce((s,inv) => s + getTotalBH(inv.id), 0);
+            const { page: investorPage, setPage: setInvestorPage, totalPages: investorTotalPages, paged: pagedInvestors, total: investorTotal } = usePagination(safeInvestors, 15);
             const totalKewajibanSemua = totalModalSemua + totalBHSemua;
 
             return (
@@ -11920,7 +11987,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <Card><p className="text-center text-gray-400 italic py-8">Belum ada data investor. Klik "Tambah Investor" untuk memulai.</p></Card>
                     ) : (
                         <div className="space-y-4">
-                            {safeInvestors.map(investor => {
+                            {pagedInvestors.map(investor => {
                                 const totalBH = getTotalBH(investor.id);
                                 const totalKewajiban = getTotalKewajiban(investor);
                                 const status = getStatus(investor);
@@ -12015,6 +12082,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </Card>
                                 );
                             })}
+                            <Paginator page={investorPage} setPage={setInvestorPage} totalPages={investorTotalPages} total={investorTotal} pageSize={15} label="investor" />
                         </div>
                     )}
 
@@ -12549,6 +12617,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 ...safeArray(bagiHasilPromosi).filter(isVisibleRecord).flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
             ].filter(r => r.nominal > 0 && isInPeriod(r.date) && (!normalizedSearch || [r.date, r.ref, r.sumber, r.ket].join(' ').toLowerCase().includes(normalizedSearch)))
              .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)));
+            // Buku Kas: tabel dibagi per halaman (25 baris); TOTAL tetap dari semua baris pada periode/pencarian
+            const cashResetKey = `${period}|${searchTerm}|${employeeFilter}|${divisionFilter}|${cashAdvanceStatusFilter}`;
+            const { page: cashInPage, setPage: setCashInPage, totalPages: cashInTotalPages, paged: pagedCashInRows, total: cashInTotal } = usePagination(cashInRows, 25, cashResetKey);
+            const { page: cashOutPage, setPage: setCashOutPage, totalPages: cashOutTotalPages, paged: pagedCashOutRows, total: cashOutTotal } = usePagination(cashOutRows, 25, cashResetKey);
             const totalBebanKas = cashOutRows.reduce((s, r) => s + r.nominal, 0);
             // Tagihan periode ini yang belum dibayar — tidak masuk kas, ditampilkan terpisah agar tidak tersembunyi
             const unpaidExpenseTotal = expenseRows.filter(e => e.type === 'Uang Keluar').reduce((s, e) => s + Math.max(0, safeMoney(e.amount) - getExpensePaidEvents(e).reduce((ps, ev) => ps + ev.amount, 0)), 0);
@@ -13312,7 +13384,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {cashInRows.map((r, i) => (
+                                            {pagedCashInRows.map((r, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                                                     <td className="p-3">{r.date}</td>
                                                     <td className="p-3 font-mono text-xs">{r.ref}</td>
@@ -13332,7 +13404,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </table>
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                    {cashInRows.map((r, i) => (
+                                    {pagedCashInRows.map((r, i) => (
                                         <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -13353,6 +13425,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <span className="font-black text-green-800 text-sm">{formatRupiah(totalCashIn)}</span>
                                     </div>
                                 </div>
+                                <Paginator page={cashInPage} setPage={setCashInPage} totalPages={cashInTotalPages} total={cashInTotal} pageSize={25} label="transaksi kas masuk" />
                             </Card>
                             <Card>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4">Buku Kas Keluar</h3>
@@ -13368,7 +13441,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {cashOutRows.map((r, i) => (
+                                            {pagedCashOutRows.map((r, i) => (
                                                 <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
                                                     <td className="p-3">{r.date}</td>
                                                     <td className="p-3 font-mono text-xs">{r.ref}</td>
@@ -13388,7 +13461,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </table>
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                    {cashOutRows.map((r, i) => (
+                                    {pagedCashOutRows.map((r, i) => (
                                         <div key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -13409,6 +13482,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <span className="font-black text-red-800 text-sm">{formatRupiah(totalBebanKas)}</span>
                                     </div>
                                 </div>
+                                <Paginator page={cashOutPage} setPage={setCashOutPage} totalPages={cashOutTotalPages} total={cashOutTotal} pageSize={25} label="transaksi kas keluar" />
                                 {(unpaidExpenseTotal > 0 || unpaidWageTotal > 0) && (
                                     <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-1">
                                         <div className="font-bold">Tagihan periode ini yang belum dibayar (tidak masuk kas keluar):</div>
@@ -18619,9 +18693,9 @@ ${getRekapShareLink(rekap)}
                                         <label className="text-sm block mb-1">Ukuran logo di semua hasil cetak: <span className="font-bold text-blue-600">{logoSizePct}%</span></label>
                                         <input type="range" min="50" max="200" step="10" value={logoSizePct} onChange={e => setLocalTemplates(prev => ({ ...prev, logoSize: Number(e.target.value) }))} className="w-full max-w-md" />
                                         <div className="flex justify-between text-[10px] text-gray-400 max-w-md"><span>50%</span><span>100% (asli)</span><span>150%</span><span>200%</span></div>
-                                        <div className="mt-2 text-[11px] text-gray-500">Contoh di kop invoice (tinggi asli ±48 px → {Math.round(48 * logoSizePct / 100)} px):</div>
-                                        <div className="mt-1 bg-white border rounded p-2 inline-flex items-center" style={{ minHeight: 40 }}>
-                                            <img src={localTemplates.companyLogo} alt="Pratinjau logo" style={{ height: `${Math.round(48 * logoSizePct / 100)}px`, width: 'auto', maxWidth: '100%', objectFit: 'contain' }} />
+                                        <div className="mt-2 text-[11px] text-gray-500">Contoh di kop invoice (ukuran asli maks. 280 × 80 px → {Math.round(280 * logoSizePct / 100)} × {Math.round(80 * logoSizePct / 100)} px):</div>
+                                        <div className="mt-1 bg-white border rounded p-2 inline-flex items-center max-w-full" style={{ minHeight: 40 }}>
+                                            <img src={localTemplates.companyLogo} alt="Pratinjau logo" style={{ maxHeight: `${Math.round(80 * logoSizePct / 100)}px`, maxWidth: `min(100%, ${Math.round(280 * logoSizePct / 100)}px)`, width: 'auto', objectFit: 'contain' }} />
                                         </div>
                                         <p className="text-[11px] text-gray-500 mt-1">Ukuran tiap dokumen diperbesar/diperkecil dengan perbandingan yang sama, dan tidak melebihi lebar kertas. Disarankan 100–150%. Disimpan dengan tombol Simpan Pengaturan.</p>
                                     </div>
@@ -18785,6 +18859,7 @@ ${getRekapShareLink(rekap)}
                 const linkedEmp = acc.role === 'Karyawan' ? findEmployeeById(acc.linkedEmpId) : null;
                 return matchesSearch([acc.username, acc.name, acc.role, linkedEmp?.name, linkedEmp?.division], searchTerm);
             });
+            const { page: accPage, setPage: setAccPage, totalPages: accTotalPages, paged: pagedAccounts, total: accTotal } = usePagination(filteredAccounts, 20, searchTerm);
             // Akses khusus (bisa diatur juga untuk Admin). Tiap akses hanya bisa diubah oleh pemegangnya,
             // dan minimal satu akun aktif harus tetap memegang akses kunci (agar tidak terkunci).
             const masihAdaPemegang = (list, has) => (list || []).filter(isVisibleRecord).some(has);
@@ -18965,7 +19040,7 @@ ${getRekapShareLink(rekap)}
                         <table className="w-full text-left border-collapse">
                             <thead><tr className="bg-gray-50 border-b"><th className="p-3 text-sm">Username</th><th className="p-3 text-sm">Nama</th><th className="p-3 text-sm">Role</th><th className="p-3 text-sm text-center">Aksi</th></tr></thead>
                             <tbody>
-                                {filteredAccounts.map(acc => {
+                                {pagedAccounts.map(acc => {
                                     const linkedEmp = acc.role === 'Karyawan' ? findEmployeeById(acc.linkedEmpId) : null;
                                     return (
                                         <tr key={acc.id} className="border-b hover:bg-gray-50 transition-colors">
@@ -18989,6 +19064,7 @@ ${getRekapShareLink(rekap)}
                                 )}
                             </tbody>
                         </table>
+                        <Paginator page={accPage} setPage={setAccPage} totalPages={accTotalPages} total={accTotal} pageSize={20} label="akun" />
                     </Card>
 
                     {editAcc && (
@@ -19328,7 +19404,7 @@ th{background:#f3f4f6;font-size:10px}tr:nth-child(even){background:#f9fafb}
 .sisa{font-weight:900;font-size:13px;color:#dc2626}
 </style></head><body>
 <div style="text-align:center;border-bottom:2px dashed #111;padding-bottom:8px;margin-bottom:10px">
-${templates?.companyLogo?`<img src="${templates.companyLogo}" style="height:36px;margin-bottom:4px"><br>`:''}
+${templates?.companyLogo?`<img src="${templates.companyLogo}" style="max-height:60px;max-width:240px;object-fit:contain;margin-bottom:4px"><br>`:''}
 <h2>${templates?.companyName||'SIMPATI KONVEKSI'}</h2>
 <div style="font-size:11px">REKAP KASBON DRIVER</div>
 </div>
@@ -22849,7 +22925,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', borderBottom:'2px solid #1e293b', paddingBottom:'14px', marginBottom:'14px'}}>
                                                 <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
                                                     {coLogo
-                                                        ? <img src={coLogo} alt="Logo" style={{height:'48px', width:'auto', objectFit:'contain'}} />
+                                                        ? <img src={coLogo} alt="Logo" style={{maxHeight:'72px', maxWidth:'260px', width:'auto', objectFit:'contain'}} />
                                                         : <div style={{width:'44px', height:'44px', background:'#1e293b', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:900, fontSize:'18px'}}>S</div>
                                                     }
                                                     <div>
@@ -23018,7 +23094,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     {/* KOP */}
                                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', borderBottom:'2.5px solid #1e293b', paddingBottom:'14px', marginBottom:'14px'}}>
                                         <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
-                                            {coLogo ? <img src={coLogo} alt="Logo" style={{height:'52px', objectFit:'contain'}} /> : <div style={{width:'44px', height:'44px', background:'#1e293b', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:900, fontSize:`${(printFontSize*1.37).toFixed(1)}pt`}}>S</div>}
+                                            {coLogo ? <img src={coLogo} alt="Logo" style={{maxHeight:'72px', maxWidth:'260px', objectFit:'contain'}} /> : <div style={{width:'44px', height:'44px', background:'#1e293b', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:900, fontSize:`${(printFontSize*1.37).toFixed(1)}pt`}}>S</div>}
                                             <div>
                                                 <div style={{fontWeight:800, fontSize:`${(printFontSize*1.37).toFixed(1)}pt`, color:'#0f172a'}}>{coName}</div>
                                                 {coSub && <div style={{fontSize:`${(printFontSize*0.89).toFixed(1)}pt`, color:'#64748b'}}>{coSub}</div>}
@@ -26059,6 +26135,24 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 };
             };
 
+            // Kalkulator HPP disiapkan di belakang ±5 detik setelah aplikasi siap (sekali per sesi, hanya akun yang punya akses)
+            const hppPrefetchedRef = useRef(false);
+            useEffect(() => {
+                if (!isReady || !authUser || hppPrefetchedRef.current) return;
+                if (!getAccountMenuAccess(authUser).includes('hpp_kalkulator')) return;
+                let idleId = null;
+                const t = setTimeout(() => {
+                    const run = () => {
+                        if (hppPrefetchedRef.current) return;
+                        hppPrefetchedRef.current = true;
+                        prefetchHppMenu(supabaseClient);
+                    };
+                    if (typeof window.requestIdleCallback === 'function') idleId = window.requestIdleCallback(run, { timeout: 5000 });
+                    else run();
+                }, 5000);
+                return () => { clearTimeout(t); if (idleId && typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleId); };
+            }, [isReady, authUser]);
+
             // Akun yang tidak bisa membuka Laporan Kinerja / Absensi Finger tidak perlu mengunduh data scan
             // (±1 MB) setiap ada perubahan data — hemat kuota HP karyawan.
             needsAbsensiRawRef.current = !authUser || (() => {
@@ -27017,7 +27111,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const coNm = safe((tmpl||{}).companyName || 'SIMPATI KONVEKSI');
                 const coSub = safe((tmpl||{}).companySubtitle || 'Konveksi Profesional');
                 const logoHtml = (tmpl||{}).companyLogo
-                    ? `<img src="${(tmpl||{}).companyLogo}" style="height:32px;max-width:100px;object-fit:contain"/>`
+                    ? `<img src="${(tmpl||{}).companyLogo}" style="height:44px;max-width:150px;object-fit:contain"/>`
                     : `<div class="brand-icon">SK</div>`;
                 const signHtml = ((tmpl||{}).signatureImage && (tmpl||{}).showSignatureOnPrint !== false)
                     ? `<img src="${(tmpl||{}).signatureImage}" style="max-height:52px;max-width:150px;object-fit:contain;display:block;margin:0 auto"/>`
@@ -28587,6 +28681,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
                 return true;
             }).sort();
+            const { page: stockPage, setPage: setStockPage, totalPages: stockTotalPages, paged: pagedClientList, total: stockTotal } = usePagination(filteredClientList, 20, `${filterClient}|${searchTerm}`);
 
             const toggleClient = (cKey) => {
                 setExpandedClients(prev => {
@@ -28631,7 +28726,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             <div className="text-center py-10 text-gray-400 italic">Belum ada data stock barang.</div>
                         ) : (
                             <div className="space-y-2">
-                                {filteredClientList.map(cKey => {
+                                {pagedClientList.map(cKey => {
                                     const itemMap = rekapPerClient[cKey];
                                     const itemList = Object.values(itemMap);
                                     const totalSaldo = itemList.reduce((s, i) => s + (i.masuk - i.keluar), 0);
@@ -28688,6 +28783,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 })}
                             </div>
                         )}
+                        <Paginator page={stockPage} setPage={setStockPage} totalPages={stockTotalPages} total={stockTotal} pageSize={20} label="klien" />
                     </Card>
 
                     {historyItem && (() => {
