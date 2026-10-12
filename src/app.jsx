@@ -1112,7 +1112,7 @@
                 style.remove();
             };
         };
-        // Struk thermal (kertas 58/80 mm) hanya bisa hitam: selalu mode tajam.
+        // Struk thermal (kertas 58/80 mm): di layar tetap berwarna, saat dicetak ikut Mode Cetak.
         // Dikenali dari ukuran halaman @page (bukan sembarang angka mm, mis. tinggi hiasan 72mm di sertifikat A4)
         const isThermalPrintDoc = (doc) => {
             try {
@@ -1144,16 +1144,16 @@
                         sharpenPrintDocument(doc, { strict: getEffectivePrintMode() === 'tajam', logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc });
                         return;
                     }
-                    // Struk thermal: merah/hijau tetap tampil di layar, hitam pekat hanya saat dicetak
+                    // Struk thermal: warna asli di layar; saat dicetak ikut Mode Cetak (Tajam = hitam pekat, Warna = tetap berwarna)
                     sharpenThermal(false);
-                    w.addEventListener('beforeprint', () => { try { sharpenThermal(true); } catch (e) {} });
+                    w.addEventListener('beforeprint', () => { try { sharpenThermal(getEffectivePrintMode() === 'tajam'); } catch (e) {} });
                     w.addEventListener('afterprint', () => { try { sharpenThermal(false); } catch (e) {} });
                 } catch (e) { console.warn('Penajam cetak gagal:', e); }
             };
             const nativePrint = w.print;
             w.print = function () {
                 apply();
-                if (thermal) { try { sharpenThermal(true); } catch (e) {} }
+                if (thermal) { try { sharpenThermal(getEffectivePrintMode() === 'tajam'); } catch (e) {} }
                 return nativePrint.call(w);
             };
             try {
@@ -1174,7 +1174,7 @@
             // Cetak langsung dari halaman (slip gaji di link share, Kalkulator HPP): tajamkan sementara, kembalikan setelah cetak
             let revertMain = null;
             window.addEventListener('beforeprint', () => {
-                try { if (revertMain) revertMain(); revertMain = sharpenPrintDocument(document, { strict: getEffectivePrintMode() === 'tajam' || isThermalPrintDoc(document), logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc }); } catch (e) { revertMain = null; }
+                try { if (revertMain) revertMain(); revertMain = sharpenPrintDocument(document, { strict: getEffectivePrintMode() === 'tajam', logoFactor: getPrintLogoFactor(), logoSrc: printModeState.logoSrc }); } catch (e) { revertMain = null; }
             });
             window.addEventListener('afterprint', () => { try { if (revertMain) revertMain(); } catch (e) {} revertMain = null; });
         };
@@ -18688,7 +18688,8 @@ ${getRekapShareLink(rekap)}
                             <div className="mt-3 text-xs text-gray-600 bg-gray-50 border rounded-lg p-3 space-y-1">
                                 <div><b>Tajam:</b> semua tulisan dicetak hitam pekat, garis tabel dipertegas. Paling jelas untuk printer hitam-putih.</div>
                                 <div><b>Warna:</b> warna dipertahankan, tapi tulisan yang terlalu pucat digelapkan agar tetap terbaca.</div>
-                                <div>Struk thermal selalu dicetak hitam pekat. Pastikan juga printer tidak dalam mode Draft/Hemat Tinta.</div>
+                                <div><b>Struk thermal</b> (slip gaji, kasbon, dll) ikut mode ini. Perangkat yang tersambung ke printer thermal sebaiknya <b>Tajam</b> agar hasil tidak pucat; perangkat untuk simpan PDF/kirim ke karyawan bisa dipilih <b>Warna</b> agar potongan merah & tambahan hijau ikut tampil.</div>
+                                <div>Pastikan juga printer tidak dalam mode Draft/Hemat Tinta.</div>
                             </div>
                         </Card>
                         <Card>
