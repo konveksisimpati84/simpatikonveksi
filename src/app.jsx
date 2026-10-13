@@ -571,82 +571,6 @@
             return { ...note, payments: [] };
         };
 
-        // ===== Deteksi nota pembelian kembar (cegah input & bayar dobel) =====
-        // 'kuat'  = sangat mungkin nota yang sama; 'mirip' = perlu dicek
-        const NOTA_DOBEL_HARI_KUAT = 7;
-        const NOTA_DOBEL_HARI_MIRIP = 60;
-        const notaVendorKey = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
-        const notaTokoKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const notaItemsKey = (note) => safeArray(note?.items).filter(it => String(it?.name || '').trim())
-            .map(it => [String(it.name).toLowerCase().replace(/\s+/g, ' ').trim(), getMaterialQty(it), getMaterialUnitPrice(it)].join('|'))
-            .sort().join(';');
-        const notaDobelInfo = (note) => {
-            const t = Date.parse(String(note?.date || '') + 'T00:00:00Z');
-            return {
-                id: note?.id, vendor: notaVendorKey(note?.vendor), toko: notaTokoKey(note?.noNotaToko), items: notaItemsKey(note),
-                total: noteTotal(note || {}), day: Number.isFinite(t) ? t / 86400000 : null,
-                orders: new Set(safeArray(note?.items).map(it => String(it?.orderId || '').trim()).filter(Boolean)),
-                ack: new Set(safeArray(note?.bukanDobelDengan).map(String)),
-            };
-        };
-        // Bandingkan dua nota (info dari notaDobelInfo). null = tidak mirip / sudah dikonfirmasi bukan dobel
-        const notaDobelLevel = (a, b) => {
-            if (!a || !b || a.id === b.id) return null;
-            if ((a.id && b.ack.has(String(a.id))) || (b.id && a.ack.has(String(b.id)))) return null;
-            const sameVendor = !!a.vendor && a.vendor === b.vendor;
-            const sameTotal = a.total > 0 && Math.abs(a.total - b.total) < 1;
-            const selisih = (a.day != null && b.day != null) ? Math.round(Math.abs(a.day - b.day)) : null;
-            const dekat = (n) => selisih != null && selisih <= n;
-            const sameItems = !!a.items && a.items === b.items;
-            const reasons = [];
-            let level = null;
-            if (a.toko && a.toko === b.toko && (sameVendor || sameTotal)) { level = 'kuat'; reasons.push('No. nota toko sama'); }
-            if (sameVendor && sameTotal && dekat(NOTA_DOBEL_HARI_KUAT)) { level = 'kuat'; reasons.push(selisih === 0 ? 'Vendor & total sama, tanggal sama' : `Vendor & total sama, selisih ${selisih} hari`); }
-            if (sameVendor && sameItems && dekat(NOTA_DOBEL_HARI_MIRIP)) { level = 'kuat'; reasons.push('Vendor & daftar item sama persis'); }
-            if (!level && sameVendor && sameTotal && dekat(NOTA_DOBEL_HARI_MIRIP)) { level = 'mirip'; reasons.push(`Vendor & total sama, selisih ${selisih} hari`); }
-            if (!level && !sameVendor && sameItems && dekat(NOTA_DOBEL_HARI_MIRIP) && [...a.orders].some(o => b.orders.has(o))) { level = 'mirip'; reasons.push('Item & order sama (nama vendor beda)'); }
-            return level ? { level, reasons, selisih } : null;
-        };
-        const urutDobel = (x, y) => (x.level === y.level ? 0 : x.level === 'kuat' ? -1 : 1) || ((x.selisih ?? 9999) - (y.selisih ?? 9999));
-        // Cari nota lain yang mirip dengan satu nota (dipakai saat simpan & bayar)
-        const findNotaMirip = (note, allNotes) => {
-            const a = notaDobelInfo(note);
-            const out = [];
-            safeArray(allNotes).forEach(o => {
-                if (!isVisibleRecord(o) || (note?.id && o.id === note.id)) return;
-                const r = notaDobelLevel(a, notaDobelInfo(o));
-                if (r) out.push({ note: o, ...r });
-            });
-            return out.sort(urutDobel);
-        };
-        // Peta semua nota yang punya kembaran: id -> [{ note, level, reasons, selisih }]
-        const buildNotaDobelMap = (allNotes) => {
-            const notes = safeArray(allNotes).filter(isVisibleRecord);
-            const infos = notes.map(notaDobelInfo);
-            const buckets = new Map();
-            const put = (k, i) => { if (!k) return; if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(i); };
-            infos.forEach((inf, i) => { if (inf.vendor) put('v:' + inf.vendor, i); if (inf.items) put('i:' + inf.items, i); if (inf.toko) put('t:' + inf.toko, i); });
-            const map = new Map();
-            const seen = new Set();
-            buckets.forEach(idx => {
-                for (let x = 0; x < idx.length; x++) for (let y = x + 1; y < idx.length; y++) {
-                    const i = idx[x], j = idx[y];
-                    const key = i < j ? i + ':' + j : j + ':' + i;
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    const r = notaDobelLevel(infos[i], infos[j]);
-                    if (!r) continue;
-                    [[i, j], [j, i]].forEach(([p, q]) => {
-                        const id = notes[p].id;
-                        if (!map.has(id)) map.set(id, []);
-                        map.get(id).push({ note: notes[q], ...r });
-                    });
-                }
-            });
-            map.forEach(list => list.sort(urutDobel));
-            return map;
-        };
-
         const getWorkLogTakenQty = (log) => parseInt(log?.qty) || 0;
         const getWorkLogSubmittedQty = (log) => parseInt(log?.submittedQty ?? log?.qty) || 0;
         const getWorkLogEffectiveQty = (log) => log?.checkAfter ? getWorkLogSubmittedQty(log) : getWorkLogTakenQty(log);
@@ -6124,26 +6048,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        // Satu baris info nota kembar (di kartu nota & kotak konfirmasi)
-        const NotaMiripRow = ({ m, onBukanDobel }) => {
-            const n = m.note;
-            const st = noteStatus(n);
-            const ringkasItem = safeArray(n.items).slice(0, 2).map(it => `${it.name || '-'} ${it.qty || 0} ${it.unit || ''}`.trim()).join(', ') + (safeArray(n.items).length > 2 ? `, +${safeArray(n.items).length - 2} item` : '');
-            return (
-                <div className="flex items-start justify-between gap-2 bg-white rounded-lg border border-gray-200 px-2.5 py-2">
-                    <div className="min-w-0 text-[11.5px] leading-snug">
-                        <div className="break-words">
-                            <b>{normalizeVendorName(n.vendor)}</b> · {n.date || '-'}{n.noNotaToko ? ` · #${n.noNotaToko}` : ''} · <b className="tabular-nums">{formatRupiah(noteTotal(n))}</b>{' · '}
-                            <span className={`font-bold ${st === 'Lunas' ? 'text-emerald-700' : st === 'Belum Dibayar' ? 'text-red-700' : 'text-amber-700'}`}>{st === 'Lunas' ? '✓ LUNAS' : st === 'Belum Dibayar' ? 'BELUM BAYAR' : `SEBAGIAN (${formatRupiah(notePaid(n))})`}</span>
-                        </div>
-                        {ringkasItem && <div className="text-gray-500 break-words">{ringkasItem}</div>}
-                        <div className={m.level === 'kuat' ? 'text-red-700 font-semibold' : 'text-amber-700 font-semibold'}>{m.reasons.join(' · ')}</div>
-                    </div>
-                    {onBukanDobel && <button type="button" onClick={onBukanDobel} className="shrink-0 text-[10.5px] font-bold text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-2 py-1 whitespace-nowrap">✓ Bukan dobel</button>}
-                </div>
-            );
-        };
-
         const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [] }) => {
             const [previewImage, setPreviewImage] = useState(null);
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
@@ -6168,13 +6072,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const emptyItem = () => ({ id: genId('NI-'), name: '', code: '', qty: '', unit: 'Meter', price: '', discountRp: '', discountPct: '', orderId: '' });
             const emptyPayment = () => ({ id: genId('PAY-'), date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
-            const emptyNoteForm = { vendor: '', noNotaToko: '', date: toLocalDateStr(), items: [emptyItem()], method: 'Transfer', note: '', payments: [], globalDiscountType: 'Rp', globalDiscountValue: '' };
+            const emptyNoteForm = { vendor: '', date: toLocalDateStr(), items: [emptyItem()], method: 'Transfer', note: '', payments: [], globalDiscountType: 'Rp', globalDiscountValue: '' };
             const [noteForm, setNoteForm] = useState(emptyNoteForm);
             const [editNoteId, setEditNoteId] = useState(null);
             const [noteFormOpen, setNoteFormOpen] = useState(false);
-            // Kotak konfirmasi nota/bayar kembar: { judul, pesan, matches, extra, tombol, onConfirm }
-            const [dobelDialog, setDobelDialog] = useState(null);
-            const notaDobelMap = React.useMemo(() => buildNotaDobelMap(purchaseNotes), [purchaseNotes]);
 
             const safeOrders = (orders || []).filter(isVisibleOrder);
             const allOrderOptions = safeOrders
@@ -6204,44 +6105,16 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 ).slice(0, 25);
             };
 
-            const savePurchaseNote = (lewatiCekDobel = false) => {
+            const savePurchaseNote = () => {
                 const vendor = String(noteForm.vendor || '').trim();
                 if (!vendor) { showToast('Vendor tidak boleh kosong.', 'error'); return; }
                 const fc = calcNoteForm(noteForm);
                 if (fc.validItems.length === 0) { showToast('Minimal satu item harus diisi.', 'error'); return; }
                 const now = new Date().toISOString();
                 if (fc.total > 0 && fc.cleanPaid > fc.total + 0.01) { showToast('Jumlah bayar melebihi total nota.', 'error'); return; }
-                const noNotaToko = String(noteForm.noNotaToko || '').trim();
-                const oldNoteForDobel = editNoteId ? safeArray(purchaseNotes).find(n => n.id === editNoteId) : null;
-                const ackLama = safeArray(oldNoteForDobel?.bukanDobelDengan).map(String);
-                const kandidat = { id: editNoteId || '', vendor, noNotaToko, date: noteForm.date || toLocalDateStr(now), items: fc.validItems, globalDiscountType: noteForm.globalDiscountType || 'Rp', globalDiscountValue: safeMoney(noteForm.globalDiscountValue), bukanDobelDengan: ackLama };
-                let matches = findNotaMirip(kandidat, purchaseNotes);
-                // Saat edit: hanya peringatkan kembaran BARU (yang belum mirip sebelum diedit)
-                if (oldNoteForDobel) {
-                    const lama = new Set(findNotaMirip(oldNoteForDobel, purchaseNotes).map(m => m.note.id));
-                    matches = matches.filter(m => !lama.has(m.note.id));
-                }
-                // Termin pembayaran di form dengan tanggal & jumlah sama persis
-                const terminGanda = [];
-                fc.cleanPayments.forEach((p, i) => fc.cleanPayments.slice(i + 1).forEach(q => {
-                    if ((p.date || '') === (q.date || '') && Math.abs(p.amount - q.amount) < 1) terminGanda.push(`Ada 2 termin pembayaran ${formatRupiah(p.amount)} pada tanggal ${p.date || '-'}`);
-                }));
-                if (!lewatiCekDobel && (matches.length > 0 || terminGanda.length > 0)) {
-                    setDobelDialog({
-                        judul: matches.some(m => m.level === 'kuat') ? 'Nota ini sangat mungkin sudah pernah dicatat' : 'Nota ini mirip dengan nota yang sudah ada',
-                        pesan: 'Cek dulu supaya tidak tercatat & dibayar dua kali.',
-                        matches, extra: terminGanda,
-                        tombol: matches.length > 0 ? 'Tetap simpan — memang nota berbeda' : 'Tetap simpan',
-                        onConfirm: () => savePurchaseNote(true),
-                    });
-                    return;
-                }
-                const bukanDobelDengan = [...new Set([...ackLama, ...(lewatiCekDobel ? matches.map(m => String(m.note.id)) : [])])];
                 const note = {
                     id: editNoteId || genId('PN-'),
                     vendor,
-                    noNotaToko,
-                    ...(bukanDobelDengan.length > 0 ? { bukanDobelDengan } : {}),
                     date: noteForm.date || toLocalDateStr(now),
                     method: noteForm.method || 'Transfer',
                     note: noteForm.note || '',
@@ -6304,14 +6177,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 showToast(editNoteId ? 'Nota diperbarui.' : 'Nota pembelian disimpan.', 'success');
             };
 
-            // Konfirmasi dua nota memang berbeda: tidak diperingatkan lagi
-            const tandaiBukanDobel = (noteId, otherId) => {
-                const now = new Date().toISOString();
-                setPurchaseNotes(prev => prev.map(n => n.id === noteId ? { ...n, bukanDobelDengan: [...new Set([...safeArray(n.bukanDobelDengan).map(String), String(otherId)])], _syncUpdatedAt: now } : n));
-                showToast('Ditandai bukan nota dobel.', 'success');
-            };
-
-            const saveQuickPay = (noteId, lewatiCekDobel = false) => {
+            const saveQuickPay = (noteId) => {
                 const amt = parseFloat(quickPayForm.amount);
                 if (!amt || amt <= 0) { showToast('Jumlah bayar harus diisi.', 'error'); return; }
                 const now = new Date().toISOString();
@@ -6321,23 +6187,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const tot = noteTotal(targetNote);
                 const currentPaid = notePaid(normalizeNote(targetNote));
                 if (tot > 0 && currentPaid + amt > tot + 0.01) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
-                if (!lewatiCekDobel) {
-                    const payDate = quickPayForm.date || toLocalDateStr(now);
-                    const extra = safeArray(targetNote.payments).filter(p => (p.date || '') === payDate && Math.abs((parseFloat(p.amount) || 0) - amt) < 1)
-                        .map(p => `Nota ini sudah punya pembayaran ${formatRupiah(amt)} pada tanggal ${payDate}${p.method ? ` (${p.method})` : ''}`);
-                    // Kembaran nota yang sudah dibayar (sebagian/lunas)
-                    const kembarDibayar = (notaDobelMap.get(noteId) || []).filter(m => notePaid(m.note) > 0);
-                    if (extra.length > 0 || kembarDibayar.length > 0) {
-                        setDobelDialog({
-                            judul: extra.length > 0 ? 'Pembayaran ini sepertinya sudah pernah dicatat' : 'Nota kembarannya sudah dibayar',
-                            pesan: 'Cek dulu supaya tidak membayar dua kali.',
-                            matches: kembarDibayar, extra,
-                            tombol: 'Tetap catat pembayaran',
-                            onConfirm: () => saveQuickPay(noteId, true),
-                        });
-                        return;
-                    }
-                }
                 // Buat payment baru sekali di sini, lalu ambil existingPayments dari state terkini di dalam updater
                 // agar tidak ada stale closure jika sync terjadi antara validasi dan save
                 const newPayment = { id: genId('PAY-'), date: quickPayForm.date || toLocalDateStr(now), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '', operasionalKaryawanId: quickPayForm.operasionalKaryawanId || '' };
@@ -6376,13 +6225,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const renderInputPembelian = () => {
                 const allNotes = safeArray(purchaseNotes).filter(isVisibleRecord);
                 const filteredNotes = allNotes.filter(note => {
-                    if (filterStatus === 'Dobel') { if (!notaDobelMap.has(note.id)) return false; }
-                    else if (filterStatus !== 'Semua' && noteStatus(note) !== filterStatus) return false;
+                    if (filterStatus !== 'Semua' && noteStatus(note) !== filterStatus) return false;
                     if (!noteSearch.trim()) return true;
                     const term = noteSearch.toLowerCase();
                     const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.orderId, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
                     const paymentMethodsText = safeArray(note.payments).map(p => p.method || '').join(' ');
-                    return [note.vendor, note.noNotaToko, note.date, note.note, note.method, noteStatus(note), itemsText, paymentMethodsText].join(' ').toLowerCase().includes(term);
+                    return [note.vendor, note.date, note.note, note.method, noteStatus(note), itemsText, paymentMethodsText].join(' ').toLowerCase().includes(term);
                 });
                 const notes = [...filteredNotes].sort((a, b) => {
                     if (sortBy === 'terlama')   return (a.date || '').localeCompare(b.date || '');
@@ -6460,8 +6308,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const pct = amt > 0 ? Math.min(100, Math.round(paid / amt * 100)) : 0;
                     const isQuickPayOpen = quickPayNoteId === note.id;
                     const isExpanded = !!expandedNotes[note.id];
-                    const dobelList = notaDobelMap.get(note.id) || [];
-                    const dobelKuat = dobelList.some(m => m.level === 'kuat');
                     return (
                         <div key={note.id} className="rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all" style={{ border: `1.5px solid ${st.bar}22` }}>
                             {/* Compact header — always visible, clickable to expand */}
@@ -6496,8 +6342,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <span className="text-[10px] font-black px-2 py-0.5 rounded-full tracking-wide shrink-0" style={{ background: st.bg, color: st.text }}>{st.label}</span>
                                                 <span className="text-[10px] font-medium text-gray-400 shrink-0">{note.method || 'Transfer'}</span>
                                                 <span className="text-[10px] text-gray-400 shrink-0">{note.date}</span>
-                                                {note.noNotaToko && <span className="text-[10px] font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded shrink-0">#{note.noNotaToko}</span>}
-                                                {dobelList.length > 0 && <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 ${dobelKuat ? 'bg-red-600 text-white' : 'bg-amber-100 text-amber-800'}`}>⚠ {dobelKuat ? 'kemungkinan dobel' : 'mirip nota lain'}</span>}
                                             </div>
                                             {/* Progress bar: sembunyikan jika pct=0 & bukan Lunas (legacy Sebagian tanpa payments[]) */}
                                             {status !== 'Belum Dibayar' && (pct > 0 || status === 'Lunas') && (
@@ -6524,14 +6368,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             {isExpanded && (
                                 <div className="bg-white border-t" style={{ borderColor: `${st.bar}22` }}>
                                     <div className="px-5 py-4 space-y-3">
-                                        {dobelList.length > 0 && (
-                                            <div className={`rounded-xl border px-3 py-2.5 ${dobelKuat ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
-                                                <div className={`text-xs font-black ${dobelKuat ? 'text-red-800' : 'text-amber-800'}`}>⚠ {dobelKuat ? 'Kemungkinan nota dobel' : 'Mirip dengan nota lain'} — cek sebelum membayar</div>
-                                                <div className="mt-1.5 space-y-1.5">
-                                                    {dobelList.map(m => <NotaMiripRow key={m.note.id} m={m} onBukanDobel={() => tandaiBukanDobel(note.id, m.note.id)} />)}
-                                                </div>
-                                            </div>
-                                        )}
                                         {/* Payment history */}
                                         {safeArray(note.payments).length > 0 && (
                                             <div className="space-y-1">
@@ -6668,7 +6504,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 setEditNoteId(note.id);
                                                 const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it, discountRp: String(it.discountRp || ''), discountPct: String(it.discountPct || '') })) : [emptyItem()];
                                                 const payments = safeArray(normalizeNote(note).payments);
-                                                setNoteForm({ vendor: note.vendor, noNotaToko: note.noNotaToko || '', date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments, globalDiscountType: note.globalDiscountType || 'Rp', globalDiscountValue: String(note.globalDiscountValue || '') });
+                                                setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments, globalDiscountType: note.globalDiscountType || 'Rp', globalDiscountValue: String(note.globalDiscountValue || '') });
                                                 setOrderComboState({});
                                                 setNoteFormOpen(true);
                                             }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
@@ -6695,24 +6531,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                 return (
                     <div className="space-y-5">
-                        {dobelDialog && (
-                            <div className="fixed inset-0 z-[130] bg-black/60 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setDobelDialog(null); }}>
-                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
-                                    <div className="px-5 pt-4 pb-3 border-b">
-                                        <div className="font-black text-red-700 text-base">⚠ {dobelDialog.judul}</div>
-                                        <div className="text-xs text-gray-600 mt-0.5">{dobelDialog.pesan}</div>
-                                    </div>
-                                    <div className="px-5 py-3 overflow-y-auto space-y-2 min-h-0">
-                                        {safeArray(dobelDialog.extra).map((t, i) => <div key={i} className="text-[12px] font-semibold text-red-800 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2">{t}</div>)}
-                                        {safeArray(dobelDialog.matches).map(m => <NotaMiripRow key={m.note.id} m={m} />)}
-                                    </div>
-                                    <div className="px-5 py-3 border-t flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-                                        <button onClick={() => setDobelDialog(null)} className="px-4 py-2.5 rounded-xl text-sm font-black text-white bg-blue-800 hover:bg-blue-900">Batal, cek dulu</button>
-                                        <button onClick={() => { const fn = dobelDialog.onConfirm; setDobelDialog(null); fn(); }} className="px-4 py-2.5 rounded-xl text-sm font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200">{dobelDialog.tombol}</button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
                         {/* Stat Cards */}
                         <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
                             {statCards.map((c, i) => (
@@ -6773,15 +6591,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <div className="w-1 h-4 rounded-full bg-blue-500"></div>
                                             <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Info Nota</span>
                                         </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-500 mb-1.5">Vendor / Toko</label>
                                                 <input type="text" list="pn-vendor-list" className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-blue-400 bg-gray-50" placeholder="Nama vendor/toko" value={noteForm.vendor} onChange={e => setNoteForm(f => ({ ...f, vendor: e.target.value }))} />
                                                 <datalist id="pn-vendor-list">{vendorSuggestions.map((v, i) => <option key={i} value={v} />)}</datalist>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">No. Nota Toko <span className="font-normal text-gray-400">(opsional)</span></label>
-                                                <input type="text" className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-blue-400 bg-gray-50" placeholder="Nomor di nota dari toko" value={noteForm.noNotaToko || ''} onChange={e => setNoteForm(f => ({ ...f, noNotaToko: e.target.value }))} />
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-500 mb-1.5">Tanggal Beli</label>
@@ -7039,7 +6853,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         </div>
                                         <div className="flex gap-2 w-full sm:w-auto">
                                             <button onClick={() => { setNoteFormOpen(false); setEditNoteId(null); }} className="flex-1 sm:flex-none px-5 py-2.5 bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl font-bold text-sm transition-colors">Batal</button>
-                                            <button onClick={() => savePurchaseNote()} className="flex-1 sm:flex-none px-6 py-2.5 bg-white text-blue-800 rounded-xl font-black text-sm hover:bg-blue-50 shadow-md transition-colors">Simpan Nota</button>
+                                            <button onClick={savePurchaseNote} className="flex-1 sm:flex-none px-6 py-2.5 bg-white text-blue-800 rounded-xl font-black text-sm hover:bg-blue-50 shadow-md transition-colors">Simpan Nota</button>
                                         </div>
                                     </div>
                                 </div>
@@ -7058,7 +6872,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         <input
                                             type="text"
                                             className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
-                                            placeholder="Cari vendor, no. nota toko, tanggal, nama bahan, kode, no. order, klien..."
+                                            placeholder="Cari vendor, tanggal, nama bahan, kode, no. order, klien..."
                                             value={noteSearch}
                                             onChange={e => setNoteSearch(e.target.value)}
                                         />
@@ -7087,12 +6901,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             >{s === 'Semua' ? `Semua (${allNotes.length})` : s}</button>
                                         );
                                     })}
-                                    {(notaDobelMap.size > 0 || filterStatus === 'Dobel') && (
-                                        <button onClick={() => setFilterStatus('Dobel')}
-                                            className="px-3 py-2 text-[11px] font-bold rounded-xl border transition-all whitespace-nowrap"
-                                            style={filterStatus === 'Dobel' ? { background: '#B91C1C', color: 'white', borderColor: '#B91C1C' } : { background: '#FEF2F2', color: '#B91C1C', borderColor: '#FECACA' }}
-                                        >⚠ Kemungkinan Dobel ({notaDobelMap.size})</button>
-                                    )}
                                 </div>
                             </div>
                         )}
