@@ -1209,7 +1209,7 @@
         const HPP_PREFETCH_KEYS = [
             'hpp_custom_presets', 'hpp_hidden_builtin_presets', 'hpp_master_materials', 'hpp_master_labor', 'hpp_panduan_bahan',
             'hpp_saved_orders', 'hpp_saved_quotations', 'hpp_price_list_items', 'hpp_price_list_title', 'hpp_price_list_note',
-            'hpp_price_list_date', 'hpp_saved_price_lists'
+            'hpp_price_list_date', 'hpp_saved_price_lists', 'hpp_daftar_harga'
         ];
         const prefetchHppMenu = async (client) => {
             try { loadFontAwesome(); } catch (e) {}
@@ -20799,6 +20799,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const DB_KEY_PRICE_LIST_DATE  = 'hpp_price_list_date';
             const DB_KEY_SAVED_PRICE_LISTS = 'hpp_saved_price_lists';
             const DB_KEY_PANDUAN_BAHAN = 'hpp_panduan_bahan';
+            const DB_KEY_DAFTAR_HARGA = 'hpp_daftar_harga';
 
             const DEFAULT_MASTER_MATERIALS = [
                 { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
@@ -20865,6 +20866,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [isPriceManual, setIsPriceManual] = React.useState(false);
             const [negoOpen,        setNegoOpen]        = React.useState(false);
             const [negoHargaTawar,  setNegoHargaTawar]  = React.useState(0);
+            // Biaya sekali per order (film sablon, setting bordir, pola, ongkir) — dibagi ke jumlah pcs
+            const [biayaTetapOrder, setBiayaTetapOrder] = React.useState(0);
+            // Daftar Harga per Qty: qty yang ditampilkan & margin bertingkat (disimpan ke cloud)
+            const [daftarHargaSetting, setDaftarHargaSetting] = React.useState(() => readHppCache(DB_KEY_DAFTAR_HARGA)?.value ?? { qtyList: [50, 100, 500, 1000], tiers: [] });
+            const [newQtyInput, setNewQtyInput] = React.useState('');
+            const [tierOpen, setTierOpen] = React.useState(false);
             const [qClientName,  setQClientName]  = React.useState('');
             const [qClientContact, setQClientContact] = React.useState('');
             const [qNotes, setQNotes] = React.useState('');
@@ -20950,7 +20957,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // - Ke cloud hanya ditulis bila benar-benar ada perubahan, dan SELALU setelah membaca cloud dulu lalu
             //   digabung per item (gabung 3 arah) agar perubahan dari perangkat lain tidak tertimpa
             // - Gagal membaca cloud -> tidak pernah menimpa cloud; dicoba ulang otomatis
-            const HPP_SMALL_KEYS = [DB_KEY_PRESETS, DB_KEY_HIDDEN_PRESETS, DB_KEY_MATERIALS, DB_KEY_LABOR, DB_KEY_PANDUAN_BAHAN];
+            const HPP_SMALL_KEYS = [DB_KEY_PRESETS, DB_KEY_HIDDEN_PRESETS, DB_KEY_MATERIALS, DB_KEY_LABOR, DB_KEY_PANDUAN_BAHAN, DB_KEY_DAFTAR_HARGA];
             const HPP_LARGE_KEYS = [DB_KEY_ORDERS, DB_KEY_QUOTATIONS, DB_KEY_PRICE_LIST_ITEMS, DB_KEY_PRICE_LIST_TITLE, DB_KEY_PRICE_LIST_NOTE, DB_KEY_PRICE_LIST_DATE, DB_KEY_SAVED_PRICE_LISTS];
             const HPP_ALL_KEYS = [...HPP_SMALL_KEYS, ...HPP_LARGE_KEYS];
             const hppValues = {
@@ -20958,12 +20965,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 [DB_KEY_HIDDEN_PRESETS]: hiddenBuiltinPresets, [DB_KEY_ORDERS]: savedOrders, [DB_KEY_QUOTATIONS]: savedQuotations,
                 [DB_KEY_PRICE_LIST_ITEMS]: priceListItems, [DB_KEY_PRICE_LIST_TITLE]: priceListTitle, [DB_KEY_PRICE_LIST_NOTE]: priceListNote,
                 [DB_KEY_PRICE_LIST_DATE]: priceListDate, [DB_KEY_SAVED_PRICE_LISTS]: savedPriceLists, [DB_KEY_PANDUAN_BAHAN]: panduanBahan,
+                [DB_KEY_DAFTAR_HARGA]: daftarHargaSetting,
             };
             const hppSetters = {
                 [DB_KEY_MATERIALS]: setMasterMaterials, [DB_KEY_LABOR]: setMasterLabor, [DB_KEY_PRESETS]: setCustomPresets,
                 [DB_KEY_HIDDEN_PRESETS]: setHiddenBuiltinPresets, [DB_KEY_ORDERS]: setSavedOrders, [DB_KEY_QUOTATIONS]: setSavedQuotations,
                 [DB_KEY_PRICE_LIST_ITEMS]: setPriceListItems, [DB_KEY_PRICE_LIST_TITLE]: setPriceListTitle, [DB_KEY_PRICE_LIST_NOTE]: setPriceListNote,
                 [DB_KEY_PRICE_LIST_DATE]: setPriceListDate, [DB_KEY_SAVED_PRICE_LISTS]: setSavedPriceLists, [DB_KEY_PANDUAN_BAHAN]: setPanduanBahan,
+                [DB_KEY_DAFTAR_HARGA]: setDaftarHargaSetting,
             };
             const hppValuesRef = React.useRef(hppValues);
             hppValuesRef.current = hppValues;
@@ -21142,7 +21151,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         ? Math.round(bopJamRatePerJam * (bopJamMenitPerPcs||0) / 60)
                         : (bopListrik || 0) + (bopSewa || 0) + (bopTransport || 0) + (bopLain || 0);
                 const bopTotal  = bopPerPcs * qty;
-                const hppTotal  = bbbTotal + btklTotal + bopTotal;
+                const biayaTetap = Math.max(0, biayaTetapOrder || 0);
+                // Biaya per pcs yang tidak tergantung qty (bahan, upah, overhead); biaya tetap dibagi ke qty
+                const hppVarPcs = (bbbTotal + btklTotal + bopTotal) / qty;
+                const hppTotal  = bbbTotal + btklTotal + bopTotal + biayaTetap;
                 const hppPcs    = hppTotal / qty;
                 // Rumus Margin: P = HPP / (1 - margin% - komisi% - entertain%)
                 // margin dihitung dari harga jual (revenue margin), bukan dari HPP (markup)
@@ -21161,8 +21173,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const hppAllInTotal = hppAllInPcs * qty;
                 const profitPcs   = sellPrice - hppAllInPcs;
                 const profitTotal = profitPcs * qty;
-                return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, bopRatePct, bopJamRatePerJam, hppTotal, hppPcs, hppAllInPcs, hppAllInTotal, recPrice, sellPrice, turnover, komisiPerPcs, komisiTotal, entertainPerPcs, entertainTotal, profitTotal, profitPcs, isKeDenomWarn };
-            }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct, customPrice, isPriceManual]);
+                return { qty, bbbRows, bbbTotal, btklRows, btklTotal, bopPerPcs, bopTotal, bopRatePct, bopJamRatePerJam, biayaTetap, hppVarPcs, hppTotal, hppPcs, hppAllInPcs, hppAllInTotal, recPrice, sellPrice, turnover, komisiPerPcs, komisiTotal, entertainPerPcs, entertainTotal, profitTotal, profitPcs, isKeDenomWarn };
+            }, [activeMaterials, activeLabor, masterMaterials, masterLabor, orderQty, orderWaste, bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, biayaTetapOrder, marginPct, komisiPct, entertainPct, customPrice, isPriceManual]);
 
             // Sync recommended price only when user has NOT manually overridden the price
             React.useEffect(() => {
@@ -21194,6 +21206,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const chartLabels = ['Bahan Baku (BBB)', 'Upah Kerja (BTKL)', 'Overhead (BOP)'];
                 const chartData   = [calc.bbbTotal, calc.btklTotal, calc.bopTotal];
                 const chartColors = ['#6366f1','#10b981','#f59e0b'];
+                if (calc.biayaTetap > 0) { chartLabels.push('Biaya Tetap Order'); chartData.push(calc.biayaTetap); chartColors.push('#0ea5e9'); }
                 if (komisiPct > 0) { chartLabels.push(`Komisi (${komisiPct}%)`); chartData.push(calc.komisiTotal); chartColors.push('#f43f5e'); }
                 if (entertainPct > 0) { chartLabels.push(`Entertain (${entertainPct}%)`); chartData.push(calc.entertainTotal); chartColors.push('#ec4899'); }
                 if (calc.profitTotal > 0) { chartLabels.push('Laba Bersih'); chartData.push(calc.profitTotal); chartColors.push('#22c55e'); }
@@ -21206,7 +21219,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } } }, cutout: '65%' },
                 });
                 return () => { if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; } };
-            }, [chartLibReady, calc.bbbTotal, calc.btklTotal, calc.bopTotal, calc.komisiTotal, calc.entertainTotal, calc.profitTotal, komisiPct, entertainPct]);
+            }, [chartLibReady, calc.bbbTotal, calc.btklTotal, calc.bopTotal, calc.biayaTetap, calc.komisiTotal, calc.entertainTotal, calc.profitTotal, komisiPct, entertainPct]);
 
             // ── Preset logic ──────────────────────────────────────────────────────
             const loadPresetKaos = () => {
@@ -21241,6 +21254,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (preset.bopJamPerHari !== undefined)     setBopJamPerHari(preset.bopJamPerHari);
                 if (preset.bopJamHariPerBulan !== undefined)setBopJamHariPerBulan(preset.bopJamHariPerBulan);
                 if (preset.bopJamMenitPerPcs !== undefined) setBopJamMenitPerPcs(preset.bopJamMenitPerPcs);
+                setBiayaTetapOrder(preset.biayaTetapOrder !== undefined ? preset.biayaTetapOrder : 0);
                 if (preset.marginPct !== undefined)    setMarginPct(preset.marginPct);
                 if (preset.komisiPct !== undefined)    setKomisiPct(preset.komisiPct);    else setKomisiPct(0);
                 if (preset.entertainPct !== undefined) setEntertainPct(preset.entertainPct); else setEntertainPct(0);
@@ -21249,7 +21263,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
             const saveCurrentAsPreset = () => {
                 const title = (orderName || 'Preset Baru').trim();
-                const newPreset = { id:'PRESET-'+Date.now(), title, orderName:title, waste:orderWaste, materials:JSON.parse(JSON.stringify(activeMaterials)), labor:JSON.parse(JSON.stringify(activeLabor)), bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct };
+                const newPreset = { id:'PRESET-'+Date.now(), title, orderName:title, waste:orderWaste, materials:JSON.parse(JSON.stringify(activeMaterials)), labor:JSON.parse(JSON.stringify(activeLabor)), bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, biayaTetapOrder, marginPct, komisiPct, entertainPct };
                 setCustomPresets(prev => [...prev, newPreset]);
                 showToast(`Preset "${title}" disimpan!`, 'success');
             };
@@ -21276,7 +21290,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         kategori: orderKategori === 'Custom' ? (orderKategoriCustom.trim() || '') : orderKategori,
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
-                        bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct,
+                        bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, biayaTetapOrder, marginPct, komisiPct, entertainPct,
                     }));
                     setEditingOrderId(null);
                     showToast(`Perhitungan "${name}" diperbarui!`, 'success');
@@ -21292,7 +21306,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         kategori: orderKategori === 'Custom' ? (orderKategoriCustom.trim() || '') : orderKategori,
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
-                        bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct,
+                        bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, biayaTetapOrder, marginPct, komisiPct, entertainPct,
                     };
                     setSavedOrders(prev => [newOrder, ...prev]);
                     showToast(`Perhitungan "${name}" disimpan!`, 'success');
@@ -21313,6 +21327,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (item.bopJamPerHari !== undefined)     setBopJamPerHari(item.bopJamPerHari);
                 if (item.bopJamHariPerBulan !== undefined)setBopJamHariPerBulan(item.bopJamHariPerBulan);
                 if (item.bopJamMenitPerPcs !== undefined) setBopJamMenitPerPcs(item.bopJamMenitPerPcs);
+                setBiayaTetapOrder(item.biayaTetapOrder !== undefined ? item.biayaTetapOrder : 0);
                 if (item.marginPct !== undefined)    setMarginPct(item.marginPct);
                 if (item.komisiPct !== undefined)    setKomisiPct(item.komisiPct); else setKomisiPct(0);
                 if (item.entertainPct !== undefined) setEntertainPct(item.entertainPct); else setEntertainPct(0);
@@ -22057,6 +22072,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             <span className="text-xs font-bold text-slate-700">Subtotal Biaya Overhead (BOP):</span>
                                             <span className="text-base font-extrabold text-amber-700">{formatRp(calc.bopTotal)}</span>
                                         </div>
+                                        <div className="mt-4 pt-4 border-t border-slate-100">
+                                            <label className="block text-xs font-semibold text-slate-600 mb-1">Biaya Tetap per Order <span className="font-normal text-slate-400">(opsional)</span></label>
+                                            <div className="flex items-center gap-3">
+                                                <div className="relative flex-1">
+                                                    <span className="absolute left-3 top-2 text-slate-400 text-xs font-bold">Rp</span>
+                                                    <input type="number" min="0" step="1000" value={biayaTetapOrder || ''} placeholder="0" onChange={e => setBiayaTetapOrder(Math.max(0, parseFloat(e.target.value) || 0))} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-amber-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500" />
+                                                </div>
+                                                <span className="text-xs text-amber-700 font-bold whitespace-nowrap">{formatRp(calc.biayaTetap / calc.qty)}/pcs</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-400 mt-1">Biaya sekali per order, tidak tergantung jumlah pcs: film/screen sablon, setting bordir, pola & sampel, ongkir. Dibagi ke {calc.qty.toLocaleString('id-ID')} pcs — makin banyak pesanan, makin kecil bebannya per pcs.</p>
+                                        </div>
                                     </div>
 
                                     {/* Biaya Penjualan */}
@@ -22116,6 +22142,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             <div className="flex justify-between text-slate-600"><span>Total Biaya Bahan (BBB):</span><span className="font-bold text-slate-800">{formatRp(calc.bbbTotal)}</span></div>
                                             <div className="flex justify-between text-slate-600"><span>Total Upah Kerja (BTKL):</span><span className="font-bold text-slate-800">{formatRp(calc.btklTotal)}</span></div>
                                             <div className="flex justify-between text-slate-600"><span>Total Overhead (BOP):</span><span className="font-bold text-slate-800">{formatRp(calc.bopTotal)}</span></div>
+                                            {calc.biayaTetap > 0 && <div className="flex justify-between text-slate-600"><span>Biaya Tetap per Order:</span><span className="font-bold text-slate-800">{formatRp(calc.biayaTetap)}</span></div>}
                                             {(komisiPct > 0 || entertainPct > 0) ? (
                                                 <>
                                                     <div className="flex justify-between text-slate-500 border-t border-slate-100 pt-1"><span>HPP Produksi (subtotal):</span><span className="font-bold">{formatRp(calc.hppTotal)}</span></div>
@@ -22210,14 +22237,30 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         const isImpas = Math.abs(negoProfit) < 1;
                                         const bepPct = sliderMax > sliderMin ? ((negoBEP - sliderMin) / (sliderMax - sliderMin) * 100) : 0;
                                         const recPct = sliderMax > sliderMin ? ((recP - sliderMin) / (sliderMax - sliderMin) * 100) : 100;
-                                        const baseQty = calc.qty;
-                                        const qtyVariants = [
-                                            Math.max(10, Math.round(baseQty * 0.5 / 10) * 10),
-                                            Math.round(baseQty / 10) * 10 || baseQty,
-                                            Math.round(baseQty * 1.5 / 10) * 10,
-                                            Math.round(baseQty * 2 / 10) * 10,
-                                            Math.round(baseQty * 3 / 10) * 10,
-                                        ].filter((v,i,a) => v > 0 && a.indexOf(v) === i);
+                                        // ── Daftar Harga per Qty ──
+                                        const dhQtyList = safeArray(daftarHargaSetting?.qtyList).map(q => Math.round(Number(q))).filter(q => q > 0);
+                                        const dhTiers = safeArray(daftarHargaSetting?.tiers);
+                                        const tiersAktif = dhTiers.filter(t => t && t.minQty !== '' && t.minQty != null && t.marginPct !== '' && t.marginPct != null).map(t => ({ minQty: Math.round(Number(t?.minQty) || 0), marginPct: Number(t?.marginPct) })).filter(t => t.minQty > 0 && Number.isFinite(t.marginPct) && t.marginPct >= 0).sort((a, b) => a.minQty - b.minQty);
+                                        const marginUntukQty = (q) => { let m = marginPct; tiersAktif.forEach(t => { if (q >= t.minQty) m = t.marginPct; }); return m; };
+                                        const biayaPenjualanPct = (komisiPct + entertainPct) / 100;
+                                        const daftarQty = [...new Set([...dhQtyList, calc.qty])].sort((a, b) => a - b);
+                                        const daftarHarga = daftarQty.map(q => {
+                                            const hpp = q === calc.qty ? calc.hppPcs : calc.hppVarPcs + calc.biayaTetap / q;
+                                            const m = marginUntukQty(q);
+                                            const denom = keDenomNego - m / 100;
+                                            const harga = Math.ceil((denom > 0.05 ? hpp / denom : hpp / 0.05) / 500) * 500;
+                                            const bep = keDenomNego > 0.01 ? Math.ceil(hpp / keDenomNego / 500) * 500 : hpp;
+                                            const profitPcs = harga - hpp - harga * biayaPenjualanPct;
+                                            const profitNego = negoHargaTawar - hpp - negoHargaTawar * biayaPenjualanPct;
+                                            return { q, hpp, m, harga, bep, profitPcs, totalProfit: profitPcs * q, profitNego, isCurrent: q === calc.qty, isDefault: dhQtyList.includes(q) };
+                                        });
+                                        const updateDaftarHarga = (patch) => setDaftarHargaSetting(prev => ({ qtyList: safeArray(prev?.qtyList), tiers: safeArray(prev?.tiers), ...patch }));
+                                        const tambahQty = () => {
+                                            const q = Math.round(parseFloat(newQtyInput));
+                                            if (!(q > 0)) return;
+                                            if (!dhQtyList.includes(q)) updateDaftarHarga({ qtyList: [...dhQtyList, q].sort((a, b) => a - b) });
+                                            setNewQtyInput('');
+                                        };
                                         return (
                                             <div className="bg-white rounded-2xl shadow-sm border border-orange-100 overflow-hidden">
                                                 <button onClick={() => setNegoOpen(v => !v)} className="w-full px-5 py-4 flex justify-between items-center hover:bg-orange-50/40 transition-colors">
@@ -22311,45 +22354,69 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                             </div>
                                                         </div>
 
-                                                        {/* Fitur 3: Qty vs Profit */}
+                                                        {/* Daftar Harga per Qty */}
                                                         <div>
-                                                            <p className="text-xs font-bold text-slate-700 mb-2">Simulasi Qty vs Total Profit</p>
-                                                            <p className="text-[11px] text-slate-400 mb-3">Jika customer minta harga {formatRp(negoHargaTawar)}/pcs, keuntungan total berdasarkan qty:</p>
-                                                            <div className="overflow-x-auto rounded-xl border border-slate-200">
-                                                                <table className="w-full text-xs">
-                                                                    <thead className="bg-slate-50 border-b border-slate-200">
-                                                                        <tr>
-                                                                            <th className="text-left px-3 py-2 font-semibold text-slate-600">Qty (pcs)</th>
-                                                                            <th className="text-right px-3 py-2 font-semibold text-slate-600">Omset</th>
-                                                                            <th className="text-right px-3 py-2 font-semibold text-slate-600">Total Profit</th>
-                                                                            <th className="text-right px-3 py-2 font-semibold text-slate-600">Margin %</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {qtyVariants.map((q, i) => {
-                                                                            const totalProfit = negoProfit * q;
-                                                                            const omset = negoHargaTawar * q;
-                                                                            const isCurrent = Math.round(q) === Math.round(baseQty);
-                                                                            return (
-                                                                                <tr key={q} className={`border-b border-slate-100 ${isCurrent ? 'bg-orange-50' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
-                                                                                    <td className="px-3 py-2 font-bold text-slate-800">
-                                                                                        {q.toLocaleString('id-ID')}
-                                                                                        {isCurrent && <span className="ml-1 text-[10px] text-orange-500 font-semibold">(saat ini)</span>}
-                                                                                    </td>
-                                                                                    <td className="px-3 py-2 text-right text-slate-600">{formatRp(omset)}</td>
-                                                                                    <td className={`px-3 py-2 text-right font-bold ${totalProfit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                                                                                        {totalProfit < 0 ? '−' : ''}{formatRp(Math.abs(totalProfit))}
-                                                                                    </td>
-                                                                                    <td className={`px-3 py-2 text-right font-semibold ${negoMarginPct < 0 ? 'text-red-500' : 'text-slate-600'}`}>
-                                                                                        {negoMarginPct.toFixed(1)}%
-                                                                                    </td>
-                                                                                </tr>
-                                                                            );
-                                                                        })}
-                                                                    </tbody>
-                                                                </table>
+                                                            <p className="text-xs font-bold text-slate-700 mb-1">Daftar Harga per Qty</p>
+                                                            <p className="text-[11px] text-slate-500 mb-2">Harga jual per pcs untuk tiap jumlah pesanan{calc.biayaTetap > 0 ? `. Biaya tetap ${formatRp(calc.biayaTetap)} dibagi ke jumlah pcs — makin banyak pesanan, makin murah per pcs` : ''}.</p>
+                                                            {calc.biayaTetap <= 0 && tiersAktif.length === 0 && (
+                                                                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 mb-2">Harga per pcs masih sama untuk semua qty. Isi <b>Biaya Tetap per Order</b> (bagian Overhead) dan/atau <b>margin per qty</b> di bawah agar pesanan banyak lebih murah per pcs.</p>
+                                                            )}
+                                                            {/* Qty yang ditampilkan */}
+                                                            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                                                                {dhQtyList.map(q => (
+                                                                    <span key={q} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-[11px] font-bold rounded-full pl-2.5 pr-1 py-0.5">
+                                                                        {q.toLocaleString('id-ID')} pcs
+                                                                        <button type="button" title="Hapus qty" onClick={() => updateDaftarHarga({ qtyList: dhQtyList.filter(x => x !== q) })} className="w-5 h-5 rounded-full text-slate-400 hover:text-red-600 hover:bg-white leading-none">×</button>
+                                                                    </span>
+                                                                ))}
+                                                                <span className="inline-flex items-center gap-1">
+                                                                    <input type="number" min="1" value={newQtyInput} onChange={e => setNewQtyInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') tambahQty(); }} placeholder="qty" className="w-16 px-2 py-1 text-[11px] border border-slate-300 rounded-lg" />
+                                                                    <button type="button" onClick={tambahQty} className="text-[11px] font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded-lg px-2 py-1">+ Qty</button>
+                                                                </span>
                                                             </div>
-                                                            <p className="text-[11px] text-slate-400 mt-2">Catatan: margin % (dari harga jual) tetap sama — tambah qty meningkatkan total profit, bukan margin.</p>
+                                                            <div className="rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden" data-daftar-harga>
+                                                                {daftarHarga.map(r => (
+                                                                    <div key={r.q} className={`px-3 py-2.5 ${r.isCurrent ? 'bg-orange-50' : 'bg-white'}`} data-qty={r.q}>
+                                                                        <div className="flex justify-between items-baseline gap-2">
+                                                                            <span className="font-bold text-slate-800 text-sm whitespace-nowrap">{r.q.toLocaleString('id-ID')} pcs{r.isCurrent && <span className="ml-1 text-[10px] text-orange-500 font-semibold">(saat ini)</span>}</span>
+                                                                            <span className="text-right whitespace-nowrap"><span className="font-extrabold text-slate-900 text-base" data-harga>{formatRp(r.harga)}</span><span className="text-[11px] text-slate-500">/pcs</span></span>
+                                                                        </div>
+                                                                        <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                                                                            HPP <span data-hpp>{formatRp(r.hpp)}</span> · minimum <span className="text-red-600 font-semibold" data-bep>{formatRp(r.bep)}</span> · margin <span data-margin>{r.m}</span>%
+                                                                        </div>
+                                                                        <div className="text-[11px] mt-0.5 leading-snug">
+                                                                            <span className="text-emerald-700 font-semibold">Profit <span data-profit>{formatRp(r.profitPcs)}</span>/pcs · total <span data-total>{formatRp(r.totalProfit)}</span></span>
+                                                                        </div>
+                                                                        <div className={`text-[11px] mt-0.5 font-bold ${r.profitNego < 0 ? 'text-red-600' : 'text-emerald-700'}`} data-nego>
+                                                                            Nego {formatRp(negoHargaTawar)}: {r.profitNego < 0 ? `✗ rugi ${formatRp(-r.profitNego)}/pcs` : `✓ untung ${formatRp(r.profitNego)}/pcs`}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            <p className="text-[11px] text-slate-400 mt-2">Harga besar di kanan = <b>harga jual per pcs</b> yang disarankan. <b>Minimum</b> = batas impas (di bawah ini rugi). Baris <b>Nego</b> = untung/rugi bila customer minta harga nego di atas pada qty tersebut.</p>
+                                                            {/* Margin bertingkat */}
+                                                            <div className="mt-3 rounded-xl border border-slate-200">
+                                                                <button type="button" onClick={() => setTierOpen(v => !v)} className="w-full flex justify-between items-center px-3 py-2 text-[11px] font-bold text-slate-700">
+                                                                    <span>Atur margin per qty (opsional){tiersAktif.length > 0 ? ` · ${tiersAktif.length} tingkat` : ''}</span>
+                                                                    <i className={`fa-solid fa-chevron-${tierOpen ? 'up' : 'down'} text-slate-400`}></i>
+                                                                </button>
+                                                                {tierOpen && (
+                                                                    <div className="px-3 pb-3 space-y-2 border-t border-slate-100 pt-2">
+                                                                        <p className="text-[11px] text-slate-500">Qty di bawah tingkat pertama memakai margin utama <b>{marginPct}%</b>. Contoh: mulai 500 pcs margin 30%, mulai 1.000 pcs margin 25%.</p>
+                                                                        {dhTiers.map((t, ti) => (
+                                                                            <div key={ti} className="flex items-center gap-1.5 text-[11px] flex-wrap">
+                                                                                <span className="text-slate-500">Mulai</span>
+                                                                                <input type="number" min="1" value={t?.minQty ?? ''} onChange={e => updateDaftarHarga({ tiers: dhTiers.map((x, xi) => xi === ti ? { ...x, minQty: e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0) } : x) })} className="w-20 px-2 py-1 border border-slate-300 rounded-lg" />
+                                                                                <span className="text-slate-500">pcs → margin</span>
+                                                                                <input type="number" min="0" max="90" step="0.5" value={t?.marginPct ?? ''} onChange={e => updateDaftarHarga({ tiers: dhTiers.map((x, xi) => xi === ti ? { ...x, marginPct: e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0) } : x) })} className="w-16 px-2 py-1 border border-slate-300 rounded-lg" />
+                                                                                <span className="text-slate-500">%</span>
+                                                                                <button type="button" onClick={() => updateDaftarHarga({ tiers: dhTiers.filter((_, xi) => xi !== ti) })} className="ml-auto text-red-500 font-bold px-2 py-1 hover:bg-red-50 rounded-lg">Hapus</button>
+                                                                            </div>
+                                                                        ))}
+                                                                        <button type="button" onClick={() => updateDaftarHarga({ tiers: [...dhTiers, { minQty: '', marginPct: '' }] })} className="w-full text-[11px] font-bold text-orange-700 bg-orange-50 border border-dashed border-orange-300 rounded-lg py-1.5">+ Tambah tingkat margin</button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         </div>
 
                                                     </div>
