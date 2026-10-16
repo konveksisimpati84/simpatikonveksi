@@ -20785,6 +20785,159 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             );
         };
 
+        // ── Kotak pilihan dengan pencarian (Kalkulator HPP: bahan baku & tarif borongan) ──
+        // Didefinisikan di luar halaman agar tidak dibuat ulang (dan tertutup sendiri) setiap kali halaman diperbarui.
+        // Daftar pilihan dirender melayang di atas halaman (portal) agar tidak terpotong tabel yang bisa digeser.
+        const SearchableSelect = ({ value, onChange, options, placeholder, accentColor }) => {
+            const [open, setOpen] = React.useState(false);
+            const [query, setQuery] = React.useState('');
+            const [active, setActive] = React.useState(0);
+            const [pos, setPos] = React.useState(null);
+            const inputRef = React.useRef(null);
+            const wrapRef = React.useRef(null);
+            const dropRef = React.useRef(null);
+            const listRef = React.useRef(null);
+            const accent = accentColor || 'indigo';
+
+            const selected = options.find(o => o.value === value);
+            const q = query.trim().toLowerCase();
+            const filtered = q ? options.filter(o => String(o.label || '').toLowerCase().includes(q)) : options;
+
+            const tutup = (kembaliKeTombol) => {
+                setOpen(false); setQuery(''); setPos(null);
+                if (kembaliKeTombol) { try { wrapRef.current?.querySelector('button')?.focus({ preventScroll: true }); } catch (e) {} }
+            };
+            const handleSelect = (val) => { onChange(val); tutup(false); };
+
+            // Posisi daftar: di bawah tombol, atau di atas bila ruang bawah sempit; tinggi menyesuaikan layar
+            const hitungPosisi = React.useCallback(() => {
+                const btn = wrapRef.current;
+                if (!btn) return;
+                const r = btn.getBoundingClientRect();
+                const vv = window.visualViewport;
+                const tinggiLayar = vv ? vv.height + vv.offsetTop : window.innerHeight;
+                const lebarLayar = document.documentElement.clientWidth || window.innerWidth;
+                const width = Math.min(Math.max(r.width, 240), lebarLayar - 16);
+                const left = Math.max(8, Math.min(r.left, lebarLayar - width - 8));
+                const ruangBawah = tinggiLayar - r.bottom - 8;
+                const ruangAtas = r.top - 8;
+                const ideal = 340;
+                const keAtas = ruangBawah < Math.min(ideal, 220) && ruangAtas > ruangBawah;
+                const maxHeight = Math.max(140, Math.min(ideal, keAtas ? ruangAtas - 4 : ruangBawah - 4));
+                setPos(keAtas ? { left, width, maxHeight, bottom: tinggiLayar - r.top + 4 } : { left, width, maxHeight, top: r.bottom + 4 });
+            }, []);
+
+            React.useLayoutEffect(() => {
+                if (!open) return;
+                hitungPosisi();
+                const luar = (e) => {
+                    const t = e.target;
+                    if (wrapRef.current?.contains(t) || dropRef.current?.contains(t)) return;
+                    tutup(false);
+                };
+                let raf = 0;
+                const geser = (e) => {
+                    if (dropRef.current && e && e.target && dropRef.current.contains(e.target)) return;
+                    cancelAnimationFrame(raf); raf = requestAnimationFrame(hitungPosisi);
+                };
+                document.addEventListener('mousedown', luar);
+                document.addEventListener('touchstart', luar, { passive: true });
+                window.addEventListener('scroll', geser, true);
+                window.addEventListener('resize', geser);
+                window.visualViewport?.addEventListener('resize', geser);
+                return () => {
+                    cancelAnimationFrame(raf);
+                    document.removeEventListener('mousedown', luar);
+                    document.removeEventListener('touchstart', luar);
+                    window.removeEventListener('scroll', geser, true);
+                    window.removeEventListener('resize', geser);
+                    window.visualViewport?.removeEventListener('resize', geser);
+                };
+            }, [open, hitungPosisi]);
+
+            const sudahTampil = open && !!pos;
+            React.useEffect(() => {
+                if (!sudahTampil) return;
+                try { inputRef.current?.focus({ preventScroll: true }); } catch (e) { inputRef.current?.focus(); }
+            }, [sudahTampil]);
+            // Saat dibuka/ketikan berubah, sorot pilihan yang sedang terpilih (atau yang pertama)
+            React.useEffect(() => {
+                if (!open) return;
+                const idx = filtered.findIndex(o => o.value === value);
+                setActive(idx >= 0 ? idx : 0);
+            }, [open, query]);
+            React.useEffect(() => {
+                if (!open) return;
+                const el = listRef.current?.querySelector(`[data-idx="${active}"]`);
+                if (el) el.scrollIntoView({ block: 'nearest' });
+            }, [active, open]);
+
+            const onKeyDown = (e) => {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(filtered.length - 1, i + 1)); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(0, i - 1)); }
+                else if (e.key === 'Enter') { e.preventDefault(); if (filtered[active]) handleSelect(filtered[active].value); }
+                else if (e.key === 'Escape') { e.preventDefault(); tutup(true); }
+                else if (e.key === 'Tab') { tutup(false); }
+            };
+
+            const ringClass = accent === 'emerald' ? 'focus:ring-emerald-300 focus:border-emerald-400' : 'focus:ring-indigo-300 focus:border-indigo-400';
+            const hlClass = accent === 'emerald' ? 'bg-emerald-50 text-emerald-800' : 'bg-indigo-50 text-indigo-800';
+            const activeClass = accent === 'emerald' ? 'bg-emerald-100/70' : 'bg-indigo-100/70';
+
+            const dropdown = open && pos ? ReactDOM.createPortal(
+                <div ref={dropRef} data-hpp-select-dropdown
+                    className="bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden"
+                    style={{ position: 'fixed', zIndex: 160, left: pos.left, width: pos.width, maxHeight: pos.maxHeight, ...(pos.top != null ? { top: pos.top } : { bottom: pos.bottom }), display: 'flex', flexDirection: 'column' }}>
+                    <div className="p-2 border-b border-slate-100 shrink-0">
+                        <div className="relative">
+                            <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] pointer-events-none"></i>
+                            <input ref={inputRef} type="text" value={query}
+                                onChange={e => setQuery(e.target.value)}
+                                onKeyDown={onKeyDown}
+                                placeholder="Ketik untuk mencari..."
+                                className={`w-full pl-7 pr-7 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 ${ringClass} transition`} />
+                            {query && (
+                                <button type="button" onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                    <i className="fa-solid fa-xmark text-[10px]"></i>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                    <div ref={listRef} className="overflow-y-auto min-h-0" style={{ flex: 1, overscrollBehavior: 'contain' }}>
+                        {filtered.length === 0 ? (
+                            <p className="text-xs text-slate-400 text-center py-4">Tidak ditemukan</p>
+                        ) : filtered.map((o, i) => (
+                            <button key={o.value} type="button" data-idx={i}
+                                onClick={() => handleSelect(o.value)}
+                                onMouseMove={() => { if (i !== active) setActive(i); }}
+                                className={`w-full text-left px-3 py-2 text-xs transition ${i === active ? activeClass : ''} ${o.value === value ? hlClass : 'text-slate-700'}`}>
+                                <span className="font-semibold block leading-tight">{o.label}</span>
+                                {o.sub && <span className="text-slate-400 text-[10px]">{o.sub}</span>}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="px-3 py-1.5 border-t border-slate-100 text-[10px] text-slate-400 flex justify-between gap-2 shrink-0">
+                        <span className="hidden sm:inline">↑↓ pilih · Enter · Esc tutup</span>
+                        <span className="ml-auto">{filtered.length} item{q ? ` dari ${options.length}` : ''}</span>
+                    </div>
+                </div>,
+                document.body
+            ) : null;
+
+            return (
+                <div ref={wrapRef} className="relative w-full">
+                    <button type="button" onClick={() => { if (open) tutup(false); else { setQuery(''); setOpen(true); } }}
+                        onKeyDown={e => { if (!open && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setQuery(''); setOpen(true); } }}
+                        className="w-full text-left text-xs px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-800 flex items-center justify-between gap-1 hover:border-slate-400 transition">
+                        <span className="truncate">{selected ? selected.label : (placeholder || '— pilih —')}</span>
+                        <i className={`fa-solid fa-chevron-down text-slate-400 text-[10px] transition-transform ${open ? 'rotate-180' : ''}`}></i>
+                    </button>
+                    {dropdown}
+                </div>
+            );
+        };
+
         // ── HPP KALKULATOR ────────────────────────────────────────────────────────
         const HppKalkulatorView = ({ supabaseClient, showToast, templates }) => {
             const DB_KEY_MATERIALS   = 'hpp_master_materials';
@@ -21564,95 +21717,6 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     }
                 }
                 closeEditModal();
-            };
-
-            // ── Searchable Select Component ───────────────────────────────────────
-            const SearchableSelect = ({ value, onChange, options, placeholder, accentColor }) => {
-                const [open, setOpen]     = React.useState(false);
-                const [query, setQuery]   = React.useState('');
-                const inputRef  = React.useRef(null);
-                const wrapRef   = React.useRef(null);
-                const accent    = accentColor || 'indigo';
-
-                const selected  = options.find(o => o.value === value);
-                const filtered  = query.trim()
-                    ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
-                    : options;
-
-                React.useEffect(() => {
-                    if (!open) return;
-                    inputRef.current?.focus();
-                    const handler = (e) => {
-                        if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-                            setOpen(false); setQuery('');
-                        }
-                    };
-                    document.addEventListener('mousedown', handler);
-                    return () => document.removeEventListener('mousedown', handler);
-                }, [open]);
-
-                const handleSelect = (val) => {
-                    onChange(val); setOpen(false); setQuery('');
-                };
-
-                const ringClass = accent === 'emerald'
-                    ? 'focus:ring-emerald-300 focus:border-emerald-400'
-                    : 'focus:ring-indigo-300 focus:border-indigo-400';
-                const hlClass = accent === 'emerald'
-                    ? 'bg-emerald-50 text-emerald-800'
-                    : 'bg-indigo-50 text-indigo-800';
-
-                return (
-                    <div ref={wrapRef} className="relative w-full">
-                        {/* Trigger */}
-                        <button type="button" onClick={() => { setOpen(o => !o); setQuery(''); }}
-                            className="w-full text-left text-xs px-2.5 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-800 flex items-center justify-between gap-1 hover:border-slate-400 transition">
-                            <span className="truncate">{selected ? selected.label : (placeholder || '— pilih —')}</span>
-                            <i className={`fa-solid fa-chevron-down text-slate-400 text-[10px] transition-transform ${open ? 'rotate-180' : ''}`}></i>
-                        </button>
-
-                        {/* Dropdown */}
-                        {open && (
-                            <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
-                                style={{minWidth:'220px', maxHeight:'260px', display:'flex', flexDirection:'column'}}>
-                                {/* Search input */}
-                                <div className="p-2 border-b border-slate-100">
-                                    <div className="relative">
-                                        <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] pointer-events-none"></i>
-                                        <input ref={inputRef} type="text" value={query}
-                                            onChange={e => setQuery(e.target.value)}
-                                            placeholder="Ketik untuk mencari..."
-                                            className={`w-full pl-7 pr-7 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 ${ringClass} transition`} />
-                                        {query && (
-                                            <button onClick={() => setQuery('')}
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                                                <i className="fa-solid fa-xmark text-[10px]"></i>
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                                {/* List */}
-                                <div className="overflow-y-auto" style={{flex:1}}>
-                                    {filtered.length === 0 ? (
-                                        <p className="text-xs text-slate-400 text-center py-4">Tidak ditemukan</p>
-                                    ) : filtered.map(o => (
-                                        <button key={o.value} type="button"
-                                            onClick={() => handleSelect(o.value)}
-                                            className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-50 transition ${o.value === value ? hlClass : 'text-slate-700'}`}>
-                                            <span className="font-semibold block leading-tight">{o.label}</span>
-                                            {o.sub && <span className="text-slate-400 text-[10px]">{o.sub}</span>}
-                                        </button>
-                                    ))}
-                                </div>
-                                {filtered.length > 0 && (
-                                    <div className="px-3 py-1.5 border-t border-slate-100 text-[10px] text-slate-400 text-right">
-                                        {filtered.length} item{query ? ` dari ${options.length}` : ''}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                );
             };
 
             const today = new Date().toLocaleDateString('id-ID', { year:'numeric', month:'long', day:'numeric' });
