@@ -22158,7 +22158,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             {hppSyncIssue && (
                                 <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl px-4 py-3 text-xs flex flex-wrap items-center justify-between gap-2">
                                     <span><i className="fa-solid fa-triangle-exclamation mr-1"></i>Sebagian data HPP belum tersambung ke cloud (koneksi bermasalah). Data di perangkat ini tetap aman dan akan dikirim otomatis.</span>
-                                    <button onClick={() => hppLoad(HPP_ALL_KEYS)} className="font-bold px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700">Coba lagi</button>
+                                    <button onClick={() => { cloudHealth.allowProbeNow(); hppLoad(HPP_ALL_KEYS); }} className="font-bold px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700">Coba lagi</button>
                                 </div>
                             )}
                             {/* Preset bar */}
@@ -25676,6 +25676,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             }
                             // Deteksi mobile/iPad → timeout lebih panjang (koneksi lebih lambat)
                             const isMobile = /Mobi|Android|iPad|iPhone/i.test(navigator.userAgent);
+                            // Membuka aplikasi = boleh langsung cek server sekali (catatan _timestamps yang kecil ini sebagai pengecek)
+                            cloudHealth.allowProbeNow();
                             const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), isMobile ? 10000 : 5000))]);
                             // Server cloud bermasalah: jangan kirim 26 unduhan berat; pakai data di perangkat dulu,
                             // unduh ulang otomatis setelah server pulih (lihat pengiriman ulang berkala)
@@ -27054,7 +27056,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (navigator.onLine === false) { showToast('Perangkat sedang offline. Data akan dikirim otomatis saat internet tersambung.', 'error'); return; }
                 if (cloudHealth.get().failures) {
                     // Server sempat bermasalah: cek dulu dengan 1 permintaan kecil, jangan langsung kirim semua
-                    if (cloudHealth.isBlocked()) { showToast(`Server cloud masih terganggu. Dicoba lagi otomatis dalam ±${cloudDownMinutes()} menit. Data aman di perangkat ini.`, 'error'); return; }
+                    // Diminta pengguna: boleh langsung dicek dengan 1 permintaan kecil
+                    cloudHealth.allowProbeNow();
                     const sehat = await probeCloud();
                     if (!sehat) { showToast(`Server cloud masih terganggu. Dicoba lagi otomatis dalam ±${cloudDownMinutes()} menit. Data aman di perangkat ini.`, 'error'); return; }
                 }
@@ -27426,7 +27429,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} /></div>}
                                 {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => syncAbsensiRawForLaporan(true)} /></div>}
+                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('klien_instansi', canOpen('klien_instansi')) && <div hidden={!tabVisible('klien_instansi')}><ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} /></div>}
