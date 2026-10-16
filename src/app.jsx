@@ -10,7 +10,22 @@
         let supabaseClient = null;
         try {
             if (window.supabase) {
-                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                // Semua permintaan data lewat penjaga: saat rem darurat aktif, permintaan (termasuk percobaan ulang
+                // otomatis dari library) langsung dihentikan di perangkat, tidak dikirim ke server yang sedang sakit.
+                const cloudGuardedFetch = async (input, init) => {
+                    const url = typeof input === 'string' ? input : String((input && input.url) || '');
+                    const isRest = url.indexOf('/rest/v1/') !== -1;
+                    if (isRest && cloudHealth.isBlocked()) throw new TypeError('Failed to fetch (server cloud dijeda sementara)');
+                    try {
+                        const res = await window.fetch(input, init);
+                        if (isRest && res.status >= 500) cloudHealth.fail();
+                        return res;
+                    } catch (e) {
+                        if (isRest && !(e && e.name === 'AbortError')) cloudHealth.fail();
+                        throw e;
+                    }
+                };
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { fetch: cloudGuardedFetch } });
             } else {
                 console.warn("Supabase SDK belum termuat.");
             }
@@ -379,6 +394,210 @@
                     console.warn('[storage] quota exceeded, skip:', k);
                 }
             }
+        };
+
+        // ===== Rem darurat koneksi cloud (dipakai bersama semua tab di perangkat ini) =====
+        // Saat server error (5xx/timeout/putus), semua kiriman & unduhan berat dijeda dengan jeda yang makin panjang,
+        // lalu dicek dulu dengan 1 permintaan kecil sebelum dilanjutkan. Mencegah aplikasi membanjiri database yang sedang sakit.
+        const CLOUD_HEALTH_KEY = 'simpati_cloud_health';
+        const CLOUD_BACKOFF_MS = [30000, 60000, 120000, 240000, 480000, 600000];
+        const cloudHealthListeners = new Set();
+        const readCloudHealth = () => { try { const v = JSON.parse(window.localStorage.getItem(CLOUD_HEALTH_KEY) || 'null'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; } };
+        const notifyCloudHealth = () => cloudHealthListeners.forEach(fn => { try { fn(); } catch (e) {} });
+        const writeCloudHealth = (v) => {
+            try { if (v && v.failures) window.localStorage.setItem(CLOUD_HEALTH_KEY, JSON.stringify(v)); else window.localStorage.removeItem(CLOUD_HEALTH_KEY); } catch (e) {}
+            notifyCloudHealth();
+        };
+        const cloudHealth = {
+            get: () => readCloudHealth(),
+            isBlocked: () => { const h = readCloudHealth(); return !!h.blockedUntil && Date.now() < h.blockedUntil; },
+            remainingMs: () => Math.max(0, (readCloudHealth().blockedUntil || 0) - Date.now()),
+            // Banyak permintaan yang gagal bersamaan dihitung satu kali (selama jeda masih berjalan tidak ditambah)
+            fail: () => {
+                // Perangkat sedang offline: bukan masalah server, jangan aktifkan rem
+                if (navigator.onLine === false) return false;
+                const h = readCloudHealth();
+                const now = Date.now();
+                if (h.blockedUntil && now < h.blockedUntil) return false;
+                const n = (h.failures || 0) + 1;
+                writeCloudHealth({ failures: n, blockedUntil: now + CLOUD_BACKOFF_MS[Math.min(n - 1, CLOUD_BACKOFF_MS.length - 1)], since: h.since || now });
+                return !h.failures;
+            },
+            ok: () => { const h = readCloudHealth(); if (h.failures || h.blockedUntil) writeCloudHealth({}); },
+            // Internet baru tersambung lagi: boleh langsung cek server (jumlah gagal tetap dicatat)
+            allowProbeNow: () => { const h = readCloudHealth(); if (h.blockedUntil && Date.now() < h.blockedUntil) writeCloudHealth({ ...h, blockedUntil: Date.now() }); },
+            subscribe: (fn) => { cloudHealthListeners.add(fn); return () => cloudHealthListeners.delete(fn); },
+        };
+        try { window.addEventListener('storage', (e) => { if (e.key === CLOUD_HEALTH_KEY) notifyCloudHealth(); }); } catch (e) {}
+        // Server bermasalah (bukan kesalahan data/izin): 5xx, putus jaringan, timeout
+        const isCloudServerTrouble = (error, status) => {
+            const st = Number(status) || 0;
+            if (st >= 500) return true;
+            if (!error) return false;
+            const code = String(error.code || '');
+            if (['42501', '42P01', 'PGRST116', '23505', '22P02'].includes(code)) return false;
+            if (st >= 400) return false;
+            const msg = String(error.message || error || '').toLowerCase();
+            return st === 0 || code === '57014' || /fetch|network|timeout|timed out|load failed|connection|upstream|aborted/.test(msg);
+        };
+        // Kunci antar-tab sederhana (localStorage) agar pekerjaan berat hanya dijalankan satu tab
+        const CLOUD_TAB_ID = Math.random().toString(36).slice(2);
+        const tryCloudLock = (name, ttlMs) => {
+            try {
+                const k = 'simpati_lock_' + name;
+                const now = Date.now();
+                const cur = JSON.parse(window.localStorage.getItem(k) || 'null');
+                if (cur && cur.tab !== CLOUD_TAB_ID && cur.until > now) return false;
+                window.localStorage.setItem(k, JSON.stringify({ tab: CLOUD_TAB_ID, until: now + ttlMs }));
+                const chk = JSON.parse(window.localStorage.getItem(k) || 'null');
+                return !!chk && chk.tab === CLOUD_TAB_ID;
+            } catch (e) { return true; }
+        };
+        const releaseCloudLock = (name) => {
+            try { const k = 'simpati_lock_' + name; const cur = JSON.parse(window.localStorage.getItem(k) || 'null'); if (cur && cur.tab === CLOUD_TAB_ID) window.localStorage.removeItem(k); } catch (e) {}
+        };
+        // Cek kesehatan cloud dengan 1 permintaan kecil
+        const probeCloud = async () => {
+            if (!supabaseClient) return false;
+            try {
+                const { error, status } = await supabaseClient.from('app_data').select('id').eq('id', '_timestamps');
+                if (error && isCloudServerTrouble(error, status)) { cloudHealth.fail(); return false; }
+                cloudHealth.ok();
+                return true;
+            } catch (e) { cloudHealth.fail(); return false; }
+        };
+
+        // ===== Gambar disimpan terpisah dari data utama =====
+        // Data order/invoice hanya menyimpan penanda 'img:...'; isi gambar ada di baris app_data sendiri,
+        // diunduh saat ditampilkan lalu disimpan di perangkat (IndexedDB). Data lama (gambar langsung di data) tetap tampil.
+        const IMG_REF_PREFIX = 'img:';
+        const isImgRef = (v) => typeof v === 'string' && v.startsWith(IMG_REF_PREFIX);
+        const isInlineImage = (v) => typeof v === 'string' && v.startsWith('data:image');
+        const imgMem = new Map();
+        const imgMissing = new Set();
+        const imgInflight = new Map();
+        let imgDbPromise = null;
+        const openImgDb = () => {
+            if (imgDbPromise) return imgDbPromise;
+            imgDbPromise = new Promise((resolve) => {
+                try {
+                    const req = window.indexedDB.open('simpati_images', 1);
+                    req.onupgradeneeded = () => { try { req.result.createObjectStore('img'); } catch (e) {} };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => resolve(null);
+                    req.onblocked = () => resolve(null);
+                } catch (e) { resolve(null); }
+            });
+            return imgDbPromise;
+        };
+        const idbGetImg = async (ref) => {
+            const db = await openImgDb();
+            if (!db) return null;
+            return new Promise((resolve) => {
+                try { const r = db.transaction('img', 'readonly').objectStore('img').get(ref); r.onsuccess = () => resolve(typeof r.result === 'string' ? r.result : null); r.onerror = () => resolve(null); } catch (e) { resolve(null); }
+            });
+        };
+        const idbPutImg = async (ref, val) => {
+            const db = await openImgDb();
+            if (!db) return;
+            try { db.transaction('img', 'readwrite').objectStore('img').put(val, ref); } catch (e) {}
+        };
+        const imgHashCache = new Map();
+        const hashImageString = (s) => {
+            const cached = imgHashCache.get(s);
+            if (cached) return cached;
+            let h = 0x811c9dc5;
+            for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+            const out = (h >>> 0).toString(36) + '-' + s.length.toString(36);
+            if (imgHashCache.size > 3000) imgHashCache.clear();
+            imgHashCache.set(s, out);
+            return out;
+        };
+        // Unduhan gambar dibatasi 4 sekaligus agar daftar order yang panjang tidak membanjiri server
+        let imgNetActive = 0;
+        const imgNetQueue = [];
+        const withImgNetSlot = async (fn) => {
+            if (imgNetActive >= 4) await new Promise(r => imgNetQueue.push(r));
+            imgNetActive++;
+            try { return await fn(); } finally { imgNetActive--; const next = imgNetQueue.shift(); if (next) next(); }
+        };
+        const loadImageRef = (ref) => {
+            if (!isImgRef(ref)) return Promise.resolve(ref || null);
+            if (imgMem.has(ref)) return Promise.resolve(imgMem.get(ref));
+            if (imgInflight.has(ref)) return imgInflight.get(ref);
+            const p = (async () => {
+                const local = await idbGetImg(ref);
+                if (local) { imgMem.set(ref, local); return local; }
+                if (!supabaseClient || cloudHealth.isBlocked()) return null;
+                try {
+                    const { data, error, status } = await withImgNetSlot(() => cloudHealth.isBlocked() ? { error: { message: 'cloud dijeda' }, status: 0 } : supabaseClient.from('app_data').select('data').eq('id', ref).maybeSingle());
+                    if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); return null; }
+                    const val = typeof data?.data === 'string' ? data.data : null;
+                    if (val) { imgMem.set(ref, val); imgMissing.delete(ref); idbPutImg(ref, val); } else { imgMissing.add(ref); }
+                    return val;
+                } catch (e) { return null; }
+            })();
+            imgInflight.set(ref, p);
+            p.finally(() => imgInflight.delete(ref));
+            return p;
+        };
+        const resolveImageSync = (v) => isImgRef(v) ? (imgMem.get(v) || '') : (v || '');
+        const ensureImagesLoaded = (list, timeoutMs = 6000) => Promise.race([
+            Promise.all(safeArray(list).filter(isImgRef).map(loadImageRef)),
+            new Promise(r => setTimeout(r, timeoutMs)),
+        ]);
+        const useStoredImage = (src) => {
+            const ref = isImgRef(src) ? src : null;
+            const [, setTick] = React.useState(0);
+            React.useEffect(() => {
+                if (!ref || imgMem.has(ref)) return;
+                let alive = true;
+                let retryTimer = null;
+                const attempt = () => loadImageRef(ref).then(v => {
+                    if (!alive) return;
+                    setTick(t => t + 1);
+                    if (!v && !imgMissing.has(ref)) retryTimer = setTimeout(attempt, 30000);
+                });
+                attempt();
+                return () => { alive = false; clearTimeout(retryTimer); };
+            }, [ref]);
+            if (!ref) return { src: src || '', status: src ? 'ok' : 'none' };
+            if (imgMem.has(ref)) return { src: imgMem.get(ref), status: 'ok' };
+            return { src: '', status: imgMissing.has(ref) ? 'missing' : 'loading' };
+        };
+        // <img> yang bisa menampilkan gambar biasa maupun penanda 'img:...'
+        const StoredImg = ({ src, className = '', alt = '', onClick, style, placeholderClassName = '' }) => {
+            const r = useStoredImage(src);
+            if (r.status === 'ok') return <img src={r.src} alt={alt} className={className} onClick={onClick} style={style} />;
+            return <div className={`${placeholderClassName || className} flex items-center justify-center bg-gray-100 text-gray-400 text-[10px] ${r.status === 'loading' ? 'animate-pulse' : ''}`} style={style} onClick={onClick} title={r.status === 'missing' ? 'Gambar tidak ditemukan' : 'Memuat gambar...'}>{r.status === 'missing' ? '🖼' : ''}</div>;
+        };
+
+        // Gambar lama (isi langsung) dan penandanya dianggap sama bila penanda dibuat dari gambar itu
+        const imgRefMatchesInline = (ref, inline) => {
+            if (!isImgRef(ref) || !isInlineImage(inline)) return false;
+            if (!ref.endsWith('-' + inline.length.toString(36))) return false;
+            return ref.endsWith(':' + hashImageString(inline));
+        };
+        const IMG_RECORD_FIELDS = ['designImage1', 'designImage2'];
+        // Ambil penanda gambar dari salinan lain bila isinya sama (agar gambar yang sudah dipindah tidak kembali jadi isi langsung)
+        const adoptImageRefs = (target, other) => {
+            if (!target || !other || typeof target !== 'object' || typeof other !== 'object') return target;
+            let out = target;
+            IMG_RECORD_FIELDS.forEach(f => {
+                if (isInlineImage(out[f]) && imgRefMatchesInline(other[f], out[f])) { if (out === target) out = { ...target }; out[f] = other[f]; }
+            });
+            if (Array.isArray(out.payments) && Array.isArray(other.payments) && out.payments.some(p => isInlineImage(p?.proofImage))) {
+                const otherById = new Map(other.payments.filter(p => p && p.id != null).map(p => [String(p.id), p]));
+                let changed = false;
+                const pays = out.payments.map(p => {
+                    if (!p || !isInlineImage(p.proofImage)) return p;
+                    const o = otherById.get(String(p.id));
+                    if (o && imgRefMatchesInline(o.proofImage, p.proofImage)) { changed = true; return { ...p, proofImage: o.proofImage }; }
+                    return p;
+                });
+                if (changed) { if (out === target) out = { ...target }; out.payments = pays; }
+            }
+            return out;
         };
 
         const dataUrlToInlinePart = (dataUrl) => {
@@ -1227,11 +1446,12 @@
         const prefetchHppMenu = async (client) => {
             try { loadFontAwesome(); } catch (e) {}
             try { loadChartJs().catch(() => {}); } catch (e) {}
-            if (!client) return;
+            if (!client || cloudHealth.isBlocked()) return;
             const one = async (key) => {
+                if (cloudHealth.isBlocked()) return;
                 try {
-                    const { data, error } = await client.from('app_data').select('data').eq('id', key);
-                    if (error) return;
+                    const { data, error, status } = await client.from('app_data').select('data').eq('id', key);
+                    if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); return; }
                     const row = Array.isArray(data) ? data[0] : null;
                     if (!row) return;
                     const c = readHppCache(key); // dicek tepat sebelum disimpan
@@ -2112,7 +2332,7 @@
                                             <div className="border border-dashed border-gray-300 p-2 rounded text-center relative hover:bg-gray-50">
                                                 {editOrder.designImage1 ? (
                                                     <div className="relative inline-block">
-                                                        <img src={editOrder.designImage1} className="max-h-24 rounded object-contain mx-auto" />
+                                                        <StoredImg src={editOrder.designImage1} className="max-h-24 rounded object-contain mx-auto" />
                                                         <button type="button" onClick={() => setEditOrder({...editOrder, designImage1: ''})} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md">&times;</button>
                                                     </div>
                                                 ) : (
@@ -2126,7 +2346,7 @@
                                             <div className="border border-dashed border-gray-300 p-2 rounded text-center relative hover:bg-gray-50">
                                                 {editOrder.designImage2 ? (
                                                     <div className="relative inline-block">
-                                                        <img src={editOrder.designImage2} className="max-h-24 rounded object-contain mx-auto" />
+                                                        <StoredImg src={editOrder.designImage2} className="max-h-24 rounded object-contain mx-auto" />
                                                         <button type="button" onClick={() => setEditOrder({...editOrder, designImage2: ''})} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md">&times;</button>
                                                     </div>
                                                 ) : (
@@ -2285,9 +2505,9 @@
                             
                             <div className={`w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-lg border-2 flex items-center justify-center overflow-hidden bg-white ${isDark ? 'border-slate-600' : 'border-gray-200'}`}>
                                 {order.designImage1 ? (
-                                    <img src={order.designImage1} alt="Desain" className="w-full h-full object-cover" />
+                                    <StoredImg src={order.designImage1} alt="Desain" className="w-full h-full object-cover" />
                                 ) : order.designImage2 ? (
-                                    <img src={order.designImage2} alt="Desain" className="w-full h-full object-cover" />
+                                    <StoredImg src={order.designImage2} alt="Desain" className="w-full h-full object-cover" />
                                 ) : (
                                     <IconImage className={`w-8 h-8 opacity-20 ${isDark ? 'text-black' : 'text-gray-800'}`} />
                                 )}
@@ -3666,7 +3886,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                     <div className="border border-dashed border-gray-300 p-2 rounded-lg text-center relative hover:bg-gray-50 transition-colors">
                                         {newOrder.designImage1 ? (
                                             <div className="relative inline-block">
-                                                <img src={newOrder.designImage1} className="max-h-32 rounded object-contain mx-auto" />
+                                                <StoredImg src={newOrder.designImage1} className="max-h-32 rounded object-contain mx-auto" />
                                                 <button type="button" onClick={() => setNewOrder({...newOrder, designImage1: ''})} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md">&times;</button>
                                             </div>
                                         ) : (
@@ -3683,7 +3903,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                     <div className="border border-dashed border-gray-300 p-2 rounded-lg text-center relative hover:bg-gray-50 transition-colors">
                                         {newOrder.designImage2 ? (
                                             <div className="relative inline-block">
-                                                <img src={newOrder.designImage2} className="max-h-32 rounded object-contain mx-auto" />
+                                                <StoredImg src={newOrder.designImage2} className="max-h-32 rounded object-contain mx-auto" />
                                                 <button type="button" onClick={() => setNewOrder({...newOrder, designImage2: ''})} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md">&times;</button>
                                             </div>
                                         ) : (
@@ -3981,7 +4201,18 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 }));
             };
 
-            const printLembarKerja = (order) => {
+            const printLembarKerja = async (orderIn) => {
+                // Jendela dibuka langsung saat tombol diklik (agar tidak diblokir pop-up), gambar desain dimuat setelahnya
+                const printWindow = window.open('', '_blank');
+                if (!printWindow) { showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); return; }
+                const imgRefs = [orderIn.designImage1, orderIn.designImage2].filter(isImgRef);
+                if (imgRefs.some(r => !imgMem.has(r))) {
+                    try { printWindow.document.write('<p style="font-family:Arial,sans-serif;padding:24px;color:#475569">Memuat gambar desain...</p>'); } catch (e) {}
+                    await ensureImagesLoaded(imgRefs, 10000);
+                    if (imgRefs.some(r => !imgMem.has(r))) showToast('Sebagian gambar desain belum bisa dimuat (koneksi/server). Lembar kerja dicetak tanpa gambar tersebut.', 'error');
+                }
+                if (printWindow.closed) return;
+                const order = { ...orderIn, designImage1: resolveImageSync(orderIn.designImage1), designImage2: resolveImageSync(orderIn.designImage2) };
                 const sizeKeys = sortSizeKeys(Object.keys(order.sizes || {}));
                 const sizeCount = sizeKeys.length;
 
@@ -4202,15 +4433,10 @@ window.addEventListener('load',function(){
 <\/script>
 </body></html>`;
 
-                let printWindow = window.open('', '_blank');
-                if (printWindow) {
-                    printWindow.document.open();
-                    printWindow.document.write(printContent);
-                    printWindow.document.close();
-                    printWindow.focus();
-                } else {
-                    showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
-                }
+                printWindow.document.open();
+                printWindow.document.write(printContent);
+                printWindow.document.close();
+                printWindow.focus();
             };
 
             const printSticker = (roleLabel, empName, client, type, size, qty) => {
@@ -4799,7 +5025,7 @@ window.addEventListener('load',function(){
                                     
                                     {mainImage ? (
                                         <div className="w-full h-32 bg-gray-100 border-b border-gray-200 relative overflow-hidden">
-                                            <img src={mainImage} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" alt="Desain Order" />
+                                            <StoredImg src={mainImage} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" alt="Desain Order" />
                                             {order.designImage2 && order.designImage1 && (
                                                 <div className="absolute bottom-2 right-2 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded font-bold">+1 Gambar</div>
                                             )}
@@ -6227,7 +6453,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     <div className={`grid ${images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-1`}>
                         {images.map((src, index) => (
                             <button key={index} type="button" onClick={() => setPreviewImage(src)} className={`${boxClass} rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm relative`}>
-                                <img src={src} alt={`Desain ${order?.id || ''}`} className="w-full h-full object-cover" />
+                                <StoredImg src={src} alt={`Desain ${order?.id || ''}`} className="w-full h-full object-cover" />
                                 <span className={`absolute left-1 bottom-1 bg-black/60 text-white text-[9px] px-1 py-0.5 rounded font-bold`}>{index === 0 ? 'Dpn' : 'Blk'}</span>
                             </button>
                         ))}
@@ -6406,7 +6632,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     <div key={it.id || i} className="flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: i % 2 === 0 ? '#F8FAFC' : 'white' }}>
                                                         {img ? (
                                                             <button type="button" onClick={() => setPreviewImage(img)} className="w-9 h-9 rounded-lg overflow-hidden border border-gray-200 shrink-0 shadow-sm hover:shadow-md transition-shadow">
-                                                                <img src={img} alt="desain" className="w-full h-full object-cover" />
+                                                                <StoredImg src={img} alt="desain" className="w-full h-full object-cover" />
                                                             </button>
                                                         ) : linkedOrder ? (
                                                             <div className="w-9 h-9 rounded-lg border border-dashed border-gray-200 bg-gray-50 shrink-0 flex items-center justify-center text-gray-300 text-xs">📷</div>
@@ -7023,7 +7249,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     {previewImage && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4" onClick={() => setPreviewImage(null)}>
                             <div className="bg-white p-3 rounded-2xl max-w-4xl max-h-[92vh] shadow-2xl">
-                                <img src={previewImage} alt="Preview desain" className="max-w-full max-h-[84vh] object-contain rounded-lg" />
+                                <StoredImg src={previewImage} alt="Preview desain" className="max-w-full max-h-[84vh] object-contain rounded-lg" placeholderClassName="w-64 h-64 rounded-lg" />
                             </div>
                         </div>
                     )}
@@ -10431,7 +10657,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 {proofViewImg && (
                     <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[200] p-4" onClick={() => setProofViewImg(null)}>
                         <div className="relative max-w-2xl w-full">
-                            <img src={proofViewImg} alt="Bukti Transfer" className="w-full max-h-[80vh] object-contain rounded-xl shadow-2xl" />
+                            <StoredImg src={proofViewImg} alt="Bukti Transfer" className="w-full max-h-[80vh] object-contain rounded-xl shadow-2xl" placeholderClassName="w-full h-64 rounded-xl" />
                             <button onClick={() => setProofViewImg(null)} className="absolute top-2 right-2 bg-white text-gray-800 rounded-full w-8 h-8 flex items-center justify-center font-bold text-lg shadow">✕</button>
                         </div>
                     </div>
@@ -10467,7 +10693,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <span className="text-gray-600 shrink-0">{pay.method||'-'}</span>
                                                     <span className="font-bold text-green-700 flex-1">{formatRupiah(pay.amount)}</span>
                                                     <span className="text-gray-400 truncate max-w-[80px]">{pay.note||''}</span>
-                                                    {pay.proofImage && <img src={pay.proofImage} alt="bukti" onClick={() => setProofViewImg(pay.proofImage)} className="w-8 h-8 object-cover rounded cursor-pointer border border-gray-200 shrink-0" />}
+                                                    {pay.proofImage && <StoredImg src={pay.proofImage} alt="bukti" onClick={() => setProofViewImg(pay.proofImage)} className="w-8 h-8 object-cover rounded cursor-pointer border border-gray-200 shrink-0" />}
                                                     <button onClick={() => { const dp = getInvoiceDpAmount(inv); const linked = getInvoiceLinkedDpAmount(inv); const cum = dp + linked + existingPayments.slice(0, pi+1).reduce((s,p) => s + safeMoney(p.amount), 0); printInvoicePayment(inv, pay, `Termin ke-${pi+1}`, cum >= totals.total); }} title="Cetak Kwitansi" className="text-slate-400 hover:text-blue-600 shrink-0 transition-colors"><IconPrinter /></button>
                                                     <button onClick={() => deleteInvoicePayment(payInvId, pay.id)} className="text-red-400 hover:text-red-600 shrink-0 font-bold ml-1">✕</button>
                                                 </div>
@@ -18419,7 +18645,7 @@ ${getRekapShareLink(rekap)}
                                             <div className="flex items-start gap-4">
                                                 <div className="w-24 h-24 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center shrink-0">
                                                     {order.designImage1 ? (
-                                                        <img src={order.designImage1} alt={`Desain 1 ${order.id}`} className="w-full h-full object-cover" />
+                                                        <StoredImg src={order.designImage1} alt={`Desain 1 ${order.id}`} className="w-full h-full object-cover" />
                                                     ) : (
                                                         <div className="text-center text-gray-400 text-xs font-bold px-2">
                                                             <IconImage />
@@ -21281,12 +21507,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [hppSyncIssue, setHppSyncIssue] = React.useState(false);
 
             const hppFetchRemote = async (key) => {
+                if (cloudHealth.isBlocked()) return { ok: false };
                 try {
-                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key);
-                    if (error) return { ok: false };
+                    const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', key);
+                    if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); return { ok: false }; }
+                    cloudHealth.ok();
                     const row = Array.isArray(data) ? data[0] : null;
                     return { ok: true, exists: !!row, value: row ? row.data : undefined };
-                } catch (e) { return { ok: false }; }
+                } catch (e) { cloudHealth.fail(); return { ok: false }; }
             };
             // Ganti nilai di layar dari hasil sinkron (bukan perubahan pengguna -> tidak memicu tulis ulang)
             const hppApply = (key, value) => {
@@ -21300,7 +21528,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const sync = hppSync.current;
                 setHppSyncIssue(true);
                 if (sync.retryTimer || !sync.alive) return;
-                sync.retryTimer = setTimeout(() => { sync.retryTimer = null; if (sync.alive) hppLoad(HPP_ALL_KEYS); }, 15000);
+                // Saat rem darurat aktif, tunggu sampai jeda selesai (jangan ikut membanjiri server)
+                sync.retryTimer = setTimeout(() => { sync.retryTimer = null; if (sync.alive) hppLoad(HPP_ALL_KEYS); }, Math.max(15000, cloudHealth.remainingMs() + 1000));
             };
             const hppWrite = async (key) => {
                 const sync = hppSync.current;
@@ -21313,8 +21542,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     if (!remote.ok) throw new Error('baca cloud gagal');
                     const merged = remote.exists ? mergeHpp3(sync.base[key], localAtStart, remote.value) : localAtStart;
                     if (!remote.exists || hppJson(merged) !== hppJson(remote.value)) {
-                        const { error } = await supabaseClient.from('app_data').upsert({ id: key, data: merged }, { onConflict: 'id' });
-                        if (error) throw error;
+                        const { error, status } = await supabaseClient.from('app_data').upsert({ id: key, data: merged }, { onConflict: 'id' });
+                        if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); throw error; }
                     }
                     sync.base[key] = merged;
                     // Jangan timpa perubahan yang dibuat selama proses simpan berlangsung
@@ -24048,6 +24277,19 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
         const App = () => {
             const [isReady, setIsReady] = useState(false);
             const syncInFlightRef = React.useRef(false);
+            // Unduhan data ditunda karena server bermasalah -> unduh ulang begitu server pulih
+            const needsCloudRefreshRef = React.useRef(false);
+            // Batasi simpan ke cloud: maks. 2 berjalan bersamaan (cegah lonjakan saat banyak data menunggu)
+            const saveSlotRef = React.useRef({ active: 0, queue: [] });
+            const acquireSaveSlot = () => new Promise(resolve => {
+                const slot = saveSlotRef.current;
+                if (slot.active < 2) { slot.active++; resolve(); } else slot.queue.push(resolve);
+            });
+            const releaseSaveSlot = () => {
+                const slot = saveSlotRef.current;
+                const next = slot.queue.shift();
+                if (next) next(); else slot.active = Math.max(0, slot.active - 1);
+            };
             const supabaseLoadedRef = React.useRef(false);
             const ordersSyncTimerRef = React.useRef(null);
             const ordersPendingRef = React.useRef(null);
@@ -24384,13 +24626,18 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const markVerified = (key) => { try { const m = getVerifiedMap(); m[key] = Date.now(); localStorage.setItem(TS_VERIFIED_KEY, JSON.stringify(m)); } catch {} };
 
             // Ambil timestamps dari meta-row '_timestamps' di Supabase (1 request ringan)
+            // null = server cloud bermasalah (rem darurat aktif) -> jangan lanjut mengunduh data berat
             const fetchRemoteTimestamps = async () => {
                 if (!supabaseClient) return {};
                 try {
-                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
-                    if (error || !data?.data) return {};
-                    return data.data || {};
-                } catch { return {}; }
+                    const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                    if (error) {
+                        if (isCloudServerTrouble(error, status)) { cloudHealth.fail(); return null; }
+                        return {};
+                    }
+                    cloudHealth.ok();
+                    return data?.data || {};
+                } catch { cloudHealth.fail(); return null; }
             };
 
             // Update meta-row '_timestamps' di Supabase setelah save (jalankan di background)
@@ -24522,9 +24769,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const fetchStoreData = async (key, defaultVal, meta = null) => {
                 if (!supabaseClient) return loadLocalData(`simpati_${key}_sync`, defaultVal);
 
+                if (cloudHealth.isBlocked()) return loadLocalData(`simpati_${key}_sync`, defaultVal);
                 try {
-                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
+                    const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
                     if (error) {
+                        if (isCloudServerTrouble(error, status)) cloudHealth.fail();
                         if (error.code === 'PGRST116') return loadLocalData(`simpati_${key}_sync`, defaultVal);
                         if (error.code === '42P01') {
                              showToast(`PERINGATAN: TABEL BELUM DIBUAT! Pastikan tabel 'app_data' ada di Supabase.`, 'error');
@@ -24568,7 +24817,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return (Array.isArray(nextOrders) ? nextOrders : []).map(order => {
                     if (!order || typeof order !== 'object') return order;
                     const prevOrder = prevById.get(String(order.id));
-                    if (!prevOrder || orderSignature(prevOrder) !== orderSignature(order)) {
+                    // Gambar lama diganti penanda (isi sama) bukan perubahan pengguna -> waktu ubah tidak diperbarui
+                    if (!prevOrder || orderSignature(adoptImageRefs(prevOrder, order)) !== orderSignature(order)) {
                         return { ...order, _syncUpdatedAt: now };
                     }
                     return order;
@@ -24599,7 +24849,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return (Array.isArray(nextRecords) ? nextRecords : []).map(record => {
                     if (!record || typeof record !== 'object') return record;
                     const prevRecord = prevById.get(String(record.id));
-                    if (!prevRecord || recordSignature(prevRecord) !== recordSignature(record)) {
+                    if (!prevRecord || recordSignature(adoptImageRefs(prevRecord, record)) !== recordSignature(record)) {
                         return { ...record, _syncUpdatedAt: now };
                     }
                     return record;
@@ -24681,6 +24931,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const mergeRecord = (localRecord, remoteRecord) => {
                     if (!localRecord) return remoteRecord;
                     if (!remoteRecord) return localRecord;
+                    return adoptImageRefs(adoptImageRefs(mergeRecordRaw(localRecord, remoteRecord), localRecord), remoteRecord);
+                };
+                const mergeRecordRaw = (localRecord, remoteRecord) => {
                     const localTime = getRecordSyncTime(localRecord);
                     const remoteTime = getRecordSyncTime(remoteRecord);
                     if (localRecord.isDeleted || remoteRecord.isDeleted) {
@@ -24918,6 +25171,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const mergeOrderRecords = (localOrder, remoteOrder) => {
                 if (!localOrder) return remoteOrder;
                 if (!remoteOrder) return localOrder;
+                return adoptImageRefs(adoptImageRefs(mergeOrderRecordsRaw(localOrder, remoteOrder), localOrder), remoteOrder);
+            };
+            const mergeOrderRecordsRaw = (localOrder, remoteOrder) => {
 
                 const localTime = getOrderSyncTime(localOrder);
                 const remoteTime = getOrderSyncTime(remoteOrder);
@@ -25011,7 +25267,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const applyRemoteDataSnapshotInner = async () => {
+                // Rem darurat: server bermasalah -> pakai data di perangkat, unduh ulang setelah server pulih
+                if (cloudHealth.isBlocked()) { needsCloudRefreshRef.current = true; return; }
                 const remoteTsMap = await fetchRemoteTimestamps();
+                if (remoteTsMap === null) { needsCloudRefreshRef.current = true; return; }
+                needsCloudRefreshRef.current = false;
                 const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi, remoteLabelTemplates] = await Promise.all([
                     fetchStoreDataCached('accounts', [], remoteTsMap),
                     fetchStoreDataCached('employees', initialEmployees, remoteTsMap),
@@ -25417,6 +25677,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             // Deteksi mobile/iPad → timeout lebih panjang (koneksi lebih lambat)
                             const isMobile = /Mobi|Android|iPad|iPhone/i.test(navigator.userAgent);
                             const initTsMap = await Promise.race([fetchRemoteTimestamps(), new Promise(r => setTimeout(() => r({}), isMobile ? 10000 : 5000))]);
+                            // Server cloud bermasalah: jangan kirim 26 unduhan berat; pakai data di perangkat dulu,
+                            // unduh ulang otomatis setelah server pulih (lihat pengiriman ulang berkala)
+                            if (initTsMap === null || cloudHealth.isBlocked()) {
+                                needsCloudRefreshRef.current = true;
+                                throw new Error('CLOUD_DOWN');
+                            }
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), isMobile ? 25000 : 10000)
                             );
@@ -25598,6 +25864,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             syncSavedAuthSession(nextAccounts.filter(isVisibleRecord), { fromConfirmedData: true });
                         } catch (error) {
                             console.error("Gagal memuat dari Supabase, memakai data lokal.");
+                            needsCloudRefreshRef.current = true;
                             loadAllLocal();
                         } finally {
                             setIsReady(true);
@@ -25729,32 +25996,43 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 let ok = false;
                 let permanent = false;
                 let specificToastShown = false;
+                let skippedByBrake = false;
+                await acquireSaveSlot();
                 try {
-                    const { error } = await supabaseClient.from('app_data').upsert({ id: key, data: data });
-                    if (error) {
-                        console.error(`Supabase error saving ${key}:`, error);
-                        if (error.code === '42501' || (error.message && error.message.includes('RLS'))) {
-                            showToast(`PERINGATAN: GAGAL SINKRONISASI! Nonaktifkan RLS di Supabase.`, 'error');
-                            permanent = specificToastShown = true;
-                        }
-                        if (error.code === '42P01') {
-                            showToast(`PERINGATAN: TABEL BELUM DIBUAT! Tabel 'app_data' belum ada di database Supabase Anda.`, 'error');
-                            permanent = specificToastShown = true;
-                        }
-                        if (error.status === 413 || (error.message && (error.message.toLowerCase().includes('too large') || error.message.toLowerCase().includes('payload')))) {
-                            showToast(`PERINGATAN: Data '${key}' terlalu besar untuk disimpan ke cloud. Coba kurangi ukuran gambar.`, 'error');
-                            permanent = specificToastShown = true;
-                        }
+                    // Rem darurat: server sedang bermasalah -> jangan kirim, tandai "belum terkirim" (data aman di perangkat)
+                    if (cloudHealth.isBlocked()) {
+                        skippedByBrake = true;
                     } else {
-                        ok = true;
-                        const now = new Date().toISOString();
-                        updateTsCache(key, now);
-                        markVerified(key);
-                        setTimeout(() => updateRemoteTimestamp(key, now), 0);
+                        const { error, status } = await supabaseClient.from('app_data').upsert({ id: key, data: data });
+                        if (error) {
+                            console.error(`Supabase error saving ${key}:`, error);
+                            if (error.code === '42501' || (error.message && error.message.includes('RLS'))) {
+                                showToast(`PERINGATAN: GAGAL SINKRONISASI! Nonaktifkan RLS di Supabase.`, 'error');
+                                permanent = specificToastShown = true;
+                            }
+                            if (error.code === '42P01') {
+                                showToast(`PERINGATAN: TABEL BELUM DIBUAT! Tabel 'app_data' belum ada di database Supabase Anda.`, 'error');
+                                permanent = specificToastShown = true;
+                            }
+                            if (status === 413 || error.status === 413 || (error.message && (error.message.toLowerCase().includes('too large') || error.message.toLowerCase().includes('payload')))) {
+                                showToast(`PERINGATAN: Data '${key}' terlalu besar untuk disimpan ke cloud. Coba kurangi ukuran gambar.`, 'error');
+                                permanent = specificToastShown = true;
+                            }
+                            if (!permanent && isCloudServerTrouble(error, status)) { cloudHealth.fail(); specificToastShown = true; }
+                        } else {
+                            ok = true;
+                            cloudHealth.ok();
+                            const now = new Date().toISOString();
+                            updateTsCache(key, now);
+                            markVerified(key);
+                            setTimeout(() => updateRemoteTimestamp(key, now), 0);
+                        }
                     }
                 } catch (err) {
                     console.error(`Gagal menyimpan ${key}:`, err);
+                    if (isCloudServerTrouble(err, 0)) { cloudHealth.fail(); specificToastShown = true; }
                 } finally {
+                    releaseSaveSlot();
                     const failed = syncFailedRef.current;
                     const current = failed.get(key);
                     if (ok) {
@@ -25762,8 +26040,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         if (current && current.seq <= seq) failed.delete(key);
                     } else {
                         const wasEmpty = ![...failed.values()].some(e => !e.fromPreviousSession);
-                        if (!current || current.seq < seq) failed.set(key, { seq, data, permanent, lastRetryAt: current?.lastRetryAt || 0, fromPreviousSession: false });
-                        if (wasEmpty && !specificToastShown) {
+                        if (!current || current.seq < seq) failed.set(key, { seq, data, permanent, lastRetryAt: skippedByBrake ? (current?.lastRetryAt || 0) : Date.now(), fromPreviousSession: false });
+                        if (wasEmpty && !specificToastShown && !skippedByBrake) {
                             showToast('Gagal menyimpan ke cloud (koneksi bermasalah). Data aman di perangkat ini dan akan dikirim ulang otomatis.', 'error');
                         }
                     }
@@ -25775,8 +26053,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const patchedLocal = patchOrders(localOrders);
                 if (!supabaseClient) return patchedLocal;
 
+                if (cloudHealth.isBlocked()) return patchedLocal;
                 try {
-                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', 'orders').single();
+                    const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', 'orders').single();
+                    if (error && isCloudServerTrouble(error, status)) cloudHealth.fail();
                     if (error || !Array.isArray(data?.data)) return patchedLocal;
                     return mergeOrderLists(patchedLocal, data.data);
                 } catch (err) {
@@ -25788,8 +26068,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const mergeRemotePaymentDictForSave = async (key, localDict) => {
                 const safeLocal = (localDict && typeof localDict === 'object' && !Array.isArray(localDict)) ? localDict : {};
                 if (!supabaseClient) return safeLocal;
+                if (cloudHealth.isBlocked()) return safeLocal;
                 try {
-                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
+                    const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
+                    if (error && isCloudServerTrouble(error, status)) cloudHealth.fail();
                     if (error || !data?.data || typeof data.data !== 'object' || Array.isArray(data.data)) return safeLocal;
                     return mergePaymentDict(safeLocal, data.data);
                 } catch (err) {
@@ -25802,10 +26084,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const patchedLocal = key === 'employees' ? sanitizeEmployees(localRecords) : (Array.isArray(localRecords) ? localRecords : []);
                 if (!supabaseClient) return patchedLocal;
 
+                if (cloudHealth.isBlocked()) return patchedLocal;
                 // Tahap ambil-data-cloud sebelum simpan juga dihitung "sedang menyimpan"
                 beginSync(key);
                 try {
-                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
+                    const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
+                    if (error && isCloudServerTrouble(error, status)) cloudHealth.fail();
                     if (error || !Array.isArray(data?.data)) return patchedLocal;
                     return mergeRecordLists(patchedLocal, key === 'employees' ? sanitizeEmployees(data.data) : data.data);
                 } catch (err) {
@@ -26536,16 +26820,31 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 driverRekapGaji: updateDriverRekapGaji, driverKasbon: updateDriverKasbon, stockItems: updateStockItems,
                 absensiEdits: updateAbsensiEdits, templates: updateTemplates, labelTemplates: updateTemplates
             };
+            // Kirim ulang data yang belum tersimpan: satu jenis data per giliran (berikutnya baru dikirim setelah
+            // jeda & bila server sehat), hanya satu tab per perangkat, dan berhenti total saat rem darurat aktif.
             const retryFailedSaves = ({ manual = false } = {}) => {
                 if (!supabaseClient) return;
+                if (!manual && cloudHealth.isBlocked()) { publishSyncState(); return; }
                 const now = Date.now();
                 const calledUpdaters = new Set();
-                [...syncFailedRef.current.entries()].forEach(([key, entry]) => {
-                    if (!manual && (entry.permanent || now - (entry.lastRetryAt || 0) < 25000)) return;
-                    entry.lastRetryAt = now;
+                const entries = [...syncFailedRef.current.entries()]
+                    .filter(([, entry]) => manual || (!entry.permanent && now - (entry.lastRetryAt || 0) >= 25000))
+                    .sort((a, b) => (a[1].lastRetryAt || 0) - (b[1].lastRetryAt || 0));
+                if (!entries.length) { publishSyncState(); return; }
+                // Kunci hanya dipegang selama tab ini benar-benar mengirim (tab lain bergantian, tidak bersamaan)
+                if (!manual && !tryCloudLock('retry', 45000)) return;
+                const selesai = () => { if (!manual) releaseCloudLock('retry'); publishSyncState(); };
+                const kirim = (i) => {
+                    if (i >= entries.length) { selesai(); return; }
+                    if (cloudHealth.isBlocked()) { selesai(); return; }
+                    const [key, entry] = entries[i];
+                    if (!syncFailedRef.current.has(key)) { kirim(i + 1); return; }
+                    entry.lastRetryAt = Date.now();
                     const updater = retryUpdaters[key];
                     if (updater) {
-                        if (!calledUpdaters.has(updater)) { calledUpdaters.add(updater); updater(prev => prev); }
+                        if (calledUpdaters.has(updater)) { kirim(i + 1); return; }
+                        calledUpdaters.add(updater);
+                        updater(prev => prev);
                     } else if (entry.data) {
                         (async () => {
                             const payload = Array.isArray(entry.data) ? await mergeRemoteRecordsForSave(key, entry.data) : entry.data;
@@ -26555,22 +26854,49 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         // Tidak ada salinan data (mis. setelah aplikasi dibuka ulang): cache sudah dibuat basi,
                         // jadi refresh berikutnya menggabungkan data lokal dengan cloud dan mengirim ulang jika berbeda.
                         syncFailedRef.current.delete(key);
+                        kirim(i + 1);
+                        return;
                     }
-                });
-                publishSyncState();
+                    publishSyncState();
+                    if (i + 1 < entries.length) {
+                        if (!manual) tryCloudLock('retry', 45000);
+                        setTimeout(() => kirim(i + 1), 4000);
+                    } else {
+                        // Beri waktu kiriman terakhir berjalan sebelum tab lain boleh mengirim
+                        setTimeout(selesai, 4000);
+                    }
+                };
+                kirim(0);
             };
             const retryFailedSavesRef = React.useRef(retryFailedSaves);
             retryFailedSavesRef.current = retryFailedSaves;
+            const applyRemoteDataSnapshotRef = React.useRef(applyRemoteDataSnapshot);
+            applyRemoteDataSnapshotRef.current = applyRemoteDataSnapshot;
             const flushPendingOrdersRef = React.useRef(flushPendingOrdersNow);
             flushPendingOrdersRef.current = flushPendingOrdersNow;
 
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
                 if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
-                const retry = () => { if (navigator.onLine !== false) retryFailedSavesRef.current(); };
+                const retry = async () => {
+                    if (navigator.onLine === false) return;
+                    // Setelah rem darurat: jeda harus habis dulu, lalu cek server dengan 1 permintaan kecil (satu tab saja)
+                    if (cloudHealth.get().failures) {
+                        if (cloudHealth.isBlocked()) return;
+                        if (!tryCloudLock('probe', 20000)) return;
+                        const sehat = await probeCloud();
+                        releaseCloudLock('probe');
+                        if (!sehat) return;
+                    }
+                    retryFailedSavesRef.current();
+                    if (needsCloudRefreshRef.current) {
+                        needsCloudRefreshRef.current = false;
+                        setTimeout(() => { applyRemoteDataSnapshotRef.current().then(() => setLastSyncTime(Date.now())).catch(() => {}); }, 2000);
+                    }
+                };
                 const startupId = setTimeout(retry, 3000);
                 const intervalId = setInterval(retry, 30000);
-                const handleOnline = () => retryFailedSavesRef.current();
+                const handleOnline = () => { cloudHealth.allowProbeNow(); retry(); };
                 // Kirim langsung order yang masih menunggu jeda 3 detik saat aplikasi ditutup / HP pindah aplikasi
                 const handleHidden = () => { if (document.hidden) flushPendingOrdersRef.current(); };
                 const handlePageHide = () => flushPendingOrdersRef.current();
@@ -26592,8 +26918,146 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 };
             }, [isReady]);
 
-            const handleSyncBadgeClick = () => {
+            // Status rem darurat cloud: tampilan ikut berubah saat server bermasalah/pulih (juga dari tab lain)
+            const [cloudHealthState, setCloudHealthState] = useState(() => cloudHealth.get());
+            useEffect(() => {
+                let wasDown = !!cloudHealth.get().failures;
+                const unsub = cloudHealth.subscribe(() => {
+                    const h = cloudHealth.get();
+                    setCloudHealthState(h);
+                    if (h.failures && !wasDown) showToast('Koneksi ke server cloud sedang terganggu. Data aman di perangkat ini dan akan dikirim otomatis setelah pulih.', 'error');
+                    if (!h.failures && wasDown) showToast('Koneksi cloud sudah pulih. Data dikirim kembali secara bertahap.', 'success');
+                    wasDown = !!h.failures;
+                });
+                // Hitung mundur di lencana diperbarui tiap 15 detik selama jeda berjalan
+                const tick = setInterval(() => { if (cloudHealth.get().failures) setCloudHealthState(cloudHealth.get()); }, 15000);
+                return () => { unsub(); clearInterval(tick); };
+            }, []);
+            const cloudDownMinutes = () => Math.max(1, Math.ceil(cloudHealth.remainingMs() / 60000));
+
+            // ===== Pindahkan gambar lama (desain order & bukti bayar invoice) ke baris cloud terpisah =====
+            // Bertahap, satu per satu, hanya satu tab, berhenti saat server bermasalah. Data order/invoice
+            // hanya menyimpan penanda 'img:...' sehingga jauh lebih ringan diunduh & disimpan.
+            const imgOffloadDataRef = useRef({ orders: [], invoices: [] });
+            imgOffloadDataRef.current = { orders, invoices };
+            const imgOffloadBusyRef = useRef(false);
+            const imgOffloadSkipRef = useRef(new Set()); // gambar yang ditolak server (bukan karena server sakit): tidak dicoba lagi sesi ini
+            const collectImageOffloadTasks = () => {
+                const tasks = [];
+                safeArray(imgOffloadDataRef.current.orders).forEach(o => {
+                    if (!o || o.id == null) return;
+                    IMG_RECORD_FIELDS.forEach((f, i) => {
+                        const v = o[f];
+                        if (isInlineImage(v)) tasks.push({ kind: 'order', id: String(o.id), field: f, value: v, ref: `${IMG_REF_PREFIX}o:${o.id}:${i + 1}:${hashImageString(v)}`, deleted: !!o.isDeleted });
+                    });
+                });
+                safeArray(imgOffloadDataRef.current.invoices).forEach(inv => {
+                    if (!inv || inv.id == null) return;
+                    safeArray(inv.payments).forEach(p => {
+                        if (p && p.id != null && isInlineImage(p.proofImage)) tasks.push({ kind: 'invoice', id: String(inv.id), payId: String(p.id), value: p.proofImage, ref: `${IMG_REF_PREFIX}i:${inv.id}:${p.id}:${hashImageString(p.proofImage)}`, deleted: !!inv.isDeleted });
+                    });
+                });
+                // Yang masih aktif dulu, yang sudah dihapus belakangan
+                return tasks.sort((a, b) => Number(a.deleted) - Number(b.deleted));
+            };
+            const applyImageOffloadResults = (done) => {
+                const ordersDone = done.filter(d => d.kind === 'order');
+                const invDone = done.filter(d => d.kind === 'invoice');
+                if (ordersDone.length) {
+                    const byId = new Map();
+                    ordersDone.forEach(d => { if (!byId.has(d.id)) byId.set(d.id, []); byId.get(d.id).push(d); });
+                    const needs = safeArray(imgOffloadDataRef.current.orders).some(o => (byId.get(String(o?.id)) || []).some(d => o[d.field] === d.value));
+                    if (needs) updateOrders(prev => safeArray(prev).map(o => {
+                        const list = byId.get(String(o?.id));
+                        if (!list) return o;
+                        let n = o;
+                        // Hanya diganti bila gambarnya masih sama (tidak diganti pengguna selama proses)
+                        list.forEach(d => { if (n[d.field] === d.value) { if (n === o) n = { ...o }; n[d.field] = d.ref; } });
+                        return n;
+                    }));
+                }
+                if (invDone.length) {
+                    const byKey = new Map(invDone.map(d => [d.id + '|' + d.payId, d]));
+                    const hit = (inv, p) => { const d = byKey.get(String(inv?.id) + '|' + String(p?.id)); return d && p.proofImage === d.value ? d : null; };
+                    const needs = safeArray(imgOffloadDataRef.current.invoices).some(inv => safeArray(inv?.payments).some(p => hit(inv, p)));
+                    if (needs) updateInvoices(prev => safeArray(prev).map(inv => {
+                        if (!Array.isArray(inv?.payments) || !inv.payments.some(p => hit(inv, p))) return inv;
+                        return { ...inv, payments: inv.payments.map(p => { const d = hit(inv, p); return d ? { ...p, proofImage: d.ref } : p; }) };
+                    }));
+                }
+            };
+            const runImageOffload = async () => {
+                if (imgOffloadBusyRef.current || !supabaseClient || !authUser) return;
+                if (navigator.onLine === false || cloudHealth.isBlocked() || needsCloudRefreshRef.current) return;
+                const tasks = collectImageOffloadTasks().filter(t => !imgOffloadSkipRef.current.has(t.ref));
+                if (!tasks.length) return;
+                if (!tryCloudLock('img_offload', 120000)) return;
+                imgOffloadBusyRef.current = true;
+                let done = [];
+                let rejected = 0;
+                try {
+                    // Gambar yang sudah ada di cloud (mis. proses sebelumnya terputus) tidak dikirim ulang
+                    const existing = new Set();
+                    for (let i = 0; i < tasks.length; i += 50) {
+                        const ids = tasks.slice(i, i + 50).map(t => t.ref);
+                        const { data, error, status } = await supabaseClient.from('app_data').select('id').in('id', ids);
+                        if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); return; }
+                        safeArray(data).forEach(r => existing.add(r.id));
+                    }
+                    for (const t of tasks) {
+                        if (navigator.onLine === false || cloudHealth.isBlocked()) break;
+                        tryCloudLock('img_offload', 120000);
+                        if (!existing.has(t.ref)) {
+                            const { error, status } = await supabaseClient.from('app_data').upsert({ id: t.ref, data: t.value }, { onConflict: 'id' });
+                            if (error) {
+                                console.error('Pindah gambar gagal', t.ref, error);
+                                if (isCloudServerTrouble(error, status)) { cloudHealth.fail(); break; }
+                                imgOffloadSkipRef.current.add(t.ref);
+                                if (++rejected >= 3) break; // ditolak berulang: hentikan, jangan membanjiri server
+                                await new Promise(r => setTimeout(r, 1000));
+                                continue;
+                            }
+                            existing.add(t.ref);
+                            await new Promise(r => setTimeout(r, 300));
+                        }
+                        imgMem.set(t.ref, t.value); imgMissing.delete(t.ref); idbPutImg(t.ref, t.value);
+                        done.push(t);
+                        // Simpan penanda per 250 gambar agar kemajuan tidak hilang bila aplikasi ditutup
+                        if (done.length >= 250) { applyImageOffloadResults(done); done = []; }
+                    }
+                } catch (e) {
+                    console.error('Pindah gambar gagal', e);
+                } finally {
+                    if (done.length) applyImageOffloadResults(done);
+                    releaseCloudLock('img_offload');
+                    imgOffloadBusyRef.current = false;
+                }
+            };
+            const runImageOffloadRef = useRef(runImageOffload);
+            runImageOffloadRef.current = runImageOffload;
+            const imgOffloadStartedRef = useRef(false);
+            useEffect(() => {
+                if (!isReady || !authUser || !supabaseClient) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                // Pertama kali 20 detik setelah siap; berikutnya 15 detik setelah ada gambar baru
+                const t = setTimeout(() => { imgOffloadStartedRef.current = true; runImageOffloadRef.current(); }, imgOffloadStartedRef.current ? 15000 : 20000);
+                return () => clearTimeout(t);
+            }, [isReady, authUser, orders, invoices]);
+            useEffect(() => {
+                if (!isReady || !authUser || !supabaseClient) return;
+                // Lanjutkan sisa pemindahan yang sempat terhenti (mis. server sempat bermasalah)
+                const iv = setInterval(() => { if (imgOffloadStartedRef.current) runImageOffloadRef.current(); }, 180000);
+                return () => clearInterval(iv);
+            }, [isReady, authUser]);
+
+            const handleSyncBadgeClick = async () => {
                 if (navigator.onLine === false) { showToast('Perangkat sedang offline. Data akan dikirim otomatis saat internet tersambung.', 'error'); return; }
+                if (cloudHealth.get().failures) {
+                    // Server sempat bermasalah: cek dulu dengan 1 permintaan kecil, jangan langsung kirim semua
+                    if (cloudHealth.isBlocked()) { showToast(`Server cloud masih terganggu. Dicoba lagi otomatis dalam ±${cloudDownMinutes()} menit. Data aman di perangkat ini.`, 'error'); return; }
+                    const sehat = await probeCloud();
+                    if (!sehat) { showToast(`Server cloud masih terganggu. Dicoba lagi otomatis dalam ±${cloudDownMinutes()} menit. Data aman di perangkat ini.`, 'error'); return; }
+                }
                 retryFailedSaves({ manual: true });
                 showToast('Mengirim ulang data ke cloud...', 'success');
             };
@@ -26601,6 +27065,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const renderSyncBadge = (dark) => {
                 if (!supabaseClient) return null;
                 const failedCount = cloudSync.failedKeys.length;
+                if (cloudHealthState.failures) {
+                    const sisa = cloudHealth.isBlocked() ? ` · coba lagi ${cloudDownMinutes()} mnt` : ' · mengecek…';
+                    return (
+                        <button onClick={handleSyncBadgeClick} title="Koneksi ke server cloud sedang terganggu. Data tetap aman di perangkat ini dan dikirim otomatis setelah pulih. Klik untuk mencoba sekarang."
+                            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap border ${dark ? 'bg-orange-900/60 text-orange-200 border-orange-700' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                            ☁ Cloud terganggu{sisa}
+                        </button>
+                    );
+                }
                 if (failedCount > 0) {
                     return (
                         <button onClick={handleSyncBadgeClick} title="Ada data yang belum tersimpan ke cloud. Klik untuk mengirim ulang sekarang."
