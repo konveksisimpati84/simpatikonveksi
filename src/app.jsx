@@ -906,6 +906,19 @@
             return { daily, base, adj, overtime, total: daily + overtime };
         };
 
+        // Nama transaksi Biaya: kategori opsional, nama diambil dari uraian item (data lama: judul di kolom kategori)
+        const getExpenseItemsTitle = (e) => {
+            const descs = safeArray(e?.items).map(it => String(it?.desc || '').trim()).filter(Boolean);
+            if (descs.length === 0) return '';
+            return descs.length > 1 ? `${descs[0]} +${descs.length - 1} item` : descs[0];
+        };
+        const getExpenseLabel = (e) => {
+            const cat = String(e?.category || '').trim();
+            const title = getExpenseItemsTitle(e);
+            if (cat && title && title.toLowerCase() !== cat.toLowerCase()) return `${cat} · ${title}`;
+            return cat || title || String(e?.note || '').trim() || '-';
+        };
+
         const getInvoiceItems = (invoice) => {
             if (Array.isArray(invoice?.invoiceItems) && invoice.invoiceItems.length > 0) {
                 return invoice.invoiceItems.map((item, itemIndex) => ({
@@ -7481,7 +7494,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
             const empDana = safeDana.filter(d => String(d.karyawanId) === selectedEmpId && d.type !== 'aktivasi').sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
             const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, notaId: n.id, vendor: n.vendor, notaDate: n.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-            const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted).flatMap(ex => safeArray(ex.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, expId: ex.id, category: ex.category, expDate: ex.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted).flatMap(ex => safeArray(ex.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, expId: ex.id, category: getExpenseLabel(ex), expDate: ex.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             // Pembayaran gaji Direksi & Marketing tetap dihitung di saldo, tapi namanya disembunyikan tanpa akses "Lihat"
             const rekapGajiSensitif = (r) => { const e = safeArray(employees).find(x => String(x.id) === String(r.empId)); return e ? isSensitiveSalaryEmp(e) : SENSITIVE_SALARY_DIVISIONS.some(d => String(r.division || '').includes(d)); };
             const linkedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => {
@@ -7865,7 +7878,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes, rekapKinerja = [], bagiHasilPromosi = [] }) => {
             const [biayaSubTab, setBiayaSubTab] = useState('biaya');
             const emptyItem = () => ({ id: genId('BI-'), desc: '', qty: '1', unit: 'pcs', price: '' });
-            const emptyForm = { date: toLocalDateStr(), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '', discountType: 'Rp', discountValue: '' };
+            // payMode/payAmount/payDate/payMethod/payDana: isian pembayaran saat input (tidak ikut disimpan sebagai kolom)
+            const emptyForm = { date: toLocalDateStr(), type: 'Uang Keluar', category: '', items: [emptyItem()], method: 'Tunai', party: '', note: '', discountType: 'Rp', discountValue: '', payMode: 'belum', payAmount: '', payDate: '', payMethod: '', payDana: '' };
             const emptyPayForm = { date: toLocalDateStr(), amount: '', method: 'Tunai', note: '', operasionalKaryawanId: '' };
             const [form, setForm] = useState(emptyForm);
             const [editId, setEditId] = useState(null);
@@ -7873,7 +7887,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [typeFilter, setTypeFilter] = useState('Semua');
             const [payStatusFilter, setPayStatusFilter] = useState('Semua');
             const [monthFilter, setMonthFilter] = useState('');
-            const [expandedIds, setExpandedIds] = useState({});
+            const [detailId, setDetailId] = useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [payForm, setPayForm] = useState({});
 
@@ -8014,22 +8028,48 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                const items = form.items || [];
+                const { payMode, payAmount, payDate, payMethod, payDana, ...formData } = form;
+                const items = formData.items || [];
                 const gross = calcFormTotal(items);
-                const discountAmt = form.discountType === '%'
-                    ? Math.round(gross * safeMoney(form.discountValue) / 100)
-                    : safeMoney(form.discountValue);
+                const discountAmt = formData.discountType === '%'
+                    ? Math.round(gross * safeMoney(formData.discountValue) / 100)
+                    : safeMoney(formData.discountValue);
                 const amount = Math.max(0, gross - discountAmt);
+                if (!getExpenseItemsTitle(formData) && !String(formData.category || '').trim()) return showToast("Isi uraian item — nama transaksi diambil dari uraian item.", "error");
                 if (gross <= 0) return showToast("Total nominal harus lebih dari 0. Isi qty dan harga setiap item.", "error");
                 const now = new Date().toISOString();
                 const existing = editId ? (expenses || []).find(i => String(i.id) === String(editId)) : null;
-                const payments = existing?.payments || [];
+                let payments = existing?.payments || [];
+                const paidLama = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                if (existing && formData.type === 'Uang Keluar' && paidLama > amount + 0.01) return showToast(`Total baru (${formatRupiah(amount)}) lebih kecil dari yang sudah dibayar (${formatRupiah(paidLama)}). Hapus/ubah pembayaran dulu di rincian.`, "error");
+                // Transaksi keluar baru: catat pembayaran langsung bila dipilih Lunas / Sebagian
+                if (!existing && formData.type === 'Uang Keluar' && (payMode === 'lunas' || payMode === 'sebagian')) {
+                    const amt = payMode === 'lunas' ? amount : safeMoney(payAmount);
+                    if (amt <= 0) return showToast("Isi nominal yang dibayar, atau pilih Belum dibayar.", "error");
+                    if (amt > amount + 0.01) return showToast(`Nominal dibayar melebihi total (${formatRupiah(amount)}).`, "error");
+                    payments = [{ id: genId('BPAY-'), date: payDate || formData.date || toLocalDateStr(now), amount: amt, method: payMethod || formData.method || 'Tunai', note: '', operasionalKaryawanId: payDana || '' }];
+                }
                 const paid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
-                const paymentStatus = form.type === 'Uang Masuk' ? 'Lunas' : (paid <= 0 ? 'Belum Dibayar' : paid >= amount ? 'Lunas' : 'Dibayar Sebagian');
-                const row = { ...form, amount, grossAmount: gross, discountAmount: discountAmt, items, id: editId || genId('EXP-'), payments, paymentStatus, _syncUpdatedAt: now };
+                const paymentStatus = formData.type === 'Uang Masuk' ? 'Lunas' : (paid <= 0 ? 'Belum Dibayar' : paid >= amount - 0.01 ? 'Lunas' : 'Dibayar Sebagian');
+                const row = { ...formData, amount, grossAmount: gross, discountAmount: discountAmt, items, id: editId || genId('EXP-'), payments, paymentStatus, _syncUpdatedAt: now };
                 setExpenses(prev => editId ? (prev || []).map(item => String(item.id) === String(editId) ? row : item) : [row, ...(prev || [])]);
                 setForm(emptyForm); setEditId(null);
                 showToast(editId ? "Data biaya diperbarui." : "Data biaya ditambahkan.", "success");
+            };
+
+            const startEdit = (item) => {
+                setEditId(item.id);
+                const hasIt = item.items && item.items.length > 0;
+                const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.grossAmount || item.amount)) }];
+                setForm({ ...emptyForm, date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '', discountType: item.discountType || 'Rp', discountValue: item.discountValue || '' });
+                setDetailId(null);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+            // Buka pop-up rincian; nominal bayar otomatis = sisa tagihan
+            const openDetail = (item) => {
+                const sisa = Math.max(0, safeMoney(item.amount) - getExpensePaid(item));
+                setPayForm(prev => ({ ...prev, [item.id]: { ...emptyPayForm, amount: item.type !== 'Uang Masuk' && sisa > 0 ? String(sisa) : '' } }));
+                setDetailId(item.id);
             };
 
             const handleDelete = (id) => {
@@ -8056,8 +8096,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const paymentStatus = totalPaid <= 0 ? 'Belum Dibayar' : totalPaid >= total ? 'Lunas' : 'Dibayar Sebagian';
                     return { ...item, payments: newPays, paymentStatus, _syncUpdatedAt: now };
                 }));
-                setPayForm(prev => ({ ...prev, [itemId]: emptyPayForm }));
-                showToast('Pembayaran dicatat.', 'success');
+                const sisaBaru = Math.max(0, sisaTagihan - amt);
+                setPayForm(prev => ({ ...prev, [itemId]: { ...emptyPayForm, amount: sisaBaru > 0 ? String(sisaBaru) : '' } }));
+                showToast(sisaBaru > 0 ? 'Pembayaran dicatat.' : 'Pembayaran dicatat — LUNAS.', 'success');
             };
 
             const deletePayment = (itemId, payId) => {
@@ -8070,7 +8111,35 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const paymentStatus = totalPaid <= 0 ? 'Belum Dibayar' : totalPaid >= total ? 'Lunas' : 'Dibayar Sebagian';
                     return { ...item, payments: newPays, paymentStatus, _syncUpdatedAt: now };
                 }));
+                const target = (expenses || []).find(i => String(i.id) === String(itemId));
+                if (target) {
+                    const sisaBaru = Math.max(0, safeMoney(target.amount) - (target.payments || []).filter(p => String(p.id) !== String(payId)).reduce((s, p) => s + safeMoney(p.amount), 0));
+                    setPayForm(prev => ({ ...prev, [itemId]: { ...emptyPayForm, amount: sisaBaru > 0 ? String(sisaBaru) : '' } }));
+                }
                 showToast('Pembayaran dihapus.', 'success');
+            };
+
+            // Pilihan sumber dana (kas perusahaan / dana operasional karyawan) — dipakai di form & pop-up bayar
+            const renderSumberDana = (empId, amt, onChange, spanCls = '') => {
+                const safeEmps = (employees || []).filter(isVisibleRecord);
+                const empsWithDana = safeEmps.filter(emp => isAktifDana(emp.id, danaOperasional));
+                if (empsWithDana.length === 0) return null;
+                const stats = empId ? getDanaSaldoKaryawan(empId, danaOperasional, purchaseNotes || [], expenses, rekapKinerja, bagiHasilPromosi) : null;
+                const saldo = stats ? stats.saldo : null;
+                const hasPool = stats ? (stats.totalIn > 0 || stats.totalTalangan > 0) : false;
+                const overdraft = empId && amt > 0 && saldo !== null && amt > saldo;
+                return (<>
+                    <select className={`p-2 border rounded-lg text-xs bg-white ${spanCls} ${overdraft ? 'border-blue-400' : 'border-gray-200'}`} value={empId || ''} onChange={e => onChange(e.target.value)}>
+                        <option value="">Sumber Dana: Kas Perusahaan</option>
+                        {empsWithDana.map(emp => {
+                            const st = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses, rekapKinerja, bagiHasilPromosi);
+                            const pool = st.totalIn > 0 || st.totalTalangan > 0;
+                            return <option key={emp.id} value={emp.id}>{pool ? `Dana Pool — ${emp.name} (sisa ${formatRupiah(Math.max(0, st.saldo))})` : `Dana Sendiri — ${emp.name} (belum ada pool)`}</option>;
+                        })}
+                    </select>
+                    {empId && !hasPool && <div className={`text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-200 rounded px-2 py-1.5 ${spanCls}`}>💼 Akan dicatat sebagai dana pribadi karyawan. Transfer dana untuk melunasi nanti.</div>}
+                    {overdraft && hasPool && <div className={`text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-200 rounded px-2 py-1.5 ${spanCls}`}>💼 Melebihi saldo ({formatRupiah(saldo)}). Selisih {formatRupiah(amt - saldo)} dicatat sebagai dana pribadi — tetap bisa disimpan.</div>}
+                </>);
             };
 
             const formGross = calcFormTotal(form.items);
@@ -8151,10 +8220,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </div>
                                 </div>
 
-                                {/* Row 2: Judul + chips */}
+                                {/* Row 2: Kategori (opsional) + chips — nama transaksi otomatis dari uraian item */}
                                 <div>
-                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Judul Transaksi <span className="text-red-400">*</span></label>
-                                    <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none transition" placeholder="Cth: Bayar Listrik, Beli ATK, Terima Pembayaran..." value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} required />
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Kategori <span className="normal-case font-normal text-gray-300">· opsional</span></label>
+                                    <input className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none transition" placeholder="Pilih di bawah atau ketik sendiri — boleh dikosongkan" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} />
                                     <div className="flex flex-wrap gap-1.5 mt-2">
                                         {categoryChips.map(chip => (
                                             <button key={chip} type="button"
@@ -8275,6 +8344,62 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </div>
                                 </div>
 
+                                {/* Nama transaksi otomatis */}
+                                <div className="text-[11px] text-gray-500 -mt-2">Nama transaksi: <b className="text-gray-700">{getExpenseItemsTitle(form) || form.category || <span className="italic font-normal text-gray-400">isi uraian item</span>}</b> <span className="text-gray-400">(otomatis dari uraian item)</span></div>
+
+                                {/* Pembayaran (Uang Keluar baru) / Penerimaan (Uang Masuk) */}
+                                {isKeluar && !editId && (() => {
+                                    const mode = form.payMode || 'belum';
+                                    const nominal = mode === 'lunas' ? formTotal : safeMoney(form.payAmount);
+                                    return (
+                                    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 space-y-3" data-biaya-pembayaran>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wide mr-1">Pembayaran</span>
+                                            {[['belum', 'Belum dibayar'], ['lunas', 'Lunas sekarang'], ['sebagian', 'Bayar sebagian']].map(([v, l]) => (
+                                                <button key={v} type="button" onClick={() => setForm(f => ({ ...f, payMode: v, payAmount: v === 'sebagian' && !f.payAmount ? '' : f.payAmount }))}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${mode === v ? (v === 'belum' ? 'bg-gray-700 text-white border-transparent' : 'bg-emerald-600 text-white border-transparent') : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'}`}>{l}</button>
+                                            ))}
+                                        </div>
+                                        {mode === 'belum' ? (
+                                            <p className="text-[11px] text-gray-500">Dicatat sebagai tagihan <b>Belum Dibayar</b>. Pembayaran bisa dicatat nanti dari tombol rincian di daftar.</p>
+                                        ) : (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                                                <label className="block">
+                                                    <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Nominal dibayar</span>
+                                                    {mode === 'lunas'
+                                                        ? <div className="p-2 border border-emerald-200 bg-emerald-50 rounded-lg text-sm font-black text-emerald-700 text-right tabular-nums">{formatRupiah(formTotal)}</div>
+                                                        : <input type="number" min="0" className="w-full p-2 border border-gray-200 rounded-lg text-sm text-right" placeholder={`maks. ${formatRupiah(formTotal)}`} value={form.payAmount} onChange={e => setForm(f => ({ ...f, payAmount: e.target.value }))} />}
+                                                </label>
+                                                <label className="block">
+                                                    <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Tanggal bayar</span>
+                                                    <input type="date" className="w-full p-2 border border-gray-200 rounded-lg text-sm" value={form.payDate || form.date} onChange={e => setForm(f => ({ ...f, payDate: e.target.value }))} />
+                                                </label>
+                                                <label className="block">
+                                                    <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-0.5">Metode bayar</span>
+                                                    <select className="w-full p-2 border border-gray-200 rounded-lg text-sm bg-white" value={form.payMethod || form.method} onChange={e => setForm(f => ({ ...f, payMethod: e.target.value }))}><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
+                                                </label>
+                                                <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1 justify-end">
+                                                    {renderSumberDana(form.payDana, nominal, v => setForm(f => ({ ...f, payDana: v })), 'w-full')}
+                                                </div>
+                                                {mode === 'sebagian' && safeMoney(form.payAmount) > 0 && (
+                                                    <p className="text-[11px] text-gray-500 sm:col-span-2 lg:col-span-4">Sisa tagihan setelah bayar: <b className="text-red-600">{formatRupiah(Math.max(0, formTotal - safeMoney(form.payAmount)))}</b></p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                    );
+                                })()}
+                                {!isKeluar && (
+                                    <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-xs text-green-800" data-biaya-penerimaan>
+                                        ✓ Uang masuk dicatat <b>sudah diterima penuh</b>: <b className="tabular-nums">{formatRupiah(formTotal)}</b>
+                                    </div>
+                                )}
+                                {isKeluar && editId && (() => {
+                                    const ex = (expenses || []).find(i => String(i.id) === String(editId));
+                                    const sudah = ex ? getExpensePaid(ex) : 0;
+                                    return <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-xs text-gray-600">Sudah dibayar: <b className="text-emerald-700">{formatRupiah(sudah)}</b> dari {formatRupiah(formTotal)}. Pembayaran dicatat / dihapus lewat tombol rincian di daftar.</div>;
+                                })()}
+
                                 {/* Actions */}
                                 <div className="flex justify-end gap-2 pt-1">
                                     <button type="button" onClick={() => { setForm(emptyForm); setEditId(null); }} className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-sm transition-colors">Reset</button>
@@ -8318,7 +8443,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     const remaining = Math.max(0, total - paid);
                                     const status = getExpenseStatus(item);
                                     const pf = payForm[item.id] || emptyPayForm;
-                                    const isExpanded = !!expandedIds[item.id];
+                                    const title = getExpenseItemsTitle(item) || item.category || item.note || '-';
+                                    const showCat = !!item.category && item.category !== title;
                                     const isMasuk = item.type === 'Uang Masuk';
                                     const borderColor = status === 'Lunas' ? 'border-l-green-600' : status === 'Dibayar Sebagian' ? 'border-l-amber-500' : isMasuk ? 'border-l-green-600' : 'border-l-red-500';
                                     const rowBg = status === 'Lunas' ? 'bg-green-100/75' : status === 'Dibayar Sebagian' ? 'bg-amber-100/75' : isMasuk ? 'bg-green-100/75' : 'bg-red-100/75';
@@ -8327,7 +8453,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <div className={`hidden md:flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg} hover:brightness-[0.97] transition-all`}>
                                                 <div className="w-20 flex-shrink-0 text-xs text-gray-500 font-mono">{item.date}</div>
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="font-bold text-gray-900 text-sm truncate">{item.category}</div>
+                                                    <button type="button" onClick={() => openDetail(item)} className="block max-w-full text-left font-bold text-gray-900 text-sm truncate hover:underline">{title}</button>{showCat && <span className="inline-block mt-0.5 text-[10px] font-bold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-0.5">{item.category}</span>}
                                                     <div className="text-xs text-gray-400 truncate">{item.party || <span className="italic">—</span>} {item.note ? `· ${item.note}` : ''}</div>
                                                 </div>
                                                 <div className="w-24 text-center hidden sm:block flex-shrink-0"><Badge status={item.type} /></div>
@@ -8337,8 +8463,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 </div>
                                                 <div className="w-28 text-center hidden lg:block flex-shrink-0">{payStatusBadge(status)}</div>
                                                 <div className="flex gap-1 items-center flex-shrink-0 justify-end">
-                                                    <button onClick={() => setExpandedIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))} title="Rincian" className={`p-1.5 rounded-lg border transition-colors ${isExpanded ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100'}`}><IconEye /></button>
-                                                    <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.grossAmount || item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '', discountType: item.discountType || 'Rp', discountValue: item.discountValue || '' }); window.scrollTo({ top: 0, behavior: 'smooth' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                    <button onClick={() => openDetail(item)} title="Rincian" className="p-1.5 rounded-lg border transition-colors bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100"><IconEye /></button>
+                                                    <button onClick={() => startEdit(item)} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
                                                     <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
                                                     <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                                 </div>
@@ -8350,111 +8476,21 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             <span className="text-xs text-gray-500 font-mono shrink-0">{item.date}</span>
                                                             <Badge status={item.type} />
                                                         </div>
-                                                        <div className="font-bold text-gray-900 text-sm truncate">{item.category}</div>
+                                                        <button type="button" onClick={() => openDetail(item)} className="block max-w-full text-left font-bold text-gray-900 text-sm truncate hover:underline">{title}</button>{showCat && <span className="inline-block mt-0.5 text-[10px] font-bold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-0.5">{item.category}</span>}
                                                         <div className="text-xs text-gray-400 truncate">{item.party || <span className="italic">—</span>}{item.note ? ` · ${item.note}` : ''}</div>
                                                         <div className={`text-sm font-black mt-1 ${isMasuk ? 'text-green-700' : 'text-red-700'}`}>{formatRupiah(item.amount)}{!isMasuk && paid > 0 && <span className="text-[10px] font-normal text-gray-400 ml-1">· Bayar: {formatRupiah(paid)}</span>}</div>
                                                     </div>
                                                     <div className="shrink-0 flex flex-col items-end gap-1.5">
                                                         {payStatusBadge(status)}
                                                         <div className="flex gap-1 mt-0.5">
-                                                            <button onClick={() => setExpandedIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))} title="Rincian" className={`p-1.5 rounded-lg border transition-colors ${isExpanded ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100'}`}><IconEye /></button>
-                                                            <button onClick={() => { setEditId(item.id); const hasIt = item.items && item.items.length > 0; const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.grossAmount || item.amount)) }]; setForm({ date: item.date || emptyForm.date, type: item.type || 'Uang Keluar', category: item.category || '', items: ei, method: item.method || 'Tunai', party: item.party || '', note: item.note || '', discountType: item.discountType || 'Rp', discountValue: item.discountValue || '' }); window.scrollTo({ top: 0, behavior: 'smooth' }); }} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                            <button onClick={() => openDetail(item)} title="Rincian" className="p-1.5 rounded-lg border transition-colors bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100"><IconEye /></button>
+                                                            <button onClick={() => startEdit(item)} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
                                                             <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
                                                             <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
-                                            {isExpanded && (
-                                                <div className="border-b border-gray-100 bg-gray-50/60 px-4 py-4">
-                                                    <div className="space-y-3">
-                                                        <div className="text-xs text-gray-600 flex flex-wrap gap-x-4 gap-y-1">
-                                                            <span><b>Metode:</b> {item.method || '-'}</span>
-                                                            <span><b>Penerima/Pembayar:</b> {item.party || '-'}</span>
-                                                            <span><b>Keterangan:</b> {item.note || '-'}</span>
-                                                        </div>
-                                                        {item.items && item.items.length > 0 && (
-                                                            <div className="overflow-x-auto">
-                                                                <table className="w-full text-xs border rounded">
-                                                                    <thead className="bg-gray-100"><tr><th className="p-1.5 text-left text-gray-600">No</th><th className="p-1.5 text-left text-gray-600">Uraian</th><th className="p-1.5 text-center text-gray-600">Qty</th><th className="p-1.5 text-center text-gray-600">Satuan</th><th className="p-1.5 text-right text-gray-600">Harga</th><th className="p-1.5 text-right text-gray-600">Subtotal</th></tr></thead>
-                                                                    <tbody>{item.items.map((it, idx) => <tr key={it.id || idx} className="border-t"><td className="p-1.5 text-gray-500">{idx+1}</td><td className="p-1.5">{it.desc}</td><td className="p-1.5 text-center">{it.qty}</td><td className="p-1.5 text-center">{it.unit}</td><td className="p-1.5 text-right">{formatRupiah(it.price)}</td><td className="p-1.5 text-right font-bold">{formatRupiah(safeMoney(it.qty)*safeMoney(it.price))}</td></tr>)}</tbody>
-                                                                    <tfoot><tr className="bg-gray-50 border-t"><td colSpan="5" className="p-1.5 text-right font-bold text-gray-700">Total</td><td className="p-1.5 text-right font-black text-blue-700">{formatRupiah(total)}</td></tr></tfoot>
-                                                                </table>
-                                                            </div>
-                                                        )}
-                                                        {!isMasuk && (
-                                                            <div>
-                                                                <div className="flex flex-wrap gap-4 text-xs mb-3 p-2 bg-white rounded border border-gray-100">
-                                                                    <span>Total: <b>{formatRupiah(total)}</b></span>
-                                                                    <span>Dibayar: <b className="text-green-700">{formatRupiah(paid)}</b></span>
-                                                                    <span>Sisa: <b className="text-red-600">{formatRupiah(remaining)}</b></span>
-                                                                </div>
-                                                                {(item.payments || []).length > 0 && (
-                                                                    <div className="mb-3">
-                                                                        <div className="text-xs font-bold text-gray-500 mb-1">Riwayat Pembayaran</div>
-                                                                        <div className="space-y-1">
-                                                                            {(item.payments || []).map(pay => (
-                                                                                <div key={pay.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded px-3 py-2 text-xs">
-                                                                                    <span className="text-gray-500 w-20 shrink-0">{pay.date}</span>
-                                                                                    <span className="text-gray-600 w-16 shrink-0">{pay.method}</span>
-                                                                                    <span className="font-bold text-green-700 w-28 shrink-0">{formatRupiah(pay.amount)}</span>
-                                                                                    <span className="text-gray-500 flex-1">{pay.note || '-'}</span>
-                                                                                    <button onClick={() => deletePayment(item.id, pay.id)} className="text-red-500 hover:text-red-700 font-bold ml-auto shrink-0">✕</button>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                                {status !== 'Lunas' && (
-                                                                    <div className="bg-blue-50 border border-blue-100 rounded p-3">
-                                                                        <div className="text-xs font-bold text-blue-700 mb-2">+ Tambah Pembayaran Termin</div>
-                                                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                                                            <input type="date" className="p-1.5 border rounded text-xs" value={pf.date} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), date: e.target.value } }))} />
-                                                                            <input type="number" min="0" className="p-1.5 border rounded text-xs text-right" placeholder="Nominal bayar" value={pf.amount} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), amount: e.target.value } }))} />
-                                                                            <select className="p-1.5 border rounded text-xs" value={pf.method} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), method: e.target.value } }))}><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
-                                                                            <input className="p-1.5 border rounded text-xs" placeholder="Keterangan" value={pf.note} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), note: e.target.value } }))} />
-                                                                            {(() => {
-                                                                                const safeEmps = (employees || []).filter(isVisibleRecord);
-                                                                                const empsWithDana = safeEmps.filter(emp => isAktifDana(emp.id, danaOperasional));
-                                                                                if (empsWithDana.length === 0) return null;
-                                                                                const expEmpId = pf.operasionalKaryawanId || '';
-                                                                                const expAmt = safeMoney(pf.amount);
-                                                                                const expStats = expEmpId ? getDanaSaldoKaryawan(expEmpId, danaOperasional, purchaseNotes || [], expenses, rekapKinerja, bagiHasilPromosi) : null;
-                                                                                const expSaldo = expStats ? expStats.saldo : null;
-                                                                                const expHasPool = expStats ? (expStats.totalIn > 0 || expStats.totalTalangan > 0) : false;
-                                                                                const expOverdraft = expEmpId && expAmt > 0 && expSaldo !== null && expAmt > expSaldo;
-                                                                                return (<>
-                                                                                    <select className={`p-1.5 border rounded text-xs md:col-span-4 ${expOverdraft ? 'border-blue-400' : ''}`} value={expEmpId} onChange={e => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), operasionalKaryawanId: e.target.value } }))}>
-                                                                                        <option value="">Sumber Dana: Kas Perusahaan</option>
-                                                                                        {empsWithDana.map(emp => {
-                                                                                            const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes || [], expenses, rekapKinerja, bagiHasilPromosi);
-                                                                                            const hasPool = s.totalIn > 0 || s.totalTalangan > 0;
-                                                                                            return <option key={emp.id} value={emp.id}>{hasPool ? `Dana Pool — ${emp.name} (sisa ${formatRupiah(Math.max(0, s.saldo))})` : `Dana Sendiri — ${emp.name} (belum ada pool)`}</option>;
-                                                                                        })}
-                                                                                    </select>
-                                                                                    {expEmpId && !expHasPool && (
-                                                                                        <div className="text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-200 rounded px-2 py-1.5 md:col-span-4">
-                                                                                            💼 Akan dicatat sebagai dana pribadi karyawan. Transfer dana untuk melunasi nanti.
-                                                                                        </div>
-                                                                                    )}
-                                                                                    {expOverdraft && expHasPool && (
-                                                                                        <div className="text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-200 rounded px-2 py-1.5 md:col-span-4">
-                                                                                            💼 Melebihi saldo ({formatRupiah(expSaldo)}). Selisih {formatRupiah(expAmt - expSaldo)} dicatat sebagai dana pribadi — tetap bisa disimpan.
-                                                                                        </div>
-                                                                                    )}
-                                                                                </>);
-                                                                            })()}
-                                                                        </div>
-                                                                        <div className="flex justify-end mt-2">
-                                                                            <button onClick={() => addPayment(item.id)} className="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-bold">Simpan Pembayaran</button>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
                                         </React.Fragment>
                                     );
                                 })}
@@ -8476,6 +8512,115 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         </div>
                     </div>
                 )}
+            {detailId && (() => {
+                const item = allExpenses.find(i => String(i.id) === String(detailId));
+                if (!item) return null;
+                const isMasuk = item.type === 'Uang Masuk';
+                const total = safeMoney(item.amount);
+                const paid = getExpensePaid(item);
+                const sisa = Math.max(0, total - paid);
+                const status = getExpenseStatus(item);
+                const pf = payForm[item.id] || emptyPayForm;
+                const setPf = (patch) => setPayForm(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || emptyPayForm), ...patch } }));
+                const rincian = item.items && item.items.length > 0 ? item.items : [{ desc: item.category || '-', qty: 1, unit: '', price: total }];
+                const gross = safeMoney(item.grossAmount) || total;
+                const disc = safeMoney(item.discountAmount);
+                const title = getExpenseItemsTitle(item) || item.category || item.note || '-';
+                return (
+                    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-3 sm:p-4" onClick={e => { if (e.target === e.currentTarget) setDetailId(null); }}>
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" data-biaya-detail>
+                            <div className={`px-5 py-3.5 border-b flex items-start justify-between gap-3 ${isMasuk ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                        <Badge status={item.type} />
+                                        {payStatusBadge(status)}
+                                        <span className="text-xs text-gray-500 font-mono">{item.date}</span>
+                                    </div>
+                                    <div className="font-black text-gray-900 text-base break-words">{title}</div>
+                                    <div className="text-[11px] text-gray-400 font-mono">{item.id}</div>
+                                </div>
+                                <button type="button" onClick={() => setDetailId(null)} className="w-8 h-8 shrink-0 rounded-lg bg-white/70 hover:bg-white text-gray-500 font-black" title="Tutup">✕</button>
+                            </div>
+                            <div className="px-5 py-4 overflow-y-auto space-y-4 min-h-0">
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                                    <div><div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Kategori</div><div className="text-gray-800 font-semibold">{item.category || '-'}</div></div>
+                                    <div><div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{isMasuk ? 'Diterima dari' : 'Kepada (penerima)'}</div><div className="text-gray-800 font-semibold break-words">{item.party || '-'}</div></div>
+                                    <div><div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Metode</div><div className="text-gray-800 font-semibold">{item.method || '-'}</div></div>
+                                    <div><div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Catatan</div><div className="text-gray-800 break-words">{item.note || '-'}</div></div>
+                                </div>
+                                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs">
+                                            <thead className="bg-gray-50 text-gray-500"><tr><th className="p-2 text-left">Uraian</th><th className="p-2 text-center">Qty</th><th className="p-2 text-right whitespace-nowrap">Harga</th><th className="p-2 text-right">Subtotal</th></tr></thead>
+                                            <tbody>{rincian.map((it, idx) => (
+                                                <tr key={it.id || idx} className="border-t border-gray-100">
+                                                    <td className="p-2 text-gray-800">{it.desc || '-'}</td>
+                                                    <td className="p-2 text-center whitespace-nowrap">{it.qty} {it.unit}</td>
+                                                    <td className="p-2 text-right whitespace-nowrap tabular-nums">{formatRupiah(safeMoney(it.price))}</td>
+                                                    <td className="p-2 text-right font-bold whitespace-nowrap tabular-nums">{formatRupiah(safeMoney(it.qty) * safeMoney(it.price))}</td>
+                                                </tr>
+                                            ))}</tbody>
+                                        </table>
+                                    </div>
+                                    <div className="border-t border-gray-200 bg-gray-50 px-3 py-2 text-xs space-y-1">
+                                        {disc > 0 && <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span className="tabular-nums">{formatRupiah(gross)}</span></div>}
+                                        {disc > 0 && <div className="flex justify-between"><span className="text-gray-500">Diskon</span><span className="text-orange-600 tabular-nums">− {formatRupiah(disc)}</span></div>}
+                                        <div className="flex justify-between font-black text-sm"><span>Total Nett</span><span className={`tabular-nums ${isMasuk ? 'text-green-700' : 'text-red-700'}`}>{formatRupiah(total)}</span></div>
+                                    </div>
+                                </div>
+                                {isMasuk ? (
+                                    <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-xs text-green-800">✓ Uang masuk sudah diterima penuh: <b className="tabular-nums">{formatRupiah(total)}</b></div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="grid grid-cols-3 gap-2 text-center">
+                                            <div className="rounded-lg bg-gray-50 border border-gray-200 py-2"><div className="text-[10px] font-bold text-gray-400 uppercase">Total</div><div className="font-black text-sm tabular-nums">{formatRupiah(total)}</div></div>
+                                            <div className="rounded-lg bg-green-50 border border-green-200 py-2"><div className="text-[10px] font-bold text-gray-400 uppercase">Dibayar</div><div className="font-black text-sm text-green-700 tabular-nums" data-dibayar>{formatRupiah(paid)}</div></div>
+                                            <div className={`rounded-lg py-2 border ${sisa > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}><div className="text-[10px] font-bold text-gray-400 uppercase">Sisa</div><div className={`font-black text-sm tabular-nums ${sisa > 0 ? 'text-red-600' : 'text-green-700'}`} data-sisa>{sisa > 0 ? formatRupiah(sisa) : 'LUNAS'}</div></div>
+                                        </div>
+                                        {(item.payments || []).length > 0 && (
+                                            <div>
+                                                <div className="text-xs font-bold text-gray-500 mb-1">Riwayat Pembayaran</div>
+                                                <div className="space-y-1">
+                                                    {(item.payments || []).map(pay => (
+                                                        <div key={pay.id} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs flex-wrap">
+                                                            <span className="text-gray-500">{pay.date}</span>
+                                                            <span className="text-gray-600">{pay.method}</span>
+                                                            <span className="font-bold text-green-700 tabular-nums">{formatRupiah(pay.amount)}</span>
+                                                            {pay.note && <span className="text-gray-500">{pay.note}</span>}
+                                                            <button type="button" onClick={() => deletePayment(item.id, pay.id)} className="text-red-500 hover:text-red-700 font-bold ml-auto shrink-0 px-1" title="Hapus pembayaran">✕</button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {sisa > 0 && (
+                                            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 space-y-2" data-biaya-bayar>
+                                                <div className="text-xs font-bold text-blue-800">Catat Pembayaran <span className="font-normal text-blue-600">— nominal otomatis = sisa tagihan</span></div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <input type="number" min="0" className="p-2 border border-blue-200 rounded-lg text-sm text-right font-bold bg-white" placeholder="Nominal bayar" value={pf.amount} onChange={e => setPf({ amount: e.target.value })} />
+                                                    <input type="date" className="p-2 border border-blue-200 rounded-lg text-sm bg-white" value={pf.date} onChange={e => setPf({ date: e.target.value })} />
+                                                    <select className="p-2 border border-blue-200 rounded-lg text-sm bg-white" value={pf.method} onChange={e => setPf({ method: e.target.value })}><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Debit</option><option>Lainnya</option></select>
+                                                    <input className="p-2 border border-blue-200 rounded-lg text-sm bg-white" placeholder="Keterangan (opsional)" value={pf.note} onChange={e => setPf({ note: e.target.value })} />
+                                                    {renderSumberDana(pf.operasionalKaryawanId, safeMoney(pf.amount), v => setPf({ operasionalKaryawanId: v }), 'col-span-2')}
+                                                </div>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    {safeMoney(pf.amount) !== sisa ? <button type="button" onClick={() => setPf({ amount: String(sisa) })} className="text-[11px] font-bold text-blue-700 underline">Isi sisa {formatRupiah(sisa)}</button> : <span className="text-[11px] text-blue-700">Pembayaran ini melunasi tagihan.</span>}
+                                                    <button type="button" onClick={() => addPayment(item.id)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-black">{safeMoney(pf.amount) >= sisa - 0.01 ? 'Simpan Pembayaran (Lunas)' : 'Simpan Pembayaran'}</button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="px-5 py-3 border-t bg-gray-50 flex flex-wrap justify-end gap-2">
+                                <button type="button" onClick={() => { setDeleteConfirmId(item.id); setDetailId(null); }} className="px-3 py-2 rounded-lg text-sm font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 mr-auto">Hapus</button>
+                                <button type="button" onClick={() => printReceipt(item)} className="px-3 py-2 rounded-lg text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100">Cetak Bukti</button>
+                                <button type="button" onClick={() => startEdit(item)} className="px-3 py-2 rounded-lg text-sm font-bold text-purple-700 bg-purple-50 border border-purple-200 hover:bg-purple-100">Edit</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
                 </>
             );
         };
@@ -12438,7 +12583,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const expenseRows = (expenses || []).filter(isVisibleRecord).filter(row => {
                 if (!isInPeriod(row.date)) return false;
                 if (!normalizedSearch) return true;
-                return [row.date, row.type, row.category, row.amount, row.method, row.party, row.note].join(' ').toLowerCase().includes(normalizedSearch);
+                return [row.date, row.type, row.category, getExpenseItemsTitle(row), row.amount, row.method, row.party, row.note].join(' ').toLowerCase().includes(normalizedSearch);
             });
             const invoiceRows = safeFinanceInvoices.filter(isVisibleRecord).filter(inv => {
                 if (!isInPeriod(inv.date)) return false;
@@ -12577,7 +12722,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const cashInRows = [
                 ...invoiceCashEvents.map(e => ({ date: e.date || '-', ref: e.inv.id || '-', sumber: e.sumber, ket: e.inv.customer || '-', nominal: e.amount })),
                 ...clientDpRows.map(dp => ({ date: dp.date || '-', ref: dp.id || '-', sumber: 'Saldo DP Klien', ket: dp.clientName || '-', nominal: safeMoney(dp.amount) })),
-                ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: r.category || r.note || '-', nominal: safeMoney(r.amount) }))
+                ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: getExpenseLabel(r), nominal: safeMoney(r.amount) }))
             ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
             const totalCashIn = cashInRows.reduce((s, r) => s + r.nominal, 0);
 
@@ -12628,7 +12773,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 }),
                 ...allWageRows.filter(passEmpFilters).flatMap(r => getWagePaidEvents(r).map(ev => ({ date: ev.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: ev.amount }))),
                 ...allCashAdvanceRows.filter(passEmpFilters).map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
-                ...(expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Keluar').flatMap(e => getExpensePaidEvents(e).map(ev => ({ date: ev.date || '-', ref: e.id || '-', sumber: 'Biaya Operasional', ket: e.category || e.note || '-', nominal: ev.amount }))),
+                ...(expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Keluar').flatMap(e => getExpensePaidEvents(e).map(ev => ({ date: ev.date || '-', ref: e.id || '-', sumber: 'Biaya Operasional', ket: getExpenseLabel(e), nominal: ev.amount }))),
                 ...safeArray(bagiHasilPromosi).filter(isVisibleRecord).flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
             ].filter(r => r.nominal > 0 && isInPeriod(r.date) && (!normalizedSearch || [r.date, r.ref, r.sumber, r.ket].join(' ').toLowerCase().includes(normalizedSearch)))
              .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)));
