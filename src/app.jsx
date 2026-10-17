@@ -26943,6 +26943,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const imgOffloadDataRef = useRef({ orders: [], invoices: [] });
             imgOffloadDataRef.current = { orders, invoices };
             const imgOffloadBusyRef = useRef(false);
+            const [imgOffloadProgress, setImgOffloadProgress] = useState(null); // { done, total } selama gambar lama dipindah
             const imgOffloadSkipRef = useRef(new Set()); // gambar yang ditolak server (bukan karena server sakit): tidak dicoba lagi sesi ini
             const collectImageOffloadTasks = () => {
                 const tasks = [];
@@ -26997,13 +26998,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 imgOffloadBusyRef.current = true;
                 let done = [];
                 let rejected = 0;
+                let moved = 0;
+                const showProgress = tasks.length >= 10;
+                if (showProgress) setImgOffloadProgress({ done: 0, total: tasks.length });
                 try {
                     // Gambar yang sudah ada di cloud (mis. proses sebelumnya terputus) tidak dikirim ulang
                     const existing = new Set();
                     for (let i = 0; i < tasks.length; i += 50) {
                         const ids = tasks.slice(i, i + 50).map(t => t.ref);
                         const { data, error, status } = await supabaseClient.from('app_data').select('id').in('id', ids);
-                        if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); return; }
+                        if (error) { console.error('Cek gambar di cloud gagal', error); if (isCloudServerTrouble(error, status)) cloudHealth.fail(); return; }
                         safeArray(data).forEach(r => existing.add(r.id));
                     }
                     for (const t of tasks) {
@@ -27024,6 +27028,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         }
                         imgMem.set(t.ref, t.value); imgMissing.delete(t.ref); idbPutImg(t.ref, t.value);
                         done.push(t);
+                        moved++;
+                        if (showProgress && (moved % 5 === 0 || moved === tasks.length)) setImgOffloadProgress({ done: moved, total: tasks.length });
                         // Simpan penanda per 250 gambar agar kemajuan tidak hilang bila aplikasi ditutup
                         if (done.length >= 250) { applyImageOffloadResults(done); done = []; }
                     }
@@ -27033,24 +27039,30 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     if (done.length) applyImageOffloadResults(done);
                     releaseCloudLock('img_offload');
                     imgOffloadBusyRef.current = false;
+                    if (showProgress) {
+                        setImgOffloadProgress(null);
+                        if (moved === tasks.length) showToast(`Gambar lama selesai dirapikan (${moved} gambar). Data order & invoice sekarang jauh lebih ringan.`, 'success');
+                    }
                 }
             };
             const runImageOffloadRef = useRef(runImageOffload);
             runImageOffloadRef.current = runImageOffload;
-            const imgOffloadStartedRef = useRef(false);
+            const hasAuthUser = !!authUser;
+            const isShareView = !!(rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId);
             useEffect(() => {
-                if (!isReady || !authUser || !supabaseClient) return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
-                // Pertama kali 20 detik setelah siap; berikutnya 15 detik setelah ada gambar baru
-                const t = setTimeout(() => { imgOffloadStartedRef.current = true; runImageOffloadRef.current(); }, imgOffloadStartedRef.current ? 15000 : 20000);
+                if (!isReady || !hasAuthUser || !supabaseClient || isShareView) return;
+                // Pertama kali 20 detik setelah siap (tidak tertunda oleh perubahan data), lalu dicek tiap 3 menit
+                // untuk melanjutkan sisa pemindahan yang sempat terhenti (mis. server sempat bermasalah)
+                const t = setTimeout(() => runImageOffloadRef.current(), 20000);
+                const iv = setInterval(() => runImageOffloadRef.current(), 180000);
+                return () => { clearTimeout(t); clearInterval(iv); };
+            }, [isReady, hasAuthUser, isShareView]);
+            useEffect(() => {
+                if (!isReady || !hasAuthUser || !supabaseClient || isShareView) return;
+                // Gambar baru (order baru / bukti bayar baru) dipindah ±15 detik setelah disimpan
+                const t = setTimeout(() => runImageOffloadRef.current(), 15000);
                 return () => clearTimeout(t);
-            }, [isReady, authUser, orders, invoices]);
-            useEffect(() => {
-                if (!isReady || !authUser || !supabaseClient) return;
-                // Lanjutkan sisa pemindahan yang sempat terhenti (mis. server sempat bermasalah)
-                const iv = setInterval(() => { if (imgOffloadStartedRef.current) runImageOffloadRef.current(); }, 180000);
-                return () => clearInterval(iv);
-            }, [isReady, authUser]);
+            }, [orders, invoices]);
 
             const handleSyncBadgeClick = async () => {
                 if (navigator.onLine === false) { showToast('Perangkat sedang offline. Data akan dikirim otomatis saat internet tersambung.', 'error'); return; }
@@ -27084,6 +27096,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             ⚠ Belum tersimpan
                         </button>
                     );
+                }
+                if (imgOffloadProgress) {
+                    return <span title="Gambar lama sedang dipindah ke penyimpanan terpisah agar data lebih ringan. Biarkan aplikasi tetap terbuka sampai selesai." className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap ${dark ? 'text-sky-300' : 'text-sky-700'}`}>🖼 Merapikan gambar {imgOffloadProgress.done}/{imgOffloadProgress.total}</span>;
                 }
                 if (cloudSync.saving) {
                     return <span title="Sedang mengirim data ke cloud" className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap ${dark ? 'text-amber-300' : 'text-amber-600'}`}>⏳ Menyimpan…</span>;
