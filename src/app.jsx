@@ -360,7 +360,133 @@
             return "";
         };
 
+        // ===== Salinan data di perangkat: IndexedDB (muat ratusan MB) =====
+        // localStorage hanya ±5 juta karakter, tidak cukup untuk data order/rekap/invoice yang besar, sehingga
+        // sebagian salinan tidak tersimpan (selalu diunduh ulang, dan perubahan saat server mati bisa hilang).
+        // Semua salinan 'simpati_*_sync' kini disimpan di IndexedDB. Saat aplikasi dibuka, semuanya dimuat sekali
+        // ke memori (sebelum layar tampil) sehingga kode lain tetap membaca seketika seperti dulu; penulisan ke
+        // IndexedDB berjalan di belakang. Bila IndexedDB tidak bisa dipakai, otomatis kembali ke localStorage.
+        const DATA_CACHE_KEY_RE = /^simpati_[A-Za-z_]+_sync$/;
+        const isDataCacheKey = (k) => typeof k === 'string' && DATA_CACHE_KEY_RE.test(k);
+        const dataCacheMem = new Map();
+        let dataCacheMode = 'local'; // 'idb' setelah IndexedDB siap
+        let dataCacheDb = null;
+        const dataCacheWriting = new Map(); // key -> true bila ada perubahan baru selama penulisan berjalan
+        const dataCacheChannel = (() => { try { return typeof BroadcastChannel === 'function' ? new BroadcastChannel('simpati_data_cache') : null; } catch (e) { return null; } })();
+        const dataCacheIdbWrite = (k) => {
+            if (!dataCacheDb) return;
+            if (dataCacheWriting.has(k)) { dataCacheWriting.set(k, true); return; }
+            dataCacheWriting.set(k, false);
+            const v = dataCacheMem.has(k) ? dataCacheMem.get(k) : null;
+            const selesai = (ok) => {
+                const lagi = dataCacheWriting.get(k);
+                dataCacheWriting.delete(k);
+                if (!ok) {
+                    console.warn('[storage] gagal menulis salinan data ke IndexedDB:', k);
+                    // Cadangan: coba simpan di localStorage (sebisanya)
+                    if (v != null) { try { window.localStorage.setItem(k, v); } catch (e) {} }
+                }
+                if (lagi) dataCacheIdbWrite(k);
+            };
+            try {
+                const tx = dataCacheDb.transaction('kv', 'readwrite');
+                if (v == null) tx.objectStore('kv').delete(k); else tx.objectStore('kv').put(v, k);
+                tx.oncomplete = () => selesai(true);
+                tx.onerror = () => selesai(false);
+                tx.onabort = () => selesai(false);
+            } catch (e) { selesai(false); }
+        };
+        const dataCacheGet = (k) => {
+            if (dataCacheMode === 'idb') return dataCacheMem.has(k) ? dataCacheMem.get(k) : null;
+            try { return window.localStorage.getItem(k); } catch (e) { return null; }
+        };
+        const dataCacheSet = (k, v) => {
+            const val = String(v);
+            dataCacheMem.set(k, val);
+            dataCacheIdbWrite(k);
+            try { if (window.localStorage.getItem(k) !== null) window.localStorage.removeItem(k); } catch (e) {}
+            // Tab lain di perangkat yang sama ikut diperbarui (pengganti event 'storage' localStorage)
+            try { if (dataCacheChannel) dataCacheChannel.postMessage({ key: k, value: val }); } catch (e) {}
+        };
+        const dataCacheRemove = (k) => {
+            if (dataCacheMode === 'idb') { dataCacheMem.delete(k); dataCacheIdbWrite(k); }
+            try { window.localStorage.removeItem(k); } catch (e) {}
+        };
+        if (dataCacheChannel) {
+            dataCacheChannel.onmessage = (ev) => {
+                const d = ev && ev.data;
+                if (!d || !isDataCacheKey(d.key) || dataCacheMode !== 'idb') return;
+                if (typeof d.value === 'string') dataCacheMem.set(d.key, d.value); else dataCacheMem.delete(d.key);
+                try { window.dispatchEvent(new CustomEvent('simpati-data-cache', { detail: { key: d.key, newValue: typeof d.value === 'string' ? d.value : null } })); } catch (e) {}
+            };
+        }
+        // Dimuat sekali saat aplikasi dibuka. Salinan lama di localStorage dipindah ke IndexedDB, dan baru
+        // dihapus dari localStorage setelah dipastikan tertulis. Maks. 4 detik; lewat dari itu tetap memakai localStorage.
+        const initDataCache = () => new Promise((resolve) => {
+            let settled = false;
+            const finish = (mode) => { if (settled) return; settled = true; resolve(mode); };
+            setTimeout(() => finish('local'), 4000);
+            (async () => {
+                try {
+                    if (!window.indexedDB) return finish('local');
+                    const db = await new Promise((res) => {
+                        try {
+                            const req = window.indexedDB.open('simpati_data', 1);
+                            req.onupgradeneeded = () => { try { req.result.createObjectStore('kv'); } catch (e) {} };
+                            req.onsuccess = () => res(req.result);
+                            req.onerror = () => res(null);
+                            req.onblocked = () => res(null);
+                        } catch (e) { res(null); }
+                    });
+                    if (!db || settled) return finish('local');
+                    const entries = await new Promise((res) => {
+                        try {
+                            const store = db.transaction('kv', 'readonly').objectStore('kv');
+                            const kReq = store.getAllKeys();
+                            const vReq = store.getAll();
+                            vReq.onsuccess = () => { const ks = kReq.result || []; const vs = vReq.result || []; res(ks.map((key, i) => [key, vs[i]])); };
+                            vReq.onerror = () => res(null);
+                        } catch (e) { res(null); }
+                    });
+                    if (!entries || settled) return finish('local');
+                    const mem = new Map();
+                    entries.forEach(([key, val]) => { if (isDataCacheKey(key) && typeof val === 'string') mem.set(key, val); });
+                    // Pindahkan salinan di localStorage (dari versi lama / saat IndexedDB sempat tidak bisa dipakai): yang di localStorage lebih baru
+                    const pindah = [];
+                    try {
+                        for (let i = 0; i < window.localStorage.length; i++) {
+                            const key = window.localStorage.key(i);
+                            if (!isDataCacheKey(key)) continue;
+                            const val = window.localStorage.getItem(key);
+                            if (val !== null) { mem.set(key, val); pindah.push([key, val]); }
+                        }
+                    } catch (e) {}
+                    if (pindah.length) {
+                        const ok = await new Promise((res) => {
+                            try {
+                                const tx = db.transaction('kv', 'readwrite');
+                                const store = tx.objectStore('kv');
+                                pindah.forEach(([key, val]) => store.put(val, key));
+                                tx.oncomplete = () => res(true);
+                                tx.onerror = () => res(false);
+                                tx.onabort = () => res(false);
+                            } catch (e) { res(false); }
+                        });
+                        if (!ok || settled) return finish('local');
+                        pindah.forEach(([key]) => { try { window.localStorage.removeItem(key); } catch (e) {} });
+                    }
+                    mem.forEach((val, key) => dataCacheMem.set(key, val));
+                    dataCacheDb = db;
+                    dataCacheMode = 'idb';
+                    finish('idb');
+                } catch (e) { finish('local'); }
+            })();
+        });
+        // Untuk pengecekan (Pengaturan > Ukuran Data) dan pengujian
+        try { window.__simpatiDataCache = { mode: () => dataCacheMode, get: (k) => dataCacheGet(k), remove: (k) => dataCacheRemove(k), keys: () => dataCacheMode === 'idb' ? [...dataCacheMem.keys()] : [] }; } catch (e) {}
+
         const safeLocalSet = (k, v) => {
+            if (dataCacheMode === 'idb' && isDataCacheKey(k)) { dataCacheSet(k, v); return; }
             try {
                 window.localStorage.setItem(k, v);
             } catch(e) {
@@ -18913,7 +19039,11 @@ ${getRekapShareLink(rekap)}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
                                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3"><div className="text-[11px] font-bold text-gray-500 uppercase">Total data</div><div className="text-lg font-black text-gray-800">{formatUkuranData(report.total)}</div></div>
                                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3"><div className="text-[11px] font-bold text-gray-500 uppercase">Berupa foto</div><div className="text-lg font-black text-gray-800">{formatUkuranData(report.photoBytes)} <span className="text-xs font-bold text-gray-500">({report.photos} foto)</span></div></div>
-                                <div className={`border rounded-lg p-3 ${report.deviceUsed > BATAS * 0.85 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}><div className="text-[11px] font-bold text-gray-500 uppercase">Memori browser perangkat ini</div><div className="text-lg font-black text-gray-800">{formatUkuranData(report.deviceUsed)} <span className="text-xs font-bold text-gray-500">dari ±5 MB</span></div></div>
+                                {report.cacheMode === 'idb' ? (
+                                    <div className="border rounded-lg p-3 bg-green-50 border-green-200"><div className="text-[11px] font-bold text-gray-500 uppercase">Salinan data di perangkat ini</div><div className="text-lg font-black text-gray-800">{formatUkuranData(report.cacheUsed)} <span className="text-xs font-bold text-gray-500">penyimpanan besar (IndexedDB)</span></div></div>
+                                ) : (
+                                    <div className={`border rounded-lg p-3 ${report.deviceUsed > BATAS * 0.85 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}><div className="text-[11px] font-bold text-gray-500 uppercase">Memori browser perangkat ini</div><div className="text-lg font-black text-gray-800">{formatUkuranData(report.deviceUsed)} <span className="text-xs font-bold text-gray-500">dari ±5 MB</span></div></div>
+                                )}
                             </div>
                             {report.missing > 0 && <div className="text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">⚠ {report.missing} jenis data tidak muat disalin di perangkat ini, sehingga selalu diunduh ulang setiap aplikasi dibuka.</div>}
                             {report.photoBytes > report.total * 0.5 && report.total > 1024 * 1024 && <div className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">💡 Sebagian besar data berupa foto. Memindahkan foto ke penyimpanan terpisah akan membuat aplikasi jauh lebih ringan dibuka.</div>}
@@ -24326,17 +24456,27 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const syncInFlightRef = React.useRef(false);
             // Unduhan data ditunda karena server bermasalah -> unduh ulang begitu server pulih
             const needsCloudRefreshRef = React.useRef(false);
-            // Batasi simpan ke cloud: maks. 2 berjalan bersamaan (cegah lonjakan saat banyak data menunggu)
+            // Batasi simpan ke cloud: maks. 2 berjalan bersamaan (cegah lonjakan saat banyak data menunggu).
+            // Giliran dilepas otomatis setelah 60 detik walau kiriman belum selesai (mis. koneksi menggantung saat
+            // HP pindah WiFi/data seluler), agar simpanan lain tidak ikut tertahan.
             const saveSlotRef = React.useRef({ active: 0, queue: [] });
+            const SAVE_SLOT_LEASE_MS = 60000;
             const acquireSaveSlot = () => new Promise(resolve => {
                 const slot = saveSlotRef.current;
-                if (slot.active < 2) { slot.active++; resolve(); } else slot.queue.push(resolve);
+                const grant = () => {
+                    let released = false;
+                    const release = () => {
+                        if (released) return;
+                        released = true;
+                        clearTimeout(timer);
+                        const next = slot.queue.shift();
+                        if (next) next(); else slot.active = Math.max(0, slot.active - 1);
+                    };
+                    const timer = setTimeout(release, SAVE_SLOT_LEASE_MS);
+                    resolve(release);
+                };
+                if (slot.active < 2) { slot.active++; grant(); } else slot.queue.push(grant);
             });
-            const releaseSaveSlot = () => {
-                const slot = saveSlotRef.current;
-                const next = slot.queue.shift();
-                if (next) next(); else slot.active = Math.max(0, slot.active - 1);
-            };
             const supabaseLoadedRef = React.useRef(false);
             const ordersSyncTimerRef = React.useRef(null);
             const ordersPendingRef = React.useRef(null);
@@ -24625,7 +24765,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const loadLocalData = (key, initial) => {
-                const saved = localStorage.getItem(key);
+                const saved = isDataCacheKey(key) ? dataCacheGet(key) : localStorage.getItem(key);
                 if (saved) {
                     try { 
                         const parsed = JSON.parse(saved); 
@@ -24717,7 +24857,25 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         if (errUp) throw errUp;
                         await new Promise(r => setTimeout(r, 700));
                         const { data: chk } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
-                        if (JSON.stringify(chk?.data?._maintenance) === JSON.stringify(value)) { syncMaintenanceFromTs(value); return true; }
+                        if (JSON.stringify(chk?.data?._maintenance) === JSON.stringify(value)) {
+                            syncMaintenanceFromTs(value);
+                            // Cek ulang beberapa detik kemudian: perangkat lain yang menyimpan tepat bersamaan bisa menimpa catatan ini
+                            (async () => {
+                                for (const jeda of [3000, 5000, 7000]) {
+                                    await new Promise(r => setTimeout(r, jeda));
+                                    try {
+                                        const { data: cek, error: errCek } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                                        if (errCek || !cek?.data || typeof cek.data !== 'object') continue;
+                                        const cur = cek.data._maintenance;
+                                        if (JSON.stringify(cur) === JSON.stringify(value)) continue;
+                                        if (cur && cur.at && String(cur.at) > value.at) return; // sudah diubah lagi oleh Admin lain
+                                        cek.data._maintenance = value;
+                                        await supabaseClient.from('app_data').upsert({ id: '_timestamps', data: cek.data });
+                                    } catch (e) {}
+                                }
+                            })();
+                            return true;
+                        }
                     }
                 } catch (e) {
                     console.error('Gagal mengubah Mode Pemeliharaan', e);
@@ -24791,7 +24949,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 transaksi_kartu: 'simpati_transaksi_kartu_sync', purchaseNotes: 'simpati_purchase_notes_sync', danaOperasional: 'simpati_dana_operasional_sync',
                 bagiHasilPromosi: 'simpati_bagi_hasil_promosi_sync'
             };
-            const localCopyExists = (localKey) => { try { return window.localStorage.getItem(localKey) !== null; } catch { return false; } };
+            const localCopyExists = (localKey) => dataCacheGet(localKey) !== null;
             // Data yang baru diunduh dari cloud pada refresh ini (untuk dicatat "sudah terbaru" setelah salinan tersimpan)
             const fetchedRemoteRef = useRef(new Map());
 
@@ -24826,7 +24984,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     list.forEach(([key, info]) => {
                         if (syncPendingRef.current.has(key) || syncFailedRef.current.has(key)) return;
                         let stored = null;
-                        try { stored = window.localStorage.getItem(STORE_LOCAL_KEYS[key]); } catch {}
+                        stored = dataCacheGet(STORE_LOCAL_KEYS[key]);
                         let fetchedJson = null;
                         try { fetchedJson = JSON.stringify(info.data); } catch {}
                         // Pengaturan disimpan bersama desain label (data terpisah 'labelTemplates') -> bandingkan tanpa bagian itu
@@ -25593,7 +25751,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             useEffect(() => {
-                const handleStorageChange = (e) => {
+                const handleStorageChange = (ev) => {
+                    // Dari localStorage (event 'storage') atau dari tab lain lewat IndexedDB (event 'simpati-data-cache')
+                    const e = ev && ev.type === 'simpati-data-cache' ? (ev.detail || {}) : ev;
+                    if (!e) return;
                     if (e.key === 'simpati_orders_sync' && e.newValue) {
                         try {
                             const incomingOrders = JSON.parse(e.newValue);
@@ -25687,7 +25848,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     }
                 };
                 window.addEventListener('storage', handleStorageChange);
-                return () => window.removeEventListener('storage', handleStorageChange);
+                window.addEventListener('simpati-data-cache', handleStorageChange);
+                return () => { window.removeEventListener('storage', handleStorageChange); window.removeEventListener('simpati-data-cache', handleStorageChange); };
             }, []);
 
             useEffect(() => {
@@ -26084,7 +26246,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 let permanent = false;
                 let specificToastShown = false;
                 let skippedByBrake = false;
-                await acquireSaveSlot();
+                const releaseSaveSlot = await acquireSaveSlot();
                 try {
                     // Rem darurat: server sedang bermasalah -> jangan kirim, tandai "belum terkirim" (data aman di perangkat)
                     if (cloudHealth.isBlocked()) {
@@ -26719,13 +26881,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const found = json.match(photoRe) || [];
                     const localKey = STORE_LOCAL_KEYS[key];
                     let onDevice = null;
-                    if (localKey) { try { onDevice = window.localStorage.getItem(localKey) !== null; } catch { onDevice = false; } }
+                    if (localKey) onDevice = dataCacheGet(localKey) !== null;
                     return { key, label, bytes: json.length, photos: found.length, photoBytes: found.reduce((sum, f) => sum + f.length, 0), onDevice };
                 }).sort((a, b) => b.bytes - a.bytes);
                 let deviceUsed = 0;
                 try { for (let i = 0; i < window.localStorage.length; i++) { const k = window.localStorage.key(i) || ''; deviceUsed += k.length + (window.localStorage.getItem(k) || '').length; } } catch {}
+                let cacheUsed = 0;
+                if (dataCacheMode === 'idb') dataCacheMem.forEach((v, k) => { cacheUsed += k.length + v.length; });
                 return {
-                    rows, at: new Date(), deviceUsed,
+                    rows, at: new Date(), deviceUsed, cacheUsed, cacheMode: dataCacheMode,
                     total: rows.reduce((sum, r) => sum + r.bytes, 0),
                     photos: rows.reduce((sum, r) => sum + r.photos, 0),
                     photoBytes: rows.reduce((sum, r) => sum + r.photoBytes, 0),
@@ -27057,6 +27221,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // Perangkat sedang offline: tampilkan pesan internet (bisa langsung diperbaiki pengguna), walau server juga sempat gagal
             const troubleKind = troubleLama ? (offlineSince ? 'offline' : 'server') : null;
             const [troubleSnoozeUntil, setTroubleSnoozeUntil] = useState(0);
+            // Gangguan selesai: "Saya mengerti" tidak terbawa ke gangguan berikutnya
+            useEffect(() => { if (!hasTrouble) setTroubleSnoozeUntil(0); }, [hasTrouble]);
             const [troubleChecking, setTroubleChecking] = useState(false);
             // Jumlah jenis data yang belum sampai ke server (tersimpan di perangkat ini)
             const unsentDataCount = () => {
@@ -30744,6 +30910,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<ErrorBoundary><App /></ErrorBoundary>);
-        window.__APP_BOOT_OK = true;
+        // Tampilkan aplikasi setelah salinan data di perangkat siap dibaca (maks. ±4 detik)
+        const renderApp = () => { root.render(<ErrorBoundary><App /></ErrorBoundary>); window.__APP_BOOT_OK = true; };
+        initDataCache().then(renderApp, renderApp);
     
