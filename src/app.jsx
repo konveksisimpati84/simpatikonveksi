@@ -422,10 +422,19 @@
         }
         // Dimuat sekali saat aplikasi dibuka. Salinan lama di localStorage dipindah ke IndexedDB, dan baru
         // dihapus dari localStorage setelah dipastikan tertulis. Maks. 4 detik; lewat dari itu tetap memakai localStorage.
+        // Bila satu sesi terpaksa memakai localStorage (IndexedDB lambat/gagal), salinan di IndexedDB bisa tertinggal.
+        // Sesi berikutnya yang memakai IndexedDB lalu tidak langsung mempercayai salinan itu: semua data dicek ulang ke
+        // cloud dan digabung (perubahan yang belum terkirim tetap ada).
+        const DATA_CACHE_FALLBACK_FLAG = 'simpati_data_cache_fallback';
         const initDataCache = () => new Promise((resolve) => {
             let settled = false;
-            const finish = (mode) => { if (settled) return; settled = true; resolve(mode); };
-            setTimeout(() => finish('local'), 4000);
+            const finish = (mode) => {
+                if (settled) return;
+                settled = true;
+                if (mode !== 'idb' && window.indexedDB) { try { window.localStorage.setItem(DATA_CACHE_FALLBACK_FLAG, String(Date.now())); } catch (e) {} }
+                resolve(mode);
+            };
+            setTimeout(() => finish('local'), 6000);
             (async () => {
                 try {
                     if (!window.indexedDB) return finish('local');
@@ -475,9 +484,16 @@
                         if (!ok || settled) return finish('local');
                         pindah.forEach(([key]) => { try { window.localStorage.removeItem(key); } catch (e) {} });
                     }
+                    if (settled) return;
                     mem.forEach((val, key) => dataCacheMem.set(key, val));
                     dataCacheDb = db;
                     dataCacheMode = 'idb';
+                    try {
+                        if (window.localStorage.getItem(DATA_CACHE_FALLBACK_FLAG) !== null) {
+                            window.localStorage.removeItem('simpati_ts_verified_at');
+                            window.localStorage.removeItem(DATA_CACHE_FALLBACK_FLAG);
+                        }
+                    } catch (e) {}
                     finish('idb');
                 } catch (e) { finish('local'); }
             })();
