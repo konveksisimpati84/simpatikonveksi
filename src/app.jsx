@@ -19184,6 +19184,52 @@ ${getRekapShareLink(rekap)}
 
         // Backup: unduh salinan seluruh tabel app_data langsung dari Supabase (bukan dari cache perangkat)
         const BACKUP_LAST_KEY = 'simpati_last_backup_at';
+        // Mode Pemeliharaan: Admin mengunci aplikasi untuk semua pengguna lain (mis. saat server ditingkatkan/diturunkan)
+        const MaintenanceCard = ({ maintenance, onSetMaintenance, showToast }) => {
+            const [msg, setMsg] = useState('');
+            const [busy, setBusy] = useState(false);
+            const [confirmOn, setConfirmOn] = useState(false);
+            const active = !!maintenance?.active;
+            const ubah = async (next) => {
+                setBusy(true);
+                const ok = await onSetMaintenance(next, msg);
+                setBusy(false);
+                setConfirmOn(false);
+                if (ok) { showToast(next ? 'Mode Pemeliharaan diaktifkan. Pengguna lain akan melihat pemberitahuan pemeliharaan.' : 'Mode Pemeliharaan dimatikan. Semua pengguna bisa memakai aplikasi lagi.', 'success'); if (!next) setMsg(''); }
+                else showToast('Gagal mengubah Mode Pemeliharaan. Periksa koneksi internet lalu coba lagi.', 'error');
+            };
+            return (
+                <div data-maint-card className={`rounded-xl border p-4 ${active ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="font-bold text-sm text-slate-800">🛠 Mode Pemeliharaan {active && <span className="ml-1 text-[10px] font-black bg-amber-500 text-white px-2 py-0.5 rounded">AKTIF</span>}</div>
+                            <div className="text-xs text-slate-600 mt-1">
+                                {active
+                                    ? `Diaktifkan oleh ${maintenance.by || 'Admin'}${maintenance.at ? ' · ' + new Date(maintenance.at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : ''}. Pengguna selain Admin melihat layar "Aplikasi Sedang Dalam Pemeliharaan" dan tidak bisa input data.`
+                                    : 'Kunci aplikasi untuk semua pengguna selain Admin, misalnya sebelum mengubah ukuran server Supabase. Pengguna akan melihat pemberitahuan dan tidak bisa input data sampai dimatikan.'}
+                            </div>
+                            {active && maintenance.message && <div className="text-xs text-slate-800 mt-2 bg-white border border-amber-200 rounded p-2 whitespace-pre-line">{maintenance.message}</div>}
+                        </div>
+                        {active && <button onClick={() => ubah(false)} disabled={busy} className="shrink-0 px-4 py-2 rounded-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60">{busy ? 'Menyimpan...' : 'Matikan Mode Pemeliharaan'}</button>}
+                    </div>
+                    {!active && (
+                        <div className="mt-3 space-y-2">
+                            <textarea value={msg} onChange={e => setMsg(e.target.value)} rows={2} maxLength={300} placeholder="Pesan untuk pengguna (opsional), mis. Server sedang ditingkatkan, perkiraan selesai pukul 21.00" className="w-full border border-slate-300 rounded-lg p-2 text-sm" />
+                            {!confirmOn ? (
+                                <button onClick={() => setConfirmOn(true)} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-amber-600 hover:bg-amber-700">Aktifkan Mode Pemeliharaan</button>
+                            ) : (
+                                <div className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                                    <span className="text-xs font-bold text-amber-900">Yakin? Semua pengguna selain Admin tidak bisa memakai aplikasi sampai dimatikan.</span>
+                                    <button onClick={() => ubah(true)} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-amber-600 disabled:opacity-60">{busy ? 'Menyimpan...' : 'Ya, aktifkan'}</button>
+                                    <button onClick={() => setConfirmOn(false)} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 bg-white border border-slate-300">Batal</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
         const BackupDataCard = ({ showToast }) => {
             const [busy, setBusy] = useState(false);
             const [lastAt, setLastAt] = useState(() => { try { return localStorage.getItem(BACKUP_LAST_KEY) || ''; } catch (e) { return ''; } });
@@ -19230,7 +19276,7 @@ ${getRekapShareLink(rekap)}
             );
         };
 
-        const MasterAkunView = ({ accounts, setAccounts, employees, showToast, authUser }) => {
+        const MasterAkunView = ({ accounts, setAccounts, employees, showToast, authUser, maintenance, onSetMaintenance }) => {
             const [showForm, setShowForm] = useState(false);
             const [newAcc, setNewAcc] = useState({ username: '', password: '', name: '', role: 'Mandor', linkedEmpId: '', menuAccess: getDefaultMenuAccess('Mandor') });
             
@@ -19384,6 +19430,7 @@ ${getRekapShareLink(rekap)}
             return (
                 <div className="space-y-6">
                     {authUser?.role === 'Admin' && <BackupDataCard showToast={showToast} />}
+                    {authUser?.role === 'Admin' && onSetMaintenance && <MaintenanceCard maintenance={maintenance} onSetMaintenance={onSetMaintenance} showToast={showToast} />}
                     <div className="flex justify-between items-center">
                         <h2 className="text-2xl font-bold text-gray-800">Master Akun Login</h2>
                         <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium"><IconPlusCircle /> Tambah Akun</button>
@@ -24627,6 +24674,19 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
             // Ambil timestamps dari meta-row '_timestamps' di Supabase (1 request ringan)
             // null = server cloud bermasalah (rem darurat aktif) -> jangan lanjut mengunduh data berat
+            // ===== Mode Pemeliharaan (diatur Admin) =====
+            // Disimpan di catatan '_timestamps' (kunci '_maintenance') agar ikut terbaca setiap perangkat mengecek
+            // perubahan data, tanpa permintaan tambahan. Salinan di perangkat dipakai saat server tidak terhubung.
+            const MAINT_LOCAL_KEY = 'simpati_maintenance';
+            const [maintenance, setMaintenanceState] = useState(() => {
+                try { const v = JSON.parse(localStorage.getItem(MAINT_LOCAL_KEY) || 'null'); return v && v.active ? v : null; } catch (e) { return null; }
+            });
+            const syncMaintenanceFromTs = (m) => {
+                const next = (m && typeof m === 'object' && m.active) ? { active: true, by: String(m.by || ''), at: String(m.at || ''), message: String(m.message || '') } : null;
+                try { if (next) localStorage.setItem(MAINT_LOCAL_KEY, JSON.stringify(next)); else localStorage.removeItem(MAINT_LOCAL_KEY); } catch (e) {}
+                setMaintenanceState(prev => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+            };
+
             const fetchRemoteTimestamps = async () => {
                 if (!supabaseClient) return {};
                 try {
@@ -24636,8 +24696,33 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         return {};
                     }
                     cloudHealth.ok();
+                    syncMaintenanceFromTs(data?.data?._maintenance);
                     return data?.data || {};
                 } catch { cloudHealth.fail(); return null; }
+            };
+            // Admin menyalakan/mematikan Mode Pemeliharaan. Dicek ulang setelah ditulis (perangkat lain bisa menulis bersamaan).
+            const setMaintenanceMode = async (active, message = '') => {
+                if (!supabaseClient) return false;
+                cloudHealth.allowProbeNow();
+                const value = active
+                    ? { active: true, by: authUser?.name || 'Admin', at: new Date().toISOString(), message: String(message || '').trim().slice(0, 300) }
+                    : { active: false, by: authUser?.name || 'Admin', at: new Date().toISOString() };
+                try {
+                    for (let i = 0; i < 3; i++) {
+                        const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                        if (error && error.code !== 'PGRST116') throw error;
+                        const existing = (data?.data && typeof data.data === 'object') ? data.data : {};
+                        existing._maintenance = value;
+                        const { error: errUp } = await supabaseClient.from('app_data').upsert({ id: '_timestamps', data: existing });
+                        if (errUp) throw errUp;
+                        await new Promise(r => setTimeout(r, 700));
+                        const { data: chk } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
+                        if (JSON.stringify(chk?.data?._maintenance) === JSON.stringify(value)) { syncMaintenanceFromTs(value); return true; }
+                    }
+                } catch (e) {
+                    console.error('Gagal mengubah Mode Pemeliharaan', e);
+                }
+                return false;
             };
 
             // Update meta-row '_timestamps' di Supabase setelah save (jalankan di background)
@@ -26904,7 +26989,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const handlePageHide = () => flushPendingOrdersRef.current();
                 const handleBeforeUnload = (e) => {
                     flushPendingOrdersRef.current();
-                    if (syncPendingRef.current.size > 0 || ordersSyncTimerRef.current) { e.preventDefault(); e.returnValue = ''; }
+                    const adaGagal = [...syncFailedRef.current.values()].some(x => !x.permanent && !x.fromPreviousSession);
+                    if (syncPendingRef.current.size > 0 || ordersSyncTimerRef.current || adaGagal) { e.preventDefault(); e.returnValue = ''; }
                 };
                 window.addEventListener('online', handleOnline);
                 document.addEventListener('visibilitychange', handleHidden);
@@ -26928,7 +27014,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const h = cloudHealth.get();
                     setCloudHealthState(h);
                     if (h.failures && !wasDown) showToast('Koneksi ke server cloud sedang terganggu. Data aman di perangkat ini dan akan dikirim otomatis setelah pulih.', 'error');
-                    if (!h.failures && wasDown) showToast('Koneksi cloud sudah pulih. Data dikirim kembali secara bertahap.', 'success');
+                    if (!h.failures && wasDown) showToast('Koneksi ke server sudah normal kembali. Silakan lanjutkan memakai aplikasi — data yang tertunda dikirim otomatis.', 'success');
                     wasDown = !!h.failures;
                 });
                 // Hitung mundur di lencana diperbarui tiap 15 detik selama jeda berjalan
@@ -26936,6 +27022,74 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return () => { unsub(); clearInterval(tick); };
             }, []);
             const cloudDownMinutes = () => Math.max(1, Math.ceil(cloudHealth.remainingMs() / 60000));
+
+            // ===== Pop-up gangguan koneksi =====
+            // Muncul bila gangguan berlangsung >= 2 menit (sinyal yang putus sebentar tidak memunculkan pop-up).
+            const TROUBLE_POPUP_DELAY_MS = 120000;
+            const TROUBLE_SNOOZE_MS = 600000;
+            const [offlineSince, setOfflineSince] = useState(() => navigator.onLine === false ? Date.now() : null);
+            const offlineSinceRef = useRef(offlineSince);
+            offlineSinceRef.current = offlineSince;
+            useEffect(() => {
+                const goOnline = () => {
+                    const s = offlineSinceRef.current;
+                    // Bila server juga sempat gagal, pemberitahuan "server sudah normal" yang muncul setelah dicek ulang
+                    if (s && Date.now() - s >= TROUBLE_POPUP_DELAY_MS && !cloudHealth.get().failures) showToast('Internet sudah tersambung kembali. Silakan lanjutkan — data yang tertunda dikirim otomatis.', 'success');
+                    setOfflineSince(null);
+                };
+                const goOffline = () => setOfflineSince(s => s || Date.now());
+                window.addEventListener('online', goOnline);
+                window.addEventListener('offline', goOffline);
+                return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline); };
+            }, []);
+            const [troubleNow, setTroubleNow] = useState(() => Date.now());
+            const hasTrouble = !!offlineSince || !!cloudHealthState.failures;
+            useEffect(() => {
+                if (!hasTrouble) return;
+                setTroubleNow(Date.now());
+                const iv = setInterval(() => setTroubleNow(Date.now()), 10000);
+                return () => clearInterval(iv);
+            }, [hasTrouble]);
+            // Gangguan yang tercatat sebelum aplikasi dibuka dihitung mulai saat aplikasi dibuka (perlu dicek ulang dulu)
+            const appOpenedAtRef = useRef(Date.now());
+            const serverTroubleSince = cloudHealthState.failures && cloudHealthState.since ? Math.max(cloudHealthState.since, appOpenedAtRef.current) : 0;
+            const troubleLama = (offlineSince && troubleNow - offlineSince >= TROUBLE_POPUP_DELAY_MS) || (serverTroubleSince && troubleNow - serverTroubleSince >= TROUBLE_POPUP_DELAY_MS);
+            // Perangkat sedang offline: tampilkan pesan internet (bisa langsung diperbaiki pengguna), walau server juga sempat gagal
+            const troubleKind = troubleLama ? (offlineSince ? 'offline' : 'server') : null;
+            const [troubleSnoozeUntil, setTroubleSnoozeUntil] = useState(0);
+            const [troubleChecking, setTroubleChecking] = useState(false);
+            // Jumlah jenis data yang belum sampai ke server (tersimpan di perangkat ini)
+            const unsentDataCount = () => {
+                const keys = new Set(syncPendingRef.current.keys());
+                syncFailedRef.current.forEach((e, k) => { if (!e.permanent) keys.add(k); });
+                if (ordersSyncTimerRef.current) keys.add('orders');
+                return keys.size;
+            };
+            const handleTroubleRetry = async () => {
+                if (navigator.onLine === false) { showToast('Perangkat masih belum tersambung ke internet. Periksa WiFi / data seluler.', 'error'); return; }
+                setTroubleChecking(true);
+                try { await handleSyncBadgeClick(); } finally { setTroubleChecking(false); }
+            };
+
+            // ===== Peringatan keluar (logout) saat masih ada data yang belum terkirim =====
+            const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+            const requestLogout = () => {
+                if (unsentDataCount() > 0) setLogoutConfirmOpen(true);
+                else handleLogout();
+            };
+
+            // Cek status Mode Pemeliharaan secara berkala (cadangan bila siaran langsung tidak sampai):
+            // tiap 30 detik selama aktif, tiap 2 menit saat normal (hanya bila aplikasi sedang dilihat). Hanya membaca catatan kecil.
+            useEffect(() => {
+                if (!supabaseClient || !isReady || !authUser) return;
+                const aktif = !!maintenance?.active;
+                const iv = setInterval(() => {
+                    if (cloudHealth.isBlocked() || navigator.onLine === false) return;
+                    if (!aktif && document.hidden) return;
+                    fetchRemoteTimestamps();
+                }, aktif ? 30000 : 120000);
+                return () => clearInterval(iv);
+            }, [maintenance?.active, isReady, !!authUser]);
 
             // ===== Pindahkan gambar lama (desain order & bukti bayar invoice) ke baris cloud terpisah =====
             // Bertahap, satu per satu, hanya satu tab, berhenti saat server bermasalah. Data order/invoice
@@ -27068,10 +27222,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (navigator.onLine === false) { showToast('Perangkat sedang offline. Data akan dikirim otomatis saat internet tersambung.', 'error'); return; }
                 if (cloudHealth.get().failures) {
                     // Server sempat bermasalah: cek dulu dengan 1 permintaan kecil, jangan langsung kirim semua
-                    // Diminta pengguna: boleh langsung dicek dengan 1 permintaan kecil
+                    // (diminta pengguna, jadi boleh langsung dicek walau jeda belum habis)
                     cloudHealth.allowProbeNow();
                     const sehat = await probeCloud();
                     if (!sehat) { showToast(`Server cloud masih terganggu. Dicoba lagi otomatis dalam ±${cloudDownMinutes()} menit. Data aman di perangkat ini.`, 'error'); return; }
+                    // Pulih: pemberitahuan "sudah normal kembali" sudah tampil; data dikirim ulang di belakang
+                    retryFailedSaves({ manual: true });
+                    return;
                 }
                 retryFailedSaves({ manual: true });
                 showToast('Mengirim ulang data ke cloud...', 'success');
@@ -27362,7 +27519,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <span className="text-[9px] text-slate-400 leading-none">{formatSyncAgo(lastSyncTime)}</span>
                                     )}
                                 </div>
-                                <button onClick={handleLogout} className="text-red-400 p-2 bg-slate-800 rounded border border-slate-700"><IconLogout /></button>
+                                <button onClick={requestLogout} className="text-red-400 p-2 bg-slate-800 rounded border border-slate-700"><IconLogout /></button>
                             </div>
                         </div>
                         {showMobileNav && (
@@ -27430,10 +27587,22 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <span className="text-[10px] text-gray-400 leading-none pr-1">⏱ {formatSyncAgo(lastSyncTime)}</span>
                                     )}
                                 </div>
-                                <button onClick={handleLogout} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors ml-2" title="Keluar"><IconLogout /></button>
+                                <button onClick={requestLogout} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors ml-2" title="Keluar"><IconLogout /></button>
                             </div>
                         </header>
 
+                        {authUser?.role === 'Admin' && maintenance?.active && (
+                            <div data-maint-banner className="shrink-0 print:hidden bg-amber-500 text-amber-950 px-4 py-2 text-xs sm:text-sm font-bold flex flex-wrap items-center justify-between gap-2">
+                                <span>🛠 Mode Pemeliharaan AKTIF — pengguna selain Admin sedang tidak bisa memakai aplikasi.</span>
+                                <button onClick={async () => { const ok = await setMaintenanceMode(false); showToast(ok ? 'Mode Pemeliharaan dimatikan. Semua pengguna bisa memakai aplikasi lagi.' : 'Gagal mematikan Mode Pemeliharaan. Periksa koneksi lalu coba lagi.', ok ? 'success' : 'error'); }} className="bg-amber-950 text-white px-3 py-1 rounded-lg text-xs">Matikan</button>
+                            </div>
+                        )}
+                        {troubleKind && (
+                            <div data-trouble-banner className="shrink-0 print:hidden bg-red-600 text-white px-4 py-2 text-xs sm:text-sm font-bold flex flex-wrap items-center justify-between gap-2">
+                                <span>⚠ {troubleKind === 'offline' ? 'Internet perangkat terputus' : 'Koneksi ke server terganggu'} — mohon tunda input data baru. Data yang sudah diinput aman di perangkat ini.</span>
+                                <button onClick={() => setTroubleSnoozeUntil(0)} className="bg-white text-red-700 px-3 py-1 rounded-lg text-xs">Detail</button>
+                            </div>
+                        )}
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
@@ -27455,7 +27624,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={orders} templates={templates} showToast={showToast} /></div>}
                                 {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
                                 {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} getDataSizeReport={authUser?.role === 'Admin' ? getDataSizeReport : null} /></div>}
-                                {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} authUser={authUser} /></div>}
+                                {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} authUser={authUser} maintenance={maintenance} onSetMaintenance={setMaintenanceMode} /></div>}
                                 {tabMounted('stock_barang', canOpen('stock_barang')) && <div hidden={!tabVisible('stock_barang')}><StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('absensi_finger', canOpen('absensi_finger')) && <div hidden={!tabVisible('absensi_finger')}><AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} authUser={authUser} accounts={accounts} /></div>}
                                 {activeTab === 'hpp_kalkulator' && canOpen('hpp_kalkulator') && <HppKalkulatorView supabaseClient={supabaseClient} showToast={showToast} templates={templates} />}
@@ -27467,6 +27636,61 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             </div>
                         </main>
                     </div>
+                    {maintenance?.active && authUser?.role !== 'Admin' && (
+                        <div data-maint-overlay className="fixed inset-0 z-[400] bg-slate-900/90 flex items-center justify-center p-4 print:hidden">
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center">
+                                <div className="text-5xl mb-3">🛠</div>
+                                <h2 className="text-xl font-black text-gray-900">Aplikasi Sedang Dalam Pemeliharaan</h2>
+                                <p className="text-sm text-gray-600 mt-2">Mohon jangan gunakan aplikasi dulu. Halaman ini akan terbuka sendiri setelah pemeliharaan selesai.</p>
+                                {maintenance.message && <p className="text-sm text-gray-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mt-3 whitespace-pre-line text-left">{maintenance.message}</p>}
+                                <p className="text-[11px] text-gray-400 mt-3">Diaktifkan oleh {maintenance.by || 'Admin'}{maintenance.at ? ` · ${new Date(maintenance.at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}</p>
+                                {unsentDataCount() > 0 && <p className="text-xs font-bold text-red-600 mt-3">Ada data di perangkat ini yang belum terkirim. Jangan logout, jangan tutup browser, dan jangan hapus riwayat browser.</p>}
+                                <button onClick={async () => { setTroubleChecking(true); cloudHealth.allowProbeNow(); await fetchRemoteTimestamps(); setTroubleChecking(false); }} disabled={troubleChecking} className="mt-5 w-full bg-slate-800 text-white font-bold py-2.5 rounded-xl disabled:opacity-60">{troubleChecking ? 'Mengecek...' : 'Cek lagi sekarang'}</button>
+                            </div>
+                        </div>
+                    )}
+                    {troubleKind && troubleNow >= troubleSnoozeUntil && !(maintenance?.active && authUser?.role !== 'Admin') && (
+                        <div data-trouble-popup className="fixed inset-0 z-[350] bg-black/60 flex items-center justify-center p-4 print:hidden">
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+                                <div className="text-center">
+                                    <div className="text-5xl mb-2">{troubleKind === 'offline' ? '📶' : '⚠️'}</div>
+                                    <h2 className="text-lg font-black text-red-700">{troubleKind === 'offline' ? 'Internet Perangkat Terputus' : 'Koneksi ke Server Sedang Terganggu'}</h2>
+                                    <p className="text-sm text-gray-700 mt-2">{troubleKind === 'offline' ? 'Perangkat ini tidak tersambung ke internet. Periksa WiFi atau data seluler.' : 'Server sedang bermasalah atau dalam pemeliharaan. Aplikasi akan mencoba menyambung lagi secara otomatis.'}</p>
+                                </div>
+                                <ul className="text-sm text-gray-700 mt-4 space-y-1.5 bg-red-50 border border-red-100 rounded-xl p-3">
+                                    <li>• Mohon <b>tunda input data baru</b> sampai pemberitahuan ini hilang.</li>
+                                    <li>• Data yang sudah diinput <b>aman di perangkat ini</b> dan dikirim otomatis setelah pulih.</li>
+                                    <li>• <b>Jangan logout</b>, jangan tutup browser, dan jangan hapus riwayat browser.</li>
+                                </ul>
+                                {unsentDataCount() > 0 && <p className="text-xs font-bold text-red-600 mt-3 text-center">{unsentDataCount()} jenis data menunggu dikirim dari perangkat ini.</p>}
+                                <div className="flex flex-col sm:flex-row gap-2 mt-5">
+                                    <button onClick={handleTroubleRetry} disabled={troubleChecking} className="flex-1 bg-blue-600 text-white font-bold py-2.5 rounded-xl disabled:opacity-60">{troubleChecking ? 'Mengecek...' : 'Coba sambungkan sekarang'}</button>
+                                    <button onClick={() => setTroubleSnoozeUntil(Date.now() + TROUBLE_SNOOZE_MS)} className="flex-1 bg-gray-100 text-gray-800 font-bold py-2.5 rounded-xl">Saya mengerti</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {logoutConfirmOpen && (() => {
+                        const sisa = unsentDataCount();
+                        return (
+                            <div data-logout-confirm className="fixed inset-0 z-[360] bg-black/60 flex items-center justify-center p-4 print:hidden">
+                                <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+                                    {sisa > 0 ? (<>
+                                        <h2 className="text-lg font-black text-red-700">⚠ Masih Ada Data yang Belum Terkirim</h2>
+                                        <p className="text-sm text-gray-700 mt-2">{sisa} jenis data dari perangkat ini belum sampai ke server{cloudHealthState.failures || offlineSince ? ' karena koneksi sedang terganggu' : ''}.</p>
+                                        <p className="text-sm text-gray-700 mt-2">Sebaiknya <b>tunggu</b> sampai lencana di atas menjadi <b>“✓ Tersimpan”</b> sebelum keluar. Jika tetap keluar, <b>jangan tutup browser</b> dan jangan hapus riwayat browser agar data tetap bisa dikirim otomatis.</p>
+                                    </>) : (<>
+                                        <h2 className="text-lg font-black text-emerald-700">✓ Semua Data Sudah Terkirim</h2>
+                                        <p className="text-sm text-gray-700 mt-2">Aman untuk keluar sekarang.</p>
+                                    </>)}
+                                    <div className="flex flex-col sm:flex-row gap-2 mt-5">
+                                        <button onClick={() => setLogoutConfirmOpen(false)} className={`flex-1 font-bold py-2.5 rounded-xl ${sisa > 0 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>{sisa > 0 ? 'Tunggu dulu' : 'Batal'}</button>
+                                        <button onClick={() => { setLogoutConfirmOpen(false); handleLogout(); }} className={`flex-1 font-bold py-2.5 rounded-xl ${sisa > 0 ? 'bg-gray-100 text-red-700' : 'bg-red-600 text-white'}`}>{sisa > 0 ? 'Tetap keluar' : 'Keluar'}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
                     {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                 </div>
             );
