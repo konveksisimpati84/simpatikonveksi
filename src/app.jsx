@@ -714,6 +714,19 @@
             return <div className={`${placeholderClassName || className} flex items-center justify-center bg-gray-100 text-gray-400 text-[10px] ${r.status === 'loading' ? 'animate-pulse' : ''}`} style={style} onClick={onClick} title={r.status === 'missing' ? 'Gambar tidak ditemukan' : 'Memuat gambar...'}>{r.status === 'missing' ? '🖼' : ''}</div>;
         };
 
+        // Membandingkan dua data tanpa peduli urutan kunci objek. Database (Postgres jsonb) menyimpan objek dengan
+        // urutan kunci yang disusun ulang, jadi data yang isinya sama bisa berbeda bila dibandingkan sebagai teks biasa.
+        const canonicalJson = (v) => JSON.stringify(v, function (k, val) {
+            if (val && typeof val === 'object' && !Array.isArray(val)) { const o = {}; Object.keys(val).sort().forEach(key => { o[key] = val[key]; }); return o; }
+            return val;
+        });
+        const sameJson = (a, b) => {
+            const sa = JSON.stringify(a), sb = JSON.stringify(b);
+            if (sa === sb) return true;
+            if (sa === undefined || sb === undefined || sa.length !== sb.length) return false;
+            return canonicalJson(a) === canonicalJson(b);
+        };
+
         // Gambar lama (isi langsung) dan penandanya dianggap sama bila penanda dibuat dari gambar itu
         const imgRefMatchesInline = (ref, inline) => {
             if (!isImgRef(ref) || !isInlineImage(inline)) return false;
@@ -1576,7 +1589,7 @@
             }
             catch (e) { try { localStorage.removeItem(HPP_CACHE_PREFIX + key); } catch (e2) {} } // penuh: lewati salinan untuk data ini
         };
-        const hppJson = (v) => JSON.stringify(v === undefined ? null : v);
+        const hppJson = (v) => canonicalJson(v === undefined ? null : v);
         // Siapkan Kalkulator HPP di belakang (setelah aplikasi selesai dimuat & sedang tidak sibuk), agar saat menu
         // dibuka ikon, grafik, dan datanya sudah ada. Data cloud hanya disalin ke perangkat bila salinan HPP di
         // perangkat tidak punya perubahan yang belum terkirim (kalau ada, penggabungan tetap dilakukan menu HPP).
@@ -24833,10 +24846,21 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             // ===== Mode Pemeliharaan (diatur Admin) =====
             // Disimpan di catatan '_timestamps' (kunci '_maintenance') agar ikut terbaca setiap perangkat mengecek
             // perubahan data, tanpa permintaan tambahan. Salinan di perangkat dipakai saat server tidak terhubung.
+            const appSignalChannelRef = useRef(null);
+            const sendAppSignal = (event) => {
+                const ch = appSignalChannelRef.current;
+                if (!ch) return;
+                try { const r = ch.send({ type: 'broadcast', event, payload: { at: Date.now() } }); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch (e) {}
+            };
             const MAINT_LOCAL_KEY = 'simpati_maintenance';
             const [maintenance, setMaintenanceState] = useState(() => {
                 try { const v = JSON.parse(localStorage.getItem(MAINT_LOCAL_KEY) || 'null'); return v && v.active ? v : null; } catch (e) { return null; }
             });
+            // Status sama bila isinya sama (urutan kunci dari database bisa berbeda)
+            const sameMaintenance = (a, b) => {
+                const x = a && typeof a === 'object' ? a : {}; const y = b && typeof b === 'object' ? b : {};
+                return !!x.active === !!y.active && String(x.at || '') === String(y.at || '') && String(x.by || '') === String(y.by || '') && String(x.message || '') === String(y.message || '');
+            };
             const syncMaintenanceFromTs = (m) => {
                 const next = (m && typeof m === 'object' && m.active) ? { active: true, by: String(m.by || ''), at: String(m.at || ''), message: String(m.message || '') } : null;
                 try { if (next) localStorage.setItem(MAINT_LOCAL_KEY, JSON.stringify(next)); else localStorage.removeItem(MAINT_LOCAL_KEY); } catch (e) {}
@@ -24873,8 +24897,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         if (errUp) throw errUp;
                         await new Promise(r => setTimeout(r, 700));
                         const { data: chk } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
-                        if (JSON.stringify(chk?.data?._maintenance) === JSON.stringify(value)) {
+                        if (sameMaintenance(chk?.data?._maintenance, value)) {
                             syncMaintenanceFromTs(value);
+                            // Beri tahu semua perangkat yang sedang terbuka saat itu juga (Supabase Broadcast, tanpa membebani database)
+                            sendAppSignal('maintenance');
                             // Cek ulang beberapa detik kemudian: perangkat lain yang menyimpan tepat bersamaan bisa menimpa catatan ini
                             (async () => {
                                 for (const jeda of [3000, 5000, 7000]) {
@@ -24883,7 +24909,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         const { data: cek, error: errCek } = await supabaseClient.from('app_data').select('data').eq('id', '_timestamps').single();
                                         if (errCek || !cek?.data || typeof cek.data !== 'object') continue;
                                         const cur = cek.data._maintenance;
-                                        if (JSON.stringify(cur) === JSON.stringify(value)) continue;
+                                        if (sameMaintenance(cur, value)) continue;
                                         if (cur && cur.at && String(cur.at) > value.at) return; // sudah diubah lagi oleh Admin lain
                                         cek.data._maintenance = value;
                                         await supabaseClient.from('app_data').upsert({ id: '_timestamps', data: cek.data });
@@ -25011,7 +25037,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 fetchedJson = JSON.stringify(omitLabel(info.data));
                             } catch { stored = null; }
                         }
-                        if (stored !== null && fetchedJson !== null && stored === fetchedJson) {
+                        let samaDenganCloud = stored !== null && fetchedJson !== null && stored === fetchedJson;
+                        if (!samaDenganCloud && stored !== null && fetchedJson !== null && stored.length === fetchedJson.length) {
+                            try { samaDenganCloud = canonicalJson(JSON.parse(stored)) === canonicalJson(JSON.parse(fetchedJson)); } catch {}
+                        }
+                        if (samaDenganCloud) {
                             const cur = getTsCache()[key];
                             if (!cur || cur < info.ts) updateTsCache(key, info.ts);
                             markVerified(key);
@@ -25565,7 +25595,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setAccounts(prevAccounts => {
                         const merged = mergeRecordLists(prevAccounts, remoteAccounts);
                         safeLocalSet('simpati_accounts_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteAccounts)) setTimeout(() => saveToSupabase('accounts', merged), 0);
+                        if (!sameJson(merged, remoteAccounts)) setTimeout(() => saveToSupabase('accounts', merged), 0);
                         setTimeout(() => syncSavedAuthSession(merged.filter(isVisibleRecord), { fromConfirmedData: true }), 0);
                         return merged;
                     });
@@ -25574,7 +25604,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setEmployees(prevEmployees => {
                         const merged = mergeRecordLists(sanitizeEmployees(prevEmployees), sanitizeEmployees(remoteEmployees));
                         safeLocalSet('simpati_employees_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteEmployees)) setTimeout(() => saveToSupabase('employees', merged), 0);
+                        if (!sameJson(merged, remoteEmployees)) setTimeout(() => saveToSupabase('employees', merged), 0);
                         return merged;
                     });
                 }
@@ -25582,7 +25612,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setOrders(prevOrders => {
                         const merged = mergeOrderLists(prevOrders, remoteOrders);
                         safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(patchOrders(remoteOrders))) {
+                        if (!sameJson(merged, patchOrders(remoteOrders))) {
                             setTimeout(() => saveToSupabase('orders', merged), 0);
                         }
                         return merged;
@@ -25592,7 +25622,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setRekapKinerja(prevRekaps => {
                         const merged = mergeRecordLists(prevRekaps, remoteRekaps);
                         safeLocalSet('simpati_rekap_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteRekaps)) setTimeout(() => saveToSupabase('rekapKinerja', merged), 0);
+                        if (!sameJson(merged, remoteRekaps)) setTimeout(() => saveToSupabase('rekapKinerja', merged), 0);
                         return merged;
                     });
                 }
@@ -25600,7 +25630,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setRiwayatPengiriman(prevRiwayats => {
                         const merged = mergeRecordLists(prevRiwayats, remoteRiwayats);
                         safeLocalSet('simpati_riwayat_sj_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteRiwayats)) setTimeout(() => saveToSupabase('riwayatPengiriman', merged), 0);
+                        if (!sameJson(merged, remoteRiwayats)) setTimeout(() => saveToSupabase('riwayatPengiriman', merged), 0);
                         return merged;
                     });
                 }
@@ -25608,7 +25638,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setExpenses(prevExpenses => {
                         const merged = mergeRecordLists(prevExpenses, remoteExpenses);
                         safeLocalSet('simpati_expenses_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteExpenses)) setTimeout(() => saveToSupabase('expenses', merged), 0);
+                        if (!sameJson(merged, remoteExpenses)) setTimeout(() => saveToSupabase('expenses', merged), 0);
                         return merged;
                     });
                 }
@@ -25616,7 +25646,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setInvoices(prevInvoices => {
                         const merged = mergeRecordLists(prevInvoices, remoteInvoices);
                         safeLocalSet('simpati_invoices_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteInvoices)) setTimeout(() => saveToSupabase('invoices', merged), 0);
+                        if (!sameJson(merged, remoteInvoices)) setTimeout(() => saveToSupabase('invoices', merged), 0);
                         return merged;
                     });
                 }
@@ -25624,7 +25654,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setClients(prevClients => {
                         const merged = mergeRecordLists(prevClients, remoteClients);
                         safeLocalSet('simpati_clients_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteClients)) setTimeout(() => saveToSupabase('clients', merged), 0);
+                        if (!sameJson(merged, remoteClients)) setTimeout(() => saveToSupabase('clients', merged), 0);
                         return merged;
                     });
                 }
@@ -25637,7 +25667,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setManualPurchases(prev => {
                         const merged = mergeRecordLists(prev || [], remoteManualPurchases);
                         safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteManualPurchases)) setTimeout(() => saveToSupabase('manualPurchases', merged), 0);
+                        if (!sameJson(merged, remoteManualPurchases)) setTimeout(() => saveToSupabase('manualPurchases', merged), 0);
                         return merged;
                     });
                 }
@@ -25647,7 +25677,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const merged = mergeRecordLists(prev || [], remotePurchaseNotes)
                             .map(n => (!n || n.payments !== undefined || n.paymentStatus !== 'Lunas') ? n : normalizeNote(n));
                         safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remotePurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', merged), 0);
+                        if (!sameJson(merged, remotePurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', merged), 0);
                         return merged;
                     });
                 }
@@ -25655,7 +25685,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDanaOperasional(prev => {
                         const merged = mergeRecordLists(prev || [], remoteDanaOperasional);
                         safeLocalSet('simpati_dana_operasional_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteDanaOperasional)) setTimeout(() => saveToSupabase('danaOperasional', merged), 0);
+                        if (!sameJson(merged, remoteDanaOperasional)) setTimeout(() => saveToSupabase('danaOperasional', merged), 0);
                         return merged;
                     });
                 }
@@ -25663,7 +25693,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setInvestors(prev => {
                         const merged = mergeRecordLists(prev || [], remoteInvestors);
                         safeLocalSet('simpati_investors_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteInvestors)) setTimeout(() => saveToSupabase('investors', merged), 0);
+                        if (!sameJson(merged, remoteInvestors)) setTimeout(() => saveToSupabase('investors', merged), 0);
                         return merged;
                     });
                 }
@@ -25671,7 +25701,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setInvestorBagiHasil(prev => {
                         const merged = mergeRecordLists(prev || [], remoteInvestorBagiHasil);
                         safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteInvestorBagiHasil)) setTimeout(() => saveToSupabase('investorBagiHasil', merged), 0);
+                        if (!sameJson(merged, remoteInvestorBagiHasil)) setTimeout(() => saveToSupabase('investorBagiHasil', merged), 0);
                         return merged;
                     });
                 }
@@ -25679,7 +25709,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setBagiHasilPromosi(prev => {
                         const merged = mergeRecordLists(prev || [], remoteBagiHasilPromosi);
                         safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', merged), 0);
+                        if (!sameJson(merged, remoteBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', merged), 0);
                         return merged;
                     });
                 }
@@ -25687,7 +25717,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDrivers(prev => {
                         const merged = mergeRecordLists(prev || [], remoteDrivers);
                         safeLocalSet('simpati_drivers_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteDrivers)) setTimeout(() => saveToSupabase('drivers', merged), 0);
+                        if (!sameJson(merged, remoteDrivers)) setTimeout(() => saveToSupabase('drivers', merged), 0);
                         return merged;
                     });
                 }
@@ -25695,7 +25725,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDriverTarifs(prev => {
                         const merged = mergeRecordLists(prev || [], remoteDriverTarifs);
                         safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteDriverTarifs)) setTimeout(() => saveToSupabase('driverTarifs', merged), 0);
+                        if (!sameJson(merged, remoteDriverTarifs)) setTimeout(() => saveToSupabase('driverTarifs', merged), 0);
                         return merged;
                     });
                 }
@@ -25703,7 +25733,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDriverTransactions(prev => {
                         const merged = mergeRecordLists(prev || [], remoteDriverTrx);
                         safeLocalSet('simpati_driver_trx_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteDriverTrx)) setTimeout(() => saveToSupabase('driverTransactions', merged), 0);
+                        if (!sameJson(merged, remoteDriverTrx)) setTimeout(() => saveToSupabase('driverTransactions', merged), 0);
                         return merged;
                     });
                 }
@@ -25711,7 +25741,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDriverRekapGaji(prev => {
                         const merged = mergeRecordLists(prev || [], remoteDriverRekapGaji);
                         safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteDriverRekapGaji)) setTimeout(() => saveToSupabase('driverRekapGaji', merged), 0);
+                        if (!sameJson(merged, remoteDriverRekapGaji)) setTimeout(() => saveToSupabase('driverRekapGaji', merged), 0);
                         return merged;
                     });
                 }
@@ -25719,7 +25749,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDriverKasbon(prev => {
                         const merged = mergeRecordLists(prev || [], remoteDriverKasbon);
                         safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteDriverKasbon)) setTimeout(() => saveToSupabase('driverKasbon', merged), 0);
+                        if (!sameJson(merged, remoteDriverKasbon)) setTimeout(() => saveToSupabase('driverKasbon', merged), 0);
                         return merged;
                     });
                 }
@@ -25727,7 +25757,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setStockItems(prev => {
                         const merged = mergeRecordLists(prev || [], remoteStockItems);
                         safeLocalSet('simpati_stock_items_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteStockItems)) setTimeout(() => saveToSupabase('stockItems', merged), 0);
+                        if (!sameJson(merged, remoteStockItems)) setTimeout(() => saveToSupabase('stockItems', merged), 0);
                         return merged;
                     });
                 }
@@ -25735,7 +25765,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setAbsensiEdits(prev => {
                         const merged = mergeRecordLists(prev || [], remoteAbsensiEdits);
                         safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteAbsensiEdits)) setTimeout(() => saveToSupabase('absensiEdits', merged), 0);
+                        if (!sameJson(merged, remoteAbsensiEdits)) setTimeout(() => saveToSupabase('absensiEdits', merged), 0);
                         return merged;
                     });
                 }
@@ -25743,7 +25773,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setAbsensiRawLogs(prev => {
                         const merged = mergeRecordLists(prev || [], remoteAbsensiRawLogs);
                         safeLocalSet('simpati_absensiRawLogs_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteAbsensiRawLogs)) setTimeout(() => saveToSupabase('absensiRawLogs', merged), 0);
+                        if (!sameJson(merged, remoteAbsensiRawLogs)) setTimeout(() => saveToSupabase('absensiRawLogs', merged), 0);
                         return merged;
                     });
                 }
@@ -25751,7 +25781,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setKartuKredit(prev => {
                         const merged = mergeRecordLists(prev || [], remoteKartuKredit);
                         safeLocalSet('simpati_kartu_kredit_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteKartuKredit)) setTimeout(() => saveToSupabase('kartu_kredit', merged), 0);
+                        if (!sameJson(merged, remoteKartuKredit)) setTimeout(() => saveToSupabase('kartu_kredit', merged), 0);
                         return merged;
                     });
                 }
@@ -25759,7 +25789,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setTransaksiKartu(prev => {
                         const merged = mergeRecordLists(prev || [], remoteTransaksiKartu);
                         safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(merged));
-                        if (JSON.stringify(merged) !== JSON.stringify(remoteTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', merged), 0);
+                        if (!sameJson(merged, remoteTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', merged), 0);
                         return merged;
                     });
                 }
@@ -26999,7 +27029,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             let out = null;
                             Object.keys(remote).forEach(k => {
                                 if (k === 'labelTemplates' || coreKeys.includes(k) || templatesPendingKeysRef.current.has(k)) return;
-                                if (JSON.stringify(cur[k]) !== JSON.stringify(remote[k])) { out = out || { ...cur }; out[k] = remote[k]; }
+                                if (!sameJson(cur[k], remote[k])) { out = out || { ...cur }; out[k] = remote[k]; }
                             });
                             coreKeys.forEach(k => {
                                 if (templatesPendingKeysRef.current.has(k)) return;
@@ -27260,18 +27290,44 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 else handleLogout();
             };
 
-            // Cek status Mode Pemeliharaan secara berkala (cadangan bila siaran langsung tidak sampai):
-            // tiap 30 detik selama aktif, tiap 2 menit saat normal (hanya bila aplikasi sedang dilihat). Hanya membaca catatan kecil.
+            // Cek status Mode Pemeliharaan secara berkala (cadangan bila sinyal langsung tidak sampai): tiap 30 detik
+            // (saat normal hanya bila aplikasi sedang dilihat), dan langsung saat aplikasi kembali dibuka/dilihat.
+            // Hanya membaca catatan kecil (±1 KB).
+            const maintCheckAtRef = useRef(0);
+            const checkMaintenanceNow = (force = false) => {
+                if (!supabaseClient || cloudHealth.isBlocked() || navigator.onLine === false) return;
+                if (!force && Date.now() - maintCheckAtRef.current < 10000) return;
+                maintCheckAtRef.current = Date.now();
+                fetchRemoteTimestamps();
+            };
+            const checkMaintenanceNowRef = useRef(checkMaintenanceNow);
+            checkMaintenanceNowRef.current = checkMaintenanceNow;
             useEffect(() => {
                 if (!supabaseClient || !isReady || !authUser) return;
                 const aktif = !!maintenance?.active;
                 const iv = setInterval(() => {
-                    if (cloudHealth.isBlocked() || navigator.onLine === false) return;
                     if (!aktif && document.hidden) return;
-                    fetchRemoteTimestamps();
-                }, aktif ? 30000 : 120000);
-                return () => clearInterval(iv);
+                    checkMaintenanceNowRef.current();
+                }, 30000);
+                const onShow = () => { if (!document.hidden) checkMaintenanceNowRef.current(); };
+                window.addEventListener('focus', onShow);
+                document.addEventListener('visibilitychange', onShow);
+                return () => { clearInterval(iv); window.removeEventListener('focus', onShow); document.removeEventListener('visibilitychange', onShow); };
             }, [maintenance?.active, isReady, !!authUser]);
+            // Sinyal langsung antar perangkat (Supabase Realtime Broadcast): tidak lewat database, jadi ringan.
+            // Dipakai agar perangkat lain langsung mengecek Mode Pemeliharaan saat Admin mengubahnya.
+            useEffect(() => {
+                if (!supabaseClient || !isReady) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                let ch = null;
+                try {
+                    ch = supabaseClient.channel('simpati-sinyal', { config: { broadcast: { self: false } } })
+                        .on('broadcast', { event: 'maintenance' }, () => { checkMaintenanceNowRef.current(true); })
+                        .subscribe();
+                    appSignalChannelRef.current = ch;
+                } catch (e) { console.warn('Sinyal langsung tidak tersedia', e); }
+                return () => { appSignalChannelRef.current = null; try { if (ch) supabaseClient.removeChannel(ch); } catch (e) {} };
+            }, [isReady]);
 
             // ===== Pindahkan gambar lama (desain order & bukti bayar invoice) ke baris cloud terpisah =====
             // Bertahap, satu per satu, hanya satu tab, berhenti saat server bermasalah. Data order/invoice
