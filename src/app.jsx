@@ -2189,7 +2189,21 @@
             const DASH_FILTER_KEY = 'simpati_dash_filter';
             const DASH_FILTER_DEFAULT = { status: 'semua', deadline: 'semua', bahan: 'semua', marketing: '', jenis: '', sort: 'terbaru' };
             const [dashFilter, setDashFilter] = React.useState(() => {
-                try { const v = JSON.parse(localStorage.getItem(DASH_FILTER_KEY) || 'null'); return v && typeof v === 'object' ? { ...DASH_FILTER_DEFAULT, ...v } : DASH_FILTER_DEFAULT; } catch (e) { return DASH_FILTER_DEFAULT; }
+                try {
+                    const v = JSON.parse(localStorage.getItem(DASH_FILTER_KEY) || 'null');
+                    if (!v || typeof v !== 'object') return DASH_FILTER_DEFAULT;
+                    const pilihan = {
+                        status: ['semua', 'antrian', 'belum', 'siap', 'terkirim', 'lainnya', ...productionStageOptions.map(sg => sg.id)],
+                        deadline: ['semua', 'terlambat', 'd7', 'd14', 'tanpa'],
+                        bahan: ['semua', 'belum', 'ada', 'tidak'],
+                        sort: ['terbaru', 'deadline', 'terlama'],
+                    };
+                    const out = { ...DASH_FILTER_DEFAULT };
+                    Object.keys(pilihan).forEach(k => { if (pilihan[k].includes(v[k])) out[k] = v[k]; });
+                    if (typeof v.marketing === 'string') out.marketing = v.marketing;
+                    if (typeof v.jenis === 'string') out.jenis = v.jenis;
+                    return out;
+                } catch (e) { return DASH_FILTER_DEFAULT; }
             });
             React.useEffect(() => { try { localStorage.setItem(DASH_FILTER_KEY, JSON.stringify(dashFilter)); } catch (e) {} }, [dashFilter]);
             const setFilterField = (field, value) => setDashFilter(f => ({ ...f, [field]: value }));
@@ -2659,80 +2673,67 @@
                             </div>
                         </div>
                         {(() => {
-                            const chip = (field, value, label, tone = 'blue') => {
-                                const aktif = dashFilter[field] === value;
-                                const n = value === 'semua' ? null : dashCount(field, value);
-                                const tones = {
-                                    blue: 'bg-blue-600 border-blue-600 text-white',
-                                    red: 'bg-red-600 border-red-600 text-white',
-                                    orange: 'bg-orange-500 border-orange-500 text-white',
-                                    green: 'bg-green-600 border-green-600 text-white',
-                                    gray: 'bg-gray-600 border-gray-600 text-white',
-                                };
-                                return (
-                                    <button key={value} type="button" data-dash-chip={`${field}:${value}`} onClick={() => setFilterField(field, value)}
-                                        className={`px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors ${aktif ? tones[tone] : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
-                                        {label}{n !== null && <span className={`ml-1 ${aktif ? 'opacity-90' : 'text-gray-400'}`}>({n})</span>}
-                                    </button>
-                                );
-                            };
-                            const stageChips = productionStageOptions
-                                .filter(sg => dashFilter.status === sg.id || dashCount('status', sg.id) > 0)
-                                .map(sg => chip('status', sg.id, sg.label));
-                            const showLainnya = dashFilter.status === 'lainnya' || dashCount('status', 'lainnya') > 0;
-                            const selectCls = 'w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white text-gray-700';
+                            const opt = (field, value, label) => (
+                                <option key={value} value={value}>{label}{value === 'semua' ? '' : ` (${dashCount(field, value)})`}</option>
+                            );
+                            const selectCls = (aktif) => `w-full border rounded-lg px-2 py-1.5 text-xs ${aktif ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-gray-300 bg-white text-gray-700'}`;
                             const withCurrent = (opts, cur) => (cur && !opts.includes(cur) ? [...opts, cur] : opts);
+                            const showLainnya = dashFilter.status === 'lainnya' || dashCount('status', 'lainnya') > 0;
+                            const field = (label, children) => (
+                                <label className="block min-w-0">
+                                    <span className="block text-xs font-bold text-gray-500 mb-1">{label}</span>
+                                    {children}
+                                </label>
+                            );
                             return (
-                                <div data-dash-filter-panel="1" className={`${dashFilterOpen ? 'block' : 'hidden'} md:block mb-4 p-3 rounded-lg border border-gray-100 bg-gray-50 space-y-2.5`}>
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className="text-xs font-bold text-gray-500 w-full sm:w-20 shrink-0">Status</span>
-                                        {chip('status', 'semua', 'Semua')}
-                                        {chip('status', 'antrian', 'Antrian & Proses')}
-                                        {chip('status', 'belum', 'Belum Dikerjakan')}
-                                        {stageChips}
-                                        {showLainnya && chip('status', 'lainnya', 'Lainnya', 'gray')}
-                                        {chip('status', 'siap', 'Siap Kirim', 'green')}
-                                        {chip('status', 'terkirim', 'Terkirim', 'gray')}
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className="text-xs font-bold text-gray-500 w-full sm:w-20 shrink-0">Deadline</span>
-                                        {chip('deadline', 'semua', 'Semua')}
-                                        {chip('deadline', 'terlambat', 'Terlambat', 'red')}
-                                        {chip('deadline', 'd7', '≤ 7 hari', 'orange')}
-                                        {chip('deadline', 'd14', '8–14 hari', 'green')}
-                                        {chip('deadline', 'tanpa', 'Tanpa deadline', 'gray')}
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className="text-xs font-bold text-gray-500 w-full sm:w-20 shrink-0">Bahan</span>
-                                        {chip('bahan', 'semua', 'Semua')}
-                                        {chip('bahan', 'belum', 'Belum ada bahan', 'red')}
-                                        {chip('bahan', 'ada', 'Ada bahan', 'green')}
-                                        {chip('bahan', 'tidak', 'Tidak perlu', 'gray')}
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                        <label className="block">
-                                            <span className="block text-xs font-bold text-gray-500 mb-1">Marketing</span>
-                                            <select data-dash-select="marketing" value={dashFilter.marketing} onChange={e => setFilterField('marketing', e.target.value)} className={selectCls}>
-                                                <option value="">Semua marketing</option>
-                                                {withCurrent(dashMarketingOptions, dashFilter.marketing).map(m => <option key={m} value={m}>{m}</option>)}
-                                            </select>
-                                        </label>
-                                        <label className="block">
-                                            <span className="block text-xs font-bold text-gray-500 mb-1">Jenis Produksi</span>
-                                            <select data-dash-select="jenis" value={dashFilter.jenis} onChange={e => setFilterField('jenis', e.target.value)} className={selectCls}>
-                                                <option value="">Semua jenis</option>
-                                                {withCurrent(dashJenisOptions, dashFilter.jenis).map(j => <option key={j} value={j}>{j}</option>)}
-                                            </select>
-                                        </label>
-                                        <label className="block">
-                                            <span className="block text-xs font-bold text-gray-500 mb-1">Urutkan</span>
-                                            <select data-dash-select="sort" value={dashFilter.sort} onChange={e => setFilterField('sort', e.target.value)} className={selectCls}>
-                                                <option value="terbaru">Terbaru diinput</option>
-                                                <option value="deadline">Deadline terdekat</option>
-                                                <option value="terlama">Terlama diinput</option>
-                                            </select>
-                                        </label>
-                                    </div>
+                                <div data-dash-filter-panel="1" className={`${dashFilterOpen ? 'grid' : 'hidden'} md:grid grid-cols-2 md:grid-cols-3 xl:grid-cols-[1.5fr_1.1fr_1.1fr_1fr_1fr_1.1fr] gap-2 mb-3 p-3 rounded-lg border border-gray-100 bg-gray-50`}>
+                                    {field('Status', (
+                                        <select data-dash-select="status" value={dashFilter.status} onChange={e => setFilterField('status', e.target.value)} className={selectCls(dashFilter.status !== 'semua')}>
+                                            <option value="semua">Semua</option>
+                                            {opt('status', 'antrian', 'Antrian & Proses')}
+                                            {opt('status', 'belum', 'Belum Dikerjakan')}
+                                            {productionStageOptions.map(sg => opt('status', sg.id, sg.label))}
+                                            {showLainnya && opt('status', 'lainnya', 'Lainnya')}
+                                            {opt('status', 'siap', 'Siap Kirim')}
+                                            {opt('status', 'terkirim', 'Terkirim')}
+                                        </select>
+                                    ))}
+                                    {field('Deadline', (
+                                        <select data-dash-select="deadline" value={dashFilter.deadline} onChange={e => setFilterField('deadline', e.target.value)} className={selectCls(dashFilter.deadline !== 'semua')}>
+                                            <option value="semua">Semua</option>
+                                            {opt('deadline', 'terlambat', 'Terlambat')}
+                                            {opt('deadline', 'd7', '≤ 7 hari')}
+                                            {opt('deadline', 'd14', '8–14 hari')}
+                                            {opt('deadline', 'tanpa', 'Tanpa deadline')}
+                                        </select>
+                                    ))}
+                                    {field('Bahan', (
+                                        <select data-dash-select="bahan" value={dashFilter.bahan} onChange={e => setFilterField('bahan', e.target.value)} className={selectCls(dashFilter.bahan !== 'semua')}>
+                                            <option value="semua">Semua</option>
+                                            {opt('bahan', 'belum', 'Belum ada bahan')}
+                                            {opt('bahan', 'ada', 'Ada bahan')}
+                                            {opt('bahan', 'tidak', 'Tidak perlu')}
+                                        </select>
+                                    ))}
+                                    {field('Marketing', (
+                                        <select data-dash-select="marketing" value={dashFilter.marketing} onChange={e => setFilterField('marketing', e.target.value)} className={selectCls(!!dashFilter.marketing)}>
+                                            <option value="">Semua</option>
+                                            {withCurrent(dashMarketingOptions, dashFilter.marketing).map(m => <option key={m} value={m}>{m} ({dashCount('marketing', m)})</option>)}
+                                        </select>
+                                    ))}
+                                    {field('Jenis Produksi', (
+                                        <select data-dash-select="jenis" value={dashFilter.jenis} onChange={e => setFilterField('jenis', e.target.value)} className={selectCls(!!dashFilter.jenis)}>
+                                            <option value="">Semua</option>
+                                            {withCurrent(dashJenisOptions, dashFilter.jenis).map(j => <option key={j} value={j}>{j} ({dashCount('jenis', j)})</option>)}
+                                        </select>
+                                    ))}
+                                    {field('Urutkan', (
+                                        <select data-dash-select="sort" value={dashFilter.sort} onChange={e => setFilterField('sort', e.target.value)} className={selectCls(dashFilter.sort !== 'terbaru')}>
+                                            <option value="terbaru">Terbaru</option>
+                                            <option value="deadline">Deadline terdekat</option>
+                                            <option value="terlama">Terlama</option>
+                                        </select>
+                                    ))}
                                 </div>
                             );
                         })()}
