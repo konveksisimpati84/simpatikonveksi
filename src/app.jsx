@@ -2185,7 +2185,74 @@
             React.useEffect(() => { const t = setTimeout(() => setSearchTerm(searchInput), 300); return () => clearTimeout(t); }, [searchInput]);
             const [currentPage, setCurrentPage] = useState(1);
             const ITEMS_PER_PAGE = 10;
-            const dashboardOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
+            // ── Filter daftar Progress Produksi (hanya mengatur tampilan, data order tidak diubah) ──
+            const DASH_FILTER_KEY = 'simpati_dash_filter';
+            const DASH_FILTER_DEFAULT = { status: 'semua', deadline: 'semua', bahan: 'semua', marketing: '', jenis: '', sort: 'terbaru' };
+            const [dashFilter, setDashFilter] = React.useState(() => {
+                try { const v = JSON.parse(localStorage.getItem(DASH_FILTER_KEY) || 'null'); return v && typeof v === 'object' ? { ...DASH_FILTER_DEFAULT, ...v } : DASH_FILTER_DEFAULT; } catch (e) { return DASH_FILTER_DEFAULT; }
+            });
+            React.useEffect(() => { try { localStorage.setItem(DASH_FILTER_KEY, JSON.stringify(dashFilter)); } catch (e) {} }, [dashFilter]);
+            const setFilterField = (field, value) => setDashFilter(f => ({ ...f, [field]: value }));
+            const [dashFilterOpen, setDashFilterOpen] = React.useState(false);
+            const dashListRef = React.useRef(null);
+            const dashStatusGroup = (o) => {
+                const st = String(o?.status || '');
+                if (st === 'Terkirim') return 'terkirim';
+                if (st === 'Siap Kirim') return 'siap';
+                if (!st || st === 'Pending') return 'belum';
+                const stage = productionStageOptions.find(sg => st === `Proses ${sg.label}`);
+                return stage ? stage.id : 'lainnya';
+            };
+            const dashDeadlineGroup = (o) => {
+                if (!o?.deadline) return 'tanpa';
+                const today = new Date(); today.setHours(0, 0, 0, 0);
+                const d = new Date(o.deadline + 'T00:00:00');
+                if (isNaN(d.getTime())) return 'tanpa';
+                const diff = Math.ceil((d - today) / 86400000);
+                if (diff < 0) return o.status === 'Terkirim' ? 'lewat_terkirim' : 'terlambat';
+                if (diff <= 7) return 'd7';
+                if (diff <= 14) return 'd14';
+                return 'lebih';
+            };
+            const dashBahanGroup = (o) => {
+                if (o?.materialStatus === 'Ada Bahan') return 'ada';
+                if (o?.materialStatus === 'Tidak Perlu' || getOrderProcessFlow(o).materials === false) return 'tidak';
+                return 'belum';
+            };
+            const dashMatch = (o, f, except) => {
+                if (except !== 'status' && f.status !== 'semua') {
+                    const g = dashStatusGroup(o);
+                    if (f.status === 'antrian' ? (g === 'siap' || g === 'terkirim') : g !== f.status) return false;
+                }
+                if (except !== 'deadline' && f.deadline !== 'semua' && dashDeadlineGroup(o) !== f.deadline) return false;
+                if (except !== 'bahan' && f.bahan !== 'semua' && dashBahanGroup(o) !== f.bahan) return false;
+                if (except !== 'marketing' && f.marketing && String(o?.marketing || '') !== f.marketing) return false;
+                if (except !== 'jenis' && f.jenis && String(o?.type || '') !== f.jenis) return false;
+                return true;
+            };
+            const dashBaseOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
+            const dashboardOrders = React.useMemo(() => {
+                const list = dashBaseOrders.filter(o => dashMatch(o, dashFilter));
+                if (dashFilter.sort === 'deadline') {
+                    return list.map((o, i) => ({ o, i })).sort((a, b) => {
+                        const da = a.o.deadline || '9999-99-99', dbb = b.o.deadline || '9999-99-99';
+                        return da.localeCompare(dbb) || a.i - b.i;
+                    }).map(x => x.o);
+                }
+                if (dashFilter.sort === 'terlama') return [...list].reverse();
+                return list;
+            }, [dashBaseOrders, dashFilter]);
+            const dashCount = (field, value) => dashBaseOrders.filter(o => dashMatch(o, { ...dashFilter, [field]: value }, null)).length;
+            const dashActiveFilterCount = ['status', 'deadline', 'bahan'].filter(k => dashFilter[k] !== 'semua').length + (dashFilter.marketing ? 1 : 0) + (dashFilter.jenis ? 1 : 0);
+            const dashMarketingOptions = React.useMemo(() => [...new Set(safeOrders.filter(o => !o?.isArchived).map(o => o.marketing).filter(Boolean))].sort(), [safeOrders]);
+            const dashJenisOptions = React.useMemo(() => [...new Set(safeOrders.filter(o => !o?.isArchived).map(o => o.type).filter(Boolean))].sort(), [safeOrders]);
+            const dashEmptyText = dashActiveFilterCount > 0
+                ? `Tidak ada order yang cocok dengan filter${searchTerm ? ' dan pencarian' : ''}. Klik "Reset filter" untuk menampilkan semua.`
+                : (searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang berjalan.');
+            const pilihKartu = (status) => {
+                setDashFilter(f => ({ ...f, status, deadline: 'semua', bahan: 'semua', marketing: '', jenis: '' }));
+                setTimeout(() => { try { dashListRef.current && dashListRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 50);
+            };
 
             // ── Grafik PCS Bulanan ──
             const chartYears = React.useMemo(() => {
@@ -2209,7 +2276,7 @@
             }, [safeOrders, chartYear]);
             const totalPcsYear = monthlyPcs.reduce((a, b) => a + b, 0);
             const peakPcsIdx   = monthlyPcs.indexOf(Math.max(...monthlyPcs));
-            React.useEffect(() => { setCurrentPage(1); }, [searchTerm]);
+            React.useEffect(() => { setCurrentPage(1); }, [searchTerm, dashFilter]);
             const totalPages = Math.ceil(dashboardOrders.length / ITEMS_PER_PAGE);
             const paginatedOrders = dashboardOrders.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
@@ -2447,10 +2514,19 @@
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <Card className="border-l-4 border-l-blue-500"><h3 className="text-gray-500 text-sm font-medium">Order Aktif</h3><p className="text-3xl font-bold text-gray-800 mt-2">{totalOrders}</p></Card>
-                        <Card className="border-l-4 border-l-yellow-500"><h3 className="text-gray-500 text-sm font-medium">Antrian & Proses</h3><p className="text-3xl font-bold text-gray-800 mt-2">{activeOrders}</p></Card>
-                        <Card className="border-l-4 border-l-green-500"><h3 className="text-gray-500 text-sm font-medium">Selesai Produksi</h3><p className="text-3xl font-bold text-gray-800 mt-2">{doneOrders}</p></Card>
-                        <Card className="border-l-4 border-l-purple-500"><h3 className="text-gray-500 text-sm font-medium">Menunggu Diarsipkan</h3><p className="text-3xl font-bold text-gray-800 mt-2">{shippedOrders}</p></Card>
+                        {[
+                            { status: 'semua', label: 'Order Aktif', value: totalOrders, border: 'border-l-blue-500' },
+                            { status: 'antrian', label: 'Antrian & Proses', value: activeOrders, border: 'border-l-yellow-500' },
+                            { status: 'siap', label: 'Selesai Produksi', value: doneOrders, border: 'border-l-green-500' },
+                            { status: 'terkirim', label: 'Menunggu Diarsipkan', value: shippedOrders, border: 'border-l-purple-500' },
+                        ].map(k => {
+                            const aktif = dashFilter.status === k.status && dashActiveFilterCount === (k.status === 'semua' ? 0 : 1);
+                            return (
+                                <button key={k.status} type="button" data-dash-kartu={k.status} onClick={() => pilihKartu(k.status)} title="Klik untuk menampilkan order ini di daftar Progress Produksi" className={`text-left w-full rounded-xl transition-shadow hover:shadow-md focus:outline-none ${aktif ? 'ring-2 ring-blue-400' : ''}`}>
+                                    <Card className={`border-l-4 ${k.border}`}><h3 className="text-gray-500 text-sm font-medium">{k.label}</h3><p className="text-3xl font-bold text-gray-800 mt-2">{k.value}</p></Card>
+                                </button>
+                            );
+                        })}
                     </div>
 
                     {/* ── Grafik PCS Bulanan ── */}
@@ -2571,12 +2647,104 @@
                         </div>
                     </Card>
 
+                    <div ref={dashListRef} data-dash-list="1" className="scroll-mt-4">
                     <Card>
-                        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-4">
+                        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-3">
                             <h3 className="text-lg font-bold text-gray-800">Progress Produksi Berjalan</h3>
-                            <div className="w-full md:w-80">
-                                <SearchField value={searchInput} onChange={setSearchInput} placeholder="Cari ID, klien, barang, status..." />
+                            <div className="w-full md:w-80 flex items-center gap-2">
+                                <div className="flex-1 min-w-0"><SearchField value={searchInput} onChange={setSearchInput} placeholder="Cari ID, klien, barang, status..." /></div>
+                                <button type="button" data-dash-filter-toggle="1" onClick={() => setDashFilterOpen(v => !v)} className={`md:hidden shrink-0 px-3 py-2 rounded-lg border text-xs font-bold ${dashActiveFilterCount > 0 ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-700'}`}>
+                                    Filter{dashActiveFilterCount > 0 ? ` (${dashActiveFilterCount})` : ''} {dashFilterOpen ? '▲' : '▼'}
+                                </button>
                             </div>
+                        </div>
+                        {(() => {
+                            const chip = (field, value, label, tone = 'blue') => {
+                                const aktif = dashFilter[field] === value;
+                                const n = value === 'semua' ? null : dashCount(field, value);
+                                const tones = {
+                                    blue: 'bg-blue-600 border-blue-600 text-white',
+                                    red: 'bg-red-600 border-red-600 text-white',
+                                    orange: 'bg-orange-500 border-orange-500 text-white',
+                                    green: 'bg-green-600 border-green-600 text-white',
+                                    gray: 'bg-gray-600 border-gray-600 text-white',
+                                };
+                                return (
+                                    <button key={value} type="button" data-dash-chip={`${field}:${value}`} onClick={() => setFilterField(field, value)}
+                                        className={`px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors ${aktif ? tones[tone] : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+                                        {label}{n !== null && <span className={`ml-1 ${aktif ? 'opacity-90' : 'text-gray-400'}`}>({n})</span>}
+                                    </button>
+                                );
+                            };
+                            const stageChips = productionStageOptions
+                                .filter(sg => dashFilter.status === sg.id || dashCount('status', sg.id) > 0)
+                                .map(sg => chip('status', sg.id, sg.label));
+                            const showLainnya = dashFilter.status === 'lainnya' || dashCount('status', 'lainnya') > 0;
+                            const selectCls = 'w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white text-gray-700';
+                            const withCurrent = (opts, cur) => (cur && !opts.includes(cur) ? [...opts, cur] : opts);
+                            return (
+                                <div data-dash-filter-panel="1" className={`${dashFilterOpen ? 'block' : 'hidden'} md:block mb-4 p-3 rounded-lg border border-gray-100 bg-gray-50 space-y-2.5`}>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-xs font-bold text-gray-500 w-full sm:w-20 shrink-0">Status</span>
+                                        {chip('status', 'semua', 'Semua')}
+                                        {chip('status', 'antrian', 'Antrian & Proses')}
+                                        {chip('status', 'belum', 'Belum Dikerjakan')}
+                                        {stageChips}
+                                        {showLainnya && chip('status', 'lainnya', 'Lainnya', 'gray')}
+                                        {chip('status', 'siap', 'Siap Kirim', 'green')}
+                                        {chip('status', 'terkirim', 'Terkirim', 'gray')}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-xs font-bold text-gray-500 w-full sm:w-20 shrink-0">Deadline</span>
+                                        {chip('deadline', 'semua', 'Semua')}
+                                        {chip('deadline', 'terlambat', 'Terlambat', 'red')}
+                                        {chip('deadline', 'd7', '≤ 7 hari', 'orange')}
+                                        {chip('deadline', 'd14', '8–14 hari', 'green')}
+                                        {chip('deadline', 'tanpa', 'Tanpa deadline', 'gray')}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-xs font-bold text-gray-500 w-full sm:w-20 shrink-0">Bahan</span>
+                                        {chip('bahan', 'semua', 'Semua')}
+                                        {chip('bahan', 'belum', 'Belum ada bahan', 'red')}
+                                        {chip('bahan', 'ada', 'Ada bahan', 'green')}
+                                        {chip('bahan', 'tidak', 'Tidak perlu', 'gray')}
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        <label className="block">
+                                            <span className="block text-xs font-bold text-gray-500 mb-1">Marketing</span>
+                                            <select data-dash-select="marketing" value={dashFilter.marketing} onChange={e => setFilterField('marketing', e.target.value)} className={selectCls}>
+                                                <option value="">Semua marketing</option>
+                                                {withCurrent(dashMarketingOptions, dashFilter.marketing).map(m => <option key={m} value={m}>{m}</option>)}
+                                            </select>
+                                        </label>
+                                        <label className="block">
+                                            <span className="block text-xs font-bold text-gray-500 mb-1">Jenis Produksi</span>
+                                            <select data-dash-select="jenis" value={dashFilter.jenis} onChange={e => setFilterField('jenis', e.target.value)} className={selectCls}>
+                                                <option value="">Semua jenis</option>
+                                                {withCurrent(dashJenisOptions, dashFilter.jenis).map(j => <option key={j} value={j}>{j}</option>)}
+                                            </select>
+                                        </label>
+                                        <label className="block">
+                                            <span className="block text-xs font-bold text-gray-500 mb-1">Urutkan</span>
+                                            <select data-dash-select="sort" value={dashFilter.sort} onChange={e => setFilterField('sort', e.target.value)} className={selectCls}>
+                                                <option value="terbaru">Terbaru diinput</option>
+                                                <option value="deadline">Deadline terdekat</option>
+                                                <option value="terlama">Terlama diinput</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                            <span data-dash-count="1" className="text-xs text-gray-500">
+                                Menampilkan <b className="text-gray-800">{dashboardOrders.length}</b> dari {dashBaseOrders.length} order{searchTerm ? ' (hasil pencarian)' : ''}
+                            </span>
+                            {(dashActiveFilterCount > 0 || dashFilter.sort !== 'terbaru') && (
+                                <button type="button" data-dash-reset="1" onClick={() => setDashFilter(DASH_FILTER_DEFAULT)} className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline">
+                                    ✕ Reset filter
+                                </button>
+                            )}
                         </div>
                         <div className="overflow-x-auto hidden md:block">
                             <table className="w-full text-left border-collapse">
@@ -2634,7 +2802,7 @@
                                         </tr>
                                     ))}
                                     {dashboardOrders.length === 0 && (
-                                        <tr><td colSpan="6" className="p-4 text-center text-sm text-gray-500 italic">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang berjalan.'}</td></tr>
+                                        <tr><td colSpan="6" className="p-4 text-center text-sm text-gray-500 italic">{dashEmptyText}</td></tr>
                                     )}
                                 </tbody>
                             </table>
@@ -2677,7 +2845,7 @@
                                     </div>
                                 );
                             })}
-                            {dashboardOrders.length === 0 && <p className="p-4 text-center text-sm text-gray-500 italic">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang berjalan.'}</p>}
+                            {dashboardOrders.length === 0 && <p className="p-4 text-center text-sm text-gray-500 italic">{dashEmptyText}</p>}
                         </div>
                         {totalPages > 1 && (
                             <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
@@ -2692,6 +2860,7 @@
                             </div>
                         )}
                     </Card>
+                    </div>
 
                     {editOrder && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm overflow-y-auto z-[100]" style={{ WebkitOverflowScrolling: 'touch' }}>
