@@ -323,7 +323,7 @@
         const IconTruck = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"></path></svg>;
         const IconBarChart = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>;
         const IconTrash = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>;
-        const IconPrinter = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>;
+        const IconPrinter = ({ className = "w-4 h-4" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>;
         const IconCheckCircle = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>;
         const IconAlertCircle = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>;
         const IconLogout = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>;
@@ -331,6 +331,7 @@
         const IconKey = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4v-3l5.257-5.257A6 6 0 1115 7h.01z"></path></svg>;
         const IconSettings = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>;
         const IconHistory = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>;
+        const IconCopy = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>;
         const IconDocument = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>;
         const IconSparkles = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>;
         const IconImage = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>;
@@ -2165,7 +2166,7 @@
             );
         };
 
-        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [] }) => {
+        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], templates }) => {
             const [dashChartRef, dashChartW] = useElementWidth();
             const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
             const { totalOrders, activeOrders, doneOrders, shippedOrders } = React.useMemo(() => ({
@@ -2176,6 +2177,9 @@
             }), [safeOrders]);
 
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+            const [duplicateConfirmId, setDuplicateConfirmId] = useState(null);
+            const duplicateLockRef = React.useRef(false); // cegah dobel klik "Ya, Duplikat" membuat 2 order
+            const bukaKonfirmasiDuplikat = (id) => { duplicateLockRef.current = false; setDuplicateConfirmId(id); };
             const [editOrder, setEditOrder] = useState(null);
             const [editSizeInputs, setEditSizeInputs] = useState([]);
             const [insight, setInsight] = useState("");
@@ -2762,7 +2766,7 @@
                                 <tbody>
                                     {paginatedOrders.map(order => (
                                         <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                            <td className="p-3 text-sm font-medium text-blue-600">{order.id}</td>
+                                            <td className="p-3 text-sm font-medium text-blue-600 whitespace-nowrap">{order.id}</td>
                                             <td className="p-3 text-sm text-gray-800">{order.client}</td>
                                             <td className="p-3 text-sm text-gray-600">
                                                 {order.type} ({order.total} pcs)
@@ -2771,12 +2775,17 @@
                                                 )}
                                             </td>
                                             <td className="p-3"><Badge status={order.status} /></td>
-                                            <td className="p-3 text-sm text-gray-600">{order.deadline}</td>
-                                            <td className="p-3 text-center flex justify-center space-x-2">
+                                            <td className="p-3 text-sm text-gray-600 whitespace-nowrap">{order.deadline}</td>
+                                            <td className="p-3 text-center flex justify-center gap-1.5">
                                                 <button onClick={() => openEditModal(order)} className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-md transition-colors" title="Edit Order">
                                                     <IconEdit />
                                                 </button>
-                                                <button onClick={() => duplicateOrder(order)} className="text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-2 py-1.5 rounded-md transition-colors text-xs font-bold" title="Duplikat Order">Duplikat</button>
+                                                <button onClick={() => printLembarKerjaOrder(order, { templates, showToast })} className="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-md transition-colors" title="Cetak SPK" data-dash-spk={order.id}>
+                                                    <IconPrinter className="w-5 h-5" />
+                                                </button>
+                                                <button onClick={() => bukaKonfirmasiDuplikat(order.id)} className="text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 p-1.5 rounded-md transition-colors" title="Duplikat Order" data-dash-dup={order.id}>
+                                                    <IconCopy />
+                                                </button>
                                                 <button onClick={() => setDeleteConfirmId(order.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-md transition-colors" title="Hapus Order">
                                                     <IconTrash />
                                                 </button>
@@ -2827,7 +2836,8 @@
                                         </div>
                                         <div className="flex gap-1 items-center shrink-0">
                                             <button onClick={() => openEditModal(order)} className="text-blue-500 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-md transition-colors" title="Edit"><IconEdit /></button>
-                                            <button onClick={() => duplicateOrder(order)} className="text-teal-600 bg-teal-50 hover:bg-teal-100 px-2 py-1.5 rounded-md text-xs font-bold">Duplikat</button>
+                                            <button onClick={() => printLembarKerjaOrder(order, { templates, showToast })} className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-md transition-colors" title="Cetak SPK" data-dash-spk={order.id}><IconPrinter className="w-5 h-5" /></button>
+                                            <button onClick={() => bukaKonfirmasiDuplikat(order.id)} className="text-teal-600 bg-teal-50 hover:bg-teal-100 p-1.5 rounded-md transition-colors" title="Duplikat Order" data-dash-dup={order.id}><IconCopy /></button>
                                             <button onClick={() => setDeleteConfirmId(order.id)} className="text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-md transition-colors" title="Hapus"><IconTrash /></button>
                                             {order.status === 'Terkirim' && (
                                                 <button onClick={() => {
@@ -3021,6 +3031,23 @@
                             </div>
                         </div>
                     )}
+                    {duplicateConfirmId && (() => {
+                        const target = safeOrders.find(o => String(o.id) === String(duplicateConfirmId));
+                        return (
+                            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] transition-opacity" data-dash-dup-confirm="1">
+                                <div className="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full mx-4">
+                                    <h3 className="text-lg font-bold text-gray-900 mb-2">Duplikat Order</h3>
+                                    <p className="text-gray-600 mb-6">{target
+                                        ? <>Buat order baru dengan menyalin <b>{target.id}</b> ({target.client || '-'}{target.type ? ` · ${target.type}` : ''})? Progres produksi, pengiriman, dan pembayaran bahan tidak ikut disalin.</>
+                                        : 'Order ini sudah tidak ada.'}</p>
+                                    <div className="flex justify-end space-x-3">
+                                        <button onClick={() => setDuplicateConfirmId(null)} className="px-4 py-2 font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Batal</button>
+                                        {target && <button onClick={() => { if (duplicateLockRef.current) return; duplicateLockRef.current = true; setDuplicateConfirmId(null); duplicateOrder(target); }} className="px-4 py-2 font-medium bg-teal-600 text-white hover:bg-teal-700 rounded-lg transition-colors">Ya, Duplikat</button>}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </div>
             );
         };
@@ -4573,242 +4600,8 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             );
         };
 
-        const ProduksiView = ({ orders, setOrders, employees, authUser, showToast, templates }) => {
-            const [selectedOrder, setSelectedOrder] = useState(null);
-            const [activeStage, setActiveStage] = useState('cutting');
-            const [searchTerm, setSearchTerm] = useState('');
-            const [pendingWorkConfirm, setPendingWorkConfirm] = useState(null);
-            const [pendingEmployeeConfirm, setPendingEmployeeConfirm] = useState(null);
-            const [activeProductionTab, setActiveProductionTab] = useState('proses');
-            const safeOrders = (orders || []).filter(isVisibleOrder);
-            const visibleEmployees = (employees || []).filter(isVisibleRecord);
-            const visibleEmployeeIds = new Set(visibleEmployees.map(e => String(e.id)));
-            const filteredProductionOrders = safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm));
-            const [colorFilter, setColorFilter] = useState(null);
-            const getOrderColorKey = (order) => {
-                if (order.status === 'Terkirim') return 'terkirim';
-                if (order.status === 'Siap Kirim') return 'siap';
-                const d = Math.ceil((new Date(order.deadline) - new Date()) / 86400000);
-                if (d < 0) return 'terlambat';
-                if (d <= 7) return 'mendekati';
-                if (d <= 14) return 'sedang';
-                return 'normal';
-            };
-            const displayProductionOrders = colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders;
-            const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}`);
-
-            const isKaryawanMode = authUser?.role === 'Karyawan';
-            const myEmpData = isKaryawanMode ? visibleEmployees.find(e => (
-                String(e.id) === String(authUser.linkedEmpId || '') ||
-                (!authUser.linkedEmpId && normalizeText(e.name) === normalizeText(authUser.name))
-            )) : null;
-
-            const stages = productionStageOptions.map((stage, index) => ({ ...stage, label: `${index + 1}. ${stage.label}` }));
-
-            const myStageData = myEmpData ? stages.find(s => getEmployeeDivisions(myEmpData).some(d => normalizeText(s.div) === normalizeText(d))) : null;
-            const myEmployeeProblem = (() => {
-                if (!isKaryawanMode) return '';
-                if (!myEmpData) return 'Akun karyawan ini belum terhubung ke data karyawan. Admin perlu membuka Master Akun, edit akun ini, lalu pilih data karyawan yang sesuai.';
-                if (normalizeText(myEmpData.status) === 'nonaktif') return 'Data karyawan untuk akun ini berstatus Nonaktif. Aktifkan kembali di menu Data Karyawan agar bisa input pekerjaan.';
-                if (!myStageData) return `Divisi karyawan "${getEmployeeDivisions(myEmpData).join(', ') || '-'}" belum cocok dengan tahapan produksi. Sesuaikan divisi di menu Data Karyawan.`;
-                return '';
-            })();
-
-            useEffect(() => {
-                if (isKaryawanMode && myStageData && activeStage !== myStageData.id) {
-                    setActiveStage(myStageData.id);
-                }
-            }, [isKaryawanMode, myStageData, activeStage]);
-
-            const getStageSizeTotals = (stageData, mode = 'taken') => {
-                const totals = {};
-                if (stageData && stageData.workLogs) {
-                    stageData.workLogs.forEach(log => {
-                        if (log.isDeleted) return;
-                        const shouldCount = mode === 'completed' ? log.checkAfter : (log.checkBefore || log.checkAfter);
-                        if (shouldCount) totals[log.size] = (totals[log.size] || 0) + (mode === 'completed' ? getWorkLogSubmittedQty(log) : getWorkLogEffectiveQty(log));
-                    });
-                }
-                return totals;
-            };
-
-            const getMaxAllowed = (order, stageId, size) => {
-                if (!order) return 0;
-                const stagesOrder = getActiveProductionStageIds(order);
-                const currentIndex = stagesOrder.indexOf(stageId);
-                if (currentIndex < 0) return 0;
-                if (currentIndex === 0) return order.sizes[size] || 0;
-                for (let i = currentIndex - 1; i >= 0; i--) {
-                    const prevStageId = stagesOrder[i];
-                    const prevStageData = order.progress?.[prevStageId] || {};
-                    const prevStageTotals = getStageSizeTotals(prevStageData, 'completed');
-                    const hasOutput = Object.values(prevStageTotals).some(v => parseInt(v) > 0);
-                    if (prevStageData?.status !== 'Belum' || hasOutput) {
-                        return prevStageTotals[size] || 0;
-                    }
-                }
-                return 0;
-            };
-
-
-            const handleUpdateLog = (orderId, stageId, logId, value) => {
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) === String(orderId)) {
-                        const stageData = o.progress[stageId];
-                        const logs = stageData.workLogs || [];
-                        const logToUpdate = logs.find(l => String(l.id) === String(logId));
-                        if(!logToUpdate || logToUpdate.isDeleted) return o;
-
-                        const size = logToUpdate.size;
-                        let otherLogsTotal = 0;
-                        logs.forEach(l => {
-                            if (!l.isDeleted && l.size === size && String(l.id) !== String(logId) && (l.checkBefore || l.checkAfter)) otherLogsTotal += getWorkLogEffectiveQty(l);
-                        });
-
-                        const maxAllowedGlobal = getMaxAllowed(o, stageId, size);
-                        const maxForThisLog = maxAllowedGlobal - otherLogsTotal;
-                        let val = parseInt(value) || 0;
-                        if (val > maxForThisLog) val = maxForThisLog;
-                        if (val < 0) val = 0;
-                        
-                        const now = new Date().toISOString();
-                        const newLogs = logs.map(l => String(l.id) === String(logId) ? { ...l, qty: val, qtyUpdatedAt: now, _syncUpdatedAt: now } : l);
-                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
-                    }
-                    return o;
-                }));
-            };
-
-            const handleToggleEmployee = (orderId, stageId, empId, isChecked, actionAt = null) => {
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) === String(orderId)) {
-                        const stageData = o.progress[stageId];
-                        let newEmps = [...(stageData.employees || [])];
-                        let newLogs = [...(stageData.workLogs || [])];
-                        let employeeLinks = { ...(stageData.employeeLinks || {}) };
-                        let removedEmployees = { ...(stageData.removedEmployees || {}) };
-                        const now = actionAt || new Date().toISOString();
-                        if (isChecked) {
-                            if (!newEmps.some(id => String(id) === String(empId))) newEmps.push(empId);
-                            employeeLinks[String(empId)] = now;
-                            delete removedEmployees[String(empId)];
-                        }
-                        else {
-                            newEmps = newEmps.filter(id => String(id) !== String(empId));
-                            removedEmployees[String(empId)] = now;
-                            newLogs = newLogs.map(l => {
-                                if (String(l.empId) !== String(empId)) return l;
-                                if (l.isReported) return l;
-                                return { ...l, isDeleted: true, deletedAt: now, _syncUpdatedAt: now };
-                            });
-                        }
-                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, employees: newEmps, employeeLinks, removedEmployees, workLogs: newLogs } } });
-                    }
-                    return o;
-                }));
-                const empName = visibleEmployees.find(emp => String(emp.id) === String(empId))?.name || empId;
-            };
-
-            const handleAddLog = (orderId, stageId, empId, size) => {
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) === String(orderId)) {
-                        const now = new Date().toISOString();
-                        const newLog = { id: `wl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, empId, size, qty: 0, isReported: false, checkBefore: false, checkAfter: false, createdAt: now, _syncUpdatedAt: now };
-                        const stageData = o.progress[stageId];
-                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: [...(stageData.workLogs || []), newLog] } } });
-                    }
-                    return o;
-                }));
-                const empName = visibleEmployees.find(emp => String(emp.id) === String(empId))?.name || empId;
-            };
-            
-            const formatWorkDate = (value, style = 'short') => value ? new Date(value).toLocaleString('id-ID', { dateStyle: style, timeStyle: 'short' }) : '-';
-
-            const handleToggleLogCheck = (orderId, stageId, logId, checkType, isChecked, actionAt = null, qtyOverride = null) => {
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) === String(orderId)) {
-                        const stageData = o.progress[stageId];
-                        const logs = stageData.workLogs || [];
-                        const logToUpdate = logs.find(l => String(l.id) === String(logId));
-                        if (!logToUpdate || logToUpdate.isDeleted) return o;
-                        const effectiveQty = qtyOverride !== null && qtyOverride !== undefined
-                            ? (parseInt(qtyOverride) || 0)
-                            : (checkType === 'checkAfter' ? getWorkLogSubmittedQty(logToUpdate) : getWorkLogTakenQty(logToUpdate));
-
-                        if ((checkType === 'checkBefore' || checkType === 'checkAfter') && isChecked) {
-                            if (effectiveQty <= 0) {
-                                showToast("Isi jumlah pcs terlebih dahulu di popup konfirmasi.", "error");
-                                return o;
-                            }
-                            if (checkType === 'checkBefore') {
-                                const maxAllowed = getMaxAllowed(o, stageId, logToUpdate.size);
-                                const otherTakenTotal = logs
-                                    .filter(l => !l.isDeleted && String(l.id) !== String(logId) && l.size === logToUpdate.size && (l.checkBefore || l.checkAfter))
-                                    .reduce((sum, l) => sum + getWorkLogEffectiveQty(l), 0);
-                                if (otherTakenTotal + effectiveQty > maxAllowed) {
-                                    showToast("Jumlah Ambil melebihi sisa stok ukuran ini.", "error");
-                                    return o;
-                                }
-                            }
-                            if (checkType === 'checkAfter' && effectiveQty > getWorkLogTakenQty(logToUpdate)) {
-                                showToast("Jumlah Setor tidak boleh melebihi jumlah Ambil.", "error");
-                                return o;
-                            }
-                        }
-
-                        const newLogs = logs.map(l => {
-                            if (String(l.id) === String(logId)) {
-                                const now = actionAt || new Date().toISOString();
-                                let updatedLog = { ...l, [checkType]: isChecked };
-                                updatedLog._syncUpdatedAt = now;
-                                if (isChecked && qtyOverride !== null && qtyOverride !== undefined && checkType === 'checkBefore') {
-                                    updatedLog.qty = effectiveQty;
-                                    updatedLog.qtyUpdatedAt = now;
-                                }
-                                if (isChecked && qtyOverride !== null && qtyOverride !== undefined && checkType === 'checkAfter') {
-                                    updatedLog.submittedQty = effectiveQty;
-                                    updatedLog.submittedQtyUpdatedAt = now;
-                                }
-                                if (checkType === 'checkBefore') updatedLog.checkBeforeChangedAt = now;
-                                if (checkType === 'checkAfter') updatedLog.checkAfterChangedAt = now;
-                                if (checkType === 'checkBefore' && isChecked) updatedLog.takenAt = now;
-                                if (checkType === 'checkBefore' && !isChecked) {
-                                    updatedLog.checkAfter = false;
-                                    updatedLog.takenAt = null;
-                                    updatedLog.submittedAt = null;
-                                    updatedLog.submittedQty = null;
-                                    updatedLog.checkAfterChangedAt = now;
-                                }
-                                if (checkType === 'checkAfter' && isChecked) updatedLog.submittedAt = now;
-                                if (checkType === 'checkAfter' && !isChecked) {
-                                    updatedLog.submittedAt = null;
-                                    updatedLog.submittedQty = null;
-                                }
-                                return updatedLog;
-                            }
-                            return l;
-                        });
-                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
-                    }
-                    return o;
-                }));
-                const label = checkType === 'checkAfter' ? 'Setor' : 'Ambil';
-                const actionText = isChecked ? label : `Batal ${label}`;
-            };
-
-            const handleDeleteLog = (orderId, stageId, logId) => {
-                setOrders(prevOrders => prevOrders.map(o => {
-                    if (String(o.id) === String(orderId)) {
-                        const stageData = o.progress[stageId];
-                        const now = new Date().toISOString();
-                        const newLogs = (stageData.workLogs || []).map(l => String(l.id) === String(logId) ? { ...l, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : l);
-                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
-                    }
-                    return o;
-                }));
-            };
-
-            const printLembarKerja = async (orderIn) => {
+        // Cetak Lembar Kerja Produksi (SPK) — dipakai bersama oleh menu Proses Produksi & Dashboard
+        const printLembarKerjaOrder = async (orderIn, { templates, showToast }) => {
                 // Jendela dibuka langsung saat tombol diklik (agar tidak diblokir pop-up), gambar desain dimuat setelahnya
                 const printWindow = window.open('', '_blank');
                 if (!printWindow) { showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); return; }
@@ -5066,7 +4859,244 @@ window.addEventListener('load',function(){
                 printWindow.document.write(printContent);
                 printWindow.document.close();
                 printWindow.focus();
+        };
+
+        const ProduksiView = ({ orders, setOrders, employees, authUser, showToast, templates }) => {
+            const [selectedOrder, setSelectedOrder] = useState(null);
+            const [activeStage, setActiveStage] = useState('cutting');
+            const [searchTerm, setSearchTerm] = useState('');
+            const [pendingWorkConfirm, setPendingWorkConfirm] = useState(null);
+            const [pendingEmployeeConfirm, setPendingEmployeeConfirm] = useState(null);
+            const [activeProductionTab, setActiveProductionTab] = useState('proses');
+            const safeOrders = (orders || []).filter(isVisibleOrder);
+            const visibleEmployees = (employees || []).filter(isVisibleRecord);
+            const visibleEmployeeIds = new Set(visibleEmployees.map(e => String(e.id)));
+            const filteredProductionOrders = safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm));
+            const [colorFilter, setColorFilter] = useState(null);
+            const getOrderColorKey = (order) => {
+                if (order.status === 'Terkirim') return 'terkirim';
+                if (order.status === 'Siap Kirim') return 'siap';
+                const d = Math.ceil((new Date(order.deadline) - new Date()) / 86400000);
+                if (d < 0) return 'terlambat';
+                if (d <= 7) return 'mendekati';
+                if (d <= 14) return 'sedang';
+                return 'normal';
             };
+            const displayProductionOrders = colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders;
+            const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}`);
+
+            const isKaryawanMode = authUser?.role === 'Karyawan';
+            const myEmpData = isKaryawanMode ? visibleEmployees.find(e => (
+                String(e.id) === String(authUser.linkedEmpId || '') ||
+                (!authUser.linkedEmpId && normalizeText(e.name) === normalizeText(authUser.name))
+            )) : null;
+
+            const stages = productionStageOptions.map((stage, index) => ({ ...stage, label: `${index + 1}. ${stage.label}` }));
+
+            const myStageData = myEmpData ? stages.find(s => getEmployeeDivisions(myEmpData).some(d => normalizeText(s.div) === normalizeText(d))) : null;
+            const myEmployeeProblem = (() => {
+                if (!isKaryawanMode) return '';
+                if (!myEmpData) return 'Akun karyawan ini belum terhubung ke data karyawan. Admin perlu membuka Master Akun, edit akun ini, lalu pilih data karyawan yang sesuai.';
+                if (normalizeText(myEmpData.status) === 'nonaktif') return 'Data karyawan untuk akun ini berstatus Nonaktif. Aktifkan kembali di menu Data Karyawan agar bisa input pekerjaan.';
+                if (!myStageData) return `Divisi karyawan "${getEmployeeDivisions(myEmpData).join(', ') || '-'}" belum cocok dengan tahapan produksi. Sesuaikan divisi di menu Data Karyawan.`;
+                return '';
+            })();
+
+            useEffect(() => {
+                if (isKaryawanMode && myStageData && activeStage !== myStageData.id) {
+                    setActiveStage(myStageData.id);
+                }
+            }, [isKaryawanMode, myStageData, activeStage]);
+
+            const getStageSizeTotals = (stageData, mode = 'taken') => {
+                const totals = {};
+                if (stageData && stageData.workLogs) {
+                    stageData.workLogs.forEach(log => {
+                        if (log.isDeleted) return;
+                        const shouldCount = mode === 'completed' ? log.checkAfter : (log.checkBefore || log.checkAfter);
+                        if (shouldCount) totals[log.size] = (totals[log.size] || 0) + (mode === 'completed' ? getWorkLogSubmittedQty(log) : getWorkLogEffectiveQty(log));
+                    });
+                }
+                return totals;
+            };
+
+            const getMaxAllowed = (order, stageId, size) => {
+                if (!order) return 0;
+                const stagesOrder = getActiveProductionStageIds(order);
+                const currentIndex = stagesOrder.indexOf(stageId);
+                if (currentIndex < 0) return 0;
+                if (currentIndex === 0) return order.sizes[size] || 0;
+                for (let i = currentIndex - 1; i >= 0; i--) {
+                    const prevStageId = stagesOrder[i];
+                    const prevStageData = order.progress?.[prevStageId] || {};
+                    const prevStageTotals = getStageSizeTotals(prevStageData, 'completed');
+                    const hasOutput = Object.values(prevStageTotals).some(v => parseInt(v) > 0);
+                    if (prevStageData?.status !== 'Belum' || hasOutput) {
+                        return prevStageTotals[size] || 0;
+                    }
+                }
+                return 0;
+            };
+
+
+            const handleUpdateLog = (orderId, stageId, logId, value) => {
+                setOrders(prevOrders => prevOrders.map(o => {
+                    if (String(o.id) === String(orderId)) {
+                        const stageData = o.progress[stageId];
+                        const logs = stageData.workLogs || [];
+                        const logToUpdate = logs.find(l => String(l.id) === String(logId));
+                        if(!logToUpdate || logToUpdate.isDeleted) return o;
+
+                        const size = logToUpdate.size;
+                        let otherLogsTotal = 0;
+                        logs.forEach(l => {
+                            if (!l.isDeleted && l.size === size && String(l.id) !== String(logId) && (l.checkBefore || l.checkAfter)) otherLogsTotal += getWorkLogEffectiveQty(l);
+                        });
+
+                        const maxAllowedGlobal = getMaxAllowed(o, stageId, size);
+                        const maxForThisLog = maxAllowedGlobal - otherLogsTotal;
+                        let val = parseInt(value) || 0;
+                        if (val > maxForThisLog) val = maxForThisLog;
+                        if (val < 0) val = 0;
+                        
+                        const now = new Date().toISOString();
+                        const newLogs = logs.map(l => String(l.id) === String(logId) ? { ...l, qty: val, qtyUpdatedAt: now, _syncUpdatedAt: now } : l);
+                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
+                    }
+                    return o;
+                }));
+            };
+
+            const handleToggleEmployee = (orderId, stageId, empId, isChecked, actionAt = null) => {
+                setOrders(prevOrders => prevOrders.map(o => {
+                    if (String(o.id) === String(orderId)) {
+                        const stageData = o.progress[stageId];
+                        let newEmps = [...(stageData.employees || [])];
+                        let newLogs = [...(stageData.workLogs || [])];
+                        let employeeLinks = { ...(stageData.employeeLinks || {}) };
+                        let removedEmployees = { ...(stageData.removedEmployees || {}) };
+                        const now = actionAt || new Date().toISOString();
+                        if (isChecked) {
+                            if (!newEmps.some(id => String(id) === String(empId))) newEmps.push(empId);
+                            employeeLinks[String(empId)] = now;
+                            delete removedEmployees[String(empId)];
+                        }
+                        else {
+                            newEmps = newEmps.filter(id => String(id) !== String(empId));
+                            removedEmployees[String(empId)] = now;
+                            newLogs = newLogs.map(l => {
+                                if (String(l.empId) !== String(empId)) return l;
+                                if (l.isReported) return l;
+                                return { ...l, isDeleted: true, deletedAt: now, _syncUpdatedAt: now };
+                            });
+                        }
+                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, employees: newEmps, employeeLinks, removedEmployees, workLogs: newLogs } } });
+                    }
+                    return o;
+                }));
+                const empName = visibleEmployees.find(emp => String(emp.id) === String(empId))?.name || empId;
+            };
+
+            const handleAddLog = (orderId, stageId, empId, size) => {
+                setOrders(prevOrders => prevOrders.map(o => {
+                    if (String(o.id) === String(orderId)) {
+                        const now = new Date().toISOString();
+                        const newLog = { id: `wl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, empId, size, qty: 0, isReported: false, checkBefore: false, checkAfter: false, createdAt: now, _syncUpdatedAt: now };
+                        const stageData = o.progress[stageId];
+                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: [...(stageData.workLogs || []), newLog] } } });
+                    }
+                    return o;
+                }));
+                const empName = visibleEmployees.find(emp => String(emp.id) === String(empId))?.name || empId;
+            };
+            
+            const formatWorkDate = (value, style = 'short') => value ? new Date(value).toLocaleString('id-ID', { dateStyle: style, timeStyle: 'short' }) : '-';
+
+            const handleToggleLogCheck = (orderId, stageId, logId, checkType, isChecked, actionAt = null, qtyOverride = null) => {
+                setOrders(prevOrders => prevOrders.map(o => {
+                    if (String(o.id) === String(orderId)) {
+                        const stageData = o.progress[stageId];
+                        const logs = stageData.workLogs || [];
+                        const logToUpdate = logs.find(l => String(l.id) === String(logId));
+                        if (!logToUpdate || logToUpdate.isDeleted) return o;
+                        const effectiveQty = qtyOverride !== null && qtyOverride !== undefined
+                            ? (parseInt(qtyOverride) || 0)
+                            : (checkType === 'checkAfter' ? getWorkLogSubmittedQty(logToUpdate) : getWorkLogTakenQty(logToUpdate));
+
+                        if ((checkType === 'checkBefore' || checkType === 'checkAfter') && isChecked) {
+                            if (effectiveQty <= 0) {
+                                showToast("Isi jumlah pcs terlebih dahulu di popup konfirmasi.", "error");
+                                return o;
+                            }
+                            if (checkType === 'checkBefore') {
+                                const maxAllowed = getMaxAllowed(o, stageId, logToUpdate.size);
+                                const otherTakenTotal = logs
+                                    .filter(l => !l.isDeleted && String(l.id) !== String(logId) && l.size === logToUpdate.size && (l.checkBefore || l.checkAfter))
+                                    .reduce((sum, l) => sum + getWorkLogEffectiveQty(l), 0);
+                                if (otherTakenTotal + effectiveQty > maxAllowed) {
+                                    showToast("Jumlah Ambil melebihi sisa stok ukuran ini.", "error");
+                                    return o;
+                                }
+                            }
+                            if (checkType === 'checkAfter' && effectiveQty > getWorkLogTakenQty(logToUpdate)) {
+                                showToast("Jumlah Setor tidak boleh melebihi jumlah Ambil.", "error");
+                                return o;
+                            }
+                        }
+
+                        const newLogs = logs.map(l => {
+                            if (String(l.id) === String(logId)) {
+                                const now = actionAt || new Date().toISOString();
+                                let updatedLog = { ...l, [checkType]: isChecked };
+                                updatedLog._syncUpdatedAt = now;
+                                if (isChecked && qtyOverride !== null && qtyOverride !== undefined && checkType === 'checkBefore') {
+                                    updatedLog.qty = effectiveQty;
+                                    updatedLog.qtyUpdatedAt = now;
+                                }
+                                if (isChecked && qtyOverride !== null && qtyOverride !== undefined && checkType === 'checkAfter') {
+                                    updatedLog.submittedQty = effectiveQty;
+                                    updatedLog.submittedQtyUpdatedAt = now;
+                                }
+                                if (checkType === 'checkBefore') updatedLog.checkBeforeChangedAt = now;
+                                if (checkType === 'checkAfter') updatedLog.checkAfterChangedAt = now;
+                                if (checkType === 'checkBefore' && isChecked) updatedLog.takenAt = now;
+                                if (checkType === 'checkBefore' && !isChecked) {
+                                    updatedLog.checkAfter = false;
+                                    updatedLog.takenAt = null;
+                                    updatedLog.submittedAt = null;
+                                    updatedLog.submittedQty = null;
+                                    updatedLog.checkAfterChangedAt = now;
+                                }
+                                if (checkType === 'checkAfter' && isChecked) updatedLog.submittedAt = now;
+                                if (checkType === 'checkAfter' && !isChecked) {
+                                    updatedLog.submittedAt = null;
+                                    updatedLog.submittedQty = null;
+                                }
+                                return updatedLog;
+                            }
+                            return l;
+                        });
+                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
+                    }
+                    return o;
+                }));
+                const label = checkType === 'checkAfter' ? 'Setor' : 'Ambil';
+                const actionText = isChecked ? label : `Batal ${label}`;
+            };
+
+            const handleDeleteLog = (orderId, stageId, logId) => {
+                setOrders(prevOrders => prevOrders.map(o => {
+                    if (String(o.id) === String(orderId)) {
+                        const stageData = o.progress[stageId];
+                        const now = new Date().toISOString();
+                        const newLogs = (stageData.workLogs || []).map(l => String(l.id) === String(logId) ? { ...l, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : l);
+                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
+                    }
+                    return o;
+                }));
+            };
+
+            const printLembarKerja = (orderIn) => printLembarKerjaOrder(orderIn, { templates, showToast });
 
             const printSticker = (roleLabel, empName, client, type, size, qty) => {
                 const empText = `${roleLabel}: ${empName}`;
@@ -28372,7 +28402,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
-                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} /></div>}
+                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} templates={templates} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
                                 {tabMounted('karyawan', canOpen('karyawan')) && <div hidden={!tabVisible('karyawan')}><KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
