@@ -4866,6 +4866,19 @@ window.addEventListener('load',function(){
   var PAGE_H_PX=Math.round(281*PX_PER_MM);
   var body=document.body;
   var natural=body.scrollHeight;
+  // Terlalu panjang: perkecil gambar desain dulu (maks. sampai 170px), baru seluruh isi bila masih belum muat
+  if(natural>PAGE_H_PX){
+    var imgs=document.querySelectorAll('.images-section img');
+    if(imgs.length){
+      var tinggi=0;
+      for(var i=0;i<imgs.length;i++){ tinggi=Math.max(tinggi, imgs[i].getBoundingClientRect().height); }
+      var target=Math.max(170, Math.floor(tinggi-(natural-PAGE_H_PX)-6));
+      if(target<tinggi){
+        for(var j=0;j<imgs.length;j++){ imgs[j].style.maxHeight=target+'px'; }
+        natural=body.scrollHeight;
+      }
+    }
+  }
   if(natural>PAGE_H_PX){
     var scale=(PAGE_H_PX/natural);
     body.style.zoom=scale.toFixed(5);
@@ -26365,17 +26378,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             safeLocalSet('simpati_invoices_sync', JSON.stringify(nextInvoices));
                             safeLocalSet('simpati_clients_sync', JSON.stringify(nextClients));
                             safeLocalSet('simpati_manual_purchases_sync', JSON.stringify(nextManualPurchases));
-                            if (JSON.stringify(nextAccounts) !== JSON.stringify(Array.isArray(accs) ? accs : [])) setTimeout(() => saveToSupabase('accounts', nextAccounts), 0);
-                            if (JSON.stringify(nextEmployees) !== JSON.stringify(Array.isArray(emps) ? emps : [])) setTimeout(() => saveToSupabase('employees', nextEmployees), 0);
-                            if (JSON.stringify(nextOrders) !== JSON.stringify(patchOrders(Array.isArray(ords) ? ords : []))) {
+                            if (!sameJson(nextAccounts, Array.isArray(accs) ? accs : [])) setTimeout(() => saveToSupabase('accounts', nextAccounts), 0);
+                            if (!sameJson(nextEmployees, Array.isArray(emps) ? emps : [])) setTimeout(() => saveToSupabase('employees', nextEmployees), 0);
+                            if (!sameJson(nextOrders, patchOrders(Array.isArray(ords) ? ords : []))) {
                                 setTimeout(() => saveToSupabase('orders', nextOrders), 0);
                             }
-                            if (JSON.stringify(nextRekaps) !== JSON.stringify(Array.isArray(rekaps) ? rekaps : [])) setTimeout(() => saveToSupabase('rekapKinerja', nextRekaps), 0);
-                            if (JSON.stringify(nextRiwayats) !== JSON.stringify(Array.isArray(riwayats) ? riwayats : [])) setTimeout(() => saveToSupabase('riwayatPengiriman', nextRiwayats), 0);
-                            if (JSON.stringify(nextExpenses) !== JSON.stringify(Array.isArray(exps) ? exps : [])) setTimeout(() => saveToSupabase('expenses', nextExpenses), 0);
-                            if (JSON.stringify(nextInvoices) !== JSON.stringify(Array.isArray(invs) ? invs : [])) setTimeout(() => saveToSupabase('invoices', nextInvoices), 0);
-                            if (JSON.stringify(nextClients) !== JSON.stringify(Array.isArray(cls) ? cls : [])) setTimeout(() => saveToSupabase('clients', nextClients), 0);
-                            if (JSON.stringify(nextManualPurchases) !== JSON.stringify(Array.isArray(manPurs) ? manPurs : [])) setTimeout(() => saveToSupabase('manualPurchases', nextManualPurchases), 0);
+                            if (!sameJson(nextRekaps, Array.isArray(rekaps) ? rekaps : [])) setTimeout(() => saveToSupabase('rekapKinerja', nextRekaps), 0);
+                            if (!sameJson(nextRiwayats, Array.isArray(riwayats) ? riwayats : [])) setTimeout(() => saveToSupabase('riwayatPengiriman', nextRiwayats), 0);
+                            if (!sameJson(nextExpenses, Array.isArray(exps) ? exps : [])) setTimeout(() => saveToSupabase('expenses', nextExpenses), 0);
+                            if (!sameJson(nextInvoices, Array.isArray(invs) ? invs : [])) setTimeout(() => saveToSupabase('invoices', nextInvoices), 0);
+                            if (!sameJson(nextClients, Array.isArray(cls) ? cls : [])) setTimeout(() => saveToSupabase('clients', nextClients), 0);
+                            if (!sameJson(nextManualPurchases, Array.isArray(manPurs) ? manPurs : [])) setTimeout(() => saveToSupabase('manualPurchases', nextManualPurchases), 0);
                             setManualPurchases(nextManualPurchases);
                             if (Array.isArray(remPurchaseNotes)) {
                                 const localPN = loadLocalData('simpati_purchase_notes_sync', []);
@@ -26384,14 +26397,14 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     .map(n => (!n || n.payments !== undefined || n.paymentStatus !== 'Lunas') ? n : normalizeNote(n));
                                 setPurchaseNotes(nextPN);
                                 safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(nextPN));
-                                if (JSON.stringify(nextPN) !== JSON.stringify(remPurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', nextPN), 0);
+                                if (!sameJson(nextPN, remPurchaseNotes)) setTimeout(() => saveToSupabase('purchaseNotes', nextPN), 0);
                             }
                             if (Array.isArray(remDanaOp)) {
                                 const localDO = loadLocalData('simpati_dana_operasional_sync', []);
                                 const nextDO = mergeRecordLists(localDO, remDanaOp);
                                 setDanaOperasional(nextDO);
                                 safeLocalSet('simpati_dana_operasional_sync', JSON.stringify(nextDO));
-                                if (JSON.stringify(nextDO) !== JSON.stringify(remDanaOp)) setTimeout(() => saveToSupabase('danaOperasional', nextDO), 0);
+                                if (!sameJson(nextDO, remDanaOp)) setTimeout(() => saveToSupabase('danaOperasional', nextDO), 0);
                             }
                             setRekapKinerja(nextRekaps);
                             setRiwayatPengiriman(nextRiwayats);
@@ -26406,52 +26419,52 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
 
                                 const next = mergeRecordLists(loadLocalData('simpati_investors_sync', []), remInvestors);
                                 setInvestors(next); safeLocalSet('simpati_investors_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remInvestors)) setTimeout(() => saveToSupabase('investors', next), 0);
+                                if (!sameJson(next, remInvestors)) setTimeout(() => saveToSupabase('investors', next), 0);
                             }
                             if (Array.isArray(remInvestorBH)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_investor_bagi_hasil_sync', []), remInvestorBH);
                                 setInvestorBagiHasil(next); safeLocalSet('simpati_investor_bagi_hasil_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remInvestorBH)) setTimeout(() => saveToSupabase('investorBagiHasil', next), 0);
+                                if (!sameJson(next, remInvestorBH)) setTimeout(() => saveToSupabase('investorBagiHasil', next), 0);
                             }
                             if (Array.isArray(remBagiHasilPromosi)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_bagi_hasil_promosi_sync', []), remBagiHasilPromosi);
                                 setBagiHasilPromosi(next); safeLocalSet('simpati_bagi_hasil_promosi_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', next), 0);
+                                if (!sameJson(next, remBagiHasilPromosi)) setTimeout(() => saveToSupabase('bagiHasilPromosi', next), 0);
                             }
                             if (Array.isArray(remDrivers)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_drivers_sync', []), remDrivers);
                                 setDrivers(next); safeLocalSet('simpati_drivers_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remDrivers)) setTimeout(() => saveToSupabase('drivers', next), 0);
+                                if (!sameJson(next, remDrivers)) setTimeout(() => saveToSupabase('drivers', next), 0);
                             }
                             if (Array.isArray(remDriverTarifs)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_driver_tarifs_sync', []), remDriverTarifs);
                                 setDriverTarifs(next); safeLocalSet('simpati_driver_tarifs_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remDriverTarifs)) setTimeout(() => saveToSupabase('driverTarifs', next), 0);
+                                if (!sameJson(next, remDriverTarifs)) setTimeout(() => saveToSupabase('driverTarifs', next), 0);
                             }
                             if (Array.isArray(remDriverTrx)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_driver_trx_sync', []), remDriverTrx);
                                 setDriverTransactions(next); safeLocalSet('simpati_driver_trx_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remDriverTrx)) setTimeout(() => saveToSupabase('driverTransactions', next), 0);
+                                if (!sameJson(next, remDriverTrx)) setTimeout(() => saveToSupabase('driverTransactions', next), 0);
                             }
                             if (Array.isArray(remDriverRekap)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_driver_rekap_gaji_sync', []), remDriverRekap);
                                 setDriverRekapGaji(next); safeLocalSet('simpati_driver_rekap_gaji_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remDriverRekap)) setTimeout(() => saveToSupabase('driverRekapGaji', next), 0);
+                                if (!sameJson(next, remDriverRekap)) setTimeout(() => saveToSupabase('driverRekapGaji', next), 0);
                             }
                             if (Array.isArray(remDriverKasbonInit)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_driver_kasbon_sync', []), remDriverKasbonInit);
                                 setDriverKasbon(next); safeLocalSet('simpati_driver_kasbon_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remDriverKasbonInit)) setTimeout(() => saveToSupabase('driverKasbon', next), 0);
+                                if (!sameJson(next, remDriverKasbonInit)) setTimeout(() => saveToSupabase('driverKasbon', next), 0);
                             }
                             if (Array.isArray(remStockItems)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_stock_items_sync', []), remStockItems);
                                 setStockItems(next); safeLocalSet('simpati_stock_items_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remStockItems)) setTimeout(() => saveToSupabase('stockItems', next), 0);
+                                if (!sameJson(next, remStockItems)) setTimeout(() => saveToSupabase('stockItems', next), 0);
                             }
                             if (Array.isArray(remAbsensiEdits)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_absensi_edits_sync', []), remAbsensiEdits);
                                 setAbsensiEdits(next); safeLocalSet('simpati_absensi_edits_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(remAbsensiEdits)) setTimeout(() => saveToSupabase('absensiEdits', next), 0);
+                                if (!sameJson(next, remAbsensiEdits)) setTimeout(() => saveToSupabase('absensiEdits', next), 0);
                             }
                             if (Array.isArray(remAbsensiRawLogs)) {
                                 setAbsensiRawLogs(remAbsensiRawLogs);
@@ -26460,12 +26473,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             if (Array.isArray(initKartuKredit)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_kartu_kredit_sync', []), initKartuKredit);
                                 setKartuKredit(next); safeLocalSet('simpati_kartu_kredit_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(initKartuKredit)) setTimeout(() => saveToSupabase('kartu_kredit', next), 0);
+                                if (!sameJson(next, initKartuKredit)) setTimeout(() => saveToSupabase('kartu_kredit', next), 0);
                             }
                             if (Array.isArray(initTransaksiKartu)) {
                                 const next = mergeRecordLists(loadLocalData('simpati_transaksi_kartu_sync', []), initTransaksiKartu);
                                 setTransaksiKartu(next); safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(next));
-                                if (JSON.stringify(next) !== JSON.stringify(initTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', next), 0);
+                                if (!sameJson(next, initTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', next), 0);
                             }
                             // Database Bahan (bahan manual): dimuat terpisah, maks. 8 detik (tidak menahan aplikasi bila lambat)
                             try {
