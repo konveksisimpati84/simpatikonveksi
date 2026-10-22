@@ -1891,7 +1891,281 @@
             }
         };
 
-        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman }) => {
+        // ===== Database Bahan & Rencana Bahan order =====
+        // Hanya MEMBACA nota Pembelian Bahan (tidak pernah mengubahnya). Rencana bahan order disimpan di kolom
+        // terpisah 'rencanaBahan' (bukan 'materials'/'materialStatus' milik Pembelian Bahan). Bahan yang ditambah
+        // manual disimpan di data tersendiri 'masterBahan'.
+        const BAHAN_UNITS = ['kg', 'meter', 'yard', 'roll', 'pcs'];
+        const normBahanText = (v) => String(v || '').trim().replace(/\s+/g, ' ');
+        const normBahanKey = (name, code) => `${normBahanText(name).toLowerCase()}|${normBahanText(code).toLowerCase()}`;
+        const normBahanUnit = (u) => {
+            const x = String(u || '').trim().toLowerCase();
+            if (!x) return '';
+            if (x === 'm' || x.startsWith('meter') || x === 'mtr') return 'meter';
+            if (x === 'kg' || x.startsWith('kilo')) return 'kg';
+            if (x === 'yd' || x.startsWith('yard')) return 'yard';
+            if (x.startsWith('roll') || x.startsWith('rol')) return 'roll';
+            if (x === 'pcs' || x === 'pc' || x.startsWith('lembar') || x.startsWith('buah')) return 'pcs';
+            return x;
+        };
+        const escapeHtmlText = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const cleanRencanaBahan = (list) => safeArray(list)
+            .filter(r => r && typeof r === 'object')
+            .map(r => ({ id: r.id || genId('RB-'), name: normBahanText(r.name), code: normBahanText(r.code), color: normBahanText(r.color), qty: String(r.qty == null ? '' : r.qty).trim(), unit: normBahanUnit(r.unit) }))
+            .filter(r => r.name || r.code);
+        const formatRencanaBahanItem = (r) => [r.name, r.code ? `kode ${r.code}` : '', r.color, r.qty ? `±${r.qty}${r.unit ? ' ' + r.unit : ''}` : ''].filter(Boolean).join(' · ');
+        // Gabungan: nota pembelian + rencana bahan order + bahan manual. Satu baris per nama+kode.
+        const buildDatabaseBahan = (purchaseNotes, orders, masterBahan) => {
+            const map = new Map();
+            const ordersById = new Map(safeArray(orders).filter(o => o && !o.isDeleted).map(o => [String(o.id), o]));
+            const entry = (name, code) => {
+                const key = normBahanKey(name, code);
+                if (!map.has(key)) map.set(key, { key, name: normBahanText(name), code: normBahanText(code), colors: new Set(), vendors: new Set(), lastPrice: null, lastUnit: '', lastBuyDate: '', buyCount: 0, usedBy: new Map(), lastUsedDate: '', manual: null });
+                return map.get(key);
+            };
+            const addUse = (e, order, date) => {
+                if (!order) return;
+                const client = normBahanText(order.client);
+                if (!client) return;
+                const k = client.toLowerCase();
+                if (!e.usedBy.has(k)) e.usedBy.set(k, { client, types: new Set() });
+                if (order.type) e.usedBy.get(k).types.add(normBahanText(order.type));
+                const d = String(date || order.date || '');
+                if (d > e.lastUsedDate) e.lastUsedDate = d;
+            };
+            safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => {
+                safeArray(n.items).forEach(it => {
+                    if (!it || !normBahanText(it.name)) return;
+                    const e = entry(it.name, it.code);
+                    if (n.vendor) e.vendors.add(normBahanText(n.vendor));
+                    e.buyCount++;
+                    const d = String(n.date || '');
+                    if (d >= e.lastBuyDate) { e.lastBuyDate = d; e.lastPrice = safeMoney(it.price); e.lastUnit = normBahanUnit(it.unit); }
+                    if (it.orderId) addUse(e, ordersById.get(String(it.orderId)), d);
+                });
+            });
+            ordersById.forEach(o => {
+                safeArray(o.rencanaBahan).forEach(r => {
+                    if (!r || !normBahanText(r.name)) return;
+                    const e = entry(r.name, r.code);
+                    if (normBahanText(r.color)) e.colors.add(normBahanText(r.color));
+                    if (!e.lastUnit && r.unit) e.lastUnit = normBahanUnit(r.unit);
+                    addUse(e, o, o.date);
+                });
+            });
+            safeArray(masterBahan).filter(m => m && !m.isDeleted && normBahanText(m.name)).forEach(m => {
+                const e = entry(m.name, m.code);
+                e.manual = m;
+                if (normBahanText(m.color)) normBahanText(m.color).split(',').map(normBahanText).filter(Boolean).forEach(c => e.colors.add(c));
+                if (normBahanText(m.vendor)) e.vendors.add(normBahanText(m.vendor));
+                if (!e.lastUnit && m.unit) e.lastUnit = normBahanUnit(m.unit);
+            });
+            return [...map.values()].sort((a, b) => {
+                const da = a.lastBuyDate > a.lastUsedDate ? a.lastBuyDate : a.lastUsedDate;
+                const db = b.lastBuyDate > b.lastUsedDate ? b.lastBuyDate : b.lastUsedDate;
+                return db.localeCompare(da) || a.name.localeCompare(b.name);
+            });
+        };
+        // Saran bahan untuk satu instansi: dari rencana bahan order-order sebelumnya + nota yang terhubung ke order instansi itu
+        const getSaranBahanInstansi = (client, orders, purchaseNotes, excludeOrderId) => {
+            const target = normBahanText(client).toLowerCase();
+            if (!target) return [];
+            const list = [];
+            const seen = new Set();
+            const clientOrders = safeArray(orders).filter(o => o && !o.isDeleted && normBahanText(o.client).toLowerCase() === target && String(o.id) !== String(excludeOrderId || ''))
+                .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+            const push = (r, date) => {
+                const name = normBahanText(r.name); if (!name) return;
+                const k = normBahanKey(name, r.code) + '|' + normBahanText(r.color).toLowerCase();
+                if (seen.has(k)) return; seen.add(k);
+                list.push({ name, code: normBahanText(r.code), color: normBahanText(r.color), unit: normBahanUnit(r.unit), date: String(date || '') });
+            };
+            clientOrders.forEach(o => safeArray(o.rencanaBahan).forEach(r => push(r, o.date)));
+            const orderIds = new Set(clientOrders.map(o => String(o.id)));
+            safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => safeArray(n.items).forEach(it => { if (it && orderIds.has(String(it.orderId || ''))) push({ name: it.name, code: it.code, color: '', unit: it.unit }, n.date); }));
+            return list.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+        };
+
+        // Bagian "Bahan / Kain" di Input Order & Edit Order
+        const RencanaBahanEditor = ({ value, onChange, client, orders, purchaseNotes, masterBahan, excludeOrderId }) => {
+            const rows = safeArray(value);
+            const [cari, setCari] = useState('');
+            const db = useMemo(() => buildDatabaseBahan(purchaseNotes, orders, masterBahan), [purchaseNotes, orders, masterBahan]);
+            const saran = useMemo(() => getSaranBahanInstansi(client, orders, purchaseNotes, excludeOrderId), [client, orders, purchaseNotes, excludeOrderId]);
+            const sudahAda = (r) => rows.some(x => normBahanKey(x.name, x.code) === normBahanKey(r.name, r.code) && normBahanText(x.color).toLowerCase() === normBahanText(r.color).toLowerCase());
+            const saranTampil = saran.filter(r => !sudahAda(r));
+            const q = normBahanText(cari).toLowerCase();
+            const hasilCari = q ? db.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].map(u => u.client)].join(' ').toLowerCase().includes(q)).slice(0, 8) : [];
+            const setRows = (next) => onChange(next);
+            const tambah = (r) => setRows([...rows, { id: genId('RB-'), name: r.name || '', code: r.code || '', color: r.color || '', qty: '', unit: normBahanUnit(r.unit) || 'kg' }]);
+            const ubah = (idx, field, v) => setRows(rows.map((x, i) => i === idx ? { ...x, [field]: v } : x));
+            const hapus = (idx) => setRows(rows.filter((_, i) => i !== idx));
+            return (
+                <div data-rencana-bahan className="p-4 bg-teal-50 rounded-lg border border-teal-200 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <div className="text-sm font-bold text-teal-900">🧵 Bahan / Kain <span className="font-normal text-teal-700 text-xs">(opsional — tampil di Lembar Kerja/SPK)</span></div>
+                        </div>
+                        <button type="button" onClick={() => tambah({})} className="text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg">+ Tambah kain</button>
+                    </div>
+                    {saranTampil.length > 0 && (
+                        <div>
+                            <div className="text-[11px] font-bold text-teal-800 mb-1">Pernah dipakai “{normBahanText(client)}”:</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {saranTampil.map((r, i) => (
+                                    <button key={i} type="button" data-saran-bahan onClick={() => tambah(r)} className="text-xs bg-white border border-teal-300 text-teal-900 rounded-full px-2.5 py-1 hover:bg-teal-100 text-left">+ {[r.name, r.code, r.color].filter(Boolean).join(' · ')}</button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    <div>
+                        <input type="text" value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari di Database Bahan (nama kain / kode / warna / instansi)…" className="w-full p-2 border border-teal-200 rounded-lg text-sm bg-white" />
+                        {q && (
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {hasilCari.length === 0 && <span className="text-xs text-gray-500">Tidak ditemukan — tekan “+ Tambah kain” untuk input baru.</span>}
+                                {hasilCari.map(e => (
+                                    <button key={e.key} type="button" data-hasil-bahan onClick={() => { tambah({ name: e.name, code: e.code, color: e.colors.size === 1 ? [...e.colors][0] : '', unit: e.lastUnit }); setCari(''); }} className="text-xs bg-white border border-gray-300 rounded-full px-2.5 py-1 hover:bg-gray-100 text-left">+ {[e.name, e.code].filter(Boolean).join(' · ')}{e.colors.size > 0 ? ` (${[...e.colors].slice(0, 3).join(', ')})` : ''}</button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    {rows.length > 0 && (
+                        <div className="space-y-2">
+                            {rows.map((r, idx) => (
+                                <div key={r.id || idx} data-baris-bahan className="grid grid-cols-2 md:grid-cols-12 gap-2 items-center bg-white border border-teal-100 rounded-lg p-2">
+                                    <input type="text" value={r.name || ''} onChange={e => ubah(idx, 'name', e.target.value)} placeholder="Nama kain" className="col-span-2 md:col-span-4 p-2 border rounded text-sm" />
+                                    <input type="text" value={r.code || ''} onChange={e => ubah(idx, 'code', e.target.value)} placeholder="Kode" className="md:col-span-2 p-2 border rounded text-sm" />
+                                    <input type="text" value={r.color || ''} onChange={e => ubah(idx, 'color', e.target.value)} placeholder="Warna" className="md:col-span-2 p-2 border rounded text-sm" />
+                                    <input type="text" inputMode="decimal" value={r.qty || ''} onChange={e => ubah(idx, 'qty', e.target.value)} placeholder="Kebutuhan" className="md:col-span-2 p-2 border rounded text-sm" />
+                                    <div className="flex gap-1 md:col-span-2">
+                                        <select value={r.unit || ''} onChange={e => ubah(idx, 'unit', e.target.value)} className="flex-1 min-w-0 p-2 border rounded text-sm bg-white">
+                                            <option value="">-</option>
+                                            {[...new Set([...BAHAN_UNITS, ...(r.unit && !BAHAN_UNITS.includes(r.unit) ? [r.unit] : [])])].map(u => <option key={u} value={u}>{u}</option>)}
+                                        </select>
+                                        <button type="button" onClick={() => hapus(idx)} title="Hapus baris" className="shrink-0 px-2 text-red-600 bg-red-50 rounded font-bold">✕</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Tab "Database Bahan" di menu Pembelian Bahan (nota hanya dibaca)
+        const DatabaseBahanPanel = ({ purchaseNotes, orders, masterBahan, setMasterBahan, showToast }) => {
+            const [cari, setCari] = useState('');
+            const kosong = { name: '', code: '', color: '', vendor: '', unit: 'kg', note: '' };
+            const [form, setForm] = useState(kosong);
+            const [formOpen, setFormOpen] = useState(false);
+            const [editId, setEditId] = useState(null);
+            const [hapusId, setHapusId] = useState(null);
+            const db = useMemo(() => buildDatabaseBahan(purchaseNotes, orders, masterBahan), [purchaseNotes, orders, masterBahan]);
+            const q = normBahanText(cari).toLowerCase();
+            const list = q ? db.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].flatMap(u => [u.client, ...u.types])].join(' ').toLowerCase().includes(q)) : db;
+            const { page, setPage, totalPages, paged, total } = usePagination(list, 20, q);
+            const bukaTambah = () => { setForm(kosong); setEditId(null); setFormOpen(true); };
+            const bukaEdit = (m) => { setForm({ name: m.name || '', code: m.code || '', color: m.color || '', vendor: m.vendor || '', unit: m.unit || '', note: m.note || '' }); setEditId(m.id); setFormOpen(true); };
+            const simpan = () => {
+                const name = normBahanText(form.name);
+                if (!name) { showToast('Nama kain wajib diisi.', 'error'); return; }
+                const code = normBahanText(form.code);
+                const dupe = safeArray(masterBahan).find(m => m && !m.isDeleted && m.id !== editId && normBahanKey(m.name, m.code) === normBahanKey(name, code));
+                if (dupe) { showToast('Bahan dengan nama & kode ini sudah ada di daftar manual.', 'error'); return; }
+                const now = new Date().toISOString();
+                const rec = { name, code, color: normBahanText(form.color), vendor: normBahanText(form.vendor), unit: normBahanUnit(form.unit), note: String(form.note || '').trim(), _syncUpdatedAt: now };
+                if (editId) setMasterBahan(prev => safeArray(prev).map(m => m.id === editId ? { ...m, ...rec } : m));
+                else setMasterBahan(prev => [...safeArray(prev), { id: genId('MB-'), ...rec, isDeleted: false }]);
+                setFormOpen(false); setEditId(null); setForm(kosong);
+                showToast(editId ? 'Bahan diperbarui.' : 'Bahan ditambahkan ke Database Bahan.', 'success');
+            };
+            const hapus = (id) => {
+                const now = new Date().toISOString();
+                setMasterBahan(prev => safeArray(prev).map(m => m.id === id ? { ...m, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : m));
+                setHapusId(null);
+                showToast('Bahan manual dihapus dari Database Bahan.', 'success');
+            };
+            return (
+                <div data-database-bahan className="space-y-4">
+                    <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <div className="font-black text-gray-800">📚 Database Bahan <span className="text-xs font-bold text-gray-500">({db.length} bahan)</span></div>
+                                <div className="text-xs text-gray-500">Terkumpul otomatis dari nota pembelian & rencana bahan order. Bisa ditambah manual.</div>
+                            </div>
+                            <button type="button" onClick={bukaTambah} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">+ Tambah Bahan</button>
+                        </div>
+                        <input type="text" value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari instansi / jenis produksi / nama kain / kode / warna / vendor…" className="w-full p-2.5 border border-gray-300 rounded-lg text-sm" />
+                    </div>
+                    {formOpen && (
+                        <div data-form-bahan className="bg-teal-50 border border-teal-200 rounded-2xl p-4 space-y-3">
+                            <div className="font-bold text-teal-900">{editId ? 'Edit Bahan (manual)' : 'Tambah Bahan (manual)'}</div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nama kain *" className="p-2 border rounded text-sm bg-white" />
+                                <input type="text" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="Kode kain" className="p-2 border rounded text-sm bg-white" />
+                                <input type="text" value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="Warna (pisahkan dengan koma)" className="p-2 border rounded text-sm bg-white" />
+                                <input type="text" value={form.vendor} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))} placeholder="Vendor / toko" className="p-2 border rounded text-sm bg-white" />
+                                <select value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} className="p-2 border rounded text-sm bg-white">
+                                    <option value="">Satuan -</option>
+                                    {BAHAN_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                                </select>
+                                <input type="text" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="Catatan" className="p-2 border rounded text-sm bg-white" />
+                            </div>
+                            <div className="flex gap-2">
+                                <button type="button" onClick={simpan} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-teal-600 hover:bg-teal-700">Simpan</button>
+                                <button type="button" onClick={() => { setFormOpen(false); setEditId(null); }} className="px-4 py-2 rounded-lg text-sm font-bold text-gray-700 bg-white border border-gray-300">Batal</button>
+                            </div>
+                        </div>
+                    )}
+                    {list.length === 0 ? (
+                        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center text-sm text-gray-500">{q ? 'Tidak ada bahan yang cocok.' : 'Belum ada data bahan. Data muncul otomatis dari nota pembelian dan rencana bahan order, atau tambah manual.'}</div>
+                    ) : (
+                        <div className="space-y-2">
+                            {paged.map(e => (
+                                <div key={e.key} data-baris-db-bahan className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4">
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <div className="font-bold text-gray-900">{e.name}{e.code && <span className="ml-2 text-xs font-black text-teal-800 bg-teal-50 border border-teal-200 rounded px-1.5 py-0.5">{e.code}</span>}{e.manual && <span className="ml-1.5 text-[10px] font-bold text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">✎ manual</span>}</div>
+                                            <div className="text-xs text-gray-600 mt-1 space-x-2">
+                                                {e.colors.size > 0 && <span>Warna: <b>{[...e.colors].join(', ')}</b></span>}
+                                                {e.vendors.size > 0 && <span>· {[...e.vendors].join(', ')}</span>}
+                                                {e.lastPrice != null && e.lastPrice > 0 && <span>· {formatRupiah(e.lastPrice)}{e.lastUnit ? '/' + e.lastUnit : ''}</span>}
+                                            </div>
+                                            {e.usedBy.size > 0 && <div className="text-xs text-gray-500 mt-1">Dipakai: {[...e.usedBy.values()].map(u => `${u.client}${u.types.size ? ` (${[...u.types].join(', ')})` : ''}`).join(', ')}</div>}
+                                            {e.manual && e.manual.note && <div className="text-xs text-gray-400 italic mt-0.5">“{e.manual.note}”</div>}
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <div className="text-[11px] text-gray-500">{e.lastBuyDate ? `Terakhir beli ${e.lastBuyDate}` : 'Belum pernah dibeli'}{e.buyCount > 1 ? ` · ${e.buyCount}x` : ''}</div>
+                                            {e.manual && (
+                                                <div className="flex gap-1 justify-end mt-1.5">
+                                                    <button type="button" onClick={() => bukaEdit(e.manual)} className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">Edit</button>
+                                                    <button type="button" onClick={() => setHapusId(e.manual.id)} className="text-xs font-bold text-red-700 bg-red-50 px-2 py-1 rounded">Hapus</button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            <Paginator page={page} setPage={setPage} totalPages={totalPages} total={total} pageSize={20} label="bahan" />
+                        </div>
+                    )}
+                    {hapusId && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+                            <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
+                                <h3 className="font-bold text-gray-800 mb-2">Hapus bahan manual ini?</h3>
+                                <p className="text-sm text-gray-600 mb-4">Hanya menghapus dari daftar manual. Nota pembelian dan rencana bahan di order tidak berubah.</p>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => setHapusId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
+                                    <button onClick={() => hapus(hapusId)} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [] }) => {
             const [dashChartRef, dashChartW] = useElementWidth();
             const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
             const { totalOrders, activeOrders, doneOrders, shippedOrders } = React.useMemo(() => ({
@@ -2118,7 +2392,8 @@
                             processFlow: nextFlow,
                             productionPrices: { ...getDefaultProductionPrices(), ...(editOrder.productionPrices || {}) },
                             materialStatus: editOrder.materialStatus || ((editOrder.processFlow || {}).materials === false ? 'Tidak Perlu' : o.materialStatus),
-                            revisiItems: editOrder.revisiItems || []
+                            revisiItems: editOrder.revisiItems || [],
+                            ...((Array.isArray(o.rencanaBahan) || cleanRencanaBahan(editOrder.rencanaBahan).length > 0) ? { rencanaBahan: cleanRencanaBahan(editOrder.rencanaBahan) } : {})
                         });
                     }
                     return o;
@@ -2511,6 +2786,8 @@
                                             </div>
                                         </div>
                                     </div>
+
+                                    <RencanaBahanEditor value={editOrder.rencanaBahan} onChange={(next) => setEditOrder(prev => ({ ...prev, rencanaBahan: next }))} client={editOrder.client} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} excludeOrderId={editOrder.id} />
 
                                     <div>
                                         <label className="block text-sm font-semibold mb-1">Catatan Tambahan</label>
@@ -3830,7 +4107,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             );
         };
 
-        const InputOrderView = ({ orders, setOrders, setActiveTab, showToast }) => {
+        const InputOrderView = ({ orders, setOrders, setActiveTab, showToast, purchaseNotes = [], masterBahan = [] }) => {
             const allOrders = orders || [];
             const safeOrders = allOrders.filter(isVisibleOrder);
             const [newOrder, setNewOrder] = useState({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
@@ -3926,8 +4203,11 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                     newOrderId = `ORD-${String(nextNum).padStart(3, '0')}`;
                 }
 
+                const rencanaBahanBaru = cleanRencanaBahan(newOrder.rencanaBahan);
+                const { rencanaBahan: _rbDraft, ...newOrderTanpaRencana } = newOrder;
                 const orderToAdd = {
-                    ...newOrder,
+                    ...newOrderTanpaRencana,
+                    ...(rencanaBahanBaru.length > 0 ? { rencanaBahan: rencanaBahanBaru } : {}),
                     id: newOrderId,
                     sizes: finalSizes,
                     total: totalQty,
@@ -4071,6 +4351,8 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                     </div>
                                 </div>
                             </div>
+
+                            <RencanaBahanEditor value={newOrder.rencanaBahan} onChange={(next) => setNewOrder(prev => ({ ...prev, rencanaBahan: next }))} client={newOrder.client} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} />
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Catatan Tambahan Produksi</label>
@@ -4517,6 +4799,15 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <div class="sec-title">Rincian Ukuran &amp; Jumlah</div>
   <div class="sizes-container">${sizesHtml}</div>
 </div>
+
+${cleanRencanaBahan(order.rencanaBahan).length > 0 ? `
+<div class="notes-box" style="border-color:#0d9488;background:#f0fdfa">
+  <div class="lbl" style="color:#0f766e">Bahan / Kain</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">
+    <tr style="background:#ccfbf1"><th style="text-align:left;padding:3px 6px;border:1px solid #99f6e4">Nama Kain</th><th style="text-align:left;padding:3px 6px;border:1px solid #99f6e4">Kode</th><th style="text-align:left;padding:3px 6px;border:1px solid #99f6e4">Warna</th><th style="text-align:left;padding:3px 6px;border:1px solid #99f6e4">Kebutuhan</th></tr>
+    ${cleanRencanaBahan(order.rencanaBahan).map(r => `<tr><td style="padding:3px 6px;border:1px solid #99f6e4;font-weight:700">${escapeHtmlText(r.name || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4;font-weight:800">${escapeHtmlText(r.code || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4">${escapeHtmlText(r.color || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4">${r.qty ? '±' + escapeHtmlText(r.qty) + (r.unit ? ' ' + escapeHtmlText(r.unit) : '') : '-'}</td></tr>`).join('')}
+  </table>
+</div>` : ''}
 
 <div class="notes-box">
   <div class="lbl">Catatan Tambahan &amp; Spesifikasi</div>
@@ -6442,8 +6733,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [] }) => {
+        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [], masterBahan = [], setMasterBahan }) => {
             const [previewImage, setPreviewImage] = useState(null);
+            const [bahanTab, setBahanTab] = useState('nota');
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
             const [orderComboState, setOrderComboState] = useState({});
             const [quickPayNoteId, setQuickPayNoteId] = useState(null);
@@ -7399,7 +7691,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         </div>
                     </div>
 
-                    {renderInputPembelian()}
+                    {/* Tab: daftar nota (tidak berubah) | Database Bahan (hanya membaca nota) */}
+                    <div className="flex gap-2" data-tab-pembelian>
+                        <button type="button" onClick={() => setBahanTab('nota')} className={`px-4 py-2 rounded-xl text-sm font-bold border ${bahanTab === 'nota' ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>🧾 Nota Pembelian</button>
+                        <button type="button" onClick={() => setBahanTab('database')} className={`px-4 py-2 rounded-xl text-sm font-bold border ${bahanTab === 'database' ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>📚 Database Bahan</button>
+                    </div>
+
+                    {bahanTab === 'database'
+                        ? <DatabaseBahanPanel purchaseNotes={purchaseNotes} orders={orders} masterBahan={masterBahan} setMasterBahan={setMasterBahan} showToast={showToast} />
+                        : renderInputPembelian()}
 
                     {previewImage && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4" onClick={() => setPreviewImage(null)}>
@@ -24565,6 +24865,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [driverRekapGaji, setDriverRekapGaji] = useState([]);
             const [driverKasbon, setDriverKasbon] = useState([]);
             const [stockItems, setStockItems] = useState([]);
+            const [masterBahan, setMasterBahan] = useState([]);
             const [absensiEdits, setAbsensiEdits] = useState([]);
             const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
             const needsAbsensiRawRef = useRef(true);
@@ -24986,7 +25287,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 invoices: 'simpati_invoices_sync', clients: 'simpati_clients_sync', templates: 'simpati_templates_sync',
                 manualPurchases: 'simpati_manual_purchases_sync', investors: 'simpati_investors_sync', investorBagiHasil: 'simpati_investor_bagi_hasil_sync',
                 drivers: 'simpati_drivers_sync', driverTarifs: 'simpati_driver_tarifs_sync', driverTransactions: 'simpati_driver_trx_sync',
-                driverRekapGaji: 'simpati_driver_rekap_gaji_sync', driverKasbon: 'simpati_driver_kasbon_sync', stockItems: 'simpati_stock_items_sync',
+                driverRekapGaji: 'simpati_driver_rekap_gaji_sync', driverKasbon: 'simpati_driver_kasbon_sync', stockItems: 'simpati_stock_items_sync', masterBahan: 'simpati_master_bahan_sync',
                 absensiEdits: 'simpati_absensi_edits_sync', absensiRawLogs: 'simpati_absensiRawLogs_sync', kartu_kredit: 'simpati_kartu_kredit_sync',
                 transaksi_kartu: 'simpati_transaksi_kartu_sync', purchaseNotes: 'simpati_purchase_notes_sync', danaOperasional: 'simpati_dana_operasional_sync',
                 bagiHasilPromosi: 'simpati_bagi_hasil_promosi_sync'
@@ -25793,6 +26094,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         return merged;
                     });
                 }
+                // Database Bahan (bahan yang ditambah manual) — dimuat terpisah agar daftar pemuatan utama tidak berubah
+                const remoteMasterBahan = await fetchStoreDataCached('masterBahan', [], remoteTsMap);
+                if (Array.isArray(remoteMasterBahan)) {
+                    setMasterBahan(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteMasterBahan);
+                        safeLocalSet('simpati_master_bahan_sync', JSON.stringify(merged));
+                        if (!sameJson(merged, remoteMasterBahan)) setTimeout(() => saveToSupabase('masterBahan', merged), 0);
+                        return merged;
+                    });
+                }
                 commitFetchedTimestamps();
             };
 
@@ -25882,6 +26193,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     }
                     if (e.key === 'simpati_stock_items_sync' && e.newValue) {
                         try { setStockItems(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
+                    if (e.key === 'simpati_master_bahan_sync' && e.newValue) {
+                        try { setMasterBahan(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
                     if (e.key === 'simpati_absensi_edits_sync' && e.newValue) {
                         try { setAbsensiEdits(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
@@ -26153,6 +26467,18 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 setTransaksiKartu(next); safeLocalSet('simpati_transaksi_kartu_sync', JSON.stringify(next));
                                 if (JSON.stringify(next) !== JSON.stringify(initTransaksiKartu)) setTimeout(() => saveToSupabase('transaksi_kartu', next), 0);
                             }
+                            // Database Bahan (bahan manual): dimuat terpisah, maks. 8 detik (tidak menahan aplikasi bila lambat)
+                            try {
+                                const remMasterBahan = await Promise.race([fetchStoreDataCached('masterBahan', [], initTsMap), new Promise(r => setTimeout(() => r(null), 8000))]);
+                                const lokalMasterBahan = loadLocalData('simpati_master_bahan_sync', []);
+                                if (Array.isArray(remMasterBahan)) {
+                                    const next = mergeRecordLists(lokalMasterBahan, remMasterBahan);
+                                    setMasterBahan(next); safeLocalSet('simpati_master_bahan_sync', JSON.stringify(next));
+                                    if (!sameJson(next, remMasterBahan)) setTimeout(() => saveToSupabase('masterBahan', next), 0);
+                                } else {
+                                    setMasterBahan(lokalMasterBahan);
+                                }
+                            } catch (e) { setMasterBahan(loadLocalData('simpati_master_bahan_sync', [])); }
                             supabaseLoadedRef.current = true;
                             commitFetchedTimestamps();
                             setTimeout(() => seedRemoteTimestamps(['accounts','employees','orders','rekapKinerja','riwayatPengiriman','expenses','invoices','clients','templates','manualPurchases','investors','investorBagiHasil','drivers','driverTarifs','driverTransactions','driverRekapGaji','driverKasbon','stockItems','absensiEdits','absensiRawLogs','kartu_kredit','transaksi_kartu','purchaseNotes','danaOperasional','bagiHasilPromosi']), 2000);
@@ -26195,6 +26521,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDriverRekapGaji(loadLocalData('simpati_driver_rekap_gaji_sync', []));
                     setDriverKasbon(loadLocalData('simpati_driver_kasbon_sync', []));
                     setStockItems(loadLocalData('simpati_stock_items_sync', []));
+                    setMasterBahan(loadLocalData('simpati_master_bahan_sync', []));
                     setAbsensiEdits(loadLocalData('simpati_absensi_edits_sync', []));
                     setAbsensiRawLogs(loadLocalData('simpati_absensiRawLogs_sync', []));
                     setKartuKredit(loadLocalData('simpati_kartu_kredit_sync', []));
@@ -26840,6 +27167,24 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     return valid;
                 });
             };
+            const updateMasterBahan = (updater) => {
+                setMasterBahan(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_master_bahan_sync', JSON.stringify(valid));
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('masterBahan', valid);
+                        safeLocalSet('simpati_master_bahan_sync', JSON.stringify(merged));
+                        saveToSupabase('masterBahan', merged);
+                        setMasterBahan(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
 
             const updateAbsensiEdits = (updater) => {
                 setAbsensiEdits(prev => {
@@ -26917,7 +27262,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     ['bagiHasilPromosi', 'Bagi Hasil Promosi', bagiHasilPromosi], ['manualPurchases', 'Pembelian Manual', manualPurchases], ['investors', 'Investor', investors],
                     ['investorBagiHasil', 'Bagi Hasil Investor', investorBagiHasil], ['drivers', 'Driver', drivers], ['driverTarifs', 'Tarif Driver', driverTarifs],
                     ['driverTransactions', 'Transaksi Driver', driverTransactions], ['driverRekapGaji', 'Rekap Gaji Driver', driverRekapGaji], ['driverKasbon', 'Kasbon Driver', driverKasbon],
-                    ['stockItems', 'Stock Barang', stockItems], ['kartu_kredit', 'Kartu Kredit', kartuKredit], ['transaksi_kartu', 'Transaksi Kartu', transaksiKartu],
+                    ['stockItems', 'Stock Barang', stockItems], ['masterBahan', 'Database Bahan (manual)', masterBahan], ['kartu_kredit', 'Kartu Kredit', kartuKredit], ['transaksi_kartu', 'Transaksi Kartu', transaksiKartu],
                     ['accounts', 'Akun', accounts]
                 ];
                 const photoRe = /data:image\/[a-zA-Z+.-]+;base64,[A-Za-z0-9+/=]+/g;
@@ -27114,7 +27459,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 manualPurchases: updateManualPurchases, purchaseNotes: updatePurchaseNotes, danaOperasional: updateDanaOperasional,
                 investors: updateInvestors, investorBagiHasil: updateInvestorBagiHasil, bagiHasilPromosi: updateBagiHasilPromosi,
                 drivers: updateDrivers, driverTarifs: updateDriverTarifs, driverTransactions: updateDriverTransactions,
-                driverRekapGaji: updateDriverRekapGaji, driverKasbon: updateDriverKasbon, stockItems: updateStockItems,
+                driverRekapGaji: updateDriverRekapGaji, driverKasbon: updateDriverKasbon, stockItems: updateStockItems, masterBahan: updateMasterBahan,
                 absensiEdits: updateAbsensiEdits, templates: updateTemplates, labelTemplates: updateTemplates
             };
             // Kirim ulang data yang belum tersimpan: satu jenis data per giliran (berikutnya baru dikirim setelah
@@ -27844,12 +28189,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
-                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
+                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
                                 {tabMounted('karyawan', canOpen('karyawan')) && <div hidden={!tabVisible('karyawan')}><KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
-                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} /></div>}
-                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
+                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} /></div>}
+                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
