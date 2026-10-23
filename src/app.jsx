@@ -1943,6 +1943,7 @@
                     const d = String(n.date || '');
                     if (d >= e.lastBuyDate) { e.lastBuyDate = d; e.lastPrice = safeMoney(it.price); e.lastUnit = normBahanUnit(it.unit); }
                     if (it.orderId) addUse(e, ordersById.get(String(it.orderId)), d);
+                    else if (normBahanText(it.instansi)) addUse(e, { client: it.instansi }, d);
                 });
             });
             ordersById.forEach(o => {
@@ -1968,6 +1969,7 @@
             });
         };
         // Saran bahan untuk satu instansi: dari rencana bahan order-order sebelumnya + nota yang terhubung ke order instansi itu
+        // atau item nota yang diisi "Untuk Instansi" (dibeli sebelum ordernya ada)
         const getSaranBahanInstansi = (client, orders, purchaseNotes, excludeOrderId) => {
             const target = normBahanText(client).toLowerCase();
             if (!target) return [];
@@ -1983,7 +1985,9 @@
             };
             clientOrders.forEach(o => safeArray(o.rencanaBahan).forEach(r => push(r, o.date)));
             const orderIds = new Set(clientOrders.map(o => String(o.id)));
-            safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => safeArray(n.items).forEach(it => { if (it && orderIds.has(String(it.orderId || ''))) push({ name: it.name, code: it.code, color: '', unit: it.unit }, n.date); }));
+            const untukInstansi = (it) => orderIds.has(String(it.orderId || ''))
+                || (!String(it.orderId || '').trim() && normBahanText(it.instansi).toLowerCase() === target);
+            safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => safeArray(n.items).forEach(it => { if (it && untukInstansi(it)) push({ name: it.name, code: it.code, color: '', unit: it.unit }, n.date); }));
             return list.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
         };
 
@@ -6970,6 +6974,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [bahanTab, setBahanTab] = useState('nota');
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
             const [orderComboState, setOrderComboState] = useState({});
+            const [instansiComboState, setInstansiComboState] = useState({});
             const [quickPayNoteId, setQuickPayNoteId] = useState(null);
             const [quickPayForm, setQuickPayForm] = useState({ date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
             const [noteSearch, setNoteSearch] = useState('');
@@ -7002,6 +7007,22 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const vendorSuggestions = [...new Set(safeArray(purchaseNotes).filter(isVisibleRecord).map(n => n.vendor).filter(Boolean))].sort();
 
             const updateItem = (idx, field, val) => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, [field]: val } : x) }));
+
+            // "Untuk Instansi": catatan instansi untuk bahan yang dibeli sebelum ordernya ada (untuk Database Bahan & saran bahan).
+            // Tidak menautkan ke order, jadi status bahan order/pembayaran/laporan tidak terpengaruh.
+            const instansiOptions = useMemo(() => {
+                const byKey = new Map();
+                const add = (v) => { const t = normBahanText(v); if (t && !byKey.has(t.toLowerCase())) byKey.set(t.toLowerCase(), t); };
+                (orders || []).filter(isVisibleOrder).forEach(o => add(o.client));
+                safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => safeArray(n.items).forEach(it => add(it && it.instansi)));
+                return [...byKey.values()].sort((a, b) => a.localeCompare(b));
+            }, [orders, purchaseNotes]);
+            const setInstansiCombo = (idx, patch) => setInstansiComboState(p => ({ ...p, [idx]: { ...p[idx], ...patch } }));
+            const getFilteredInstansi = (text) => {
+                const q = normBahanText(text).toLowerCase();
+                return (q ? instansiOptions.filter(c => c.toLowerCase().includes(q)) : instansiOptions).slice(0, 8);
+            };
+            const cleanInstansi = (v) => { const t = normBahanText(v); return instansiOptions.find(c => c.toLowerCase() === t.toLowerCase()) || t; };
 
             const statusStyle = (s) => s === 'Lunas'
                 ? { bg: '#DCFCE7', text: '#166534', label: '✓ LUNAS', bar: '#22C55E' }
@@ -7039,16 +7060,22 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     payments: fc.cleanPayments,
                     globalDiscountType: noteForm.globalDiscountType || 'Rp',
                     globalDiscountValue: safeMoney(noteForm.globalDiscountValue),
-                    items: fc.validItems.map(it => ({
-                        ...it,
-                        id: it.id || genId('NI-'),
-                        qty: it.qty ?? '',
-                        price: it.price ?? '',
-                        discountRp: safeMoney(it.discountRp),
-                        discountPct: safeMoney(it.discountPct),
-                        code: String(it.code || '').trim(),
-                        orderId: String(it.orderId || '').trim(),
-                    })),
+                    items: fc.validItems.map(it => {
+                        const { instansi, ...rest } = it;
+                        const orderId = String(it.orderId || '').trim();
+                        const inst = orderId ? '' : cleanInstansi(instansi);
+                        return {
+                            ...rest,
+                            id: it.id || genId('NI-'),
+                            qty: it.qty ?? '',
+                            price: it.price ?? '',
+                            discountRp: safeMoney(it.discountRp),
+                            discountPct: safeMoney(it.discountPct),
+                            code: String(it.code || '').trim(),
+                            orderId,
+                            ...(inst ? { instansi: inst } : {}),
+                        };
+                    }),
                     _syncUpdatedAt: now,
                 };
 
@@ -7092,6 +7119,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setEditNoteId(null);
                 setNoteForm(emptyNoteForm);
                 setOrderComboState({});
+                setInstansiComboState({});
                 showToast(editNoteId ? 'Nota diperbarui.' : 'Nota pembelian disimpan.', 'success');
             };
 
@@ -7146,7 +7174,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     if (filterStatus !== 'Semua' && noteStatus(note) !== filterStatus) return false;
                     if (!noteSearch.trim()) return true;
                     const term = noteSearch.toLowerCase();
-                    const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.orderId, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
+                    const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.orderId, it.instansi, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
                     const paymentMethodsText = safeArray(note.payments).map(p => p.method || '').join(' ');
                     return [note.vendor, note.date, note.note, note.method, noteStatus(note), itemsText, paymentMethodsText].join(' ').toLowerCase().includes(term);
                 });
@@ -7327,6 +7355,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                     📋 {linkedOrder.id}{linkedOrder.client ? ` · ${linkedOrder.client}` : ''}
                                                                 </span>
                                                             )}
+                                                            {!it.orderId && it.instansi && (
+                                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 border" style={{ background: '#F0FDFA', borderColor: '#99F6E4', color: '#0F766E' }} title="Untuk instansi (belum ada order)">
+                                                                    🏫 {it.instansi}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <div className="text-right shrink-0">
                                                             {getMaterialLineSubtotal(it) !== getMaterialLineTotal(it) && (
@@ -7424,6 +7457,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 const payments = safeArray(normalizeNote(note).payments);
                                                 setNoteForm({ vendor: note.vendor, date: note.date, items, method: note.method || 'Transfer', note: note.note || '', payments, globalDiscountType: note.globalDiscountType || 'Rp', globalDiscountValue: String(note.globalDiscountValue || '') });
                                                 setOrderComboState({});
+                setInstansiComboState({});
                                                 setNoteFormOpen(true);
                                             }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#1B4F72', background: '#EFF6FF', borderColor: '#BFDBFE' }}>✏️ Edit</button>
                                             <button onClick={() => { if (window.confirm('Hapus nota ini?')) {
@@ -7634,9 +7668,49 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                 </div>
                                                             </div>
                                                         </div>
+                                                        <div className="grid grid-cols-12 gap-2">
+                                                            <div className="hidden sm:block sm:col-span-7"></div>
+                                                            <div className="col-span-12 sm:col-span-5" data-instansi-field={idx}>
+                                                                <label className="block text-[10px] font-bold text-teal-700 mb-1 uppercase tracking-wide">🏫 Untuk Instansi <span className="normal-case font-normal text-gray-400">(jika belum ada order)</span></label>
+                                                                {it.orderId ? (() => {
+                                                                    const o = allOrderOptions.find(x => String(x.id) === it.orderId) || safeOrders.find(x => String(x.id) === it.orderId);
+                                                                    return <input type="text" disabled className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-100 text-gray-500" value={`Otomatis dari order: ${o ? (o.client || '-') : it.orderId}`} />;
+                                                                })() : (
+                                                                    <div className="relative">
+                                                                        <input
+                                                                            type="text"
+                                                                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-teal-400 pr-8"
+                                                                            placeholder="Ketik nama sekolah / instansi..."
+                                                                            value={it.instansi || ''}
+                                                                            onFocus={(e) => { const r = e.target.getBoundingClientRect(); setInstansiCombo(idx, { open: true, dropTop: r.bottom, dropLeft: r.left, dropWidth: r.width }); }}
+                                                                            onChange={e => { const r = e.target.getBoundingClientRect(); updateItem(idx, 'instansi', e.target.value); setInstansiCombo(idx, { open: true, dropTop: r.bottom, dropLeft: r.left, dropWidth: r.width }); }}
+                                                                            onBlur={() => setTimeout(() => setInstansiCombo(idx, { open: false }), 180)}
+                                                                        />
+                                                                        {it.instansi && (
+                                                                            <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 text-xs" onClick={() => { updateItem(idx, 'instansi', ''); setInstansiCombo(idx, { open: false }); }}>✕</button>
+                                                                        )}
+                                                                        {instansiComboState[idx]?.open && (() => {
+                                                                            const typed = normBahanText(it.instansi);
+                                                                            const opts = getFilteredInstansi(typed);
+                                                                            const isNew = typed && !instansiOptions.some(c => c.toLowerCase() === typed.toLowerCase());
+                                                                            if (opts.length === 0 && !isNew) return null;
+                                                                            return (
+                                                                                <div data-instansi-drop={idx} style={{ position: 'fixed', top: (instansiComboState[idx]?.dropTop || 0) + 4, left: instansiComboState[idx]?.dropLeft || 0, width: instansiComboState[idx]?.dropWidth || 240, zIndex: 9999, maxHeight: 220, overflowY: 'auto' }} className="bg-white border border-gray-200 rounded-xl shadow-xl">
+                                                                                    {opts.map(c => (
+                                                                                        <div key={c} className="px-3 py-2 text-xs hover:bg-teal-50 cursor-pointer border-t border-gray-50 text-gray-800" onMouseDown={() => { updateItem(idx, 'instansi', c); setInstansiCombo(idx, { open: false }); }}>🏫 <b>{c}</b></div>
+                                                                                    ))}
+                                                                                    {isNew && <div className="px-3 py-2 text-xs text-teal-700 hover:bg-teal-50 cursor-pointer border-t border-gray-100" onMouseDown={() => { updateItem(idx, 'instansi', typed); setInstansiCombo(idx, { open: false }); }}>＋ Instansi baru: <b>"{typed}"</b></div>}
+                                                                                </div>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
                                                         <div className="flex items-center justify-between pt-1">
                                                             <div>
                                                                 {it.orderId && (() => { const o = allOrderOptions.find(x => String(x.id) === it.orderId) || safeOrders.find(x => String(x.id) === it.orderId); return o ? <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-full border border-indigo-200">📋 {o.id} · {o.client}</span> : null; })()}
+                                                                {!it.orderId && normBahanText(it.instansi) && <span className="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-0.5 rounded-full border border-teal-200">🏫 {normBahanText(it.instansi)} · belum ada order</span>}
                                                             </div>
                                                             <div className="text-xs text-gray-400 text-right">
                                                                 {getMaterialLineSubtotal(it) !== getMaterialLineTotal(it) && (
