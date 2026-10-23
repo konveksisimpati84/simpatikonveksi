@@ -2228,6 +2228,7 @@
         const PIN_REFRESH_MS = 5 * 60 * 1000;
         const readPinList = (key) => { try { const v = JSON.parse(localStorage.getItem(key) || 'null'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
         const writePinList = (key, arr) => { try { if (arr.length) localStorage.setItem(key, JSON.stringify(arr)); else localStorage.removeItem(key); } catch (e) {} };
+        const pinOpKey = (op) => (op && op.k) || JSON.stringify(op);
         // Hasil akhir antrean per order: { 'ORD-1': true (sematkan) / false (lepas) }
         const pinOpsResult = (ops) => {
             const res = {};
@@ -2268,8 +2269,9 @@
                             const up = await supabaseClient.from('app_data').upsert(rows);
                             if (up.error) { if (isCloudServerTrouble(up.error, up.status)) cloudHealth.fail(); return; }
                         }
-                        // Hanya antrean yang sudah terkirim yang dihapus (klik baru selama menyimpan tetap diantre)
-                        writePinList(opsKey, readPinList(opsKey).slice(ops.length));
+                        // Hanya klik yang sudah terkirim yang dihapus dari antrean (klik baru, juga dari tab lain, tetap diantre)
+                        const terkirim = new Set(ops.map(pinOpKey));
+                        writePinList(opsKey, readPinList(opsKey).filter(op => !terkirim.has(pinOpKey(op))));
                         try { window.dispatchEvent(new Event('simpati-pins-changed')); } catch (e) {}
                     }
                     // Hanya pin yang masih aktif yang diunduh (riwayat pin yang sudah dilepas tidak ikut)
@@ -2290,6 +2292,7 @@
             syncRef.current = sync;
             const schedule = (ms) => { clearTimeout(timerRef.current); timerRef.current = setTimeout(() => syncRef.current(), ms); };
             const queue = (op) => {
+                op = { ...op, k: Date.now().toString(36) + Math.random().toString(36).slice(2, 8) };
                 writePinList(opsKey, [...readPinList(opsKey), op]);
                 setPinIds(prev => applyPinOps(prev, [op]));
                 schedule(400);
@@ -2378,7 +2381,7 @@
                 const st = String(o?.status || '');
                 if (st === 'Terkirim') return 'terkirim';
                 if (st === 'Siap Kirim') return 'siap';
-                if (!st || st === 'Pending') return 'belum';
+                if (!st || st === 'Pending' || st === 'Pending / Belum Dikerjakan') return 'belum';
                 const stage = productionStageOptions.find(sg => st === `Proses ${sg.label}`);
                 return stage ? stage.id : 'lainnya';
             };
@@ -2402,7 +2405,8 @@
             const [pinClearConfirm, setPinClearConfirm] = useState(false);
             const dashBaseOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
             // Kelompok tiap order dihitung sekali (bukan di setiap pengecekan filter)
-            const dashRows = React.useMemo(() => dashBaseOrders.map(o => ({ o, id: String(o?.id), status: dashStatusGroup(o), deadline: dashDeadlineGroup(o), bahan: dashBahanGroup(o), marketing: String(o?.marketing || ''), jenis: String(o?.type || '') })), [dashBaseOrders]);
+            const dashHariIni = toLocalDateStr(); // kelompok deadline ikut berganti saat hari berganti
+            const dashRows = React.useMemo(() => dashBaseOrders.map(o => ({ o, id: String(o?.id), status: dashStatusGroup(o), deadline: dashDeadlineGroup(o), bahan: dashBahanGroup(o), marketing: String(o?.marketing || ''), jenis: String(o?.type || '') })), [dashBaseOrders, dashHariIni]);
             const dashMatch = (r, f, except) => {
                 if (except !== 'pin' && f.pinOnly && !dashPins.pinSet.has(r.id)) return false;
                 if (except !== 'status' && f.status !== 'semua' && (f.status === 'antrian' ? (r.status === 'siap' || r.status === 'terkirim') : r.status !== f.status)) return false;
@@ -5088,7 +5092,7 @@ window.addEventListener('load',function(){
             const prioritasCount = useMemo(() => safeOrders.filter(o => !o?.isArchived && prodPins.pinSet.has(String(o.id))).length, [safeOrders, prodPins.pinSet]);
             // Diurutkan hanya saat data/pencarian/filter/urutan/prioritas berubah (bukan di setiap tampilan ulang)
             const displayProductionOrders = useMemo(() => pinFirst(sortOrderList((colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders)
-                .filter(o => !prioritasOnly || prodPins.pinSet.has(String(o.id))), prodSort), prodPins.pinSet), [filteredProductionOrders, colorFilter, prioritasOnly, prodSort, prodPins.pinSet]);
+                .filter(o => !prioritasOnly || prodPins.pinSet.has(String(o.id))), prodSort), prodPins.pinSet), [filteredProductionOrders, colorFilter, prioritasOnly, prodSort, prodPins.pinSet, toLocalDateStr()]);
             const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}|${prodSort}|${prioritasOnly}`);
 
             const isKaryawanMode = authUser?.role === 'Karyawan';
