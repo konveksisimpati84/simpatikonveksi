@@ -1996,7 +1996,21 @@
                 if (o) push(bahan, n.date, o.type);
                 else if (!String(it.orderId || '').trim() && normBahanText(it.instansi).toLowerCase() === target) push(bahan, n.date, '', true);
             }));
-            return [...byKey.values()].sort((a, b) => b.date.localeCompare(a.date));
+            // Bahan dari nota (tanpa warna) yang sama dengan bahan berwarna dari order digabung ke versi berwarna terbaru,
+            // agar tidak muncul dua kali (mis. "Lacoste PE · LC-012" dan "Lacoste PE · LC-012 · Navy")
+            const all = [...byKey.values()];
+            const berwarna = new Map();
+            all.forEach(e => { if (!e.color) return; const k = normBahanKey(e.name, e.code); const c = berwarna.get(k); if (!c || e.date > c.date) berwarna.set(k, e); });
+            const hasil = all.filter(e => {
+                if (e.color) return true;
+                const c = berwarna.get(normBahanKey(e.name, e.code));
+                if (!c) return true;
+                e.types.forEach(t => { if (!c.types.some(x => x.toLowerCase() === t.toLowerCase())) c.types.push(t); });
+                if (e.fromNota) c.fromNota = true;
+                if (e.date > c.date) c.date = e.date;
+                return false;
+            });
+            return hasil.sort((a, b) => b.date.localeCompare(a.date));
         };
 
         // Bagian "Bahan / Kain" di Input Order & Edit Order
@@ -2196,15 +2210,15 @@
         // Urutan input order. Urutan simpan di cloud tidak bisa dipakai (order baru bisa tergeser ke belakang saat
         // data perangkat digabung dengan cloud), jadi dipakai nomor ORD-### yang selalu naik saat order dibuat/diduplikat.
         const orderInputSeq = (o) => { const m = String(o?.id || '').match(/^ORD-(\d+)/); return m ? Number(m[1]) : -1; };
-        const compareOrderInput = (a, b) => (orderInputSeq(a) - orderInputSeq(b))
-            || String(a?.date || '').localeCompare(String(b?.date || ''))
-            || String(a?.id || '').localeCompare(String(b?.id || ''));
         const ORDER_SORT_VALUES = ['terbaru', 'terlama', 'deadline'];
         const sortOrderList = (list, sort) => {
-            const arr = [...(list || [])];
-            if (sort === 'terlama') return arr.sort(compareOrderInput);
-            if (sort === 'deadline') return arr.sort((a, b) => String(a?.deadline || '9999-99-99').localeCompare(String(b?.deadline || '9999-99-99')) || compareOrderInput(b, a));
-            return arr.sort((a, b) => compareOrderInput(b, a));
+            // Kunci urutan dihitung sekali per order (bukan di setiap perbandingan)
+            const rows = (list || []).map(o => ({ o, seq: orderInputSeq(o), date: String(o?.date || ''), id: String(o?.id || ''), dl: String(o?.deadline || '9999-99-99') }));
+            const asc = (a, b) => (a.seq - b.seq) || a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
+            if (sort === 'terlama') rows.sort(asc);
+            else if (sort === 'deadline') rows.sort((a, b) => a.dl.localeCompare(b.dl) || asc(b, a));
+            else rows.sort((a, b) => asc(b, a));
+            return rows.map(r => r.o);
         };
 
         // Pin order yang dipakai bersama semua perangkat. Setiap pin disimpan sebagai baris cloud kecil sendiri
@@ -2258,7 +2272,9 @@
                         writePinList(opsKey, readPinList(opsKey).slice(ops.length));
                         try { window.dispatchEvent(new Event('simpati-pins-changed')); } catch (e) {}
                     }
-                    const { data, error, status } = await supabaseClient.from('app_data').select('id, data').like('id', prefix + '%');
+                    // Hanya pin yang masih aktif yang diunduh (riwayat pin yang sudah dilepas tidak ikut)
+                    let { data, error, status } = await supabaseClient.from('app_data').select('id, data').like('id', prefix + '%').eq('data->>pinned', 'true');
+                    if (error && !isCloudServerTrouble(error, status)) ({ data, error, status } = await supabaseClient.from('app_data').select('id, data').like('id', prefix + '%'));
                     if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); return; }
                     const remote = safeArray(data).filter(r => r && r.data && r.data.pinned === true && String(r.id || '').startsWith(prefix)).map(r => String(r.id).slice(prefix.length));
                     writePinList(listKey, remote);
@@ -2384,24 +2400,37 @@
             };
             const dashPins = useSharedPins('dash');
             const [pinClearConfirm, setPinClearConfirm] = useState(false);
-            const dashMatch = (o, f, except) => {
-                if (except !== 'pin' && f.pinOnly && !dashPins.pinSet.has(String(o?.id))) return false;
-                if (except !== 'status' && f.status !== 'semua') {
-                    const g = dashStatusGroup(o);
-                    if (f.status === 'antrian' ? (g === 'siap' || g === 'terkirim') : g !== f.status) return false;
-                }
-                if (except !== 'deadline' && f.deadline !== 'semua' && dashDeadlineGroup(o) !== f.deadline) return false;
-                if (except !== 'bahan' && f.bahan !== 'semua' && dashBahanGroup(o) !== f.bahan) return false;
-                if (except !== 'marketing' && f.marketing && String(o?.marketing || '') !== f.marketing) return false;
-                if (except !== 'jenis' && f.jenis && String(o?.type || '') !== f.jenis) return false;
+            const dashBaseOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
+            // Kelompok tiap order dihitung sekali (bukan di setiap pengecekan filter)
+            const dashRows = React.useMemo(() => dashBaseOrders.map(o => ({ o, id: String(o?.id), status: dashStatusGroup(o), deadline: dashDeadlineGroup(o), bahan: dashBahanGroup(o), marketing: String(o?.marketing || ''), jenis: String(o?.type || '') })), [dashBaseOrders]);
+            const dashMatch = (r, f, except) => {
+                if (except !== 'pin' && f.pinOnly && !dashPins.pinSet.has(r.id)) return false;
+                if (except !== 'status' && f.status !== 'semua' && (f.status === 'antrian' ? (r.status === 'siap' || r.status === 'terkirim') : r.status !== f.status)) return false;
+                if (except !== 'deadline' && f.deadline !== 'semua' && r.deadline !== f.deadline) return false;
+                if (except !== 'bahan' && f.bahan !== 'semua' && r.bahan !== f.bahan) return false;
+                if (except !== 'marketing' && f.marketing && r.marketing !== f.marketing) return false;
+                if (except !== 'jenis' && f.jenis && r.jenis !== f.jenis) return false;
                 return true;
             };
-            const dashBaseOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
             const dashboardOrders = React.useMemo(() => {
-                return pinFirst(sortOrderList(dashBaseOrders.filter(o => dashMatch(o, dashFilter)), dashFilter.sort), dashPins.pinSet);
-            }, [dashBaseOrders, dashFilter, dashPins.pinSet]);
-            const dashPinnedCount = safeOrders.filter(o => !o?.isArchived && dashPins.pinSet.has(String(o.id))).length;
-            const dashCount = (field, value) => dashBaseOrders.filter(o => dashMatch(o, { ...dashFilter, [field]: value }, null)).length;
+                return pinFirst(sortOrderList(dashRows.filter(r => dashMatch(r, dashFilter)).map(r => r.o), dashFilter.sort), dashPins.pinSet);
+            }, [dashRows, dashFilter, dashPins.pinSet]);
+            const dashPinnedCount = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && dashPins.pinSet.has(String(o.id))).length, [safeOrders, dashPins.pinSet]);
+            // Angka di setiap pilihan filter = jumlah order bila pilihan itu dipakai bersama filter lain yang aktif.
+            // Semua angka dihitung dalam satu putaran.
+            const dashCounts = React.useMemo(() => {
+                const c = { status: {}, deadline: {}, bahan: {}, marketing: {}, jenis: {} };
+                const inc = (field, key) => { c[field][key] = (c[field][key] || 0) + 1; };
+                dashRows.forEach(r => {
+                    if (dashMatch(r, dashFilter, 'status')) { inc('status', r.status); if (r.status !== 'siap' && r.status !== 'terkirim') inc('status', 'antrian'); }
+                    if (dashMatch(r, dashFilter, 'deadline')) inc('deadline', r.deadline);
+                    if (dashMatch(r, dashFilter, 'bahan')) inc('bahan', r.bahan);
+                    if (dashMatch(r, dashFilter, 'marketing')) inc('marketing', r.marketing);
+                    if (dashMatch(r, dashFilter, 'jenis')) inc('jenis', r.jenis);
+                });
+                return c;
+            }, [dashRows, dashFilter, dashPins.pinSet]);
+            const dashCount = (field, value) => (dashCounts[field] && dashCounts[field][value]) || 0;
             const dashActiveFilterCount = ['status', 'deadline', 'bahan'].filter(k => dashFilter[k] !== 'semua').length + (dashFilter.marketing ? 1 : 0) + (dashFilter.jenis ? 1 : 0) + (dashFilter.pinOnly ? 1 : 0);
             const dashMarketingOptions = React.useMemo(() => [...new Set(safeOrders.filter(o => !o?.isArchived).map(o => o.marketing).filter(Boolean))].sort(), [safeOrders]);
             const dashJenisOptions = React.useMemo(() => [...new Set(safeOrders.filter(o => !o?.isArchived).map(o => o.type).filter(Boolean))].sort(), [safeOrders]);
@@ -5035,10 +5064,10 @@ window.addEventListener('load',function(){
             const [pendingWorkConfirm, setPendingWorkConfirm] = useState(null);
             const [pendingEmployeeConfirm, setPendingEmployeeConfirm] = useState(null);
             const [activeProductionTab, setActiveProductionTab] = useState('proses');
-            const safeOrders = (orders || []).filter(isVisibleOrder);
+            const safeOrders = useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
             const visibleEmployees = (employees || []).filter(isVisibleRecord);
             const visibleEmployeeIds = new Set(visibleEmployees.map(e => String(e.id)));
-            const filteredProductionOrders = safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm));
+            const filteredProductionOrders = useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
             const [colorFilter, setColorFilter] = useState(null);
             const getOrderColorKey = (order) => {
                 if (order.status === 'Terkirim') return 'terkirim';
@@ -5056,9 +5085,10 @@ window.addEventListener('load',function(){
             const prodPins = useSharedPins('prod');
             const [prioritasOnly, setPrioritasOnly] = useState(false);
             const [prioritasClearConfirm, setPrioritasClearConfirm] = useState(false);
-            const prioritasCount = safeOrders.filter(o => !o?.isArchived && prodPins.pinSet.has(String(o.id))).length;
-            const displayProductionOrders = pinFirst(sortOrderList((colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders)
-                .filter(o => !prioritasOnly || prodPins.pinSet.has(String(o.id))), prodSort), prodPins.pinSet);
+            const prioritasCount = useMemo(() => safeOrders.filter(o => !o?.isArchived && prodPins.pinSet.has(String(o.id))).length, [safeOrders, prodPins.pinSet]);
+            // Diurutkan hanya saat data/pencarian/filter/urutan/prioritas berubah (bukan di setiap tampilan ulang)
+            const displayProductionOrders = useMemo(() => pinFirst(sortOrderList((colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders)
+                .filter(o => !prioritasOnly || prodPins.pinSet.has(String(o.id))), prodSort), prodPins.pinSet), [filteredProductionOrders, colorFilter, prioritasOnly, prodSort, prodPins.pinSet]);
             const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}|${prodSort}|${prioritasOnly}`);
 
             const isKaryawanMode = authUser?.role === 'Karyawan';
