@@ -2207,6 +2207,109 @@
             return arr.sort((a, b) => compareOrderInput(b, a));
         };
 
+        // Pin order yang dipakai bersama semua perangkat. Setiap pin disimpan sebagai baris cloud kecil sendiri
+        // ('pin:dash:ORD-xxx' / 'pin:prod:ORD-xxx' berisi { pinned, at }), bukan di data order dan bukan satu daftar
+        // bersama, sehingga dua perangkat yang menyematkan order berbeda pada saat yang sama tidak saling menimpa.
+        // Klik dicatat sebagai antrean di perangkat; saat offline/server bermasalah antrean dikirim nanti.
+        const PIN_REFRESH_MS = 5 * 60 * 1000;
+        const readPinList = (key) => { try { const v = JSON.parse(localStorage.getItem(key) || 'null'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+        const writePinList = (key, arr) => { try { if (arr.length) localStorage.setItem(key, JSON.stringify(arr)); else localStorage.removeItem(key); } catch (e) {} };
+        // Hasil akhir antrean per order: { 'ORD-1': true (sematkan) / false (lepas) }
+        const pinOpsResult = (ops) => {
+            const res = {};
+            safeArray(ops).forEach(op => {
+                if (!op) return;
+                if (Array.isArray(op.unpinIds)) op.unpinIds.forEach(id => { res[String(id)] = false; });
+                else if (op.id) res[String(op.id)] = !!op.pin;
+            });
+            return res;
+        };
+        const applyPinOps = (list, ops) => {
+            const res = pinOpsResult(ops);
+            const arr = [...new Set(safeArray(list).map(String))].filter(id => res[id] !== false);
+            Object.keys(res).forEach(id => { if (res[id] && !arr.includes(id)) arr.push(id); });
+            return arr;
+        };
+        const useSharedPins = (scope) => {
+            const prefix = `pin:${scope}:`;
+            const listKey = `simpati_pins_${scope}`;
+            const opsKey = `simpati_pins_${scope}_pending`;
+            const [pinIds, setPinIds] = useState(() => applyPinOps(readPinList(listKey), readPinList(opsKey)));
+            const busyRef = useRef(false);
+            const againRef = useRef(false);
+            const lastSyncRef = useRef(0);
+            const timerRef = useRef(null);
+            const sync = async () => {
+                if (!supabaseClient || cloudHealth.isBlocked()) return;
+                if (busyRef.current) { againRef.current = true; return; }
+                busyRef.current = true;
+                lastSyncRef.current = Date.now();
+                try {
+                    const ops = readPinList(opsKey);
+                    if (ops.length) {
+                        const at = new Date().toISOString();
+                        const res = pinOpsResult(ops);
+                        const rows = Object.keys(res).map(id => ({ id: prefix + id, data: { pinned: res[id], at } }));
+                        if (rows.length) {
+                            const up = await supabaseClient.from('app_data').upsert(rows);
+                            if (up.error) { if (isCloudServerTrouble(up.error, up.status)) cloudHealth.fail(); return; }
+                        }
+                        // Hanya antrean yang sudah terkirim yang dihapus (klik baru selama menyimpan tetap diantre)
+                        writePinList(opsKey, readPinList(opsKey).slice(ops.length));
+                        try { window.dispatchEvent(new Event('simpati-pins-changed')); } catch (e) {}
+                    }
+                    const { data, error, status } = await supabaseClient.from('app_data').select('id, data').like('id', prefix + '%');
+                    if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); return; }
+                    const remote = safeArray(data).filter(r => r && r.data && r.data.pinned === true && String(r.id || '').startsWith(prefix)).map(r => String(r.id).slice(prefix.length));
+                    writePinList(listKey, remote);
+                    setPinIds(applyPinOps(remote, readPinList(opsKey)));
+                } catch (e) {
+                    // koneksi putus: antrean tetap di perangkat
+                } finally {
+                    busyRef.current = false;
+                    if (againRef.current) { againRef.current = false; sync(); }
+                }
+            };
+            const syncRef = useRef(sync);
+            syncRef.current = sync;
+            const schedule = (ms) => { clearTimeout(timerRef.current); timerRef.current = setTimeout(() => syncRef.current(), ms); };
+            const queue = (op) => {
+                writePinList(opsKey, [...readPinList(opsKey), op]);
+                setPinIds(prev => applyPinOps(prev, [op]));
+                schedule(400);
+            };
+            useEffect(() => {
+                schedule(2500); // tidak ikut berebut dengan unduhan data saat aplikasi baru dibuka
+                const onFocus = () => { if (document.visibilityState !== 'hidden' && Date.now() - lastSyncRef.current > 15000) syncRef.current(); };
+                const onRemote = () => schedule(300);
+                const onStorage = (e) => { if (e.key === listKey || e.key === opsKey) setPinIds(applyPinOps(readPinList(listKey), readPinList(opsKey))); };
+                const iv = setInterval(() => syncRef.current(), PIN_REFRESH_MS);
+                window.addEventListener('focus', onFocus);
+                document.addEventListener('visibilitychange', onFocus);
+                window.addEventListener('online', onRemote);
+                window.addEventListener('simpati-pins-remote', onRemote);
+                window.addEventListener('storage', onStorage);
+                return () => {
+                    clearTimeout(timerRef.current); clearInterval(iv);
+                    window.removeEventListener('focus', onFocus);
+                    document.removeEventListener('visibilitychange', onFocus);
+                    window.removeEventListener('online', onRemote);
+                    window.removeEventListener('simpati-pins-remote', onRemote);
+                    window.removeEventListener('storage', onStorage);
+                };
+            }, [scope]);
+            const pinSet = useMemo(() => new Set(pinIds), [pinIds]);
+            return {
+                pinSet,
+                toggle: (id) => queue({ id: String(id), pin: !pinSet.has(String(id)) }),
+                unpinAll: () => { if (pinIds.length) queue({ unpinIds: [...pinIds] }); },
+            };
+        };
+        const pinFirst = (list, pinSet) => {
+            if (!pinSet || pinSet.size === 0) return list;
+            return [...list.filter(o => pinSet.has(String(o?.id))), ...list.filter(o => !pinSet.has(String(o?.id)))];
+        };
+
         const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], templates }) => {
             const [dashChartRef, dashChartW] = useElementWidth();
             const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
@@ -2232,7 +2335,7 @@
             const ITEMS_PER_PAGE = 10;
             // ── Filter daftar Progress Produksi (hanya mengatur tampilan, data order tidak diubah) ──
             const DASH_FILTER_KEY = 'simpati_dash_filter';
-            const DASH_FILTER_DEFAULT = { status: 'semua', deadline: 'semua', bahan: 'semua', marketing: '', jenis: '', sort: 'terbaru' };
+            const DASH_FILTER_DEFAULT = { status: 'semua', deadline: 'semua', bahan: 'semua', marketing: '', jenis: '', sort: 'terbaru', pinOnly: false };
             const [dashFilter, setDashFilter] = React.useState(() => {
                 try {
                     const v = JSON.parse(localStorage.getItem(DASH_FILTER_KEY) || 'null');
@@ -2247,6 +2350,7 @@
                     Object.keys(pilihan).forEach(k => { if (pilihan[k].includes(v[k])) out[k] = v[k]; });
                     if (typeof v.marketing === 'string') out.marketing = v.marketing;
                     if (typeof v.jenis === 'string') out.jenis = v.jenis;
+                    out.pinOnly = v.pinOnly === true;
                     return out;
                 } catch (e) { return DASH_FILTER_DEFAULT; }
             });
@@ -2278,7 +2382,10 @@
                 if (o?.materialStatus === 'Tidak Perlu' || getOrderProcessFlow(o).materials === false) return 'tidak';
                 return 'belum';
             };
+            const dashPins = useSharedPins('dash');
+            const [pinClearConfirm, setPinClearConfirm] = useState(false);
             const dashMatch = (o, f, except) => {
+                if (except !== 'pin' && f.pinOnly && !dashPins.pinSet.has(String(o?.id))) return false;
                 if (except !== 'status' && f.status !== 'semua') {
                     const g = dashStatusGroup(o);
                     if (f.status === 'antrian' ? (g === 'siap' || g === 'terkirim') : g !== f.status) return false;
@@ -2291,17 +2398,24 @@
             };
             const dashBaseOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
             const dashboardOrders = React.useMemo(() => {
-                return sortOrderList(dashBaseOrders.filter(o => dashMatch(o, dashFilter)), dashFilter.sort);
-            }, [dashBaseOrders, dashFilter]);
+                return pinFirst(sortOrderList(dashBaseOrders.filter(o => dashMatch(o, dashFilter)), dashFilter.sort), dashPins.pinSet);
+            }, [dashBaseOrders, dashFilter, dashPins.pinSet]);
+            const dashPinnedCount = safeOrders.filter(o => !o?.isArchived && dashPins.pinSet.has(String(o.id))).length;
             const dashCount = (field, value) => dashBaseOrders.filter(o => dashMatch(o, { ...dashFilter, [field]: value }, null)).length;
-            const dashActiveFilterCount = ['status', 'deadline', 'bahan'].filter(k => dashFilter[k] !== 'semua').length + (dashFilter.marketing ? 1 : 0) + (dashFilter.jenis ? 1 : 0);
+            const dashActiveFilterCount = ['status', 'deadline', 'bahan'].filter(k => dashFilter[k] !== 'semua').length + (dashFilter.marketing ? 1 : 0) + (dashFilter.jenis ? 1 : 0) + (dashFilter.pinOnly ? 1 : 0);
             const dashMarketingOptions = React.useMemo(() => [...new Set(safeOrders.filter(o => !o?.isArchived).map(o => o.marketing).filter(Boolean))].sort(), [safeOrders]);
             const dashJenisOptions = React.useMemo(() => [...new Set(safeOrders.filter(o => !o?.isArchived).map(o => o.type).filter(Boolean))].sort(), [safeOrders]);
             const dashEmptyText = dashActiveFilterCount > 0
                 ? `Tidak ada order yang cocok dengan filter${searchTerm ? ' dan pencarian' : ''}. Klik "Reset filter" untuk menampilkan semua.`
                 : (searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang berjalan.');
+            const pinButton = (order) => {
+                const on = dashPins.pinSet.has(String(order.id));
+                return (
+                    <button type="button" data-dash-pin={order.id} onClick={() => { dashPins.toggle(order.id); if (!on && currentPage > 1) showToast(`${order.id} disematkan — tampil paling atas di halaman 1`, 'success'); }} title={on ? 'Lepas pin' : 'Sematkan di atas'} className={`inline-flex items-center justify-center w-7 h-7 mr-1.5 align-middle rounded-md shrink-0 text-sm ${on ? 'bg-amber-100 hover:bg-amber-200' : 'text-gray-300 border border-dashed border-gray-200 hover:text-amber-500 hover:border-amber-300'}`}>{on ? '📌' : '☆'}</button>
+                );
+            };
             const pilihKartu = (status) => {
-                setDashFilter(f => ({ ...f, status, deadline: 'semua', bahan: 'semua', marketing: '', jenis: '' }));
+                setDashFilter(f => ({ ...f, status, deadline: 'semua', bahan: 'semua', marketing: '', jenis: '', pinOnly: false }));
                 setTimeout(() => { try { dashListRef.current && dashListRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 50);
             };
 
@@ -2774,6 +2888,13 @@
                                 </div>
                             );
                         })()}
+                        {(dashPinnedCount > 0 || dashFilter.pinOnly) && (
+                            <div data-dash-pin-banner="1" className="flex flex-wrap items-center gap-2 mb-3 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50">
+                                <span className="text-xs sm:text-sm font-bold text-amber-800">📌 {dashPinnedCount} order disematkan di Dashboard</span>
+                                <button type="button" data-dash-pin-only="1" onClick={() => setFilterField('pinOnly', !dashFilter.pinOnly)} className={`text-xs font-bold rounded-lg px-2.5 py-1 border ${dashFilter.pinOnly ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-300 text-amber-800 hover:bg-amber-100'}`}>{dashFilter.pinOnly ? '✓ Hanya yang disematkan' : 'Tampilkan yang disematkan saja'}</button>
+                                {dashPinnedCount > 0 && <button type="button" data-dash-pin-clear="1" onClick={() => setPinClearConfirm(true)} className="text-xs font-bold rounded-lg px-2.5 py-1 border bg-white border-red-200 text-red-700 hover:bg-red-50">Lepas semua</button>}
+                            </div>
+                        )}
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                             <span data-dash-count="1" className="text-xs text-gray-500">
                                 Menampilkan <b className="text-gray-800">{dashboardOrders.length}</b> dari {dashBaseOrders.length} order{searchTerm ? ' (hasil pencarian)' : ''}
@@ -2798,8 +2919,8 @@
                                 </thead>
                                 <tbody>
                                     {paginatedOrders.map(order => (
-                                        <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                                            <td className="p-3 text-sm font-medium text-blue-600 whitespace-nowrap">{order.id}</td>
+                                        <tr key={order.id} className={`border-b border-gray-100 transition-colors ${dashPins.pinSet.has(String(order.id)) ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                                            <td className="p-3 text-sm font-medium text-blue-600 whitespace-nowrap">{pinButton(order)}{order.id}</td>
                                             <td className="p-3 text-sm text-gray-800">{order.client}</td>
                                             <td className="p-3 text-sm text-gray-600">
                                                 {order.type} ({order.total} pcs)
@@ -2854,7 +2975,8 @@
                             {paginatedOrders.map(order => {
                                 const revisiQty = (order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0);
                                 return (
-                                    <div key={order.id} className="px-1 py-3 flex items-start gap-3">
+                                    <div key={order.id} className={`px-1 py-3 flex items-start gap-2 ${dashPins.pinSet.has(String(order.id)) ? 'bg-amber-50 rounded-lg' : ''}`}>
+                                        {pinButton(order)}
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap mb-1">
                                                 <span className="text-blue-600 font-bold text-sm">{order.id}</span>
@@ -3060,6 +3182,18 @@
                                 <div className="flex justify-end space-x-3">
                                     <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Batal</button>
                                     <button onClick={executeDeleteOrder} className="px-4 py-2 font-medium bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors">Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {pinClearConfirm && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]" data-dash-pin-clear-confirm="1">
+                            <div className="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full mx-4">
+                                <h3 className="text-lg font-bold text-gray-900 mb-2">Lepas Semua Pin</h3>
+                                <p className="text-gray-600 mb-6">Lepas pin dari {dashPinnedCount} order di Dashboard? Data order tidak berubah, hanya urutan tampilannya.</p>
+                                <div className="flex justify-end space-x-3">
+                                    <button onClick={() => setPinClearConfirm(false)} className="px-4 py-2 font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Batal</button>
+                                    <button onClick={() => { setPinClearConfirm(false); dashPins.unpinAll(); if (dashFilter.pinOnly) setFilterField('pinOnly', false); }} className="px-4 py-2 font-medium bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors">Ya, Lepas Semua</button>
                                 </div>
                             </div>
                         </div>
@@ -4918,8 +5052,14 @@ window.addEventListener('load',function(){
             const PROD_SORT_KEY = 'simpati_prod_sort';
             const [prodSort, setProdSort] = useState(() => { try { const v = localStorage.getItem(PROD_SORT_KEY); return ORDER_SORT_VALUES.includes(v) ? v : 'terbaru'; } catch (e) { return 'terbaru'; } });
             React.useEffect(() => { try { localStorage.setItem(PROD_SORT_KEY, prodSort); } catch (e) {} }, [prodSort]);
-            const displayProductionOrders = sortOrderList(colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders, prodSort);
-            const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}|${prodSort}`);
+            // Prioritas produksi: pin khusus menu ini (terpisah dari pin Dashboard); akun Karyawan hanya melihat
+            const prodPins = useSharedPins('prod');
+            const [prioritasOnly, setPrioritasOnly] = useState(false);
+            const [prioritasClearConfirm, setPrioritasClearConfirm] = useState(false);
+            const prioritasCount = safeOrders.filter(o => !o?.isArchived && prodPins.pinSet.has(String(o.id))).length;
+            const displayProductionOrders = pinFirst(sortOrderList((colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders)
+                .filter(o => !prioritasOnly || prodPins.pinSet.has(String(o.id))), prodSort), prodPins.pinSet);
+            const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}|${prodSort}|${prioritasOnly}`);
 
             const isKaryawanMode = authUser?.role === 'Karyawan';
             const myEmpData = isKaryawanMode ? visibleEmployees.find(e => (
@@ -5689,6 +5829,29 @@ window.addEventListener('load',function(){
                         ))}
                         {colorFilter && <button onClick={() => setColorFilter(null)} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                     </div>
+                    {(prioritasCount > 0 || prioritasOnly) && (
+                        <div data-prod-prio-banner="1" className="flex flex-wrap items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-200 bg-amber-50">
+                            <span className="text-sm font-bold text-amber-800">📌 {prioritasCount} order prioritas produksi{isKaryawanMode ? ' — kerjakan lebih dulu' : ''}</span>
+                            {!isKaryawanMode && (
+                                <>
+                                    <button type="button" data-prod-prio-only="1" onClick={() => setPrioritasOnly(v => !v)} className={`text-xs font-bold rounded-lg px-2.5 py-1 border ${prioritasOnly ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-300 text-amber-800 hover:bg-amber-100'}`}>{prioritasOnly ? '✓ Hanya prioritas' : 'Tampilkan prioritas saja'}</button>
+                                    {prioritasCount > 0 && <button type="button" data-prod-prio-clear="1" onClick={() => setPrioritasClearConfirm(true)} className="text-xs font-bold rounded-lg px-2.5 py-1 border bg-white border-red-200 text-red-700 hover:bg-red-50">Lepas semua</button>}
+                                </>
+                            )}
+                        </div>
+                    )}
+                    {prioritasClearConfirm && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]" data-prod-prio-clear-confirm="1">
+                            <div className="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full mx-4">
+                                <h3 className="text-lg font-bold text-gray-900 mb-2">Lepas Semua Prioritas</h3>
+                                <p className="text-gray-600 mb-6">Lepas tanda prioritas dari {prioritasCount} order di Proses Produksi? Data order tidak berubah, hanya urutan tampilannya.</p>
+                                <div className="flex justify-end space-x-3">
+                                    <button onClick={() => setPrioritasClearConfirm(false)} className="px-4 py-2 font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Batal</button>
+                                    <button onClick={() => { setPrioritasClearConfirm(false); prodPins.unpinAll(); setPrioritasOnly(false); }} className="px-4 py-2 font-medium bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors">Ya, Lepas Semua</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {pagedProductionOrders.map(order => {
                             const today = new Date();
@@ -5725,8 +5888,16 @@ window.addEventListener('load',function(){
                             const mainImage = order.designImage1 || order.designImage2 || null;
 
                             return (
-                                <Card key={order.id} className={`hover:shadow-lg transition-shadow relative overflow-hidden group border ${cardColor} flex flex-col h-full !p-0`}>
+                                <Card key={order.id} className={`hover:shadow-lg transition-shadow relative overflow-hidden group border ${cardColor} flex flex-col h-full !p-0 ${prodPins.pinSet.has(String(order.id)) ? 'ring-2 ring-amber-400' : ''}`}>
                                     <div className={`absolute top-0 left-0 w-1.5 h-full transition-colors ${indicatorColor} z-10`}></div>
+                                    {prodPins.pinSet.has(String(order.id)) ? (
+                                        <div data-prod-prio={order.id} className="absolute top-1.5 right-2 z-20 inline-flex items-center gap-1 text-[11px] font-black bg-amber-100 text-amber-800 border border-amber-300 rounded-full pl-2 pr-1 py-0.5 shadow-sm">
+                                            📌 Prioritas
+                                            {!isKaryawanMode && <button type="button" data-prod-prio-off={order.id} onClick={() => prodPins.toggle(order.id)} title="Lepas prioritas" className="w-4 h-4 inline-flex items-center justify-center rounded-full hover:bg-amber-200">✕</button>}
+                                        </div>
+                                    ) : !isKaryawanMode && (
+                                        <button type="button" data-prod-prio-on={order.id} onClick={() => prodPins.toggle(order.id)} title="Jadikan prioritas produksi (tampil paling atas)" className="absolute top-1.5 right-2 z-20 text-[11px] font-bold bg-white/90 text-gray-500 border border-dashed border-gray-300 rounded-full px-2 py-0.5 hover:text-amber-700 hover:border-amber-400">☆ Prioritaskan</button>
+                                    )}
                                     
                                     {mainImage ? (
                                         <div className="w-full h-32 bg-gray-100 border-b border-gray-200 relative overflow-hidden">
@@ -5782,7 +5953,7 @@ window.addEventListener('load',function(){
                             );
                         })}
                         {displayProductionOrders.length === 0 && (
-                            <div className="col-span-full p-8 text-center text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">{searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang diproses.'}</div>
+                            <div className="col-span-full p-8 text-center text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">{prioritasOnly ? 'Tidak ada order prioritas yang cocok dengan pencarian/filter.' : searchTerm ? 'Tidak ada order yang cocok dengan pencarian.' : 'Tidak ada order yang sedang diproses.'}</div>
                         )}
                     </div>
                     <Paginator page={prodPage} setPage={setProdPage} totalPages={prodTotalPages} total={prodTotal} pageSize={24} label="order" />
@@ -27997,11 +28168,18 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 try {
                     ch = supabaseClient.channel('simpati-sinyal', { config: { broadcast: { self: false } } })
                         .on('broadcast', { event: 'maintenance' }, () => { checkMaintenanceNowRef.current(true); })
+                        .on('broadcast', { event: 'pins' }, () => { try { window.dispatchEvent(new Event('simpati-pins-remote')); } catch (e) {} })
                         .subscribe();
                     appSignalChannelRef.current = ch;
                 } catch (e) { console.warn('Sinyal langsung tidak tersedia', e); }
                 return () => { appSignalChannelRef.current = null; try { if (ch) supabaseClient.removeChannel(ch); } catch (e) {} };
             }, [isReady]);
+            // Pin order (Dashboard / Proses Produksi) baru tersimpan: beri tahu perangkat lain agar mengambil pin terbaru
+            useEffect(() => {
+                const onPinsChanged = () => sendAppSignal('pins');
+                window.addEventListener('simpati-pins-changed', onPinsChanged);
+                return () => window.removeEventListener('simpati-pins-changed', onPinsChanged);
+            }, []);
 
             // ===== Pindahkan gambar lama (desain order & bukti bayar invoice) ke baris cloud terpisah =====
             // Bertahap, satu per satu, hanya satu tab, berhenti saat server bermasalah. Data order/invoice
