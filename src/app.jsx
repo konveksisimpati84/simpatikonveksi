@@ -1973,32 +1973,53 @@
         const getSaranBahanInstansi = (client, orders, purchaseNotes, excludeOrderId) => {
             const target = normBahanText(client).toLowerCase();
             if (!target) return [];
-            const list = [];
-            const seen = new Set();
+            const byKey = new Map();
             const clientOrders = safeArray(orders).filter(o => o && !o.isDeleted && normBahanText(o.client).toLowerCase() === target && String(o.id) !== String(excludeOrderId || ''))
                 .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-            const push = (r, date) => {
+            // Bahan yang sama (nama+kode+warna) digabung; jenis produksinya dikumpulkan untuk label & pengelompokan
+            const push = (r, date, type, fromNota) => {
                 const name = normBahanText(r.name); if (!name) return;
                 const k = normBahanKey(name, r.code) + '|' + normBahanText(r.color).toLowerCase();
-                if (seen.has(k)) return; seen.add(k);
-                list.push({ name, code: normBahanText(r.code), color: normBahanText(r.color), unit: normBahanUnit(r.unit), date: String(date || '') });
+                let e = byKey.get(k);
+                if (!e) { e = { name, code: normBahanText(r.code), color: normBahanText(r.color), unit: normBahanUnit(r.unit), date: String(date || ''), types: [], fromNota: false }; byKey.set(k, e); }
+                else if (String(date || '') > e.date) e.date = String(date || '');
+                const t = normBahanText(type);
+                if (t && !e.types.some(x => x.toLowerCase() === t.toLowerCase())) e.types.push(t);
+                if (fromNota) e.fromNota = true;
             };
-            clientOrders.forEach(o => safeArray(o.rencanaBahan).forEach(r => push(r, o.date)));
-            const orderIds = new Set(clientOrders.map(o => String(o.id)));
-            const untukInstansi = (it) => orderIds.has(String(it.orderId || ''))
-                || (!String(it.orderId || '').trim() && normBahanText(it.instansi).toLowerCase() === target);
-            safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => safeArray(n.items).forEach(it => { if (it && untukInstansi(it)) push({ name: it.name, code: it.code, color: '', unit: it.unit }, n.date); }));
-            return list.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+            clientOrders.forEach(o => safeArray(o.rencanaBahan).forEach(r => push(r, o.date, o.type)));
+            const ordersById = new Map(clientOrders.map(o => [String(o.id), o]));
+            safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => safeArray(n.items).forEach(it => {
+                if (!it) return;
+                const o = ordersById.get(String(it.orderId || ''));
+                const bahan = { name: it.name, code: it.code, color: '', unit: it.unit };
+                if (o) push(bahan, n.date, o.type);
+                else if (!String(it.orderId || '').trim() && normBahanText(it.instansi).toLowerCase() === target) push(bahan, n.date, '', true);
+            }));
+            return [...byKey.values()].sort((a, b) => b.date.localeCompare(a.date));
         };
 
         // Bagian "Bahan / Kain" di Input Order & Edit Order
-        const RencanaBahanEditor = ({ value, onChange, client, orders, purchaseNotes, masterBahan, excludeOrderId }) => {
+        const RencanaBahanEditor = ({ value, onChange, client, jenis, orders, purchaseNotes, masterBahan, excludeOrderId }) => {
             const rows = safeArray(value);
             const [cari, setCari] = useState('');
             const db = useMemo(() => buildDatabaseBahan(purchaseNotes, orders, masterBahan), [purchaseNotes, orders, masterBahan]);
             const saran = useMemo(() => getSaranBahanInstansi(client, orders, purchaseNotes, excludeOrderId), [client, orders, purchaseNotes, excludeOrderId]);
             const sudahAda = (r) => rows.some(x => normBahanKey(x.name, x.code) === normBahanKey(r.name, r.code) && normBahanText(x.color).toLowerCase() === normBahanText(r.color).toLowerCase());
             const saranTampil = saran.filter(r => !sudahAda(r));
+            // Bahan yang pernah dipakai untuk jenis produksi yang sama ditaruh di atas
+            const jenisKey = normBahanText(jenis).toLowerCase();
+            const cocokJenis = (r) => !!jenisKey && r.types.some(t => t.toLowerCase() === jenisKey);
+            const saranCocok = saranTampil.filter(cocokJenis).slice(0, 8);
+            const saranLain = saranTampil.filter(r => !cocokJenis(r)).slice(0, 8);
+            const chipSaran = (r, i, grup) => (
+                <button key={grup + i} type="button" data-saran-bahan data-saran-grup={grup} onClick={() => tambah(r)} className={`text-xs bg-white border rounded-full px-2.5 py-1 text-left inline-flex items-center gap-1.5 ${grup === 'cocok' ? 'border-teal-300 text-teal-900 hover:bg-teal-100' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}>
+                    <span>+ {[r.name, r.code, r.color].filter(Boolean).join(' · ')}</span>
+                    {r.types.length > 0
+                        ? <span className={`text-[10px] font-bold rounded-full px-1.5 whitespace-nowrap ${grup === 'cocok' ? 'bg-teal-100 text-teal-700' : 'bg-gray-100 text-gray-600'}`}>{r.types.join(', ')}</span>
+                        : r.fromNota && <span className="text-[10px] font-bold rounded-full px-1.5 whitespace-nowrap bg-amber-100 text-amber-800">nota, tanpa order</span>}
+                </button>
+            );
             const q = normBahanText(cari).toLowerCase();
             const hasilCari = q ? db.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].map(u => u.client)].join(' ').toLowerCase().includes(q)).slice(0, 8) : [];
             const setRows = (next) => onChange(next);
@@ -2013,14 +2034,16 @@
                         </div>
                         <button type="button" onClick={() => tambah({})} className="text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg">+ Tambah kain</button>
                     </div>
-                    {saranTampil.length > 0 && (
+                    {saranCocok.length > 0 && (
                         <div>
-                            <div className="text-[11px] font-bold text-teal-800 mb-1">Pernah dipakai “{normBahanText(client)}”:</div>
-                            <div className="flex flex-wrap gap-1.5">
-                                {saranTampil.map((r, i) => (
-                                    <button key={i} type="button" data-saran-bahan onClick={() => tambah(r)} className="text-xs bg-white border border-teal-300 text-teal-900 rounded-full px-2.5 py-1 hover:bg-teal-100 text-left">+ {[r.name, r.code, r.color].filter(Boolean).join(' · ')}</button>
-                                ))}
-                            </div>
+                            <div className="text-[11px] font-bold text-teal-800 mb-1">✓ Pernah dipakai “{normBahanText(client)}” untuk {normBahanText(jenis)}:</div>
+                            <div className="flex flex-wrap gap-1.5">{saranCocok.map((r, i) => chipSaran(r, i, 'cocok'))}</div>
+                        </div>
+                    )}
+                    {saranLain.length > 0 && (
+                        <div>
+                            <div className={`text-[11px] font-bold mb-1 ${saranCocok.length > 0 ? 'text-gray-600' : 'text-teal-800'}`}>{saranCocok.length > 0 ? `Bahan lain yang pernah dipakai “${normBahanText(client)}”:` : `Pernah dipakai “${normBahanText(client)}”:`}</div>
+                            <div className="flex flex-wrap gap-1.5">{saranLain.map((r, i) => chipSaran(r, i, saranCocok.length > 0 ? 'lain' : 'semua'))}</div>
                         </div>
                     )}
                     <div>
@@ -2977,7 +3000,7 @@
                                         </div>
                                     </div>
 
-                                    <RencanaBahanEditor value={editOrder.rencanaBahan} onChange={(next) => setEditOrder(prev => ({ ...prev, rencanaBahan: next }))} client={editOrder.client} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} excludeOrderId={editOrder.id} />
+                                    <RencanaBahanEditor value={editOrder.rencanaBahan} onChange={(next) => setEditOrder(prev => ({ ...prev, rencanaBahan: next }))} client={editOrder.client} jenis={editOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} excludeOrderId={editOrder.id} />
 
                                     <div>
                                         <label className="block text-sm font-semibold mb-1">Catatan Tambahan</label>
@@ -4559,7 +4582,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                 </div>
                             </div>
 
-                            <RencanaBahanEditor value={newOrder.rencanaBahan} onChange={(next) => setNewOrder(prev => ({ ...prev, rencanaBahan: next }))} client={newOrder.client} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} />
+                            <RencanaBahanEditor value={newOrder.rencanaBahan} onChange={(next) => setNewOrder(prev => ({ ...prev, rencanaBahan: next }))} client={newOrder.client} jenis={newOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} />
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Catatan Tambahan Produksi</label>
