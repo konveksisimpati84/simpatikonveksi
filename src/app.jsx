@@ -2166,6 +2166,20 @@
             );
         };
 
+        // Urutan input order. Urutan simpan di cloud tidak bisa dipakai (order baru bisa tergeser ke belakang saat
+        // data perangkat digabung dengan cloud), jadi dipakai nomor ORD-### yang selalu naik saat order dibuat/diduplikat.
+        const orderInputSeq = (o) => { const m = String(o?.id || '').match(/^ORD-(\d+)/); return m ? Number(m[1]) : -1; };
+        const compareOrderInput = (a, b) => (orderInputSeq(a) - orderInputSeq(b))
+            || String(a?.date || '').localeCompare(String(b?.date || ''))
+            || String(a?.id || '').localeCompare(String(b?.id || ''));
+        const ORDER_SORT_VALUES = ['terbaru', 'terlama', 'deadline'];
+        const sortOrderList = (list, sort) => {
+            const arr = [...(list || [])];
+            if (sort === 'terlama') return arr.sort(compareOrderInput);
+            if (sort === 'deadline') return arr.sort((a, b) => String(a?.deadline || '9999-99-99').localeCompare(String(b?.deadline || '9999-99-99')) || compareOrderInput(b, a));
+            return arr.sort((a, b) => compareOrderInput(b, a));
+        };
+
         const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], templates }) => {
             const [dashChartRef, dashChartW] = useElementWidth();
             const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
@@ -2200,7 +2214,7 @@
                         status: ['semua', 'antrian', 'belum', 'siap', 'terkirim', 'lainnya', ...productionStageOptions.map(sg => sg.id)],
                         deadline: ['semua', 'terlambat', 'd7', 'd14', 'tanpa'],
                         bahan: ['semua', 'belum', 'ada', 'tidak'],
-                        sort: ['terbaru', 'deadline', 'terlama'],
+                        sort: ORDER_SORT_VALUES,
                     };
                     const out = { ...DASH_FILTER_DEFAULT };
                     Object.keys(pilihan).forEach(k => { if (pilihan[k].includes(v[k])) out[k] = v[k]; });
@@ -2250,15 +2264,7 @@
             };
             const dashBaseOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
             const dashboardOrders = React.useMemo(() => {
-                const list = dashBaseOrders.filter(o => dashMatch(o, dashFilter));
-                if (dashFilter.sort === 'deadline') {
-                    return list.map((o, i) => ({ o, i })).sort((a, b) => {
-                        const da = a.o.deadline || '9999-99-99', dbb = b.o.deadline || '9999-99-99';
-                        return da.localeCompare(dbb) || a.i - b.i;
-                    }).map(x => x.o);
-                }
-                if (dashFilter.sort === 'terlama') return [...list].reverse();
-                return list;
+                return sortOrderList(dashBaseOrders.filter(o => dashMatch(o, dashFilter)), dashFilter.sort);
             }, [dashBaseOrders, dashFilter]);
             const dashCount = (field, value) => dashBaseOrders.filter(o => dashMatch(o, { ...dashFilter, [field]: value }, null)).length;
             const dashActiveFilterCount = ['status', 'deadline', 'bahan'].filter(k => dashFilter[k] !== 'semua').length + (dashFilter.marketing ? 1 : 0) + (dashFilter.jenis ? 1 : 0);
@@ -2733,9 +2739,9 @@
                                     ))}
                                     {field('Urutkan', (
                                         <select data-dash-select="sort" value={dashFilter.sort} onChange={e => setFilterField('sort', e.target.value)} className={selectCls(dashFilter.sort !== 'terbaru')}>
-                                            <option value="terbaru">Terbaru</option>
+                                            <option value="terbaru">Input terbaru</option>
+                                            <option value="terlama">Input terlama</option>
                                             <option value="deadline">Deadline terdekat</option>
-                                            <option value="terlama">Terlama</option>
                                         </select>
                                     ))}
                                 </div>
@@ -4882,8 +4888,11 @@ window.addEventListener('load',function(){
                 if (d <= 14) return 'sedang';
                 return 'normal';
             };
-            const displayProductionOrders = colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders;
-            const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}`);
+            const PROD_SORT_KEY = 'simpati_prod_sort';
+            const [prodSort, setProdSort] = useState(() => { try { const v = localStorage.getItem(PROD_SORT_KEY); return ORDER_SORT_VALUES.includes(v) ? v : 'terbaru'; } catch (e) { return 'terbaru'; } });
+            React.useEffect(() => { try { localStorage.setItem(PROD_SORT_KEY, prodSort); } catch (e) {} }, [prodSort]);
+            const displayProductionOrders = sortOrderList(colorFilter ? filteredProductionOrders.filter(o => getOrderColorKey(o) === colorFilter) : filteredProductionOrders, prodSort);
+            const { page: prodPage, setPage: setProdPage, totalPages: prodTotalPages, paged: pagedProductionOrders, total: prodTotal } = usePagination(displayProductionOrders, 24, `${searchTerm}|${colorFilter}|${prodSort}`);
 
             const isKaryawanMode = authUser?.role === 'Karyawan';
             const myEmpData = isKaryawanMode ? visibleEmployees.find(e => (
@@ -5620,7 +5629,17 @@ window.addEventListener('load',function(){
                         <button onClick={() => setActiveProductionTab('riwayat')} className="pb-2 px-1 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700">Riwayat Produksi</button>
                     </div>
                     <Card>
-                        <SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID order, klien, barang, status, deadline..." />
+                        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                            <div className="flex-1 min-w-0"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID order, klien, barang, status, deadline..." /></div>
+                            <label className="block sm:w-52 shrink-0">
+                                <span className="block text-xs font-bold text-gray-500 mb-1">Urutkan</span>
+                                <select data-prod-sort="1" value={prodSort} onChange={e => setProdSort(e.target.value)} className={`w-full border rounded-lg px-3 py-2.5 text-sm ${prodSort !== 'terbaru' ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-gray-300 bg-white text-gray-700'}`}>
+                                    <option value="terbaru">Input terbaru</option>
+                                    <option value="terlama">Input terlama</option>
+                                    <option value="deadline">Deadline terdekat</option>
+                                </select>
+                            </label>
+                        </div>
                     </Card>
                     {isKaryawanMode && myEmployeeProblem && (
                         <Card className="border-red-200 bg-red-50">
