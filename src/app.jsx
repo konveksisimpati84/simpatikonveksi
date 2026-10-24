@@ -25343,6 +25343,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const supabaseLoadedRef = React.useRef(false);
             const ordersSyncTimerRef = React.useRef(null);
             const ordersPendingRef = React.useRef(null);
+            // Nota pembelian & invoice: disimpan bertahap (jeda 3 detik), dikirim berurutan per jenis data
+            const recordSaveTimersRef = React.useRef({});
+            const recordSavePendingRef = React.useRef({});
+            const recordSaveChainRef = React.useRef({});
+            const recordSaveSeqRef = React.useRef({});
             // Status simpan ke cloud: key yang gagal disimpan diingat (juga di localStorage) dan dicoba ulang otomatis
             const SYNC_FAILED_STORAGE_KEY = 'simpati_sync_failed_keys';
             const syncSeqRef = React.useRef(0);
@@ -25528,6 +25533,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     if (syncFailedRef.current.size > 0) retryFailedSaves({ manual: true });
                     // Hapus timestamp cache supaya semua dataset di-fetch ulang dari Supabase
                     setTsCache({});
+                    tsBaseRef.current = {};
                     await applyRemoteDataSnapshot();
                     setLastSyncTime(Date.now());
                     showToast('Data berhasil diperbarui dari server.', 'success');
@@ -25668,7 +25674,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const TS_CACHE_KEY = 'simpati_ts_cache';
             const getTsCache = () => { try { return JSON.parse(localStorage.getItem(TS_CACHE_KEY) || '{}'); } catch { return {}; } };
             const setTsCache = (map) => { try { localStorage.setItem(TS_CACHE_KEY, JSON.stringify(map)); } catch {} };
-            const updateTsCache = (key, ts) => { const c = getTsCache(); c[key] = ts; setTsCache(c); };
+            const updateTsCache = (key, ts) => { const c = getTsCache(); c[key] = ts; setTsCache(c); tsBaseRef.current[key] = ts; };
+            // Cap waktu terakhir yang PASTI sama antara data di tab ini dan cloud (dari simpanan/unduhan tab ini sendiri).
+            // Tidak ikut dihapus saat simpan dimulai, dan hanya berlaku di tab ini (tab lain punya catatan sendiri).
+            const tsBaseRef = useRef({});
             // Kapan salinan tiap data terakhir dipastikan sama dengan cloud (ms). Salinan hanya dipercaya maks. 6 jam,
             // sebagai jaring pengaman bila catatan perubahan di cloud sempat tertimpa perangkat lain.
             const TS_VERIFIED_KEY = 'simpati_ts_verified_at';
@@ -25794,6 +25803,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             delete cache[key];
                             setTsCache(cache);
                         }
+                        if (tsBaseRef.current[key] === ts) delete tsBaseRef.current[key];
                     }
                 }
             };
@@ -25840,7 +25850,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     // dalam 6 jam terakhir — kalau tidak, ambil dari cloud.
                     if (!localKey) return loadLocalData(`simpati_${key}_sync`, defaultVal);
                     const verifiedAt = getVerifiedMap()[key];
-                    if (localCopyExists(localKey) && verifiedAt && Date.now() - verifiedAt < CACHE_TRUST_MS) return loadLocalData(localKey, defaultVal);
+                    if (localCopyExists(localKey) && verifiedAt && Date.now() - verifiedAt < CACHE_TRUST_MS) {
+                        // Salinan di perangkat persis versi cloud: jadi dasar "simpan tanpa unduh" untuk tab ini
+                        if (SAVE_SKIP_FETCH_KEYS.has(key) && localTs === remoteTs) tsBaseRef.current[key] = remoteTs;
+                        return loadLocalData(localKey, defaultVal);
+                    }
                 }
                 const meta = {};
                 const data = await fetchStoreData(key, defaultVal, meta);
@@ -27117,14 +27131,15 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const publishSyncState = () => {
                 const failedEntries = [...syncFailedRef.current.entries()];
                 const ordersWaiting = !!ordersSyncTimerRef.current;
+                const recordsWaiting = Object.keys(recordSaveTimersRef.current);
                 // Disimpan di perangkat: semua key yang belum terkonfirmasi sampai di cloud, agar dikirim ulang walau aplikasi ditutup
-                const unconfirmed = new Set([...syncFailedRef.current.keys(), ...syncPendingRef.current.keys(), ...(ordersWaiting ? ['orders'] : [])]);
+                const unconfirmed = new Set([...syncFailedRef.current.keys(), ...syncPendingRef.current.keys(), ...(ordersWaiting ? ['orders'] : []), ...recordsWaiting]);
                 try {
                     if (unconfirmed.size) localStorage.setItem(SYNC_FAILED_STORAGE_KEY, JSON.stringify([...unconfirmed]));
                     else localStorage.removeItem(SYNC_FAILED_STORAGE_KEY);
                 } catch (e) {}
                 const failedKeys = failedEntries.filter(([, e]) => !e.fromPreviousSession).map(([k]) => k);
-                const saving = syncPendingRef.current.size > 0 || ordersWaiting || failedEntries.some(([, e]) => e.fromPreviousSession);
+                const saving = syncPendingRef.current.size > 0 || ordersWaiting || recordsWaiting.length > 0 || failedEntries.some(([, e]) => e.fromPreviousSession);
                 setCloudSync(prev => (prev.saving === saving && prev.failedKeys.join('|') === failedKeys.join('|')) ? prev : { saving, failedKeys });
             };
 
@@ -27236,14 +27251,51 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
             };
 
+            // Data yang memakai "lewati unduhan sebelum simpan" dan "simpan bertahap 3 detik"
+            const SAVE_SKIP_FETCH_KEYS = new Set(['invoices', 'purchaseNotes']);
+            // Pengaman setelah menyimpan nota/invoice: tanyakan ke server apakah perubahan terbaru dari tab ini (nomor + versi)
+            // benar-benar ada di cloud (pertanyaan kecil, tanpa mengunduh data). Bila tidak — mis. tertimpa simpanan perangkat
+            // lain pada detik yang hampir sama — cocokkan ulang dengan cloud: unduh, gabung, kirim ulang yang tertinggal.
+            const skipFetchDisabledRef = useRef(false);
+            const cekPerubahanAdaDiCloud = async (key, records, sejak) => {
+                if (!supabaseClient || cloudHealth.isBlocked() || syncFailedRef.current.has(key)) return;
+                const contoh = safeArray(records)
+                    .filter(r => r && r.id != null && r._syncUpdatedAt && String(r._syncUpdatedAt) >= sejak)
+                    .sort((a, b) => String(b._syncUpdatedAt).localeCompare(String(a._syncUpdatedAt)))
+                    .slice(0, 20)
+                    .map(r => ({ id: r.id, _syncUpdatedAt: r._syncUpdatedAt }));
+                if (!contoh.length) return;
+                const { data, error, status } = await supabaseClient.from('app_data').select('id').eq('id', key).filter('data', 'cs', JSON.stringify(contoh));
+                if (error) {
+                    if (isCloudServerTrouble(error, status)) cloudHealth.fail();
+                    else skipFetchDisabledRef.current = true; // server tidak mendukung pengecekan ini: kembali ke cara lama (selalu unduh dulu)
+                    return;
+                }
+                if (Array.isArray(data) && data.length > 0) return;
+                invalidateTsCacheKey(key);
+                delete tsBaseRef.current[key];
+                if (syncInFlightRef.current) { setTimeout(() => { applyRemoteDataSnapshotRef.current().catch(() => {}); }, 5000); return; }
+                await applyRemoteDataSnapshotRef.current();
+            };
             const mergeRemoteRecordsForSave = async (key, localRecords) => {
                     const patchedLocal = key === 'employees' ? sanitizeEmployees(localRecords) : (Array.isArray(localRecords) ? localRecords : []);
                 if (!supabaseClient) return patchedLocal;
 
                 if (cloudHealth.isBlocked()) return patchedLocal;
+                // Dicatat sebelum beginSync (yang menghapus catatan cap waktu di perangkat)
+                const base = SAVE_SKIP_FETCH_KEYS.has(key) ? tsBaseRef.current[key] : null;
+                const verifiedAt = getVerifiedMap()[key];
                 // Tahap ambil-data-cloud sebelum simpan juga dihitung "sedang menyimpan"
                 beginSync(key);
                 try {
+                    // Hemat kuota: bila catatan perubahan di cloud PERSIS sama dengan versi terakhir yang tab ini ketahui
+                    // (tidak ada perangkat lain yang menyimpan sejak itu), data di tab ini sudah memuat semua isi cloud,
+                    // jadi tidak perlu mengunduh seluruh data sebelum menyimpan. Selain itu: unduh & gabung seperti biasa.
+                    if (base && !skipFetchDisabledRef.current && verifiedAt && Date.now() - verifiedAt < CACHE_TRUST_MS) {
+                        const remoteTs = await fetchRemoteTimestamps();
+                        if (remoteTs === null) return patchedLocal;
+                        if (remoteTs[key] === base) return patchedLocal;
+                    }
                     const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', key).single();
                     if (error && isCloudServerTrouble(error, status)) cloudHealth.fail();
                     if (error || !Array.isArray(data?.data)) return patchedLocal;
@@ -27281,6 +27333,49 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 if (latest) flushOrdersSync(latest);
                 else publishSyncState();
             };
+
+            // Simpan bertahap nota/invoice: banyak input berturut-turut digabung jadi satu pengiriman.
+            // Data sudah tersimpan di perangkat sejak diklik; yang ditunda hanya pengiriman ke cloud.
+            const RECORD_SAVE_DELAY_MS = 3000;
+            const flushRecordSave = (key) => {
+                const t = recordSaveTimersRef.current[key];
+                if (t) { clearTimeout(t); delete recordSaveTimersRef.current[key]; }
+                const p = recordSavePendingRef.current[key];
+                delete recordSavePendingRef.current[key];
+                if (!p) { publishSyncState(); return; }
+                beginSync(key); // langsung dihitung "sedang menyimpan" (juga selama menunggu giliran)
+                const prev = recordSaveChainRef.current[key] || Promise.resolve();
+                const urutan = (recordSaveSeqRef.current[key] || 0) + 1;
+                recordSaveSeqRef.current[key] = urutan;
+                const run = prev.catch(() => {}).then(async () => {
+                    const sejak = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+                    try {
+                        const merged = await mergeRemoteRecordsForSave(key, p.data);
+                        safeLocalSet(p.localKey, JSON.stringify(merged));
+                        const savePromise = saveToSupabase(key, merged);
+                        p.setState(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                        await savePromise;
+                        // Pengecekan dibatalkan bila sudah ada simpanan lebih baru (yang punya pengecekan sendiri)
+                        [4000, 15000].forEach(jeda => setTimeout(() => { if (recordSaveSeqRef.current[key] === urutan) cekPerubahanAdaDiCloud(key, merged, sejak).catch(() => {}); }, jeda));
+                    } finally {
+                        endSync(key);
+                    }
+                });
+                recordSaveChainRef.current[key] = run;
+            };
+            const scheduleRecordSave = (key, localKey, data, setState, delay = RECORD_SAVE_DELAY_MS) => {
+                recordSavePendingRef.current[key] = { data, localKey, setState };
+                const t = recordSaveTimersRef.current[key];
+                if (t) clearTimeout(t);
+                recordSaveTimersRef.current[key] = setTimeout(() => flushRecordSave(key), delay);
+                // Seperti order: catatan versi dibuat basi agar bila aplikasi tertutup sebelum terkirim,
+                // pembukaan berikutnya mencocokkan ulang dengan cloud lalu mengirim data yang tertinggal
+                setTimeout(() => { invalidateTsCacheKey(key); publishSyncState(); }, 0);
+            };
+            const flushAllPendingRecordSaves = () => { Object.keys(recordSaveTimersRef.current).forEach(flushRecordSave); };
 
             const updateOrders = (updater) => {
                 setOrders(prev => {
@@ -27442,15 +27537,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
                     safeLocalSet('simpati_invoices_sync', JSON.stringify(valid));
-                    setTimeout(async () => {
-                        const merged = await mergeRemoteRecordsForSave('invoices', valid);
-                        safeLocalSet('simpati_invoices_sync', JSON.stringify(merged));
-                        saveToSupabase('invoices', merged);
-                        setInvoices(current => {
-                            const currentMerged = mergeRecordLists(current || [], merged);
-                            return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
-                        });
-                    }, 0);
+                    // Link invoice untuk klien dibaca langsung dari cloud: bila ada link baru, kirim tanpa jeda
+                    const prevTokens = new Map(safeArray(prev).map(i => [String(i?.id), i?.invoiceShareToken || '']));
+                    const linkBaru = valid.some(i => i && i.invoiceShareToken && prevTokens.get(String(i.id)) !== i.invoiceShareToken);
+                    scheduleRecordSave('invoices', 'simpati_invoices_sync', valid, setInvoices, linkBaru ? 0 : RECORD_SAVE_DELAY_MS);
                     return valid;
                 });
             };
@@ -27499,15 +27589,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
                     safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(valid));
-                    setTimeout(async () => {
-                        const merged = await mergeRemoteRecordsForSave('purchaseNotes', valid);
-                        safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(merged));
-                        saveToSupabase('purchaseNotes', merged);
-                        setPurchaseNotes(current => {
-                            const m = mergeRecordLists(current || [], merged);
-                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
-                        });
-                    }, 0);
+                    scheduleRecordSave('purchaseNotes', 'simpati_purchase_notes_sync', valid, setPurchaseNotes);
                     return valid;
                 });
             };
@@ -28021,6 +28103,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         if (calledUpdaters.has(updater)) { kirim(i + 1); return; }
                         calledUpdaters.add(updater);
                         updater(prev => prev);
+                        // Kirim ulang tidak perlu menunggu jeda simpan bertahap
+                        setTimeout(() => { if (recordSaveTimersRef.current[key]) flushRecordSave(key); }, 0);
                     } else if (entry.data) {
                         (async () => {
                             const payload = Array.isArray(entry.data) ? await mergeRemoteRecordsForSave(key, entry.data) : entry.data;
@@ -28049,7 +28133,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const applyRemoteDataSnapshotRef = React.useRef(applyRemoteDataSnapshot);
             applyRemoteDataSnapshotRef.current = applyRemoteDataSnapshot;
             const flushPendingOrdersRef = React.useRef(flushPendingOrdersNow);
-            flushPendingOrdersRef.current = flushPendingOrdersNow;
+            flushPendingOrdersRef.current = () => { flushPendingOrdersNow(); flushAllPendingRecordSaves(); };
 
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
@@ -28079,7 +28163,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const handleBeforeUnload = (e) => {
                     flushPendingOrdersRef.current();
                     const adaGagal = [...syncFailedRef.current.values()].some(x => !x.permanent && !x.fromPreviousSession);
-                    if (syncPendingRef.current.size > 0 || ordersSyncTimerRef.current || adaGagal) { e.preventDefault(); e.returnValue = ''; }
+                    if (syncPendingRef.current.size > 0 || ordersSyncTimerRef.current || Object.keys(recordSaveTimersRef.current).length > 0 || adaGagal) { e.preventDefault(); e.returnValue = ''; }
                 };
                 window.addEventListener('online', handleOnline);
                 document.addEventListener('visibilitychange', handleHidden);
@@ -28154,6 +28238,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const keys = new Set(syncPendingRef.current.keys());
                 syncFailedRef.current.forEach((e, k) => { if (!e.permanent) keys.add(k); });
                 if (ordersSyncTimerRef.current) keys.add('orders');
+                Object.keys(recordSaveTimersRef.current).forEach(k => keys.add(k));
                 return keys.size;
             };
             const handleTroubleRetry = async () => {
