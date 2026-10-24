@@ -25395,6 +25395,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [clients, setClients] = useState([]);
             const [manualPurchases, setManualPurchases] = useState([]);
             const [purchaseNotes, setPurchaseNotes] = useState([]);
+            // Isi terbaru nota/invoice di tab ini (dipakai saat simpan bertahap dikirim, termasuk data yang baru masuk dari sinkron)
+            const latestRecordsRef = useRef({});
+            latestRecordsRef.current = { invoices, purchaseNotes };
             const [investors, setInvestors] = useState([]);
             const [investorBagiHasil, setInvestorBagiHasil] = useState([]);
             const [bagiHasilPromosi, setBagiHasilPromosi] = useState([]);
@@ -27350,7 +27353,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const run = prev.catch(() => {}).then(async () => {
                     const sejak = new Date(Date.now() - 10 * 60 * 1000).toISOString();
                     try {
-                        const merged = await mergeRemoteRecordsForSave(key, p.data);
+                        // Kirim isi TERBARU (bukan isi saat jeda dimulai): data dari perangkat lain yang masuk lewat sinkron
+                        // selama jeda ikut terkirim, sehingga tidak tertimpa walau unduhan sebelum simpan dilewati
+                        const data = mergeRecordLists(safeArray(latestRecordsRef.current[key]), p.data);
+                        const merged = await mergeRemoteRecordsForSave(key, data);
                         safeLocalSet(p.localKey, JSON.stringify(merged));
                         const savePromise = saveToSupabase(key, merged);
                         p.setState(current => {
