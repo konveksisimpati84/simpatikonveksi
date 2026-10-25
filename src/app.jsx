@@ -3227,7 +3227,9 @@ ${blocks}
         const cariKlienTepat = (clients, name) => {
             const n = klienNorm(name);
             if (!n) return null;
-            return safeArray(clients).find(c => c && !c.isDeleted && klienNamaSemua(c).some(x => klienNorm(x) === n)) || null;
+            const aktif = safeArray(clients).filter(c => c && !c.isDeleted);
+            // Nama utama didahulukan, baru "nama lain"
+            return aktif.find(c => klienNorm(c.name) === n) || aktif.find(c => safeArray(c.namaLain).some(x => klienNorm(x) === n)) || null;
         };
         const cariKlienMirip = (clients, name) => {
             const k = klienKanon(name);
@@ -3254,10 +3256,10 @@ ${blocks}
             });
         };
         // Keterangan di bawah kolom klien pada Input / Edit Order
-        const KlienOrderInfo = ({ nama, clients, abaikan, onPakai, onAbaikan }) => {
+        const KlienOrderInfo = ({ nama, clients, abaikan, onPakai, onAbaikan, klien, tambahan, teksBaru }) => {
             if (!normBahanText(nama)) return null;
-            const ada = cariKlienTepat(clients, nama);
-            if (ada) return <div data-klien-info="ada" className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2 py-1">✓ Terhubung ke Klien <span className="font-mono text-[11px] bg-white/70 rounded px-1">{ada.id}</span>{klienNorm(ada.name) !== klienNorm(nama) ? <span className="font-normal">({ada.name})</span> : null}</div>;
+            const ada = klien !== undefined ? klien : cariKlienTepat(clients, nama);
+            if (ada) return <div data-klien-info="ada" className="mt-1.5 inline-flex flex-wrap items-center gap-1.5 text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2 py-1">✓ Terhubung ke Klien <span className="font-mono text-[11px] bg-white/70 rounded px-1">{ada.id}</span>{klienNorm(ada.name) !== klienNorm(nama) ? <span className="font-normal">({ada.name})</span> : null}{tambahan}</div>;
             const mirip = abaikan === klienNorm(nama) ? null : cariKlienMirip(clients, nama);
             if (mirip) return (
                 <div data-klien-info="mirip" className="mt-1.5 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-2">
@@ -3268,7 +3270,7 @@ ${blocks}
                     </div>
                 </div>
             );
-            return <div data-klien-info="baru" className="mt-1.5 text-xs text-blue-800"><span className="font-bold bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 inline-block">＋ Klien baru</span> <span className="text-gray-500">otomatis ditambahkan ke menu Klien &amp; Instansi saat order disimpan.</span></div>;
+            return <div data-klien-info="baru" className="mt-1.5 text-xs text-blue-800"><span className="font-bold bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 inline-block">＋ Klien baru</span> <span className="text-gray-500">{teksBaru || 'otomatis ditambahkan ke menu Klien & Instansi saat order disimpan.'}</span></div>;
         };
 
         // Nama instansi di order yang belum ada di daftar klien: baru / mirip klien lain / pernah dihapus. Hanya membaca.
@@ -11891,7 +11893,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             // Klien untuk form invoice: cocokkan nama dulu; saat edit invoice lama yang namanya tidak diubah, pakai clientId-nya (tahan ganti nama klien)
             const resolveFormClient = (customerName, currentEditId) => {
                 const visibleClients = safeClientRows.filter(isVisibleRecord);
-                const byName = visibleClients.find(c => normalizeText(c.name) === normalizeText(customerName));
+                // Nama utama atau "nama lain" klien (spasi ganda & huruf besar tidak dipersoalkan)
+                const byName = cariKlienTepat(visibleClients, customerName);
                 if (byName) return byName;
                 if (!currentEditId || !form.clientId) return null;
                 const original = safeInvoiceRows.find(inv => String(inv.id) === String(currentEditId));
@@ -11907,6 +11910,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 return Math.max(0, poolTotal - usedByOthers);
             };
             const availableDpForForm = getFormAvailableDp(form.customer, editId);
+            const [klienAbaikanInv, setKlienAbaikanInv] = useState('');
+            // Ganti nama customer di form: saldo DP klien yang bisa dipakai ikut dihitung ulang
+            const gantiCustomer = (_c) => setForm(prev => { const _avail = getFormAvailableDp(_c, editId); const _total = getInvoiceTotals(prev).total; const _maxUse = Math.max(0, Math.min(_avail, _total - getFormOtherPaid(prev))); return { ...prev, customer: _c, linkedDpAmount: _maxUse > 0 ? String(_maxUse) : '' }; });
             const currentInvoiceTotal = getInvoiceTotals(form).total;
             // Saldo DP klien yang boleh dipakai = sisa tagihan setelah DP invoice & pembayaran yang sudah ada
             const getFormOtherPaid = (f) => safeMoney(f.invoiceDp?.amount) + getInvoicePayments(f).reduce((s, p) => s + safeMoney(p.amount), 0);
@@ -11972,7 +11978,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 // A1 & A2: Cap invoiceDp.amount antara 0 dan cleanedTotal
                 const safeDpAmount = Math.max(0, Math.min(safeMoney(form.invoiceDp?.amount), cleanedTotal));
                 const formClient = resolveFormClient(form.customer, editId);
-                const row = { ...form, marketingEmpId: marketingEmp?.id || '', clientId: formClient?.id || genId('CLI-'), id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.max(0, Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal - safeDpAmount - getInvoicePayments(form).reduce((s, p) => s + safeMoney(p.amount), 0))), shippingCost: Math.max(0, safeMoney(form.shippingCost)), shippingNote: String(form.shippingNote || ''), _syncUpdatedAt: now };
+                const row = { ...form, marketingEmpId: marketingEmp?.id || '', clientId: formClient?.id || siapkanKlienOrder(safeClientRows, form.customer, now).clientId || genId('CLI-'), id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.max(0, Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal - safeDpAmount - getInvoicePayments(form).reduce((s, p) => s + safeMoney(p.amount), 0))), shippingCost: Math.max(0, safeMoney(form.shippingCost)), shippingNote: String(form.shippingNote || ''), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 setInvoices(prev => {
                     const list = Array.isArray(prev) ? prev : [];
@@ -12475,10 +12481,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <div className="w-1 h-5 bg-blue-500 rounded-full"></div>
                                         <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Informasi Dasar</span>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
                                         <input type="date" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}/>
-                                        <input list="client-list-invoice" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Nama instansi/customer" value={form.customer} onChange={e => { const _c = e.target.value; const _avail = getFormAvailableDp(_c, editId); const _total = getInvoiceTotals(form).total; const _maxUse = Math.max(0, Math.min(_avail, _total - getFormOtherPaid(form))); setForm({ ...form, customer: _c, linkedDpAmount: _maxUse > 0 ? String(_maxUse) : '' }); }} required/>
-                                        <datalist id="client-list-invoice">{safeClientRows.filter(isVisibleRecord).map(client => <option key={client.id} value={client.name}/>)}</datalist>
+                                        <div className="min-w-0">
+                                            <input list="client-list-invoice" className="w-full p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Nama instansi/customer" value={form.customer} onChange={e => gantiCustomer(e.target.value)} required/>
+                                            <datalist id="client-list-invoice">{safeClientRows.filter(isVisibleRecord).map(client => <option key={client.id} value={client.name}/>)}</datalist>
+                                            <KlienOrderInfo nama={form.customer} clients={safeClientRows} klien={resolveFormClient(form.customer, editId)} abaikan={klienAbaikanInv} onPakai={gantiCustomer} onAbaikan={setKlienAbaikanInv} teksBaru="otomatis ditambahkan ke menu Klien & Instansi saat invoice disimpan."
+                                                tambahan={availableDpForForm > 0 ? <span data-klien-dp className="font-normal text-emerald-800">· Saldo DP tersedia: <b>{formatRupiah(availableDpForForm)}</b></span> : null} />
+                                        </div>
                                         <input list="client-address-list" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/>
                                         <datalist id="client-address-list">{clientAddressSuggestions.map((a,i)=><option key={i} value={a}/>)}</datalist>
                                         <input list="marketing-list-enhanced" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Marketing" value={form.marketing} onChange={e => { const mName = e.target.value; const mEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(mName)); setForm({ ...form, marketing: mName, ...(mEmp ? { commissionType: mEmp.commissionType || 'Persen', commissionValue: String(safeMoney(mEmp.commissionValue)) } : {}) }); }}/>
