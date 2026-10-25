@@ -2772,35 +2772,72 @@ ${blocks}
         };
 
         // Pilihan cetak / kirim: A Surat Pesanan, B Checklist, C Pesan WhatsApp. Hanya membaca daftar belanja.
-        const BelanjaCetakModal = ({ pilihan, sumber, templates, showToast, onClose }) => {
+        const BelanjaCetakModal = ({ pilihan, sumber, templates, showToast, onClose, vendorOptions = [], vendorSaran = [], onSimpanVendor }) => {
             const [mode, setMode] = useState('A');
             const [butuh, setButuh] = useState(() => belanjaTglBawaan(pilihan));
-            const [vIdx, setVIdx] = useState(0);
+            const [vKey, setVKey] = useState(null); // vendor yang dipilih di Pesan WA ('' = belum ditentukan)
             const [showKode, setShowKode] = useState(true);
             const [showOrder, setShowOrder] = useState(false);
             const [salam, setSalam] = useState(true);
+            // Nama vendor untuk bahan yang vendornya belum diisi (hanya dipakai untuk bahan-bahan itu)
+            const [vendorBaru, setVendorBaru] = useState('');
+            const [simpanVendor, setSimpanVendor] = useState(true);
             const taRef = useRef(null);
             const groups = useMemo(() => susunBelanjaVendor(pilihan), [pilihan]);
-            const g = groups[Math.min(vIdx, groups.length - 1)];
+            const grupTanpa = groups.find(x => !x.vendor) || null;
+            // Penulisan disamakan dengan vendor yang sudah ada (mis. "toko maju" → "Toko Maju")
+            const namaBaru = (() => { const t = normBahanText(vendorBaru); return vendorOptions.find(v => v.toLowerCase() === t.toLowerCase()) || t; })();
+            const g = groups.find(x => x.vendor === vKey) || groups[0];
+            const gWA = g && !g.vendor && namaBaru ? { ...g, vendor: namaBaru } : g;
             const namaPerusahaan = templates?.companyName || 'Simpati Konveksi';
-            const teks = g ? buatPesanWA(g, { namaPerusahaan, butuh, showKode, showOrder, salam }) : '';
+            const teks = gWA ? buatPesanWA(gWA, { namaPerusahaan, butuh, showKode, showOrder, salam }) : '';
             const totalRows = groups.reduce((s, x) => s + x.rows, 0);
-            const adaTanpaVendor = groups.some(x => !x.vendor);
+            const adaTanpaVendor = !!grupTanpa;
+            // Surat Pesanan: bahan tanpa vendor ikut halaman vendor yang diisi (digabung bila vendornya sudah ada)
+            const pilihanA = useMemo(() => namaBaru ? pilihan.map(l => l.vendor ? l : { ...l, vendor: namaBaru }) : pilihan, [pilihan, namaBaru]);
+            const jumlahHalamanA = useMemo(() => susunBelanjaVendor(pilihanA).length, [pilihanA]);
+            // Simpan nama vendor hanya untuk bahan yang vendornya masih kosong (tidak pernah menimpa vendor yang sudah ada)
+            const simpanVendorBaru = () => {
+                if (!grupTanpa || !namaBaru || !simpanVendor || !onSimpanVendor) return;
+                const ls = grupTanpa.items.flatMap(it => it.colors.flatMap(c => c.lines)).filter(l => !l.vendor);
+                if (!ls.length) return;
+                onSimpanVendor(ls, namaBaru);
+                return ls.length;
+            };
             const salin = async () => {
+                const tersimpan = g && !g.vendor ? simpanVendorBaru() : 0;
+                const ekor = tersimpan ? ` Vendor "${namaBaru}" disimpan untuk ${tersimpan} bahan.` : '';
                 try {
                     await navigator.clipboard.writeText(teks);
-                    showToast('Pesan disalin. Tempel di chat WhatsApp vendor.', 'success');
+                    showToast('Pesan disalin. Tempel di chat WhatsApp vendor.' + ekor, 'success');
                 } catch (e) {
                     const ta = taRef.current;
                     let ok = false;
                     if (ta) { ta.focus(); ta.select(); try { ok = document.execCommand('copy'); } catch (e2) { ok = false; } }
-                    showToast(ok ? 'Pesan disalin. Tempel di chat WhatsApp vendor.' : 'Tidak bisa menyalin otomatis. Tekan lama teks lalu pilih Salin.', ok ? 'success' : 'error');
+                    showToast(ok ? 'Pesan disalin. Tempel di chat WhatsApp vendor.' + ekor : 'Tidak bisa menyalin otomatis. Tekan lama teks lalu pilih Salin.' + ekor, ok ? 'success' : 'error');
                 }
             };
             const cetak = () => {
-                if (mode === 'A') printSuratPesanan(pilihan, { templates, showToast, butuh });
+                if (mode === 'A') {
+                    const tersimpan = simpanVendorBaru();
+                    if (tersimpan) showToast(`Vendor "${namaBaru}" disimpan untuk ${tersimpan} bahan.`, 'success');
+                    printSuratPesanan(pilihanA, { templates, showToast, butuh });
+                }
                 else printChecklistBelanja(pilihan, { templates, showToast });
             };
+            const kotakVendorBaru = (judul, catatan) => (
+                <div data-vendor-baru-box className="border-2 border-orange-300 bg-orange-50 rounded-xl p-3 space-y-2">
+                    <div className="text-xs font-bold text-orange-800">⚠ {judul}</div>
+                    <input type="text" list="belanja-vendor-list" data-vendor-baru value={vendorBaru} onChange={e => setVendorBaru(e.target.value)} placeholder="Ketik / pilih nama vendor" className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white" />
+                    {vendorSaran.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                            {vendorSaran.map(v => <button key={v} type="button" data-vendor-saran={v} onClick={() => setVendorBaru(v)} className={`px-2 py-0.5 rounded-full text-[11px] border ${namaBaru === v ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-700 border-gray-200'}`}>{v}</button>)}
+                        </div>
+                    )}
+                    <label className="flex items-center gap-1.5 text-xs text-gray-700"><input type="checkbox" data-vendor-simpan checked={simpanVendor} onChange={e => setSimpanVendor(e.target.checked)} className="accent-teal-600" /> Simpan sebagai vendor bahan-bahan ini (di Daftar Belanja)</label>
+                    {catatan && <div className="text-[11px] text-gray-500">{catatan}</div>}
+                </div>
+            );
             const pilihanMode = [
                 { id: 'A', ikon: '📄', judul: 'Surat Pesanan ke vendor', ket: '1 halaman per vendor · tanpa nama klien' },
                 { id: 'B', ikon: '✅', judul: 'Checklist belanja', ket: 'internal · semua vendor dalam 1 lembar' },
@@ -2835,10 +2872,10 @@ ${blocks}
                                     {butuh && <button type="button" onClick={() => setButuh('')} className="text-xs text-gray-500 underline">kosongkan</button>}
                                 </div>
                             )}
+                            {mode === 'A' && adaTanpaVendor && kotakVendorBaru(`${grupTanpa.rows} bahan belum punya vendor. "Kepada Yth." untuk halaman itu:`, 'Dikosongkan → "Kepada Yth." dicetak kosong untuk ditulis tangan.')}
                             {mode === 'A' && (
                                 <div className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 leading-relaxed">
-                                    Akan dicetak <b>{groups.length} halaman</b> (1 halaman per vendor). Isinya hanya nama bahan, kode, warna & jumlah: nama klien dan nomor order tidak dicetak.
-                                    {adaTanpaVendor && <div className="text-amber-700 mt-1">Bahan yang vendornya belum ditentukan dicetak dengan "Kepada Yth." kosong (bisa ditulis tangan).</div>}
+                                    Akan dicetak <b>{jumlahHalamanA} halaman</b> (1 halaman per vendor). Isinya hanya nama bahan, kode, warna & jumlah: nama klien dan nomor order tidak dicetak.
                                 </div>
                             )}
                             {mode === 'B' && (
@@ -2849,10 +2886,11 @@ ${blocks}
                             {mode === 'C' && g && (
                                 <div className="space-y-3">
                                     <div className="flex flex-wrap gap-1.5">
-                                        {groups.map((x, i) => (
-                                            <button key={x.vendor || '__none'} type="button" data-wa-vendor={x.vendor || '__none'} onClick={() => setVIdx(i)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${g === x ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-700 border-gray-300'}`}>{x.vendor || 'Belum ditentukan'} ({x.rows})</button>
+                                        {groups.map(x => (
+                                            <button key={x.vendor || '__none'} type="button" data-wa-vendor={x.vendor || '__none'} onClick={() => setVKey(x.vendor)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${g === x ? (x.vendor ? 'bg-teal-700 text-white border-teal-700' : 'bg-orange-600 text-white border-orange-600') : (x.vendor ? 'bg-white text-gray-700 border-gray-300' : 'bg-orange-50 text-orange-700 border-orange-300')}`}>{x.vendor || '⚠ Belum ditentukan'} ({x.rows})</button>
                                         ))}
                                     </div>
+                                    {!g.vendor && kotakVendorBaru('Vendor bahan ini belum diisi. Kirim ke vendor:')}
                                     <textarea ref={taRef} data-wa-text readOnly value={teks} rows={Math.min(16, teks.split('\n').length + 1)} className="w-full p-3 border border-gray-300 rounded-xl text-[13px] font-mono leading-relaxed bg-gray-50" />
                                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700">
                                         <label className="flex items-center gap-1.5"><input type="checkbox" data-wa-kode checked={showKode} onChange={e => setShowKode(e.target.checked)} className="accent-teal-600" /> Tampilkan kode</label>
@@ -2922,6 +2960,16 @@ ${blocks}
                 lines.forEach(l => add(l.vendor));
                 return [...s.values()].sort((a, b) => a.localeCompare(b));
             }, [purchaseNotes, lines]);
+            // Saran cepat di dialog cetak: vendor yang paling sering dipakai di Daftar Belanja, lalu vendor nota terbaru
+            const vendorSaran = useMemo(() => {
+                const cnt = new Map();
+                lines.forEach(l => { if (l.vendor) cnt.set(l.vendor, (cnt.get(l.vendor) || 0) + 1); });
+                const dipakai = [...cnt.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(x => x[0]);
+                const dariNota = safeArray(purchaseNotes).filter(isVisibleRecord).slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).map(n => normBahanText(n.vendor)).filter(Boolean);
+                const out = [], seen = new Set();
+                [...dipakai, ...dariNota].forEach(v => { const k = v.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(v); } });
+                return out.slice(0, 6);
+            }, [lines, purchaseNotes]);
             const q = normBahanText(cari).toLowerCase();
             const cocokStatus = (st, done) => fStatus === 'semua' || (fStatus === 'kurang' ? !done : fStatus === 'selesai' ? done : st === fStatus);
             const cocokVendor = (v) => !fVendor || (fVendor === '__none' ? !v : v === fVendor);
@@ -3125,9 +3173,24 @@ ${blocks}
                             <button type="button" onClick={() => setChecked(new Set())} className="hidden sm:inline px-3 py-1.5 rounded-lg text-sm font-bold text-white/80 hover:text-white underline">Batal pilih</button>
                         </div>
                     )}
-                    {cetakDialog && <BelanjaCetakModal pilihan={cetakDialog.pilihan} sumber={cetakDialog.sumber} templates={templates} showToast={showToast} onClose={() => setCetakDialog(null)} />}
+                    {cetakDialog && <BelanjaCetakModal pilihan={cetakDialog.pilihan} sumber={cetakDialog.sumber} templates={templates} showToast={showToast} onClose={() => setCetakDialog(null)} vendorOptions={vendorOptions} vendorSaran={vendorSaran} onSimpanVendor={(ls, v) => setVendor(ls, v)} />}
                 </div>
             );
+        };
+
+        // Penanda isian Bahan/Kain di Dashboard (hanya membaca order). 'nota' = belum diisi tetapi sudah ada nota (order lama).
+        const dashIsianInfo = (o) => {
+            if (o?.materialStatus === 'Tidak Perlu' || getOrderProcessFlow(o).materials === false) return { g: 'tidak', n: 0 };
+            const n = cleanRencanaBahan(o?.rencanaBahan).length;
+            if (n > 0) return { g: 'sudah', n };
+            return { g: o?.materialStatus === 'Ada Bahan' ? 'nota' : 'belum', n: 0 };
+        };
+        const DashIsianBadge = ({ order }) => {
+            const { g, n } = dashIsianInfo(order);
+            if (g === 'tidak') return null;
+            const cls = g === 'belum' ? 'bg-orange-50 text-orange-700 border-orange-300' : g === 'sudah' ? 'bg-teal-50 text-teal-700 border-teal-300' : 'bg-gray-50 text-gray-600 border-gray-300';
+            const label = g === 'belum' ? '🧵 Bahan belum diisi' : g === 'sudah' ? `🧵 Bahan diisi (${n})` : '🧾 Ada nota bahan';
+            return <div><span data-dash-isian={g} className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold whitespace-nowrap ${cls}`}>{label}</span></div>;
         };
 
         const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], templates }) => {
@@ -3155,7 +3218,7 @@ ${blocks}
             const ITEMS_PER_PAGE = 10;
             // ── Filter daftar Progress Produksi (hanya mengatur tampilan, data order tidak diubah) ──
             const DASH_FILTER_KEY = 'simpati_dash_filter';
-            const DASH_FILTER_DEFAULT = { status: 'semua', deadline: 'semua', bahan: 'semua', marketing: '', jenis: '', sort: 'terbaru', pinOnly: false };
+            const DASH_FILTER_DEFAULT = { status: 'semua', deadline: 'semua', isian: 'semua', bahan: 'semua', marketing: '', jenis: '', sort: 'terbaru', pinOnly: false };
             const [dashFilter, setDashFilter] = React.useState(() => {
                 try {
                     const v = JSON.parse(localStorage.getItem(DASH_FILTER_KEY) || 'null');
@@ -3163,6 +3226,7 @@ ${blocks}
                     const pilihan = {
                         status: ['semua', 'antrian', 'belum', 'siap', 'terkirim', 'lainnya', ...productionStageOptions.map(sg => sg.id)],
                         deadline: ['semua', 'terlambat', 'd7', 'd14', 'tanpa'],
+                        isian: ['semua', 'belum', 'sudah', 'nota', 'tidak'],
                         bahan: ['semua', 'belum', 'ada', 'tidak'],
                         sort: ORDER_SORT_VALUES,
                     };
@@ -3207,11 +3271,12 @@ ${blocks}
             const dashBaseOrders = React.useMemo(() => safeOrders.filter(o => !o?.isArchived && matchesSearch(orderSearchFields(o), searchTerm)), [safeOrders, searchTerm]);
             // Kelompok tiap order dihitung sekali (bukan di setiap pengecekan filter)
             const dashHariIni = toLocalDateStr(); // kelompok deadline ikut berganti saat hari berganti
-            const dashRows = React.useMemo(() => dashBaseOrders.map(o => ({ o, id: String(o?.id), status: dashStatusGroup(o), deadline: dashDeadlineGroup(o), bahan: dashBahanGroup(o), marketing: String(o?.marketing || ''), jenis: String(o?.type || '') })), [dashBaseOrders, dashHariIni]);
+            const dashRows = React.useMemo(() => dashBaseOrders.map(o => ({ o, id: String(o?.id), status: dashStatusGroup(o), deadline: dashDeadlineGroup(o), isian: dashIsianInfo(o).g, bahan: dashBahanGroup(o), marketing: String(o?.marketing || ''), jenis: String(o?.type || '') })), [dashBaseOrders, dashHariIni]);
             const dashMatch = (r, f, except) => {
                 if (except !== 'pin' && f.pinOnly && !dashPins.pinSet.has(r.id)) return false;
                 if (except !== 'status' && f.status !== 'semua' && (f.status === 'antrian' ? (r.status === 'siap' || r.status === 'terkirim') : r.status !== f.status)) return false;
                 if (except !== 'deadline' && f.deadline !== 'semua' && r.deadline !== f.deadline) return false;
+                if (except !== 'isian' && f.isian !== 'semua' && r.isian !== f.isian) return false;
                 if (except !== 'bahan' && f.bahan !== 'semua' && r.bahan !== f.bahan) return false;
                 if (except !== 'marketing' && f.marketing && r.marketing !== f.marketing) return false;
                 if (except !== 'jenis' && f.jenis && r.jenis !== f.jenis) return false;
@@ -3224,11 +3289,12 @@ ${blocks}
             // Angka di setiap pilihan filter = jumlah order bila pilihan itu dipakai bersama filter lain yang aktif.
             // Semua angka dihitung dalam satu putaran.
             const dashCounts = React.useMemo(() => {
-                const c = { status: {}, deadline: {}, bahan: {}, marketing: {}, jenis: {} };
+                const c = { status: {}, deadline: {}, isian: {}, bahan: {}, marketing: {}, jenis: {} };
                 const inc = (field, key) => { c[field][key] = (c[field][key] || 0) + 1; };
                 dashRows.forEach(r => {
                     if (dashMatch(r, dashFilter, 'status')) { inc('status', r.status); if (r.status !== 'siap' && r.status !== 'terkirim') inc('status', 'antrian'); }
                     if (dashMatch(r, dashFilter, 'deadline')) inc('deadline', r.deadline);
+                    if (dashMatch(r, dashFilter, 'isian')) inc('isian', r.isian);
                     if (dashMatch(r, dashFilter, 'bahan')) inc('bahan', r.bahan);
                     if (dashMatch(r, dashFilter, 'marketing')) inc('marketing', r.marketing);
                     if (dashMatch(r, dashFilter, 'jenis')) inc('jenis', r.jenis);
@@ -3236,7 +3302,7 @@ ${blocks}
                 return c;
             }, [dashRows, dashFilter, dashPins.pinSet]);
             const dashCount = (field, value) => (dashCounts[field] && dashCounts[field][value]) || 0;
-            const dashActiveFilterCount = ['status', 'deadline', 'bahan'].filter(k => dashFilter[k] !== 'semua').length + (dashFilter.marketing ? 1 : 0) + (dashFilter.jenis ? 1 : 0) + (dashFilter.pinOnly ? 1 : 0);
+            const dashActiveFilterCount = ['status', 'deadline', 'isian', 'bahan'].filter(k => dashFilter[k] !== 'semua').length + (dashFilter.marketing ? 1 : 0) + (dashFilter.jenis ? 1 : 0) + (dashFilter.pinOnly ? 1 : 0);
             const dashMarketingOptions = React.useMemo(() => [...new Set(safeOrders.filter(o => !o?.isArchived).map(o => o.marketing).filter(Boolean))].sort(), [safeOrders]);
             const dashJenisOptions = React.useMemo(() => [...new Set(safeOrders.filter(o => !o?.isArchived).map(o => o.type).filter(Boolean))].sort(), [safeOrders]);
             const dashEmptyText = dashActiveFilterCount > 0
@@ -3249,7 +3315,7 @@ ${blocks}
                 );
             };
             const pilihKartu = (status) => {
-                setDashFilter(f => ({ ...f, status, deadline: 'semua', bahan: 'semua', marketing: '', jenis: '', pinOnly: false }));
+                setDashFilter(f => ({ ...f, status, deadline: 'semua', isian: 'semua', bahan: 'semua', marketing: '', jenis: '', pinOnly: false }));
                 setTimeout(() => { try { dashListRef.current && dashListRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 50);
             };
 
@@ -3671,7 +3737,7 @@ ${blocks}
                                 </label>
                             );
                             return (
-                                <div data-dash-filter-panel="1" className={`${dashFilterOpen ? 'grid' : 'hidden'} md:grid grid-cols-2 md:grid-cols-3 xl:grid-cols-[1.5fr_1.1fr_1.1fr_1fr_1fr_1.1fr] gap-2 mb-3 p-3 rounded-lg border border-gray-100 bg-gray-50`}>
+                                <div data-dash-filter-panel="1" className={`${dashFilterOpen ? 'grid' : 'hidden'} md:grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr_1fr] gap-2 mb-3 p-3 rounded-lg border border-gray-100 bg-gray-50`}>
                                     {field('Status', (
                                         <select data-dash-select="status" value={dashFilter.status} onChange={e => setFilterField('status', e.target.value)} className={selectCls(dashFilter.status !== 'semua')}>
                                             <option value="semua">Semua</option>
@@ -3692,7 +3758,16 @@ ${blocks}
                                             {opt('deadline', 'tanpa', 'Tanpa deadline')}
                                         </select>
                                     ))}
-                                    {field('Bahan', (
+                                    {field('Isian bahan', (
+                                        <select data-dash-select="isian" value={dashFilter.isian} onChange={e => setFilterField('isian', e.target.value)} className={selectCls(dashFilter.isian !== 'semua')}>
+                                            <option value="semua">Semua</option>
+                                            {opt('isian', 'belum', 'Belum diisi')}
+                                            {opt('isian', 'sudah', 'Sudah diisi')}
+                                            {opt('isian', 'nota', 'Ada nota (tanpa isian)')}
+                                            {opt('isian', 'tidak', 'Tidak perlu bahan')}
+                                        </select>
+                                    ))}
+                                    {field('Nota bahan', (
                                         <select data-dash-select="bahan" value={dashFilter.bahan} onChange={e => setFilterField('bahan', e.target.value)} className={selectCls(dashFilter.bahan !== 'semua')}>
                                             <option value="semua">Semua</option>
                                             {opt('bahan', 'belum', 'Belum ada bahan')}
@@ -3761,6 +3836,7 @@ ${blocks}
                                                 {((order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)) > 0 && (
                                                     <span className="ml-1 inline-flex items-center bg-orange-100 text-orange-700 text-xs font-bold px-1.5 py-0.5 rounded">⚠ {(order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)} pcs revisi</span>
                                                 )}
+                                                <DashIsianBadge order={order} />
                                             </td>
                                             <td className="p-3"><Badge status={order.status} /></td>
                                             <td className="p-3 text-sm text-gray-600 whitespace-nowrap">{order.deadline}</td>
@@ -3822,6 +3898,7 @@ ${blocks}
                                                 {revisiQty > 0 && <span className="ml-1 inline-flex items-center bg-orange-100 text-orange-700 text-xs font-bold px-1.5 py-0.5 rounded">⚠ {revisiQty} pcs revisi</span>}
                                             </div>
                                             <div className="text-xs text-gray-400 mt-0.5">⏰ {order.deadline}</div>
+                                            <DashIsianBadge order={order} />
                                         </div>
                                         <div className="flex gap-1 items-center shrink-0">
                                             <button onClick={() => openEditModal(order)} className="text-blue-500 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-md transition-colors" title="Edit"><IconEdit /></button>
