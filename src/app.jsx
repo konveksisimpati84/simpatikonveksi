@@ -2569,72 +2569,283 @@
             return Math.max(0, l.need - l.bought);
         };
 
-        const printDaftarBelanja = (pilihan, { templates, showToast }) => {
-            if (!pilihan.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
-            // Yang sudah lengkap tidak perlu dibeli lagi (kecuali hanya itu yang dipilih)
+        // Susun bahan yang akan dibeli per vendor: vendor → bahan (nama+kode+satuan) → warna, berisi jumlah yang masih perlu dibeli.
+        // Bahan yang sudah lengkap tidak ikut (kecuali hanya itu yang dipilih).
+        const susunBelanjaVendor = (pilihan) => {
             const lines = pilihan.some(l => !l.done) ? pilihan.filter(l => !l.done) : pilihan;
-            const safe = escapeHtmlText;
-            const now = new Date();
-            const pad = (n) => String(n).padStart(2, '0');
-            const nomor = `DB-${String(now.getFullYear()).slice(2)}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-            const tglCetak = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-            const jamCetak = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-            const namaPerusahaan = templates?.companyName || 'Simpati Konveksi';
-            const logoHtml = templates?.companyLogo ? `<img src="${templates.companyLogo}" style="max-height:48px;max-width:140px;object-fit:contain;display:block;margin-bottom:4px" alt="logo"/>` : '';
             const byVendor = new Map();
             lines.forEach(l => {
                 const v = l.vendor || '';
-                if (!byVendor.has(v)) byVendor.set(v, []);
-                byVendor.get(v).push(l);
+                if (!byVendor.has(v)) byVendor.set(v, new Map());
+                const items = byVendor.get(v);
+                const bk = `${normBahanText(l.name).toLowerCase()}|${normBahanText(l.code).toLowerCase()}|${l.unit}`;
+                if (!items.has(bk)) items.set(bk, { name: l.name, code: l.code, unit: l.unit, colors: new Map() });
+                const it = items.get(bk);
+                const ck = normBahanText(l.color).toLowerCase();
+                if (!it.colors.has(ck)) it.colors.set(ck, { color: l.color, lines: [] });
+                it.colors.get(ck).lines.push(l);
             });
-            const vendorList = [...byVendor.keys()].sort((a, b) => (a ? 0 : 1) - (b ? 0 : 1) || a.localeCompare(b));
-            const blocks = vendorList.map(v => {
-                const rows = gabungBelanja(byVendor.get(v));
-                const trs = rows.map((g, i) => {
-                    const sisaList = g.lines.map(belanjaSisa);
-                    const sisaOk = sisaList.every(s => s != null);
-                    const sisa = sisaOk ? sisaList.reduce((s, x) => s + x, 0) : null;
-                    const unit = g.unit ? ' ' + safe(g.unit) : '';
-                    let keb = sisa != null ? `<b>${fmtBelanjaQty(sisa)}${unit}</b>` : '<b>-</b>';
-                    if (sisa != null && g.need != null && sisa < g.need - 1e-9) keb += `<div class="sub">(sisa dari ${fmtBelanjaQty(g.need)}${unit})</div>`;
-                    if (sisa == null) keb += '<div class="sub">(jumlah belum diisi)</div>';
-                    const untuk = g.lines.map(l => {
-                        const s = belanjaSisa(l);
-                        const jml = l.need == null ? '' : (s != null && s < l.need - 1e-9 ? ` (${fmtBelanjaQty(s)} dari ${fmtBelanjaQty(l.need)})` : ` (${fmtBelanjaQty(l.need)})`);
-                        return `${safe(l.orderId)} ${safe(l.order.client || '')}${jml}`;
-                    }).join('<br/>');
-                    return `<tr><td class="c">${i + 1}</td><td><b>${safe(g.name || '-')}</b></td><td>${safe(g.code || '-')}</td><td>${safe(g.color || '-')}</td><td>${keb}</td><td>${untuk}</td><td></td><td></td><td></td></tr>`;
-                }).join('');
-                return `<div class="blk"><div class="vh"><span>VENDOR: ${safe(v ? v.toUpperCase() : 'BELUM DITENTUKAN')}</span><span>${rows.length} bahan</span></div>
-<table><thead><tr><th style="width:26px">No</th><th>Bahan</th><th>Kode</th><th>Warna</th><th>Kebutuhan</th><th>Untuk Order</th><th style="width:70px">Jml Dibeli</th><th style="width:80px">Harga</th><th style="width:24px">✓</th></tr></thead><tbody>${trs}</tbody></table></div>`;
-            }).join('');
-            const html = `<!DOCTYPE html><html><head><title>Daftar Belanja Bahan - ${safe(namaPerusahaan)}</title><style>
-@page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Arial',Helvetica,sans-serif;color:#111827;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page{width:210mm;min-height:297mm;padding:12mm 14mm 14mm;display:flex;flex-direction:column}
-.hd{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:5mm;border-bottom:3px solid #111827;margin-bottom:5mm}
-.bn{font-size:17px;font-weight:900;line-height:1.15}.bs{font-size:9px;color:#4b5563;margin-top:1px}
-.meta{text-align:right;font-size:9.5px;color:#374151;line-height:1.5}
-.ttl{text-align:center;margin-bottom:5mm}.ttl h1{font-size:15px;font-weight:900;letter-spacing:2px}.ttl div{font-size:10px;margin-top:3px}
-.blk{margin-bottom:5mm;page-break-inside:auto}
-.vh{background:#111827;color:#fff;padding:5px 9px;display:flex;justify-content:space-between;font-size:10.5px;font-weight:800}
-table{width:100%;border-collapse:collapse;font-size:9.5px}
-th{background:#e5e7eb;text-align:left;padding:5px 6px;border:1px solid #111827;font-size:9px}
-td{padding:6px;border:1px solid #111827;vertical-align:top;height:30px}
-td.c{text-align:center}.sub{font-size:8px;color:#4b5563;margin-top:2px}
-tr{page-break-inside:avoid}
-.sig{display:flex;justify-content:space-between;margin-top:10mm;font-size:10px}
-.sig div{width:62mm;text-align:center}.sig .ln{border-bottom:1px solid #111827;height:18mm;margin-bottom:3px}
-</style></head><body><div class="page">
-<div class="hd"><div>${logoHtml}<div class="bn">${safe(namaPerusahaan)}</div>${templates?.companySubtitle ? `<div class="bs">${safe(templates.companySubtitle)}</div>` : ''}${templates?.companyContact ? `<div class="bs">${safe(templates.companyContact)}</div>` : ''}</div>
-<div class="meta">No: ${nomor}<br/>Dicetak: ${tglCetak}, ${jamCetak}</div></div>
-<div class="ttl"><h1>DAFTAR BELANJA BAHAN</h1><div>Purchasing: ______________________</div></div>
-${blocks}
-<div class="sig"><div>Dibuat oleh,<div class="ln"></div>Admin</div><div>Purchasing,<div class="ln"></div>&nbsp;</div></div>
-</div><script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script></body></html>`;
+            const jumlah = (arr) => arr.every(x => x != null) ? arr.reduce((a, b) => a + b, 0) : null;
+            return [...byVendor.entries()]
+                .sort(([a], [b]) => (a ? 0 : 1) - (b ? 0 : 1) || a.localeCompare(b))
+                .map(([vendor, items]) => {
+                    const list = [...items.values()]
+                        .sort((a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code))
+                        .map(it => ({
+                            ...it,
+                            colors: [...it.colors.values()].sort((a, b) => a.color.localeCompare(b.color)).map(c => {
+                                const qty = jumlah(c.lines.map(belanjaSisa));
+                                const need = jumlah(c.lines.map(l => l.need));
+                                return { ...c, qty, need, sebagian: qty != null && need != null && qty < need - 1e-9 };
+                            }),
+                        }));
+                    return { vendor, items: list, rows: list.reduce((s, it) => s + it.colors.length, 0) };
+                });
+        };
+        const belanjaQtyText = (q, unit) => q == null ? '' : `${fmtBelanjaQty(q)}${unit ? ' ' + unit : ''}`;
+        // Tanggal "dibutuhkan paling lambat" bawaan: deadline order terdekat dari bahan yang dipilih
+        const belanjaTglBawaan = (pilihan) => safeArray(pilihan).map(l => String((l.order && l.order.deadline) || '')).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort()[0] || '';
+        const belanjaTglTeks = (d, month) => { if (!d) return ''; const x = new Date(d + 'T00:00:00'); return isNaN(x.getTime()) ? '' : x.toLocaleDateString('id-ID', { day: 'numeric', month, year: 'numeric' }); };
+        const belanjaKop = (templates) => {
+            const safe = escapeHtmlText;
+            const nama = templates?.companyName || 'Simpati Konveksi';
+            const logo = templates?.companyLogo ? `<img src="${templates.companyLogo}" style="max-height:48px;max-width:140px;object-fit:contain;display:block;margin-bottom:4px" alt="logo"/>` : '';
+            const sub = `${templates?.companySubtitle ? `<div class="bs">${safe(templates.companySubtitle)}</div>` : ''}${templates?.companyContact ? `<div class="bs">${safe(templates.companyContact)}</div>` : ''}`;
+            return { nama, html: `${logo}<div class="bn">${safe(nama)}</div>${sub}` };
+        };
+        const bukaJendelaCetak = (html, showToast) => {
             const pw = window.open('', '_blank');
             if (pw) { pw.document.open(); pw.document.write(html); pw.document.close(); pw.focus(); }
             else showToast('Gagal mencetak. Harap izinkan Pop-up di browser Anda!', 'error');
+        };
+        const BELANJA_PRINT_CSS = `@page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Arial',Helvetica,sans-serif;color:#111;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:210mm;min-height:297mm;padding:13mm 15mm 14mm;display:flex;flex-direction:column;page-break-after:always}
+.page:last-child{page-break-after:auto}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:4mm;border-bottom:3px solid #111;margin-bottom:5mm}
+.bn{font-size:19px;font-weight:900;line-height:1.15}.bs{font-size:10px;color:#444;margin-top:2px}
+.meta{text-align:right;font-size:11px;line-height:1.6}`;
+
+        // A. Surat Pesanan: satu halaman per vendor, tanpa nama klien / nomor order
+        const printSuratPesanan = (pilihan, { templates, showToast, butuh }) => {
+            const groups = susunBelanjaVendor(pilihan);
+            if (!groups.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
+            const safe = escapeHtmlText;
+            const kop = belanjaKop(templates);
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            const dasarNo = `SP-${String(now.getFullYear()).slice(2)}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+            const tglCetak = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+            const tglButuh = belanjaTglTeks(butuh, 'long');
+            const pages = groups.map((g, gi) => {
+                let no = 0;
+                const trs = g.items.map(it => {
+                    no++;
+                    return it.colors.map((c, ci) => {
+                        const q = belanjaQtyText(c.qty, it.unit);
+                        return `<tr class="${ci === 0 ? 'first' : 'cont'}"><td class="c">${ci === 0 ? no : ''}</td><td>${ci === 0 ? `<b>${safe(it.name || '-')}</b>` : ''}</td><td>${ci === 0 ? safe(it.code || '-') : ''}</td><td>${safe(c.color || '-')}</td><td class="q">${q ? safe(q) : '<span class="blank">__________</span>'}</td><td class="ket">${q ? '' : 'jumlah menyusul'}</td></tr>`;
+                    }).join('');
+                }).join('');
+                return `<div class="page">
+<div class="hd"><div>${kop.html}</div><div class="meta">No: <b>${dasarNo}-${pad(gi + 1)}</b><br/>Tanggal: ${tglCetak}</div></div>
+<div class="ttl">SURAT PESANAN BAHAN</div>
+<div class="to"><div class="box"><div class="lbl">KEPADA YTH.</div><div class="v">${g.vendor ? safe(g.vendor) : '<span class="kosong">......................................</span>'}</div></div>${tglButuh ? `<div class="butuh">Dibutuhkan paling lambat:<br/><b>${tglButuh}</b></div>` : ''}</div>
+<table><thead><tr><th style="width:9mm">No</th><th>Nama Bahan</th><th>Kode</th><th>Warna</th><th style="text-align:right">Jumlah</th><th style="width:30mm">Keterangan</th></tr></thead><tbody>${trs}</tbody></table>
+<div class="note">Mohon konfirmasi <b>ketersediaan &amp; harga</b> sebelum barang dikirim. Jika warna/kode tidak tersedia, mohon hubungi kami terlebih dahulu.</div>
+<div class="sig"><div>Hormat kami,<div class="ln"></div>Purchasing<div class="sm">${safe(kop.nama)}</div></div><div>Diterima oleh,<div class="ln"></div>${g.vendor ? safe(g.vendor) : 'Vendor'}</div></div>
+</div>`;
+            }).join('');
+            const html = `<!DOCTYPE html><html><head><title>Surat Pesanan Bahan - ${safe(kop.nama)}</title><style>${BELANJA_PRINT_CSS}
+.ttl{text-align:center;font-size:18px;font-weight:900;letter-spacing:3px;margin-bottom:5mm}
+.to{display:flex;justify-content:space-between;align-items:flex-start;gap:8mm;margin-bottom:5mm}
+.box{border:1.5px solid #111;border-radius:6px;padding:3mm 4mm;min-width:80mm}
+.lbl{font-size:10px;color:#555;font-weight:700;letter-spacing:1px}.v{font-size:17px;font-weight:900;margin-top:1mm}
+.kosong{color:#999;font-weight:400}
+.butuh{text-align:right;font-size:12px;line-height:1.6}.butuh b{font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;border-bottom:1.5px solid #111}
+th{background:#111;color:#fff;padding:2.2mm 2.5mm;text-align:left;font-size:11.5px;letter-spacing:.4px}
+td{padding:2.6mm 2.5mm;vertical-align:top}
+tr.first td{border-top:1px solid #c7cbd1}tr.first:first-child td{border-top:none}
+tr.cont td{padding-top:.8mm}
+td.c{text-align:center}td.q{text-align:right;font-weight:900;font-size:15px;white-space:nowrap}
+td.ket{font-size:11px;color:#444}.blank{color:#999;font-weight:400}
+tr{page-break-inside:avoid}
+.note{margin-top:5mm;font-size:12px;border-left:4px solid #111;padding:2mm 3mm;background:#f3f4f6;line-height:1.6}
+.sig{display:flex;justify-content:space-between;margin-top:10mm;font-size:12.5px;text-align:center}
+.sig>div{width:62mm}.sig .ln{border-bottom:1px solid #111;height:18mm;margin-bottom:1.5mm}.sig .sm{font-size:10px;color:#555;margin-top:.5mm}
+</style></head><body>${pages}<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script></body></html>`;
+            bukaJendelaCetak(html, showToast);
+        };
+
+        // B. Checklist belanja (internal): semua vendor dalam satu lembar, kotak centang & jumlah besar
+        const printChecklistBelanja = (pilihan, { templates, showToast }) => {
+            const groups = susunBelanjaVendor(pilihan);
+            if (!groups.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
+            const safe = escapeHtmlText;
+            const kop = belanjaKop(templates);
+            const now = new Date();
+            const tglCetak = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+            const jamCetak = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            const blocks = groups.map(g => {
+                const rows = g.items.map(it => it.colors.map(c => {
+                    const q = belanjaQtyText(c.qty, it.unit);
+                    const ket = [it.code, c.color].filter(Boolean).map(safe).join(' · ');
+                    const untuk = c.lines.map(l => {
+                        const s = belanjaSisa(l);
+                        const jml = l.need == null ? '' : (s != null && s < l.need - 1e-9 ? ` (sisa ${fmtBelanjaQty(s)} dari ${fmtBelanjaQty(l.need)})` : ` (${fmtBelanjaQty(l.need)})`);
+                        return `${safe(l.orderId)} ${safe(l.order.client || '')}${jml}`;
+                    }).join(' · ');
+                    const isian = g.vendor ? 'Dibeli: __________ &nbsp; Harga: ______________' : 'Toko: ____________ &nbsp; Dibeli: ________ &nbsp; Harga: __________';
+                    return `<div class="it"><div class="ck"></div><div class="mid"><div class="nm">${safe(it.name || '-')}${ket ? ` <small>${ket}</small>` : ''}</div><div class="for">${untuk}</div><div class="fill">${isian}</div></div><div class="qty">${q ? safe(q) : '______'}${c.sebagian ? '<small>sisa</small>' : ''}${q ? '' : '<small>jumlah belum diisi</small>'}</div></div>`;
+                }).join('')).join('');
+                return `<div class="vend"><div class="vh"><span>${g.vendor ? safe(g.vendor.toUpperCase()) : 'VENDOR BELUM DITENTUKAN'}</span><span>${g.rows} bahan</span></div>${rows}</div>`;
+            }).join('');
+            const html = `<!DOCTYPE html><html><head><title>Checklist Belanja Bahan - ${safe(kop.nama)}</title><style>${BELANJA_PRINT_CSS}
+.ttl{font-size:16px;font-weight:900;letter-spacing:2px;margin-bottom:4mm}
+.vend{border:2px solid #111;border-radius:8px;margin-bottom:5mm;overflow:hidden}
+.vh{background:#111;color:#fff;padding:2.2mm 3.5mm;display:flex;justify-content:space-between;font-weight:900;font-size:14px}
+.it{display:flex;gap:3.5mm;padding:3mm 3.5mm;border-top:1px solid #c7cbd1;align-items:flex-start;page-break-inside:avoid}
+.vh+.it{border-top:none}
+.ck{width:6mm;height:6mm;border:2.5px solid #111;border-radius:1mm;flex:none;margin-top:.5mm}
+.mid{flex:1;min-width:0}.nm{font-size:16px;font-weight:900}.nm small{font-size:12px;font-weight:700;color:#444;margin-left:1.5mm}
+.for{font-size:11px;color:#555;margin-top:1mm}.fill{font-size:11.5px;color:#333;margin-top:2mm}
+.qty{font-size:21px;font-weight:900;white-space:nowrap;text-align:right}.qty small{display:block;font-size:10px;font-weight:700;color:#555}
+</style></head><body><div class="page">
+<div class="hd"><div>${kop.html}</div><div class="meta">${tglCetak}, ${jamCetak}<br/>Purchasing: ________________</div></div>
+<div class="ttl">CHECKLIST BELANJA BAHAN</div>
+${blocks}
+</div><script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script></body></html>`;
+            bukaJendelaCetak(html, showToast);
+        };
+
+        // C. Teks pesanan untuk ditempel ke chat WhatsApp vendor (*tebal* sesuai format WhatsApp)
+        const buatPesanWA = (g, { namaPerusahaan, butuh, showKode, showOrder, salam }) => {
+            const out = [];
+            out.push(g.vendor ? `${salam ? "Assalamu'alaikum" : 'Halo'} ${g.vendor},` : `${salam ? "Assalamu'alaikum" : 'Halo'},`);
+            out.push(`kami dari *${namaPerusahaan}* mau pesan:`, '');
+            const q = (c, unit) => c.qty != null ? `*${belanjaQtyText(c.qty, unit)}*` : '(jumlah menyusul)';
+            const untuk = (c) => c.lines.map(l => `${l.orderId} ${l.order.client || ''}`.trim()).join(', ');
+            g.items.forEach((it, i) => {
+                const kode = showKode && it.code ? ` (${it.code})` : '';
+                if (it.colors.length === 1) {
+                    const c = it.colors[0];
+                    out.push(`${i + 1}. *${it.name}*${kode}${c.color ? ' ' + c.color : ''}: ${q(c, it.unit)}`);
+                    if (showOrder) out.push(`   _untuk ${untuk(c)}_`);
+                } else {
+                    out.push(`${i + 1}. *${it.name}*${kode}`);
+                    it.colors.forEach(c => {
+                        out.push(`   - ${c.color || 'Tanpa warna'}: ${q(c, it.unit)}`);
+                        if (showOrder) out.push(`     _untuk ${untuk(c)}_`);
+                    });
+                }
+            });
+            out.push('');
+            const tgl = belanjaTglTeks(butuh, 'short');
+            if (tgl) out.push(`Dibutuhkan paling lambat *${tgl}*.`);
+            out.push('Mohon info ketersediaan & harganya.', 'Terima kasih 🙏');
+            return out.join('\n');
+        };
+
+        // Pilihan cetak / kirim: A Surat Pesanan, B Checklist, C Pesan WhatsApp. Hanya membaca daftar belanja.
+        const BelanjaCetakModal = ({ pilihan, sumber, templates, showToast, onClose }) => {
+            const [mode, setMode] = useState('A');
+            const [butuh, setButuh] = useState(() => belanjaTglBawaan(pilihan));
+            const [vIdx, setVIdx] = useState(0);
+            const [showKode, setShowKode] = useState(true);
+            const [showOrder, setShowOrder] = useState(false);
+            const [salam, setSalam] = useState(true);
+            const taRef = useRef(null);
+            const groups = useMemo(() => susunBelanjaVendor(pilihan), [pilihan]);
+            const g = groups[Math.min(vIdx, groups.length - 1)];
+            const namaPerusahaan = templates?.companyName || 'Simpati Konveksi';
+            const teks = g ? buatPesanWA(g, { namaPerusahaan, butuh, showKode, showOrder, salam }) : '';
+            const totalRows = groups.reduce((s, x) => s + x.rows, 0);
+            const adaTanpaVendor = groups.some(x => !x.vendor);
+            const salin = async () => {
+                try {
+                    await navigator.clipboard.writeText(teks);
+                    showToast('Pesan disalin. Tempel di chat WhatsApp vendor.', 'success');
+                } catch (e) {
+                    const ta = taRef.current;
+                    let ok = false;
+                    if (ta) { ta.focus(); ta.select(); try { ok = document.execCommand('copy'); } catch (e2) { ok = false; } }
+                    showToast(ok ? 'Pesan disalin. Tempel di chat WhatsApp vendor.' : 'Tidak bisa menyalin otomatis. Tekan lama teks lalu pilih Salin.', ok ? 'success' : 'error');
+                }
+            };
+            const cetak = () => {
+                if (mode === 'A') printSuratPesanan(pilihan, { templates, showToast, butuh });
+                else printChecklistBelanja(pilihan, { templates, showToast });
+            };
+            const pilihanMode = [
+                { id: 'A', ikon: '📄', judul: 'Surat Pesanan ke vendor', ket: '1 halaman per vendor · tanpa nama klien' },
+                { id: 'B', ikon: '✅', judul: 'Checklist belanja', ket: 'internal · semua vendor dalam 1 lembar' },
+                { id: 'C', ikon: '💬', judul: 'Pesan WhatsApp', ket: 'salin lalu tempel ke chat vendor' },
+            ];
+            return (
+                <div className="fixed inset-0 z-[110] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+                    <div data-belanja-cetak-modal className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
+                            <div>
+                                <div className="font-black text-gray-800 text-lg">🖨 Cetak / Kirim ke Vendor</div>
+                                <div className="text-xs text-gray-500">{sumber}: {totalRows} bahan · {groups.length} vendor</div>
+                            </div>
+                            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none" aria-label="Tutup">×</button>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                {pilihanMode.map(m => (
+                                    <button key={m.id} type="button" data-cetak-mode={m.id} onClick={() => setMode(m.id)} className={`text-left rounded-xl border-2 px-3 py-2 sm:p-3 flex sm:block items-center gap-3 ${mode === m.id ? 'border-teal-600 bg-teal-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+                                        <div className="text-xl">{m.ikon}</div>
+                                        <div>
+                                            <div className="font-black text-sm text-gray-800 sm:mt-1">{m.id}. {m.judul}</div>
+                                            <div className="text-[11px] text-gray-500 leading-snug mt-0.5">{m.ket}</div>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                            {mode !== 'B' && (
+                                <div className="flex flex-wrap items-center gap-2 text-sm">
+                                    <label className="font-bold text-gray-700">Dibutuhkan paling lambat</label>
+                                    <input type="date" data-cetak-butuh value={butuh} onChange={e => setButuh(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm" />
+                                    {butuh && <button type="button" onClick={() => setButuh('')} className="text-xs text-gray-500 underline">kosongkan</button>}
+                                </div>
+                            )}
+                            {mode === 'A' && (
+                                <div className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 leading-relaxed">
+                                    Akan dicetak <b>{groups.length} halaman</b> (1 halaman per vendor). Isinya hanya nama bahan, kode, warna & jumlah: nama klien dan nomor order tidak dicetak.
+                                    {adaTanpaVendor && <div className="text-amber-700 mt-1">Bahan yang vendornya belum ditentukan dicetak dengan "Kepada Yth." kosong (bisa ditulis tangan).</div>}
+                                </div>
+                            )}
+                            {mode === 'B' && (
+                                <div className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 leading-relaxed">
+                                    Semua vendor dalam satu lembar, dengan kotak centang, jumlah besar, nomor order (kecil) dan isian Dibeli / Harga. <b>Untuk internal</b>: memuat nama klien.
+                                </div>
+                            )}
+                            {mode === 'C' && g && (
+                                <div className="space-y-3">
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {groups.map((x, i) => (
+                                            <button key={x.vendor || '__none'} type="button" data-wa-vendor={x.vendor || '__none'} onClick={() => setVIdx(i)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${g === x ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-700 border-gray-300'}`}>{x.vendor || 'Belum ditentukan'} ({x.rows})</button>
+                                        ))}
+                                    </div>
+                                    <textarea ref={taRef} data-wa-text readOnly value={teks} rows={Math.min(16, teks.split('\n').length + 1)} className="w-full p-3 border border-gray-300 rounded-xl text-[13px] font-mono leading-relaxed bg-gray-50" />
+                                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700">
+                                        <label className="flex items-center gap-1.5"><input type="checkbox" data-wa-kode checked={showKode} onChange={e => setShowKode(e.target.checked)} className="accent-teal-600" /> Tampilkan kode</label>
+                                        <label className="flex items-center gap-1.5"><input type="checkbox" data-wa-order checked={showOrder} onChange={e => setShowOrder(e.target.checked)} className="accent-teal-600" /> Tampilkan untuk order</label>
+                                        <label className="flex items-center gap-1.5"><input type="checkbox" data-wa-salam checked={salam} onChange={e => setSalam(e.target.checked)} className="accent-teal-600" /> Salam "Assalamu'alaikum"</label>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="flex gap-2">
+                                {mode === 'C'
+                                    ? <button type="button" data-wa-salin onClick={salin} className="flex-1 py-2.5 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700">📋 Salin pesan</button>
+                                    : <button type="button" data-cetak-go onClick={cetak} className="flex-1 py-2.5 rounded-xl font-bold text-white bg-teal-600 hover:bg-teal-700">🖨 Cetak {mode === 'A' ? 'Surat Pesanan' : 'Checklist'}</button>}
+                                <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl font-bold text-gray-700 bg-white border border-gray-300">Tutup</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
         };
 
         // Kolom vendor: diketik bebas atau dipilih dari daftar; tersimpan saat kolom ditinggalkan / Enter.
@@ -2673,6 +2884,11 @@ ${blocks}
             const [checked, setChecked] = useState(() => new Set());
             const [bulkVendor, setBulkVendor] = useState('');
             const [kosongOpen, setKosongOpen] = useState(false);
+            const [cetakDialog, setCetakDialog] = useState(null); // { pilihan, sumber }
+            const bukaCetak = (pilihan, sumber) => {
+                if (!pilihan.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
+                setCetakDialog({ pilihan, sumber });
+            };
             const { lines, kosong } = useMemo(() => buildDaftarBelanja(orders, purchaseNotes, marks), [orders, purchaseNotes, marks]);
             const vendorOptions = useMemo(() => {
                 const s = new Map();
@@ -2760,7 +2976,7 @@ ${blocks}
                                 <div className="font-black text-gray-800">🛒 Daftar Belanja <span className="text-xs font-bold text-gray-500">({totalKurang} bahan belum lengkap dari {lines.length})</span></div>
                                 <div className="text-xs text-gray-500">Dari isian Bahan / Kain di order aktif. Status dibaca otomatis dari nota pembelian yang ditautkan ke order.</div>
                             </div>
-                            <button type="button" data-belanja-cetak-semua onClick={() => printDaftarBelanja(view === 'bahan' ? shownGroups.flatMap(g => g.lines) : shownLines, { templates, showToast })} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">🖨 Cetak yang tampil</button>
+                            <button type="button" data-belanja-cetak-semua onClick={() => bukaCetak(view === 'bahan' ? shownGroups.flatMap(g => g.lines) : shownLines, 'Semua yang tampil')} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">🖨 Cetak / Kirim ke vendor</button>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm font-bold">
@@ -2879,11 +3095,12 @@ ${blocks}
                             </div>
                             <div className="flex items-center gap-2 w-full sm:w-auto">
                                 <button type="button" data-belanja-bulk-tandai onClick={() => { const ls = checkedLines.filter(l => !l.done); if (!ls.length) { showToast('Semua bahan yang dicentang sudah lengkap.', 'info'); return; } tandai(ls, true); showToast(`${ls.length} bahan ditandai sudah dibeli.`, 'success'); }} className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-sm font-bold bg-white text-gray-900 whitespace-nowrap">✓ Tandai dibeli</button>
-                                <button type="button" data-belanja-bulk-cetak onClick={() => printDaftarBelanja(checkedLines, { templates, showToast })} className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white whitespace-nowrap">🖨 Cetak</button>
+                                <button type="button" data-belanja-bulk-cetak onClick={() => bukaCetak(checkedLines, 'Yang dicentang')} className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white whitespace-nowrap">🖨 Cetak / Kirim</button>
                             </div>
                             <button type="button" onClick={() => setChecked(new Set())} className="hidden sm:inline px-3 py-1.5 rounded-lg text-sm font-bold text-white/80 hover:text-white underline">Batal pilih</button>
                         </div>
                     )}
+                    {cetakDialog && <BelanjaCetakModal pilihan={cetakDialog.pilihan} sumber={cetakDialog.sumber} templates={templates} showToast={showToast} onClose={() => setCetakDialog(null)} />}
                 </div>
             );
         };
