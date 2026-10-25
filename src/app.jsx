@@ -2667,7 +2667,9 @@ ${blocks}
             useEffect(() => { try { localStorage.setItem(VIEW_KEY, view); } catch (e) {} }, [view]);
             const [fStatus, setFStatus] = useState('kurang');
             const [fVendor, setFVendor] = useState('');
+            const [cariInput, setCariInput] = useState('');
             const [cari, setCari] = useState('');
+            useEffect(() => { const t = setTimeout(() => setCari(cariInput), 250); return () => clearTimeout(t); }, [cariInput]);
             const [checked, setChecked] = useState(() => new Set());
             const [bulkVendor, setBulkVendor] = useState('');
             const [kosongOpen, setKosongOpen] = useState(false);
@@ -2698,15 +2700,20 @@ ${blocks}
                 return [...map.values()].map(g => ({ ...g, total: totalPer.get(String(g.order.id)) })).sort((a, b) => String(a.order.deadline || '9999').localeCompare(String(b.order.deadline || '9999')) || String(a.order.id).localeCompare(String(b.order.id)));
             }, [shownLines, lines, view]);
             const lineById = useMemo(() => new Map(lines.map(l => [l.id, l])), [lines]);
-            const visibleIds = view === 'bahan' ? shownGroups.flatMap(g => g.lines.map(l => l.id)) : shownLines.map(l => l.id);
-            // Centang hanya untuk baris yang sedang tampil: yang tersembunyi filter / sudah lengkap / ordernya selesai dibuang,
-            // agar cetak & aksi tidak ikut mengenai bahan yang tidak terlihat
-            const visibleKey = visibleIds.join('\u0002');
+            // Dibagi per halaman agar ringan walau order aktif sangat banyak
+            const pageReset = `${view}|${fStatus}|${fVendor}|${q}`;
+            const pgBahan = usePagination(shownGroups, 30, pageReset);
+            const pgOrder = usePagination(orderGroups, 15, pageReset);
+            const filteredIds = view === 'bahan' ? shownGroups.flatMap(g => g.lines.map(l => l.id)) : shownLines.map(l => l.id);
+            const pageIds = view === 'bahan' ? pgBahan.paged.flatMap(g => g.lines.map(l => l.id)) : pgOrder.paged.flatMap(og => og.lines.map(l => l.id));
+            // Centang hanya untuk baris yang lolos filter: yang tersembunyi filter / sudah lengkap / ordernya selesai dibuang,
+            // agar cetak & aksi tidak ikut mengenai bahan yang tidak terlihat (pindah halaman tidak menghapus centang)
+            const filteredKey = filteredIds.join('\u0002');
             useEffect(() => {
-                const vis = new Set(visibleIds);
+                const vis = new Set(filteredIds);
                 setChecked(prev => { const n = new Set([...prev].filter(id => vis.has(id))); return n.size === prev.size ? prev : n; });
-            }, [visibleKey]);
-            const allChecked = visibleIds.length > 0 && visibleIds.every(id => checked.has(id));
+            }, [filteredKey]);
+            const allChecked = pageIds.length > 0 && pageIds.every(id => checked.has(id));
             const toggleIds = (ids, on) => setChecked(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
             const checkedLines = [...checked].map(id => lineById.get(id)).filter(Boolean);
             const toRef = (ls) => ls.map(l => ({ orderId: l.orderId, key: l.key }));
@@ -2773,7 +2780,7 @@ ${blocks}
                                 <option value="__none">Vendor belum ditentukan</option>
                                 {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
                             </select>
-                            <input type="text" data-belanja-cari value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari bahan, kode, order, instansi…" className="flex-1 min-w-[180px] p-2 border border-gray-300 rounded-lg text-sm" />
+                            <input type="text" data-belanja-cari value={cariInput} onChange={e => setCariInput(e.target.value)} placeholder="Cari bahan, kode, order, instansi…" className="flex-1 min-w-[180px] p-2 border border-gray-300 rounded-lg text-sm" />
                         </div>
                         {kosong.length > 0 && (
                             <div data-belanja-kosong className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-900">
@@ -2788,7 +2795,7 @@ ${blocks}
                             <table className="w-full text-sm min-w-[860px]">
                                 <thead>
                                     <tr className="bg-gray-50 text-left text-gray-600 text-xs uppercase tracking-wide">
-                                        <th className="p-3 w-10"><input type="checkbox" data-belanja-check-all checked={allChecked} onChange={e => toggleIds(visibleIds, e.target.checked)} className="w-4 h-4 accent-teal-600" /></th>
+                                        <th className="p-3 w-10"><input type="checkbox" data-belanja-check-all checked={allChecked} onChange={e => toggleIds(pageIds, e.target.checked)} className="w-4 h-4 accent-teal-600" /></th>
                                         <th className="p-3">Bahan</th>
                                         <th className="p-3">Warna</th>
                                         <th className="p-3 text-right">{view === 'bahan' ? 'Total kebutuhan' : 'Kebutuhan'}</th>
@@ -2798,7 +2805,7 @@ ${blocks}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {view === 'bahan' && shownGroups.map(g => {
+                                    {view === 'bahan' && pgBahan.paged.map(g => {
                                         const ids = g.lines.map(l => l.id);
                                         const on = ids.every(id => checked.has(id));
                                         // Angka nota hanya bila semuanya dari nota (bukan tanda manual); selain itu cukup jumlah order yang lengkap
@@ -2824,7 +2831,7 @@ ${blocks}
                                             </tr>
                                         );
                                     })}
-                                    {view === 'order' && orderGroups.map(og => (
+                                    {view === 'order' && pgOrder.paged.map(og => (
                                         <React.Fragment key={og.order.id}>
                                             <tr data-belanja-order-head className="bg-gray-50 border-t border-gray-200">
                                                 <td className="p-3"><input type="checkbox" checked={og.lines.every(l => checked.has(l.id))} onChange={e => toggleIds(og.lines.map(l => l.id), e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
@@ -2853,6 +2860,11 @@ ${blocks}
                                 {lines.length === 0 ? 'Belum ada bahan di order aktif. Isi kolom Bahan / Kain saat Input atau Edit Order.' : 'Tidak ada bahan yang cocok dengan filter.'}
                             </div>
                         )}
+                        <div className="px-4 pb-4">
+                            {view === 'bahan'
+                                ? <Paginator page={pgBahan.page} setPage={pgBahan.setPage} totalPages={pgBahan.totalPages} total={pgBahan.total} pageSize={30} label="bahan" />
+                                : <Paginator page={pgOrder.page} setPage={pgOrder.setPage} totalPages={pgOrder.totalPages} total={pgOrder.total} pageSize={15} label="order" />}
+                        </div>
                     </div>
 
                     {checkedLines.length > 0 && (
