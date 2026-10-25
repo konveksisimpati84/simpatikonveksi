@@ -2582,6 +2582,32 @@
                 return { ...g, need, bought, vendor: vendors.length === 1 ? vendors[0] : null, status, done: status === 'lengkap' || status === 'ditandai', doneCount: ls.filter(l => l.done).length };
             }).sort((a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code) || a.color.localeCompare(b.color));
         };
+        // Bahan yang sama (nama + kode + warna) tetapi satuannya berbeda di beberapa order: kemungkinan salah input.
+        // Tidak dikonversi / dijumlahkan; hanya diberi peringatan agar admin menyamakan satuannya lewat Edit Order.
+        const cariSatuanBeda = (lines) => {
+            const map = new Map();
+            safeArray(lines).forEach(l => {
+                if (!map.has(l.key)) map.set(l.key, { key: l.key, name: l.name, code: l.code, color: l.color, units: new Map() });
+                const u = map.get(l.key).units;
+                if (!u.has(l.unit)) u.set(l.unit, []);
+                if (!u.get(l.unit).includes(l.orderId)) u.get(l.unit).push(l.orderId);
+            });
+            return [...map.values()].filter(x => x.units.size > 1)
+                .map(x => ({ ...x, units: [...x.units.entries()].map(([unit, orders]) => ({ unit, orders })) }))
+                .sort((a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code) || a.color.localeCompare(b.color));
+        };
+        const satuanBedaNama = (x) => [x.name, x.code, x.color].filter(Boolean).join(' ');
+        const satuanBedaRincian = (x) => x.units.map(u => `${u.orders.join(', ')} (${u.unit || 'tanpa satuan'})`).join(' · ');
+        const SatuanBedaInfo = ({ list, judul, dataAttr }) => list.length === 0 ? null : (
+            <div {...{ [dataAttr]: '' }} className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-900 space-y-1">
+                <div className="font-bold">⚠ {judul}</div>
+                <ul className="space-y-0.5">
+                    {list.slice(0, 5).map(x => <li key={x.key}><b>{satuanBedaNama(x)}</b>: {satuanBedaRincian(x)}</li>)}
+                    {list.length > 5 && <li>… dan {list.length - 5} bahan lagi</li>}
+                </ul>
+                <div>Samakan satuannya lewat Edit Order (kolom Bahan / Kain) agar terjumlah jadi satu baris.</div>
+            </div>
+        );
         const belanjaSisa = (l) => {
             if (l.need == null) return null;
             if (l.done) return 0;
@@ -2663,14 +2689,13 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#111;background:#fff;-webkit
             const tglCetak = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
             const tglButuh = belanjaTglTeks(butuh, 'long');
             const pages = groups.map((g, gi) => {
+                // Setiap warna satu baris bernomor sendiri
                 let no = 0;
-                const trs = g.items.map(it => {
+                const trs = g.items.map(it => it.colors.map(c => {
                     no++;
-                    return it.colors.map((c, ci) => {
-                        const q = belanjaQtyText(c.qty, it.unit);
-                        return `<tr class="${ci === 0 ? 'first' : 'cont'}"><td class="c">${ci === 0 ? no : ''}</td><td>${ci === 0 ? `<b>${safe(it.name || '-')}</b>` : ''}</td><td>${ci === 0 ? safe(it.code || '-') : ''}</td><td>${safe(c.color || '-')}</td><td class="q">${q ? safe(q) : '<span class="blank">__________</span>'}</td><td class="ket">${q ? '' : 'jumlah menyusul'}</td></tr>`;
-                    }).join('');
-                }).join('');
+                    const q = belanjaQtyText(c.qty, it.unit);
+                    return `<tr class="first"><td class="c">${no}</td><td><b>${safe(it.name || '-')}</b></td><td>${safe(it.code || '-')}</td><td>${safe(c.color || '-')}</td><td class="q">${q ? safe(q) : '<span class="blank">__________</span>'}</td><td class="ket">${q ? '' : 'jumlah menyusul'}</td></tr>`;
+                }).join('')).join('');
                 return `<div class="page">
 <div class="hd"><div>${kop.html}</div><div class="meta">No: <b>${dasarNo}-${pad(gi + 1)}</b><br/>Tanggal: ${tglCetak}</div></div>
 <div class="ttl">SURAT PESANAN BAHAN</div>
@@ -2750,19 +2775,15 @@ ${blocks}
             out.push(`kami dari *${namaPerusahaan}* mau pesan:`, '');
             const q = (c, unit) => c.qty != null ? `*${belanjaQtyText(c.qty, unit)}*` : '(jumlah menyusul)';
             const untuk = (c) => c.lines.map(l => `${l.orderId} ${l.order.client || ''}`.trim()).join(', ');
-            g.items.forEach((it, i) => {
+            // Setiap warna satu nomor sendiri (bahan + kode + warna sama sudah dijumlahkan; warna berbeda tidak digabung)
+            let no = 0;
+            g.items.forEach(it => {
                 const kode = showKode && it.code ? ` (${it.code})` : '';
-                if (it.colors.length === 1) {
-                    const c = it.colors[0];
-                    out.push(`${i + 1}. *${it.name}*${kode}${c.color ? ' ' + c.color : ''}: ${q(c, it.unit)}`);
+                it.colors.forEach(c => {
+                    no++;
+                    out.push(`${no}. *${it.name}*${kode}${c.color ? ' ' + c.color : ''}: ${q(c, it.unit)}`);
                     if (showOrder) out.push(`   _untuk ${untuk(c)}_`);
-                } else {
-                    out.push(`${i + 1}. *${it.name}*${kode}`);
-                    it.colors.forEach(c => {
-                        out.push(`   - ${c.color || 'Tanpa warna'}: ${q(c, it.unit)}`);
-                        if (showOrder) out.push(`     _untuk ${untuk(c)}_`);
-                    });
-                }
+                });
             });
             out.push('');
             const tgl = belanjaTglTeks(butuh, 'short');
@@ -2801,6 +2822,7 @@ ${blocks}
             const teks = gWA ? buatPesanWA(gWA, { namaPerusahaan, butuh, showKode, showOrder, salam }) : '';
             const totalRows = groups.reduce((s, x) => s + x.rows, 0);
             const adaTanpaVendor = !!grupTanpa;
+            const satuanBeda = useMemo(() => cariSatuanBeda(pilihan.some(l => !l.done) ? pilihan.filter(l => !l.done) : pilihan), [pilihan]);
             // Simpan nama vendor hanya untuk bahan yang vendornya masih kosong (tidak pernah menimpa vendor yang sudah ada)
             const simpanVendorBaru = () => {
                 if (!grupTanpa || !namaBaru || !simpanVendor || !onSimpanVendor) return;
@@ -2870,6 +2892,7 @@ ${blocks}
                                     </button>
                                 ))}
                             </div>
+                            <SatuanBedaInfo list={satuanBeda} dataAttr="data-cetak-satuan-beda" judul={`${satuanBeda.length} bahan masih ditulis terpisah karena satuannya berbeda:`} />
                             {mode !== 'B' && (
                                 <div className="flex flex-wrap items-center gap-2 text-sm">
                                     <label className="font-bold text-gray-700">Dibutuhkan paling lambat</label>
@@ -2958,6 +2981,9 @@ ${blocks}
                 setCetakDialog({ pilihan, sumber });
             };
             const { lines, kosong } = useMemo(() => buildDaftarBelanja(orders, purchaseNotes, marks), [orders, purchaseNotes, marks]);
+            const satuanBeda = useMemo(() => cariSatuanBeda(lines), [lines]);
+            const satuanBedaKeys = useMemo(() => new Set(satuanBeda.map(x => x.key)), [satuanBeda]);
+            const tagSatuanBeda = (key) => satuanBedaKeys.has(key) ? <div><span data-satuan-beda-tag className="inline-block mt-1 px-1.5 py-0.5 rounded-md border border-orange-300 bg-orange-50 text-orange-700 text-[11px] font-bold">⚠ satuan berbeda</span></div> : null;
             const vendorOptions = useMemo(() => {
                 const s = new Map();
                 const add = (v) => { const t = normBahanText(v); if (t && !s.has(t.toLowerCase())) s.set(t.toLowerCase(), t); };
@@ -3082,6 +3108,7 @@ ${blocks}
                                 {kosongOpen && <div className="mt-1">{kosong.map(o => `${o.id} ${o.client || ''}`.trim()).join(' · ')} — isi lewat Edit Order (kolom Bahan / Kain).</div>}
                             </div>
                         )}
+                        <SatuanBedaInfo list={satuanBeda} dataAttr="data-belanja-satuan-beda" judul={`${satuanBeda.length} bahan memakai satuan berbeda di beberapa order (kemungkinan salah input), sehingga tidak dijumlahkan:`} />
                     </div>
 
                     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -3119,6 +3146,7 @@ ${blocks}
                                                             {lineNotes(l)}
                                                         </div>
                                                     ))}
+                                                    {tagSatuanBeda(g.key)}
                                                 </td>
                                                 <td className="p-3"><BelanjaVendorInput value={g.vendor || ''} mixed={g.vendor == null} listId="belanja-vendor-list" onCommit={(v) => setVendor(g.lines, v)} /></td>
                                                 <td className="p-3">{statusBadge(g.status, extra)}{tandaiBtn(g.status === 'ditandai' ? g.lines : g.lines.filter(l => !l.done), g.done, g.status)}</td>
@@ -3137,7 +3165,7 @@ ${blocks}
                                             {og.lines.map(l => (
                                                 <tr key={l.id} data-belanja-row className={`border-t border-gray-100 align-top ${checked.has(l.id) ? 'bg-teal-50/60' : ''}`}>
                                                     <td className="p-3"><input type="checkbox" checked={checked.has(l.id)} onChange={e => toggleIds([l.id], e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
-                                                    <td className="p-3">{bahanCell(l.name, l.code)}{lineNotes(l)}</td>
+                                                    <td className="p-3">{bahanCell(l.name, l.code)}{lineNotes(l)}{tagSatuanBeda(l.key)}</td>
                                                     <td className="p-3 text-gray-700">{l.color || '-'}</td>
                                                     <td className="p-3 text-right whitespace-nowrap">{l.need != null ? `${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : <span className="text-xs text-gray-400">jumlah belum diisi</span>}</td>
                                                     <td className="p-3"><BelanjaVendorInput value={l.vendor} listId="belanja-vendor-list" onCommit={(v) => setVendor([l], v)} /></td>
