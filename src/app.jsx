@@ -3211,6 +3211,215 @@ ${blocks}
             );
         };
 
+        // ===== Kode klien untuk order (data pusat: menu Klien & Instansi) =====
+        // Order yang dibuat / diedit menyimpan clientId di samping nama klien. Order lama TIDAK diubah: dihubungkan lewat
+        // nama (atau "nama lain" klien) saat dibaca. Klien yang dibuat otomatis memakai kode dari nama, sehingga dua perangkat
+        // yang membuatnya bersamaan tidak menghasilkan klien dobel. Hanya menambah klien (tanpa DP); invoice / DP tidak disentuh.
+        const klienNorm = (v) => normalizeText(v).replace(/\s+/g, ' ');
+        const klienIdDariNama = (name) => `CLI-N${belanjaHash(klienNorm(name))}`;
+        const KLIEN_SINGKATAN = { sman: 'sma negeri', smpn: 'smp negeri', sdn: 'sd negeri', smkn: 'smk negeri', man: 'ma negeri', mtsn: 'mts negeri', min: 'mi negeri' };
+        // Bentuk baku untuk mendeteksi nama mirip: "SMAN1 Bandung" = "SMA Negeri 1 Bandung" = "SMA N 1 Bandung"
+        const klienKanon = (v) => klienNorm(v)
+            .replace(/[^a-z0-9]+/g, ' ').replace(/([a-z])(\d)/g, '$1 $2').replace(/(\d)([a-z])/g, '$1 $2').trim()
+            .split(/\s+/).map(w => KLIEN_SINGKATAN[w] || w).join(' ')
+            .replace(/\b(sma|smp|sd|smk|ma|mts|mi) n\b/g, '$1 negeri');
+        const klienNamaSemua = (c) => [c && c.name, ...safeArray(c && c.namaLain)].filter(Boolean);
+        const cariKlienTepat = (clients, name) => {
+            const n = klienNorm(name);
+            if (!n) return null;
+            return safeArray(clients).find(c => c && !c.isDeleted && klienNamaSemua(c).some(x => klienNorm(x) === n)) || null;
+        };
+        const cariKlienMirip = (clients, name) => {
+            const k = klienKanon(name);
+            if (!k) return null;
+            return safeArray(clients).find(c => c && !c.isDeleted && klienNamaSemua(c).some(x => klienKanon(x) === k)) || null;
+        };
+        // Kode klien untuk order yang disimpan; bila belum ada di daftar, siapkan klien baru (belum disimpan)
+        const siapkanKlienOrder = (clients, name, now) => {
+            const nama = normBahanText(name);
+            if (!nama) return { clientId: '', baru: null };
+            const ada = cariKlienTepat(clients, nama);
+            if (ada) return { clientId: String(ada.id), baru: null };
+            let id = klienIdDariNama(nama);
+            if (safeArray(clients).some(c => c && String(c.id) === id)) id = genId('CLI-');
+            return { clientId: id, baru: { id, name: nama, address: '', phone: '', pic: '', note: '', clientDpPayments: [], _syncUpdatedAt: now } };
+        };
+        // Hanya menambah; bila klien itu sudah ada (mis. dibuat perangkat lain lebih dulu) tidak melakukan apa pun
+        const tambahKlienBaru = (setClients, baru) => {
+            if (!baru || !setClients) return;
+            setClients(prev => {
+                const list = safeArray(prev);
+                if (list.some(c => c && String(c.id) === String(baru.id)) || cariKlienTepat(list, baru.name)) return list;
+                return [baru, ...list];
+            });
+        };
+        // Keterangan di bawah kolom klien pada Input / Edit Order
+        const KlienOrderInfo = ({ nama, clients, abaikan, onPakai, onAbaikan }) => {
+            if (!normBahanText(nama)) return null;
+            const ada = cariKlienTepat(clients, nama);
+            if (ada) return <div data-klien-info="ada" className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2 py-1">✓ Terhubung ke Klien <span className="font-mono text-[11px] bg-white/70 rounded px-1">{ada.id}</span>{klienNorm(ada.name) !== klienNorm(nama) ? <span className="font-normal">({ada.name})</span> : null}</div>;
+            const mirip = abaikan === klienNorm(nama) ? null : cariKlienMirip(clients, nama);
+            if (mirip) return (
+                <div data-klien-info="mirip" className="mt-1.5 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-2">
+                    ⚠ Mirip klien yang sudah ada: <b>{mirip.name}</b>. Pakai yang sudah ada agar riwayatnya tidak terpecah?
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        <button type="button" data-klien-pakai onClick={() => onPakai(mirip.name)} className="px-2.5 py-1 rounded-md font-bold bg-amber-600 text-white">Pakai "{mirip.name}"</button>
+                        <button type="button" data-klien-abaikan onClick={() => onAbaikan(klienNorm(nama))} className="px-2.5 py-1 rounded-md font-bold bg-white border border-amber-500 text-amber-800">Tetap klien baru</button>
+                    </div>
+                </div>
+            );
+            return <div data-klien-info="baru" className="mt-1.5 text-xs text-blue-800"><span className="font-bold bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 inline-block">＋ Klien baru</span> <span className="text-gray-500">otomatis ditambahkan ke menu Klien &amp; Instansi saat order disimpan.</span></div>;
+        };
+
+        // Nama instansi di order yang belum ada di daftar klien: baru / mirip klien lain / pernah dihapus. Hanya membaca.
+        const hitungKlienDariOrder = (orders, clients) => {
+            const list = safeArray(clients);
+            const byNorm = new Map();
+            safeArray(orders).filter(o => o && !o.isDeleted).forEach(o => {
+                const nama = normBahanText(o.client);
+                if (!nama) return;
+                if (o.clientId && list.some(c => c && !c.isDeleted && String(c.id) === String(o.clientId))) return; // sudah terhubung lewat kode
+                const n = klienNorm(nama);
+                const cur = byNorm.get(n) || { n, count: 0, last: null, ejaan: new Map() };
+                cur.count++;
+                cur.ejaan.set(nama, (cur.ejaan.get(nama) || 0) + 1);
+                const lebihBaru = !cur.last || String(o.date || '') > String(cur.last.date || '') || (String(o.date || '') === String(cur.last.date || '') && orderInputSeq(o) > orderInputSeq(cur.last));
+                if (lebihBaru) cur.last = o;
+                byNorm.set(n, cur);
+            });
+            const baru = [], mirip = [], dihapus = [];
+            byNorm.forEach(cur => {
+                const name = [...cur.ejaan.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+                const it = { n: cur.n, name, count: cur.count, last: cur.last };
+                if (cariKlienTepat(list, name)) return;
+                const del = list.find(c => c && c.isDeleted && klienNamaSemua(c).some(x => klienNorm(x) === cur.n));
+                if (del) { dihapus.push({ ...it, del }); return; }
+                const m = cariKlienMirip(list, name);
+                if (m) { mirip.push({ ...it, target: { id: String(m.id), name: m.name, ada: true } }); return; }
+                baru.push(it);
+            });
+            // Nama baru yang mirip satu sama lain: yang ordernya terbanyak tetap "baru", sisanya diusulkan dihubungkan ke situ
+            const perKanon = new Map();
+            baru.forEach(it => { const k = klienKanon(it.name); if (!perKanon.has(k)) perKanon.set(k, []); perKanon.get(k).push(it); });
+            const baruAkhir = [];
+            perKanon.forEach(grp => {
+                grp.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+                baruAkhir.push(grp[0]);
+                grp.slice(1).forEach(it => mirip.push({ ...it, target: { id: klienIdDariNama(grp[0].name), name: grp[0].name, ada: false } }));
+            });
+            const urut = (a, b) => a.name.localeCompare(b.name);
+            return { baru: baruAkhir.sort(urut), mirip: mirip.sort(urut), dihapus: dihapus.sort(urut) };
+        };
+        const AmbilKlienDariOrder = ({ orders, clients, setClients, showToast }) => {
+            const hasil = useMemo(() => hitungKlienDariOrder(orders, clients), [orders, clients]);
+            const [buka, setBuka] = useState(false);
+            const [pilih, setPilih] = useState({}); // n -> true/false (bawaan: baru = true, lainnya = false)
+            const [aksi, setAksi] = useState({}); // n -> 'hubungkan' | 'baru' (untuk yang mirip)
+            const dipilih = (it, bawaan) => pilih[it.n] === undefined ? bawaan : pilih[it.n];
+            const nBaru = hasil.baru.filter(it => dipilih(it, true)).length + hasil.dihapus.filter(it => dipilih(it, false)).length;
+            const miripDipilih = hasil.mirip.filter(it => dipilih(it, false));
+            const nTambah = nBaru + miripDipilih.filter(it => (aksi[it.n] || 'hubungkan') === 'baru').length;
+            const nHubung = miripDipilih.filter(it => (aksi[it.n] || 'hubungkan') !== 'baru').length;
+            const total = hasil.baru.length + hasil.mirip.length;
+            if (total === 0 && !buka) return null;
+            const terapkan = () => {
+                const now = new Date().toISOString();
+                const daftarBaru = [...hasil.baru.filter(it => dipilih(it, true)), ...hasil.dihapus.filter(it => dipilih(it, false))];
+                let dibuat = 0, dihubungkan = 0;
+                setClients(prev => {
+                    let list = safeArray(prev).slice();
+                    const ids = new Set(list.map(c => String(c && c.id)));
+                    const buat = (name) => {
+                        const ada = cariKlienTepat(list, name);
+                        if (ada) return String(ada.id);
+                        let id = klienIdDariNama(name);
+                        if (ids.has(id)) {
+                            const ex = list.find(c => c && String(c.id) === id);
+                            if (ex && !ex.isDeleted) return id;
+                            id = genId('CLI-');
+                        }
+                        list = [{ id, name: normBahanText(name), address: '', phone: '', pic: '', note: '', clientDpPayments: [], _syncUpdatedAt: now }, ...list];
+                        ids.add(id);
+                        dibuat++;
+                        return id;
+                    };
+                    daftarBaru.forEach(it => buat(it.name));
+                    miripDipilih.forEach(it => {
+                        if ((aksi[it.n] || 'hubungkan') === 'baru') { buat(it.name); return; }
+                        const tid = it.target.ada ? it.target.id : buat(it.target.name);
+                        list = list.map(c => (c && String(c.id) === String(tid)) ? { ...c, namaLain: [...new Set([...safeArray(c.namaLain), normBahanText(it.name)])], _syncUpdatedAt: now } : c);
+                        dihubungkan++;
+                    });
+                    return list;
+                });
+                setBuka(false); setPilih({}); setAksi({});
+                showToast(`Daftar klien diperbarui dari order${nTambah ? ` · ${nTambah} klien ditambahkan` : ''}${nHubung ? ` · ${nHubung} nama dihubungkan` : ''}. Order lama tidak diubah.`, 'success');
+            };
+            const baris = (it, bawaan, ket, kanan) => (
+                <div key={it.n} data-ambil-item={it.name} className="flex flex-wrap sm:flex-nowrap items-start gap-2 px-3 py-2 border-t border-gray-100 text-sm">
+                    <label className="flex items-start gap-2.5 flex-1 min-w-0 cursor-pointer">
+                        <input type="checkbox" checked={dipilih(it, bawaan)} onChange={e => setPilih(p => ({ ...p, [it.n]: e.target.checked }))} className="mt-0.5 w-4 h-4 accent-teal-600 shrink-0" />
+                        <span className="min-w-0"><span className="block font-bold text-gray-800">{it.name}</span><span className="block text-xs text-gray-500">{ket}</span></span>
+                    </label>
+                    {kanan}
+                </div>
+            );
+            const ketOrder = (it) => `${it.count} order${it.last ? ` · terakhir ${it.last.id}${it.last.type ? ` (${it.last.type})` : ''}` : ''}`;
+            return (
+                <>
+                    {total > 0 && (
+                        <div data-ambil-klien-banner className="flex flex-wrap items-center justify-between gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                            <div className="text-sm text-blue-900">📥 <b>{total} nama instansi</b> di order belum ada di daftar Klien &amp; Instansi.</div>
+                            <button type="button" data-ambil-klien-buka onClick={() => setBuka(true)} className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white">Ambil klien dari order…</button>
+                        </div>
+                    )}
+                    {buka && (
+                        <div className="fixed inset-0 z-[110] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setBuka(false)}>
+                            <div data-ambil-klien-modal className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                                <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
+                                    <div><div className="font-black text-gray-800 text-lg">📥 Ambil klien dari order</div><div className="text-xs text-gray-500">{total} nama belum ada di daftar klien · belum ada yang disimpan sampai Anda menekan Tambahkan</div></div>
+                                    <button type="button" onClick={() => setBuka(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none" aria-label="Tutup">×</button>
+                                </div>
+                                <div className="p-4 space-y-3 overflow-y-auto">
+                                    {hasil.baru.length > 0 && (
+                                        <div data-ambil-grup="baru" className="border border-gray-200 rounded-xl overflow-hidden">
+                                            <div className="px-3 py-2 bg-green-50 text-green-800 font-bold text-sm flex justify-between items-center"><span>✓ Akan ditambahkan ({hasil.baru.length})</span>
+                                                <button type="button" onClick={() => { const semua = hasil.baru.every(it => dipilih(it, true)); setPilih(p => { const n = { ...p }; hasil.baru.forEach(it => { n[it.n] = !semua; }); return n; }); }} className="text-xs underline">{hasil.baru.every(it => dipilih(it, true)) ? 'batal pilih semua' : 'pilih semua'}</button></div>
+                                            {hasil.baru.map(it => baris(it, true, ketOrder(it)))}
+                                        </div>
+                                    )}
+                                    {hasil.mirip.length > 0 && (
+                                        <div data-ambil-grup="mirip" className="border border-gray-200 rounded-xl overflow-hidden">
+                                            <div className="px-3 py-2 bg-amber-50 text-amber-800 font-bold text-sm">⚠ Mirip klien lain ({hasil.mirip.length}) — dicek dulu</div>
+                                            {hasil.mirip.map(it => baris(it, false, <>{ketOrder(it)} · mirip <b>{it.target.name}</b>{it.target.ada ? ' (sudah ada)' : ' (juga baru)'}</>,
+                                                <select data-ambil-aksi={it.name} value={aksi[it.n] || 'hubungkan'} onChange={e => setAksi(a => ({ ...a, [it.n]: e.target.value }))} className="text-xs border border-gray-300 rounded-lg px-2 py-1 bg-white w-full sm:w-auto sm:max-w-[45%] ml-6 sm:ml-0">
+                                                    <option value="hubungkan">Hubungkan ke "{it.target.name}"</option>
+                                                    <option value="baru">Tambah sebagai klien baru</option>
+                                                </select>))}
+                                        </div>
+                                    )}
+                                    {hasil.dihapus.length > 0 && (
+                                        <div data-ambil-grup="dihapus" className="border border-gray-200 rounded-xl overflow-hidden">
+                                            <div className="px-3 py-2 bg-gray-100 text-gray-600 font-bold text-sm">⊘ Pernah dihapus dari daftar klien ({hasil.dihapus.length}) — dilewati</div>
+                                            {hasil.dihapus.map(it => baris(it, false, `${ketOrder(it)} · centang bila ingin ditambahkan lagi (sebagai klien baru tanpa DP)`))}
+                                        </div>
+                                    )}
+                                    {total === 0 && <div className="text-sm text-gray-500 text-center py-6">Semua nama instansi di order sudah ada di daftar klien.</div>}
+                                </div>
+                                <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex flex-wrap items-center justify-between gap-3">
+                                    <div className="text-[11px] text-gray-600 leading-snug max-w-sm">Order lama <b>tidak diubah</b>. Hanya menambah klien baru (tanpa DP). "Hubungkan ke" mencatat nama itu sebagai <b>nama lain</b> klien tujuan.</div>
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={() => setBuka(false)} className="px-4 py-2 rounded-lg font-bold text-gray-700 bg-white border border-gray-300">Batal</button>
+                                        <button type="button" data-ambil-klien-terapkan disabled={nTambah + nHubung === 0} onClick={terapkan} className="px-4 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40">Tambahkan {nTambah} klien{nHubung ? ` · hubungkan ${nHubung}` : ''}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+
         // Penanda isian Bahan/Kain di Dashboard (hanya membaca order). 'nota' = belum diisi tetapi sudah ada nota (order lama).
         // 'selesai' = produksi sudah selesai (Siap Kirim / Terkirim) tanpa isian: tidak perlu diisi lagi, tanpa lencana
         // (sama seperti Daftar Belanja yang tidak memuat order Siap Kirim / Terkirim).
@@ -3229,7 +3438,8 @@ ${blocks}
             return <div><span data-dash-isian={g} className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold whitespace-nowrap ${cls}`}>{label}</span></div>;
         };
 
-        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], templates }) => {
+        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], templates, clients = [], setClients }) => {
+            const [klienAbaikanEdit, setKlienAbaikanEdit] = useState('');
             const [dashChartRef, dashChartW] = useElementWidth();
             const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
             const { totalOrders, activeOrders, doneOrders, shippedOrders } = React.useMemo(() => ({
@@ -3531,6 +3741,9 @@ ${blocks}
                 }
                 const editNow = new Date().toISOString();
                 const renameSize = (sz) => sizeRenames[sz] || sz;
+                // Kode klien: dihitung ulang hanya bila nama klien diubah atau order belum punya kode
+                const klienBerubah = klienNorm(editOrder.client) !== klienNorm(original?.client);
+                const klienEdit = (klienBerubah || !original?.clientId) ? siapkanKlienOrder(clients, editOrder.client, editNow) : { clientId: String(original.clientId), baru: null };
 
                 setOrders(prev => prev.map(o => {
                     if (String(o.id) === String(editOrder.id)) {
@@ -3549,6 +3762,7 @@ ${blocks}
                             progress,
                             shipped,
                             client: editOrder.client,
+                            ...(klienEdit.clientId ? { clientId: klienEdit.clientId } : {}),
                             type: editOrder.type,
                             deadline: editOrder.deadline,
                             notes: editOrder.notes,
@@ -3566,6 +3780,8 @@ ${blocks}
                     }
                     return o;
                 }));
+
+                tambahKlienBaru(setClients, klienEdit.baru);
 
                 // Surat Jalan lama mencatat ukuran dalam teks "L (5), M (3)" — ikut diganti agar pembatalan SJ tetap mengurangi ukuran yang benar
                 if (Object.keys(sizeRenames).length > 0 && setRiwayatPengiriman) {
@@ -3982,7 +4198,7 @@ ${blocks}
                                 <h3 className="text-xl font-bold text-gray-900 mb-4 border-b pb-2">Edit Data Order: {editOrder.id}</h3>
                                 <form onSubmit={handleSaveEditOrder} className="space-y-4">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div><label className="block text-sm mb-1 font-semibold">Nama Klien / Instansi</label><input required type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.client} onChange={e => setEditOrder({...editOrder, client: e.target.value})} /></div>
+                                        <div><label className="block text-sm mb-1 font-semibold">Nama Klien / Instansi</label><input required type="text" list="client-list-edit" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.client} onChange={e => setEditOrder({...editOrder, client: e.target.value})} /><datalist id="client-list-edit">{safeArray(clients).filter(isVisibleRecord).map(c => <option key={c.id} value={c.name} />)}</datalist><KlienOrderInfo nama={editOrder.client} clients={clients} abaikan={klienAbaikanEdit} onPakai={(nm) => setEditOrder(prev => ({ ...prev, client: nm }))} onAbaikan={setKlienAbaikanEdit} /></div>
                                         <div><label className="block text-sm mb-1 font-semibold">Jenis Barang</label><input required type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.type} onChange={e => setEditOrder({...editOrder, type: e.target.value})} /></div>
                                         <div><label className="block text-sm mb-1 font-semibold">Tanggal Masuk</label><input required type="date" disabled className="w-full p-2 border rounded bg-gray-100 text-gray-500" value={editOrder.date} /></div>
                                         <div><label className="block text-sm mb-1 font-semibold">Deadline Produksi</label><input required type="date" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.deadline} onChange={e => setEditOrder({...editOrder, deadline: e.target.value})} /></div>
@@ -5418,13 +5634,14 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             );
         };
 
-        const InputOrderView = ({ orders, setOrders, setActiveTab, showToast, purchaseNotes = [], masterBahan = [] }) => {
+        const InputOrderView = ({ orders, setOrders, setActiveTab, showToast, purchaseNotes = [], masterBahan = [], clients = [], setClients }) => {
+            const [klienAbaikan, setKlienAbaikan] = useState('');
             const allOrders = orders || [];
             const safeOrders = allOrders.filter(isVisibleOrder);
             const [newOrder, setNewOrder] = useState({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
             const [sizeInputs, setSizeInputs] = useState([{ id: 1, label: 'S', qty: '' }, { id: 2, label: 'M', qty: '' }, { id: 3, label: 'L', qty: '' }, { id: 4, label: 'XL', qty: '' }]);
             // Ambil dan urutkan daftar instansi yang sudah pernah diinput sebelumnya
-            const uniqueClients = [...new Set(safeOrders.map(o => o.client).filter(Boolean))].sort();
+            const uniqueClients = [...new Set([...safeArray(clients).filter(isVisibleRecord).map(c => c.name), ...safeOrders.map(o => o.client)].filter(Boolean))].sort();
             
             // Ambil dan urutkan daftar jenis produksi (gabungan bawaan + histori sebelumnya)
             const defaultTypes = ['Kaos', 'Kemeja', 'Jaket', 'Wearpack', 'Wangki / Polo Shirt', 'Celana', 'Topi'];
@@ -5516,8 +5733,10 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
 
                 const rencanaBahanBaru = cleanRencanaBahan(newOrder.rencanaBahan);
                 const { rencanaBahan: _rbDraft, ...newOrderTanpaRencana } = newOrder;
+                const klienOrder = siapkanKlienOrder(clients, newOrder.client, new Date().toISOString());
                 const orderToAdd = {
                     ...newOrderTanpaRencana,
+                    ...(klienOrder.clientId ? { clientId: klienOrder.clientId } : {}),
                     ...(rencanaBahanBaru.length > 0 ? { rencanaBahan: rencanaBahanBaru } : {}),
                     id: newOrderId,
                     sizes: finalSizes,
@@ -5536,6 +5755,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 };
                 
                 setOrders(prev => [orderToAdd, ...(prev||[])]);
+                tambahKlienBaru(setClients, klienOrder.baru);
                 const selectedProcessLabels = orderProcessOptions.filter(opt => orderToAdd.processFlow[opt.id] !== false).map(opt => opt.label).join(', ');
                 showToast("Order ditambahkan ke antrean!", "success");
                 setNewOrder({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
@@ -5560,6 +5780,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                             <option key={idx} value={clientName} />
                                         ))}
                                     </datalist>
+                                    <KlienOrderInfo nama={newOrder.client} clients={clients} abaikan={klienAbaikan} onPakai={(nm) => setNewOrder(prev => ({ ...prev, client: nm }))} onAbaikan={setKlienAbaikan} />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Produksi</label>
@@ -10859,7 +11080,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const ClientsView = ({ clients, setClients, invoices = [], setInvoices, showToast, templates }) => {
+        const ClientsView = ({ clients, setClients, invoices = [], setInvoices, showToast, templates, orders = [] }) => {
             const emptyClient = { name: '', address: '', phone: '', pic: '', note: '' };
             const emptyDp = { date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', orderId: '' };
             const [form, setForm] = useState(emptyClient);
@@ -10871,7 +11092,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [deleteClientConfirmId, setDeleteClientConfirmId] = useState(null);
             const safeClients = safeArray(clients);
             const safeInvoices = safeArray(invoices);
-            const visibleClients = safeClients.filter(isVisibleRecord).filter(client => matchesSearch([client.name, client.address, client.phone, client.pic, client.note], searchTerm));
+            const visibleClients = safeClients.filter(isVisibleRecord).filter(client => matchesSearch([client.name, ...safeArray(client.namaLain), client.address, client.phone, client.pic, client.note], searchTerm));
             const { page: clientPage, setPage: setClientPage, totalPages: clientTotalPages, paged: pagedClients, total: clientTotal } = usePagination(visibleClients, 15);
             const getClientDpRows = (client) => Array.isArray(client?.clientDpPayments) ? client.clientDpPayments.filter(isVisibleRecord) : [];
             const getClientInvoices = (client) => safeInvoices.filter(isVisibleRecord).filter(inv => isInvoiceOfClient(inv, client));
@@ -11016,6 +11237,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             return (
                 <div className="space-y-6">
                     <div><h2 className="text-2xl font-bold text-gray-800">Klien / Instansi</h2><p className="text-sm text-gray-500 mt-1">Data customer, invoice, piutang, dan saldo klien.</p></div>
+                    <AmbilKlienDariOrder orders={orders} clients={clients} setClients={setClients} showToast={showToast} />
                     <Card><form onSubmit={saveClient} className="grid grid-cols-1 md:grid-cols-5 gap-3"><input className="p-2 border rounded" placeholder="Nama instansi/klien" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required/><input className="p-2 border rounded" placeholder="Alamat" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/><input className="p-2 border rounded" placeholder="No HP/WA" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })}/><input className="p-2 border rounded" placeholder="PIC" value={form.pic} onChange={e => setForm({ ...form, pic: e.target.value })}/><input className="p-2 border rounded" placeholder="Catatan" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/><div className="md:col-span-5 flex justify-end gap-2"><button type="button" onClick={() => { setForm(emptyClient); setEditId(null); }} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-blue-600 text-white rounded font-bold">{editId ? 'Simpan Edit' : 'Tambah Klien'}</button></div></form></Card>
                     <Card>
                         <div className="mb-4 max-w-lg"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari nama, alamat, HP, PIC, catatan..." /></div>
@@ -11036,6 +11258,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                         <div className={`md:hidden px-4 py-3 flex items-start gap-3 border-l-4 ${borderColor} hover:bg-gray-50/70 transition-colors`}>
                                             <div className="flex-1 min-w-0">
                                                 <div className="font-bold text-gray-900 text-sm truncate">{client.name}</div>
+                                                {safeArray(client.namaLain).length > 0 && <div data-klien-nama-lain className="text-[11px] text-gray-500 truncate">Nama lain: {client.namaLain.join(', ')}</div>}
                                                 <div className="text-xs text-gray-400 truncate">{client.address || '-'}</div>
                                                 <div className="text-xs text-gray-500 mt-0.5">{client.pic || '-'}{client.phone ? ` · ${client.phone}` : ''}</div>
                                                 <div className="flex flex-wrap gap-2 mt-1 text-xs">
@@ -11053,6 +11276,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                         <div className={`hidden md:grid grid-cols-12 gap-2 px-4 py-2.5 items-center border-l-4 ${borderColor} hover:bg-gray-50/70 transition-colors`}>
                                             <div className="col-span-3 min-w-0">
                                                 <div className="font-bold text-gray-900 text-sm truncate">{client.name}</div>
+                                                {safeArray(client.namaLain).length > 0 && <div data-klien-nama-lain className="text-[11px] text-gray-500 truncate">Nama lain: {client.namaLain.join(', ')}</div>}
                                                 <div className="text-xs text-gray-400 truncate">{client.address || '-'}</div>
                                             </div>
                                             <div className="col-span-2 min-w-0">
@@ -29742,17 +29966,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
-                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} templates={templates} /></div>}
+                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} templates={templates} clients={clients} setClients={updateClients} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
                                 {tabMounted('karyawan', canOpen('karyawan')) && <div hidden={!tabVisible('karyawan')}><KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
-                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} /></div>}
+                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} clients={clients} setClients={updateClients} /></div>}
                                 {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
-                                {tabMounted('klien_instansi', canOpen('klien_instansi')) && <div hidden={!tabVisible('klien_instansi')}><ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} /></div>}
+                                {tabMounted('klien_instansi', canOpen('klien_instansi')) && <div hidden={!tabVisible('klien_instansi')}><ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} orders={orders} /></div>}
                                 {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
