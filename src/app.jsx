@@ -2787,15 +2787,20 @@ ${blocks}
             const grupTanpa = groups.find(x => !x.vendor) || null;
             // Penulisan disamakan dengan vendor yang sudah ada (mis. "toko maju" → "Toko Maju")
             const namaBaru = (() => { const t = normBahanText(vendorBaru); return vendorOptions.find(v => v.toLowerCase() === t.toLowerCase()) || t; })();
+            // Bahan tanpa vendor diberi nama vendor yang diisi; bila vendor itu sudah ada di daftar, bahannya digabung
+            // (Surat Pesanan: satu halaman; Pesan WA: satu pesan)
+            const pilihanA = useMemo(() => namaBaru ? pilihan.map(l => l.vendor ? l : { ...l, vendor: namaBaru }) : pilihan, [pilihan, namaBaru]);
+            const groupsGabung = useMemo(() => susunBelanjaVendor(pilihanA), [pilihanA]);
+            const jumlahHalamanA = groupsGabung.length;
             const g = groups.find(x => x.vendor === vKey) || groups[0];
-            const gWA = g && !g.vendor && namaBaru ? { ...g, vendor: namaBaru } : g;
+            // Pesan memuat bahan tanpa vendor bila yang dipilih "Belum ditentukan" atau vendor yang sama dengan nama yang diisi
+            const pesanMemuatTanpa = !!(g && grupTanpa && namaBaru && (!g.vendor || g.vendor === namaBaru));
+            const gWA = pesanMemuatTanpa ? (groupsGabung.find(x => x.vendor === namaBaru) || { ...g, vendor: namaBaru }) : g;
+            const digabungDengan = g && !g.vendor && namaBaru ? groups.find(x => x.vendor === namaBaru) : null;
             const namaPerusahaan = templates?.companyName || 'Simpati Konveksi';
             const teks = gWA ? buatPesanWA(gWA, { namaPerusahaan, butuh, showKode, showOrder, salam }) : '';
             const totalRows = groups.reduce((s, x) => s + x.rows, 0);
             const adaTanpaVendor = !!grupTanpa;
-            // Surat Pesanan: bahan tanpa vendor ikut halaman vendor yang diisi (digabung bila vendornya sudah ada)
-            const pilihanA = useMemo(() => namaBaru ? pilihan.map(l => l.vendor ? l : { ...l, vendor: namaBaru }) : pilihan, [pilihan, namaBaru]);
-            const jumlahHalamanA = useMemo(() => susunBelanjaVendor(pilihanA).length, [pilihanA]);
             // Simpan nama vendor hanya untuk bahan yang vendornya masih kosong (tidak pernah menimpa vendor yang sudah ada)
             const simpanVendorBaru = () => {
                 if (!grupTanpa || !namaBaru || !simpanVendor || !onSimpanVendor) return;
@@ -2805,7 +2810,7 @@ ${blocks}
                 return ls.length;
             };
             const salin = async () => {
-                const tersimpan = g && !g.vendor ? simpanVendorBaru() : 0;
+                const tersimpan = pesanMemuatTanpa ? simpanVendorBaru() : 0;
                 const ekor = tersimpan ? ` Vendor "${namaBaru}" disimpan untuk ${tersimpan} bahan.` : '';
                 try {
                     await navigator.clipboard.writeText(teks);
@@ -2890,7 +2895,7 @@ ${blocks}
                                             <button key={x.vendor || '__none'} type="button" data-wa-vendor={x.vendor || '__none'} onClick={() => setVKey(x.vendor)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${g === x ? (x.vendor ? 'bg-teal-700 text-white border-teal-700' : 'bg-orange-600 text-white border-orange-600') : (x.vendor ? 'bg-white text-gray-700 border-gray-300' : 'bg-orange-50 text-orange-700 border-orange-300')}`}>{x.vendor || '⚠ Belum ditentukan'} ({x.rows})</button>
                                         ))}
                                     </div>
-                                    {!g.vendor && kotakVendorBaru('Vendor bahan ini belum diisi. Kirim ke vendor:')}
+                                    {!g.vendor && kotakVendorBaru('Vendor bahan ini belum diisi. Kirim ke vendor:', digabungDengan ? `Digabung dengan ${digabungDengan.rows} bahan ${digabungDengan.vendor} yang sudah ada → satu pesan.` : '')}
                                     <textarea ref={taRef} data-wa-text readOnly value={teks} rows={Math.min(16, teks.split('\n').length + 1)} className="w-full p-3 border border-gray-300 rounded-xl text-[13px] font-mono leading-relaxed bg-gray-50" />
                                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700">
                                         <label className="flex items-center gap-1.5"><input type="checkbox" data-wa-kode checked={showKode} onChange={e => setShowKode(e.target.checked)} className="accent-teal-600" /> Tampilkan kode</label>
@@ -3179,15 +3184,18 @@ ${blocks}
         };
 
         // Penanda isian Bahan/Kain di Dashboard (hanya membaca order). 'nota' = belum diisi tetapi sudah ada nota (order lama).
+        // 'selesai' = produksi sudah selesai (Siap Kirim / Terkirim) tanpa isian: tidak perlu diisi lagi, tanpa lencana
+        // (sama seperti Daftar Belanja yang tidak memuat order Siap Kirim / Terkirim).
         const dashIsianInfo = (o) => {
             if (o?.materialStatus === 'Tidak Perlu' || getOrderProcessFlow(o).materials === false) return { g: 'tidak', n: 0 };
             const n = cleanRencanaBahan(o?.rencanaBahan).length;
             if (n > 0) return { g: 'sudah', n };
+            if (o?.status === 'Siap Kirim' || o?.status === 'Terkirim') return { g: 'selesai', n: 0 };
             return { g: o?.materialStatus === 'Ada Bahan' ? 'nota' : 'belum', n: 0 };
         };
         const DashIsianBadge = ({ order }) => {
             const { g, n } = dashIsianInfo(order);
-            if (g === 'tidak') return null;
+            if (g === 'tidak' || g === 'selesai') return null;
             const cls = g === 'belum' ? 'bg-orange-50 text-orange-700 border-orange-300' : g === 'sudah' ? 'bg-teal-50 text-teal-700 border-teal-300' : 'bg-gray-50 text-gray-600 border-gray-300';
             const label = g === 'belum' ? '🧵 Bahan belum diisi' : g === 'sudah' ? `🧵 Bahan diisi (${n})` : '🧾 Ada nota bahan';
             return <div><span data-dash-isian={g} className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold whitespace-nowrap ${cls}`}>{label}</span></div>;
