@@ -2452,9 +2452,28 @@
             return { marks, setField };
         };
 
+        // Kebutuhan di isian Bahan/Kain order (teks bebas, gaya Indonesia): titik = ribuan (1.000 / 12.500 / 1.000,5), koma = desimal.
+        // Angka biasa (25, 25,5, 1,5, 1.5) tetap seperti apa adanya.
         const parseBelanjaQty = (v) => {
-            const n = parseFloat(String(v == null ? '' : v).replace(/[±~≈]/g, '').replace(',', '.').trim());
+            const m = String(v == null ? '' : v).replace(/[±~≈]/g, '').match(/\d[\d.,]*/);
+            if (!m) return null;
+            let t = m[0].replace(/[.,]+$/, '');
+            if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+            else t = t.replace(',', '.');
+            const n = parseFloat(t);
             return isFinite(n) && n > 0 ? n : null;
+        };
+        // Jumlah di nota dibaca sama persis seperti hitungan nota di bagian lain aplikasi
+        const parseNotaQtyBelanja = (it) => { const n = getMaterialQty(it); return n > 0 ? n : null; };
+        // Nama bahan di nota yang "mirip" (salah ketik / disingkat), untuk peringatan agar tidak beli dobel.
+        // Kata umum seperti "kain"/"bahan" tidak dihitung; kode yang sama (tanpa tanda baca) juga dianggap mirip.
+        const BELANJA_KATA_UMUM = new Set(['kain', 'bahan', 'warna']);
+        const belanjaKata = (v) => normBahanText(v).toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !BELANJA_KATA_UMUM.has(w));
+        const belanjaMirip = (a, b) => {
+            const ka = belanjaKata(a.name), kb = belanjaKata(b.name);
+            if (ka.some(x => kb.some(y => x.startsWith(y) || y.startsWith(x)))) return true;
+            const ca = normBahanText(a.code).toLowerCase().replace(/[^a-z0-9]/g, ''), cb = normBahanText(b.code).toLowerCase().replace(/[^a-z0-9]/g, '');
+            return !!ca && ca === cb;
         };
         const fmtBelanjaQty = (n) => (Math.round(n * 100) / 100).toLocaleString('id-ID');
         const belanjaOrderNeedsBahan = (o) => getOrderProcessFlow(o).materials !== false && o.materialStatus !== 'Tidak Perlu';
@@ -2495,7 +2514,7 @@
                     const itName = nm(it.name), itCode = nm(it.code);
                     let cand = oLines.filter(l => itName && nm(l.name) === itName && !(nm(l.code) && itCode && nm(l.code) !== itCode));
                     if (cand.length === 0 && itCode) cand = oLines.filter(l => nm(l.code) && nm(l.code) === itCode);
-                    const qty = parseBelanjaQty(it.qty);
+                    const qty = parseNotaQtyBelanja(it);
                     const unit = normBahanUnit(it.unit);
                     const info = { name: normBahanText(it.name), code: normBahanText(it.code), qty, unit, vendor };
                     if (cand.length === 0) { lain.push(info); return; }
@@ -2519,7 +2538,7 @@
                     const m = marks.get(`${oid}\u0001${l.key}`) || {};
                     l.vendor = m.vendor || '';
                     l.dibeli = m.dibeli === true;
-                    l.notaLain = lain;
+                    l.notaLain = lain.filter(b => belanjaMirip(b, l));
                     let st;
                     if (l.need != null) {
                         if (l.bought >= l.need - 1e-9) st = 'lengkap';
@@ -2603,8 +2622,14 @@
                 });
         };
         const belanjaQtyText = (q, unit) => q == null ? '' : `${fmtBelanjaQty(q)}${unit ? ' ' + unit : ''}`;
-        // Tanggal "dibutuhkan paling lambat" bawaan: deadline order terdekat dari bahan yang dipilih
-        const belanjaTglBawaan = (pilihan) => safeArray(pilihan).map(l => String((l.order && l.order.deadline) || '')).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort()[0] || '';
+        // Tanggal "dibutuhkan paling lambat" bawaan: deadline order terdekat yang belum lewat dari bahan yang dipilih.
+        // Bila semua deadline sudah lewat (order terlambat) → hari ini; bila tidak ada deadline → kosong.
+        const belanjaTglBawaan = (pilihan) => {
+            const semua = safeArray(pilihan).map(l => String((l.order && l.order.deadline) || '')).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+            if (!semua.length) return '';
+            const hariIni = toLocalDateStr();
+            return semua.find(d => d >= hariIni) || hariIni;
+        };
         const belanjaTglTeks = (d, month) => { if (!d) return ''; const x = new Date(d + 'T00:00:00'); return isNaN(x.getTime()) ? '' : x.toLocaleDateString('id-ID', { day: 'numeric', month, year: 'numeric' }); };
         const belanjaKop = (templates) => {
             const safe = escapeHtmlText;
