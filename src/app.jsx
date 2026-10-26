@@ -3339,7 +3339,11 @@ ${blocks}
             const dipilih = (it, bawaan) => pilih[it.n] === undefined ? bawaan : pilih[it.n];
             const nBaru = hasil.baru.filter(it => dipilih(it, true)).length + hasil.dihapus.filter(it => dipilih(it, false)).length;
             const miripDipilih = hasil.mirip.filter(it => dipilih(it, false));
-            const nTambah = nBaru + miripDipilih.filter(it => (aksi[it.n] || 'hubungkan') === 'baru').length;
+            // Klien tujuan "juga baru" yang barisnya sendiri tidak dicentang tetap dibuat (agar bisa dihubungkan) → ikut dihitung
+            const tujuanBaruTambahan = new Set(miripDipilih.filter(it => (aksi[it.n] || 'hubungkan') !== 'baru' && !it.target.ada)
+                .filter(it => { const head = hasil.baru.find(b => klienNorm(b.name) === klienNorm(it.target.name)); return !(head && dipilih(head, true)); })
+                .map(it => klienNorm(it.target.name))).size;
+            const nTambah = nBaru + miripDipilih.filter(it => (aksi[it.n] || 'hubungkan') === 'baru').length + tujuanBaruTambahan;
             const nHubung = miripDipilih.filter(it => (aksi[it.n] || 'hubungkan') !== 'baru').length;
             const total = hasil.baru.length + hasil.mirip.length;
             if (total === 0 && !buka) return null;
@@ -3764,8 +3768,10 @@ ${blocks}
                 const renameSize = (sz) => sizeRenames[sz] || sz;
                 // Kode klien: dihitung ulang hanya bila nama klien diubah atau order belum punya kode
                 const klienBerubah = klienNorm(editOrder.client) !== klienNorm(original?.client);
-                const klienMiripTerbuka = (klienBerubah || !original?.clientId) ? klienMiripBelumDijawab(clients, editOrder.client, klienAbaikanEdit) : null;
-                const klienEdit = !(klienBerubah || !original?.clientId) ? { clientId: String(original.clientId), baru: null }
+                // Kode lama hanya dipertahankan bila kliennya masih ada (tidak dihapus)
+                const kodeLamaAktif = !!(original?.clientId && safeArray(clients).some(c => c && !c.isDeleted && String(c.id) === String(original.clientId)));
+                const klienMiripTerbuka = (klienBerubah || !kodeLamaAktif) ? klienMiripBelumDijawab(clients, editOrder.client, klienAbaikanEdit) : null;
+                const klienEdit = !(klienBerubah || !kodeLamaAktif) ? { clientId: String(original.clientId), baru: null }
                     : klienMiripTerbuka ? { clientId: '', baru: null } // mirip belum dijawab: tidak membuat klien baru
                     : siapkanKlienOrder(clients, editOrder.client, editNow);
 
@@ -4222,7 +4228,16 @@ ${blocks}
                                 <h3 className="text-xl font-bold text-gray-900 mb-4 border-b pb-2">Edit Data Order: {editOrder.id}</h3>
                                 <form onSubmit={handleSaveEditOrder} className="space-y-4">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div><label className="block text-sm mb-1 font-semibold">Nama Klien / Instansi</label><input required type="text" list="client-list-edit" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.client} onChange={e => setEditOrder({...editOrder, client: e.target.value})} /><datalist id="client-list-edit">{safeArray(clients).filter(isVisibleRecord).map(c => <option key={c.id} value={c.name} />)}</datalist><KlienOrderInfo nama={editOrder.client} clients={clients} abaikan={klienAbaikanEdit} onPakai={(nm) => setEditOrder(prev => ({ ...prev, client: nm }))} onAbaikan={setKlienAbaikanEdit} /></div>
+                                        <div><label className="block text-sm mb-1 font-semibold">Nama Klien / Instansi</label><input required type="text" list="client-list-edit" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.client} onChange={e => setEditOrder({...editOrder, client: e.target.value})} /><datalist id="client-list-edit">{safeArray(clients).filter(isVisibleRecord).map(c => <option key={c.id} value={c.name} />)}</datalist><KlienOrderInfo nama={editOrder.client} clients={clients} abaikan={klienAbaikanEdit} onPakai={(nm) => setEditOrder(prev => ({ ...prev, client: nm }))} onAbaikan={setKlienAbaikanEdit}
+                                            klien={(() => {
+                                                // Nama tidak diubah & order sudah ber-kode: tampilkan klien dari kodenya (tahan ganti nama klien)
+                                                const ori = safeOrders.find(o => String(o.id) === String(editOrder.id));
+                                                if (ori && ori.clientId && klienNorm(editOrder.client) === klienNorm(ori.client)) {
+                                                    const c = safeArray(clients).find(x => x && !x.isDeleted && String(x.id) === String(ori.clientId));
+                                                    if (c) return c;
+                                                }
+                                                return cariKlienTepat(clients, editOrder.client);
+                                            })()} /></div>
                                         <div><label className="block text-sm mb-1 font-semibold">Jenis Barang</label><input required type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.type} onChange={e => setEditOrder({...editOrder, type: e.target.value})} /></div>
                                         <div><label className="block text-sm mb-1 font-semibold">Tanggal Masuk</label><input required type="date" disabled className="w-full p-2 border rounded bg-gray-100 text-gray-500" value={editOrder.date} /></div>
                                         <div><label className="block text-sm mb-1 font-semibold">Deadline Produksi</label><input required type="date" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.deadline} onChange={e => setEditOrder({...editOrder, deadline: e.target.value})} /></div>
@@ -11209,7 +11224,18 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const row = { ...form, id: editId || genId('CLI-'), clientDpPayments: form.clientDpPayments || [], _syncUpdatedAt: now };
                 setClients(prev => {
                     const list = Array.isArray(prev) ? prev : [];
-                    return editId ? list.map(item => String(item.id) === String(editId) ? row : item) : [row, ...list];
+                    if (!editId) return [row, ...list];
+                    return list.map(item => {
+                        if (String(item.id) !== String(editId)) return item;
+                        // Edit hanya mengubah kolom di form; DP & nama lain diambil dari data terbaru (tidak tertimpa isi form lama).
+                        // Nama lama disimpan sebagai "nama lain" agar order / invoice lama bernama lama tetap dikenali klien ini.
+                        const namaBaru = normBahanText(form.name) || item.name;
+                        const namaLama = normBahanText(item.name);
+                        let namaLain = safeArray(item.namaLain);
+                        if (namaLama && klienNorm(namaLama) !== klienNorm(namaBaru) && !namaLain.some(x => klienNorm(x) === klienNorm(namaLama))) namaLain = [...namaLain, namaLama];
+                        namaLain = namaLain.filter(x => klienNorm(x) !== klienNorm(namaBaru));
+                        return { ...item, name: form.name, address: form.address || '', phone: form.phone || '', pic: form.pic || '', note: form.note || '', ...((namaLain.length || Array.isArray(item.namaLain)) ? { namaLain } : {}), _syncUpdatedAt: now };
+                    });
                 });
                 setForm(emptyClient); setEditId(null); showToast(editId ? "Klien diperbarui." : "Klien ditambahkan.", "success");
             };
