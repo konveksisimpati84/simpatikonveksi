@@ -3236,6 +3236,12 @@ ${blocks}
             if (!k) return null;
             return safeArray(clients).find(c => c && !c.isDeleted && klienNamaSemua(c).some(x => klienKanon(x) === k)) || null;
         };
+        // Nama mirip klien lain yang peringatannya belum dijawab (Pakai / Tetap klien baru) → kembalikan klien yang mirip
+        const klienMiripBelumDijawab = (clients, name, abaikan) => {
+            if (!normBahanText(name) || cariKlienTepat(clients, name)) return null;
+            if (abaikan && abaikan === klienNorm(name)) return null;
+            return cariKlienMirip(clients, name);
+        };
         // Kode klien untuk order yang disimpan; bila belum ada di daftar, siapkan klien baru (belum disimpan)
         const siapkanKlienOrder = (clients, name, now) => {
             const nama = normBahanText(name);
@@ -3273,14 +3279,27 @@ ${blocks}
             return <div data-klien-info="baru" className="mt-1.5 text-xs text-blue-800"><span className="font-bold bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 inline-block">＋ Klien baru</span> <span className="text-gray-500">{teksBaru || 'otomatis ditambahkan ke menu Klien & Instansi saat order disimpan.'}</span></div>;
         };
 
+        // Indeks klien (dibuat sekali) agar pencocokan banyak nama tetap cepat. Urutan pemilihan sama dengan
+        // cariKlienTepat (nama utama dulu, lalu nama lain) dan cariKlienMirip (klien pertama yang salah satu namanya mirip).
+        const buatIndeksKlien = (clients) => {
+            const aktif = safeArray(clients).filter(c => c && !c.isDeleted);
+            const tepat = new Map(), kanon = new Map(), hapus = new Map();
+            aktif.forEach(c => { const n = klienNorm(c.name); if (n && !tepat.has(n)) tepat.set(n, c); });
+            aktif.forEach(c => safeArray(c.namaLain).forEach(x => { const n = klienNorm(x); if (n && !tepat.has(n)) tepat.set(n, c); }));
+            aktif.forEach(c => klienNamaSemua(c).forEach(x => { const k = klienKanon(x); if (k && !kanon.has(k)) kanon.set(k, c); }));
+            safeArray(clients).filter(c => c && c.isDeleted).forEach(c => klienNamaSemua(c).forEach(x => { const n = klienNorm(x); if (n && !hapus.has(n)) hapus.set(n, c); }));
+            return { tepat, kanon, hapus };
+        };
         // Nama instansi di order yang belum ada di daftar klien: baru / mirip klien lain / pernah dihapus. Hanya membaca.
         const hitungKlienDariOrder = (orders, clients) => {
             const list = safeArray(clients);
+            const idx = buatIndeksKlien(list);
+            const idAktif = new Set(list.filter(c => c && !c.isDeleted).map(c => String(c.id)));
             const byNorm = new Map();
             safeArray(orders).filter(o => o && !o.isDeleted).forEach(o => {
                 const nama = normBahanText(o.client);
                 if (!nama) return;
-                if (o.clientId && list.some(c => c && !c.isDeleted && String(c.id) === String(o.clientId))) return; // sudah terhubung lewat kode
+                if (o.clientId && idAktif.has(String(o.clientId))) return; // sudah terhubung lewat kode
                 const n = klienNorm(nama);
                 const cur = byNorm.get(n) || { n, count: 0, last: null, ejaan: new Map() };
                 cur.count++;
@@ -3293,10 +3312,10 @@ ${blocks}
             byNorm.forEach(cur => {
                 const name = [...cur.ejaan.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
                 const it = { n: cur.n, name, count: cur.count, last: cur.last };
-                if (cariKlienTepat(list, name)) return;
-                const del = list.find(c => c && c.isDeleted && klienNamaSemua(c).some(x => klienNorm(x) === cur.n));
+                if (idx.tepat.has(cur.n)) return;
+                const del = idx.hapus.get(cur.n);
                 if (del) { dihapus.push({ ...it, del }); return; }
-                const m = cariKlienMirip(list, name);
+                const m = idx.kanon.get(klienKanon(name));
                 if (m) { mirip.push({ ...it, target: { id: String(m.id), name: m.name, ada: true } }); return; }
                 baru.push(it);
             });
@@ -3745,7 +3764,10 @@ ${blocks}
                 const renameSize = (sz) => sizeRenames[sz] || sz;
                 // Kode klien: dihitung ulang hanya bila nama klien diubah atau order belum punya kode
                 const klienBerubah = klienNorm(editOrder.client) !== klienNorm(original?.client);
-                const klienEdit = (klienBerubah || !original?.clientId) ? siapkanKlienOrder(clients, editOrder.client, editNow) : { clientId: String(original.clientId), baru: null };
+                const klienMiripTerbuka = (klienBerubah || !original?.clientId) ? klienMiripBelumDijawab(clients, editOrder.client, klienAbaikanEdit) : null;
+                const klienEdit = !(klienBerubah || !original?.clientId) ? { clientId: String(original.clientId), baru: null }
+                    : klienMiripTerbuka ? { clientId: '', baru: null } // mirip belum dijawab: tidak membuat klien baru
+                    : siapkanKlienOrder(clients, editOrder.client, editNow);
 
                 setOrders(prev => prev.map(o => {
                     if (String(o.id) === String(editOrder.id)) {
@@ -3764,7 +3786,7 @@ ${blocks}
                             progress,
                             shipped,
                             client: editOrder.client,
-                            ...(klienEdit.clientId ? { clientId: klienEdit.clientId } : {}),
+                            clientId: klienEdit.clientId || undefined, // kosong → kode lama ikut dibuang bila nama klien diganti
                             type: editOrder.type,
                             deadline: editOrder.deadline,
                             notes: editOrder.notes,
@@ -3798,7 +3820,7 @@ ${blocks}
                 }
                 setEditOrder(null);
                 const renamedText = Object.entries(sizeRenames).map(([a, b]) => `${a}→${b}`).join(', ');
-                showToast(renamedText ? `Data Order diperbarui. Data produksi ukuran ikut dipindah (${renamedText}).` : "Data Order berhasil diperbarui!", "success");
+                showToast((renamedText ? `Data Order diperbarui. Data produksi ukuran ikut dipindah (${renamedText}).` : "Data Order berhasil diperbarui!") + (klienMiripTerbuka ? ` Nama klien mirip "${klienMiripTerbuka.name}" belum dipilih, jadi tidak dibuat klien baru.` : ''), "success");
             };
 
             const handleGenerateInsight = async () => {
@@ -5735,7 +5757,10 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
 
                 const rencanaBahanBaru = cleanRencanaBahan(newOrder.rencanaBahan);
                 const { rencanaBahan: _rbDraft, ...newOrderTanpaRencana } = newOrder;
-                const klienOrder = siapkanKlienOrder(clients, newOrder.client, new Date().toISOString());
+                // Peringatan "mirip" belum dijawab: order tetap disimpan, tetapi klien baru TIDAK dibuat (hindari klien dobel);
+                // nama ini nanti muncul di "Ambil klien dari order" kelompok Mirip untuk diputuskan admin
+                const klienMiripTerbuka = klienMiripBelumDijawab(clients, newOrder.client, klienAbaikan);
+                const klienOrder = klienMiripTerbuka ? { clientId: '', baru: null } : siapkanKlienOrder(clients, newOrder.client, new Date().toISOString());
                 const orderToAdd = {
                     ...newOrderTanpaRencana,
                     ...(klienOrder.clientId ? { clientId: klienOrder.clientId } : {}),
@@ -5759,7 +5784,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 setOrders(prev => [orderToAdd, ...(prev||[])]);
                 tambahKlienBaru(setClients, klienOrder.baru);
                 const selectedProcessLabels = orderProcessOptions.filter(opt => orderToAdd.processFlow[opt.id] !== false).map(opt => opt.label).join(', ');
-                showToast("Order ditambahkan ke antrean!", "success");
+                showToast(klienMiripTerbuka ? `Order ditambahkan ke antrean! Nama klien mirip "${klienMiripTerbuka.name}" belum dipilih, jadi tidak dibuat klien baru — bisa diputuskan di menu Klien (Ambil klien dari order).` : "Order ditambahkan ke antrean!", "success");
                 setNewOrder({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
                 setSizeInputs([{ id: 1, label: 'S', qty: '' }, { id: 2, label: 'M', qty: '' }, { id: 3, label: 'L', qty: '' }, { id: 4, label: 'XL', qty: '' }]);
                 setActiveTab('produksi');
@@ -11978,6 +12003,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 // A1 & A2: Cap invoiceDp.amount antara 0 dan cleanedTotal
                 const safeDpAmount = Math.max(0, Math.min(safeMoney(form.invoiceDp?.amount), cleanedTotal));
                 const formClient = resolveFormClient(form.customer, editId);
+                // Invoice butuh klien (saldo DP & piutang): nama mirip klien lain harus dijawab dulu agar tidak membuat klien dobel
+                const miripInv = !formClient ? klienMiripBelumDijawab(safeClientRows, form.customer, klienAbaikanInv) : null;
+                if (miripInv) return showToast(`Nama "${form.customer}" mirip klien "${miripInv.name}". Pilih dulu di bawah kolom nama: Pakai "${miripInv.name}" atau Tetap klien baru.`, "error");
                 const row = { ...form, marketingEmpId: marketingEmp?.id || '', clientId: formClient?.id || siapkanKlienOrder(safeClientRows, form.customer, now).clientId || genId('CLI-'), id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.max(0, Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal - safeDpAmount - getInvoicePayments(form).reduce((s, p) => s + safeMoney(p.amount), 0))), shippingCost: Math.max(0, safeMoney(form.shippingCost)), shippingNote: String(form.shippingNote || ''), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 setInvoices(prev => {
