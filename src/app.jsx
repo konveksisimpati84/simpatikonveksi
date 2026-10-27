@@ -84,18 +84,18 @@
             { id: 'dashboard', label: 'Dashboard' },
             { id: 'input_order', label: 'Input Order' },
             { id: 'antrean', label: 'Monitor Antrean' },
-            { id: 'pembelian_bahan', label: 'Pembelian Bahan' },
+            { id: 'pembelian_bahan', label: 'Pembelian Bahan (+ tab Vendor)' },
             { id: 'produksi', label: 'Proses Produksi' },
             { id: 'pengiriman', label: 'Pengiriman' },
             { id: 'biaya', label: 'Biaya' },
             { id: 'invoice', label: 'Invoice' },
-            { id: 'klien_instansi', label: 'Klien / Instansi' },
+            { id: 'klien_instansi', label: 'Data Master: Klien & Instansi' },
             { id: 'tracking_instansi', label: 'Tracking Instansi' },
             { id: 'laporan', label: 'Laporan Kinerja' },
             { id: 'laporan_keuangan', label: 'Laporan Keuangan' },
             { id: 'laporan_order', label: 'Laporan Per Order' },
             { id: 'investor', label: 'Investor' },
-            { id: 'karyawan', label: 'Data Karyawan' },
+            { id: 'karyawan', label: 'Data Master: Karyawan' },
             { id: 'dana_operasional', label: 'Dana Operasional' },
             { id: 'pengaturan', label: 'Pengaturan Cetak' },
             { id: 'master_akun', label: 'Master Akun' },
@@ -124,6 +124,23 @@
                 return menuId;
             }))];
             return filterDisabledMenus(normalizedAccess);
+        };
+
+        // Menu "Data Master" berisi tab Karyawan | Klien & Instansi | Vendor. Tidak ada centang baru di Master Akun:
+        // tiap tab memakai centang lama ('karyawan', 'klien_instansi', 'pembelian_bahan').
+        const DATA_MASTER_TABS = [
+            { id: 'karyawan', label: 'Karyawan', icon: '👷', izin: 'karyawan' },
+            { id: 'klien', label: 'Klien & Instansi', labelPendek: 'Klien', icon: '🏫', izin: 'klien_instansi' },
+            { id: 'vendor', label: 'Vendor', icon: '🏪', izin: 'pembelian_bahan' },
+        ];
+        const DATA_MASTER_IZIN = DATA_MASTER_TABS.map(t => t.izin);
+        // Menu lama yang sekarang menjadi tab di Data Master (tidak tampil lagi sebagai menu sendiri)
+        const MENU_PINDAH_KE_DATA_MASTER = ['karyawan', 'klien_instansi'];
+        // Menu yang tampil di sidebar / menu HP untuk akun ini (dipakai navigasi & pengaman pindah menu)
+        const getAccountNavAccess = (account) => {
+            const access = getAccountMenuAccess(account);
+            const nav = access.filter(id => !MENU_PINDAH_KE_DATA_MASTER.includes(id));
+            return access.some(id => DATA_MASTER_IZIN.includes(id)) ? [...nav, 'data_master'] : nav;
         };
 
         const productionStageOptions = [
@@ -3357,7 +3374,7 @@ ${blocks}
                     </div>
                 </div>
             );
-            return <div data-klien-info="baru" className="mt-1.5 text-xs text-blue-800"><span className="font-bold bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 inline-block">＋ Klien baru</span> <span className="text-gray-500">{teksBaru || 'otomatis ditambahkan ke menu Klien & Instansi saat disimpan.'}</span></div>;
+            return <div data-klien-info="baru" className="mt-1.5 text-xs text-blue-800"><span className="font-bold bg-blue-50 border border-blue-200 rounded-lg px-2 py-1 inline-block">＋ Klien baru</span> <span className="text-gray-500">{teksBaru || 'otomatis ditambahkan ke Data Master → Klien & Instansi saat disimpan.'}</span></div>;
         };
 
         // Penanda isian Bahan/Kain di Dashboard (hanya membaca order). 'nota' = belum diisi tetapi sudah ada nota (order lama).
@@ -6170,8 +6187,8 @@ window.addEventListener('load',function(){
             const myEmployeeProblem = (() => {
                 if (!isKaryawanMode) return '';
                 if (!myEmpData) return 'Akun karyawan ini belum terhubung ke data karyawan. Admin perlu membuka Master Akun, edit akun ini, lalu pilih data karyawan yang sesuai.';
-                if (normalizeText(myEmpData.status) === 'nonaktif') return 'Data karyawan untuk akun ini berstatus Nonaktif. Aktifkan kembali di menu Data Karyawan agar bisa input pekerjaan.';
-                if (!myStageData) return `Divisi karyawan "${getEmployeeDivisions(myEmpData).join(', ') || '-'}" belum cocok dengan tahapan produksi. Sesuaikan divisi di menu Data Karyawan.`;
+                if (normalizeText(myEmpData.status) === 'nonaktif') return 'Data karyawan untuk akun ini berstatus Nonaktif. Aktifkan kembali di menu Data Master → Karyawan agar bisa input pekerjaan.';
+                if (!myStageData) return `Divisi karyawan "${getEmployeeDivisions(myEmpData).join(', ') || '-'}" belum cocok dengan tahapan produksi. Sesuaikan divisi di menu Data Master → Karyawan.`;
                 return '';
             })();
 
@@ -6598,7 +6615,7 @@ window.addEventListener('load',function(){
                                                             <span>{emp.name}</span>
                                                         </label>
                                                     ))}
-                                                    {stageEmployees.length === 0 && <span className="text-xs text-red-500 col-span-full">Tidak ada karyawan di divisi ini. Tambahkan di menu Data Karyawan.</span>}
+                                                    {stageEmployees.length === 0 && <span className="text-xs text-red-500 col-span-full">Tidak ada karyawan di divisi ini. Tambahkan di menu Data Master → Karyawan.</span>}
                                                 </div>
                                             </div>
                                         )}
@@ -8260,7 +8277,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [], masterBahan = [], setMasterBahan }) => {
+        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [], masterBahan = [], setMasterBahan, bukaNotaVendor = null }) => {
             const [previewImage, setPreviewImage] = useState(null);
             const [bahanTab, setBahanTab] = useState('nota');
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
@@ -8274,7 +8291,16 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const NOTE_PAGE_SIZE = 15;
             const [notePage, setNotePage] = useState(1);
             const [sortBy, setSortBy] = useState('terbaru');
-            useEffect(() => { setNotePage(1); }, [noteSearch, filterStatus, sortBy]);
+            // Dari Data Master → Vendor: saring nota ke satu vendor (nama yang hanya beda huruf besar/kecil atau spasi ikut)
+            const [vendorSaring, setVendorSaring] = useState(null);
+            useEffect(() => { setNotePage(1); }, [noteSearch, filterStatus, sortBy, vendorSaring]);
+            useEffect(() => {
+                if (!bukaNotaVendor || !bukaNotaVendor.vendor) return;
+                setBahanTab('nota');
+                setFilterStatus('Semua');
+                setNoteSearch('');
+                setVendorSaring({ key: vendorKunci(bukaNotaVendor.vendor), name: bukaNotaVendor.vendor });
+            }, [bukaNotaVendor && bukaNotaVendor.t]);
             const [expandedNotes, setExpandedNotes] = useState({});
             const toggleNote = (id) => setExpandedNotes(p => ({ ...p, [id]: !p[id] }));
 
@@ -8489,6 +8515,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const renderInputPembelian = () => {
                 const allNotes = safeArray(purchaseNotes).filter(isVisibleRecord);
                 const filteredNotes = allNotes.filter(note => {
+                    if (vendorSaring && vendorKunci(note.vendor) !== vendorSaring.key) return false;
                     if (filterStatus !== 'Semua' && noteStatus(note) !== filterStatus) return false;
                     if (!noteSearch.trim()) return true;
                     const term = noteSearch.toLowerCase();
@@ -8819,7 +8846,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         <div className="flex justify-between items-center gap-2">
                             <div className="text-sm font-semibold text-gray-500">
                                 {notes.length > 0 ? `${notes.length} nota pembelian` : 'Belum ada nota'}
-                                {(filterStatus !== 'Semua' || noteSearch.trim()) && allNotes.length !== notes.length && <span className="text-xs font-normal text-gray-400 ml-1">(dari {allNotes.length} total)</span>}
+                                {(filterStatus !== 'Semua' || noteSearch.trim() || vendorSaring) && allNotes.length !== notes.length && <span className="text-xs font-normal text-gray-400 ml-1">(dari {allNotes.length} total)</span>}
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
@@ -9179,6 +9206,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         {/* Search & Filter bar */}
                         {allNotes.length > 0 && (
                             <div className="flex flex-col gap-2">
+                                {vendorSaring && (
+                                    <div data-saring-vendor className="flex flex-wrap items-center justify-between gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-sm text-blue-900">
+                                        <span>🏪 Nota vendor: <b>{vendorSaring.name}</b></span>
+                                        <button type="button" onClick={() => setVendorSaring(null)} className="text-xs font-bold text-blue-700 bg-white border border-blue-200 rounded-lg px-2.5 py-1">✕ Tampilkan semua nota</button>
+                                    </div>
+                                )}
                                 <div className="flex flex-col sm:flex-row gap-2">
                                     <div className="relative flex-1">
                                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
@@ -9944,7 +9977,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             <div className="w-1 h-4 rounded-full bg-indigo-500"></div>
                             <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Pilih Karyawan</span>
                         </div>
-                        {safeEmployees.length === 0 && <p className="text-sm text-gray-400 italic">Belum ada data karyawan. Tambahkan di menu Data Karyawan.</p>}
+                        {safeEmployees.length === 0 && <p className="text-sm text-gray-400 italic">Belum ada data karyawan. Tambahkan di menu Data Master → Karyawan.</p>}
                         <div className="flex flex-wrap gap-2">
                             {safeEmployees.map(emp => {
                                 const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi);
@@ -11035,6 +11068,195 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     </div>
                 )}
                 </>
+            );
+        };
+
+        // ===== Data Master → tab Vendor: ringkasan otomatis dari nota pembelian (hanya membaca, tidak menyimpan apa pun) =====
+        // Total, terbayar & hutang memakai rumus yang sama dengan menu Pembelian Bahan (noteTotal / notePaid / noteDebt).
+        // Nama vendor yang hanya beda huruf besar/kecil atau spasi digabung; ejaan yang paling sering dipakai yang ditampilkan.
+        const vendorKunci = (v) => normalizeVendorName(v).toLowerCase().replace(/\s+/g, ' ');
+        const buatRingkasanVendor = (purchaseNotes) => {
+            const map = new Map();
+            safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => {
+                const k = vendorKunci(n.vendor);
+                if (!map.has(k)) map.set(k, { key: k, ejaan: new Map(), notes: [], total: 0, paid: 0, hutang: 0, lastDate: '', bahan: new Map() });
+                const g = map.get(k);
+                const nama = normalizeVendorName(n.vendor).replace(/\s+/g, ' ');
+                const tglNota = String(n.date || '');
+                const ej = g.ejaan.get(nama) || { n: 0, d: '' };
+                g.ejaan.set(nama, { n: ej.n + 1, d: tglNota > ej.d ? tglNota : ej.d });
+                g.notes.push(n);
+                g.total += noteTotal(n);
+                g.paid += notePaid(n);
+                g.hutang += noteDebt(n);
+                const d = String(n.date || '');
+                if (d > g.lastDate) g.lastDate = d;
+                safeArray(n.items).forEach(it => {
+                    const bn = normBahanText(it && it.name);
+                    if (!bn) return;
+                    const bk = bn.toLowerCase();
+                    const b = g.bahan.get(bk) || { name: bn, count: 0, lastDate: '', lastPrice: 0, lastUnit: '' };
+                    b.count++;
+                    if (d >= b.lastDate) { b.lastDate = d; b.lastPrice = safeMoney(it.price); b.lastUnit = normBahanUnit(it.unit); }
+                    g.bahan.set(bk, b);
+                });
+            });
+            return [...map.values()].map(g => ({
+                key: g.key,
+                // Ejaan yang paling sering dipakai; bila sama banyak, ejaan dari nota terbaru
+                name: [...g.ejaan.entries()].sort((a, b) => b[1].n - a[1].n || b[1].d.localeCompare(a[1].d) || a[0].localeCompare(b[0]))[0][0],
+                notes: [...g.notes].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))),
+                total: g.total, paid: g.paid, hutang: g.hutang, lastDate: g.lastDate,
+                bahan: [...g.bahan.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+            }));
+        };
+        const VENDOR_STATUS_PILL = { 'Lunas': 'bg-green-100 text-green-800', 'Dibayar Sebagian': 'bg-amber-100 text-amber-800', 'Belum Dibayar': 'bg-red-100 text-red-800' };
+        const VendorPanel = ({ purchaseNotes, onLihatNota }) => {
+            const semua = useMemo(() => buatRingkasanVendor(purchaseNotes), [purchaseNotes]);
+            const [cariInput, setCariInput] = useState('');
+            const [cari, setCari] = useState('');
+            useEffect(() => { const t = setTimeout(() => setCari(cariInput), 250); return () => clearTimeout(t); }, [cariInput]);
+            const [urut, setUrut] = useState('terakhir');
+            const [saring, setSaring] = useState('semua');
+            const [buka, setBuka] = useState(null);
+            const q = normBahanText(cari).toLowerCase();
+            const list = useMemo(() => {
+                let l = semua;
+                if (saring === 'hutang') l = l.filter(v => v.hutang >= 1);
+                if (saring === 'lunas') l = l.filter(v => v.hutang < 1);
+                if (q) l = l.filter(v => v.name.toLowerCase().includes(q) || v.bahan.some(b => b.name.toLowerCase().includes(q)));
+                const cmp = {
+                    terakhir: (a, b) => b.lastDate.localeCompare(a.lastDate) || a.name.localeCompare(b.name),
+                    total: (a, b) => b.total - a.total || a.name.localeCompare(b.name),
+                    hutang: (a, b) => b.hutang - a.hutang || a.name.localeCompare(b.name),
+                    nama: (a, b) => a.name.localeCompare(b.name),
+                }[urut];
+                return [...l].sort(cmp);
+            }, [semua, saring, q, urut]);
+            const { page, setPage, totalPages, paged, total } = usePagination(list, 20, `${q}|${saring}|${urut}`);
+            const totalBelanja = semua.reduce((s, v) => s + v.total, 0);
+            const totalHutang = semua.reduce((s, v) => s + v.hutang, 0);
+            const nHutang = semua.filter(v => v.hutang >= 1).length;
+            const pillHutang = (v) => v.hutang >= 1
+                ? <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800 whitespace-nowrap">{formatRupiah(v.hutang)}</span>
+                : <span className="text-xs font-bold rounded-full px-2 py-0.5 bg-green-100 text-green-800">Lunas</span>;
+            const tglV = (d) => d ? formatTglBahan(d) : '-';
+            const rincian = (v) => (
+                <div data-vendor-rincian className="text-xs text-gray-700 space-y-1.5 leading-relaxed">
+                    <div><b>Nota terakhir:</b>{' '}
+                        {v.notes.slice(0, 3).map((n, i) => { const st = noteStatus(n); return (
+                            <span key={n.id || i} className="inline-flex items-center gap-1 mr-2">{tglV(n.date)} · {formatRupiah(noteTotal(n))} <span className={`font-bold rounded-full px-1.5 ${VENDOR_STATUS_PILL[st] || 'bg-gray-100 text-gray-700'}`}>{st === 'Belum Dibayar' ? 'Belum bayar' : st === 'Dibayar Sebagian' ? 'Sebagian' : st}</span></span>
+                        ); })}
+                        {v.notes.length > 3 && <span className="text-gray-500">+{v.notes.length - 3} nota lain</span>}
+                    </div>
+                    {v.bahan.length > 0 && <div><b>Bahan:</b> {v.bahan.slice(0, 5).map(b => `${b.name} (${b.count}×${b.lastPrice > 0 ? `, terakhir ${formatRupiah(b.lastPrice)}${b.lastUnit ? '/' + b.lastUnit : ''}` : ''})`).join(' · ')}</div>}
+                    {onLihatNota && <button type="button" data-lihat-nota-vendor onClick={() => onLihatNota(v.name)} className="mt-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">📄 Lihat nota vendor ini</button>}
+                </div>
+            );
+            return (
+                <div data-vendor-panel className="space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-white border border-gray-200 rounded-xl p-3"><div className="text-[11px] font-bold text-gray-500">Jumlah vendor</div><div className="text-lg font-black text-gray-900">{semua.length}</div></div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-3"><div className="text-[11px] font-bold text-gray-500">Total belanja (semua nota)</div><div className="text-lg font-black text-gray-900">{formatRupiah(totalBelanja)}</div></div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-3"><div className="text-[11px] font-bold text-gray-500">Sisa hutang ke vendor</div><div className={`text-lg font-black ${totalHutang >= 1 ? 'text-red-700' : 'text-gray-900'}`}>{formatRupiah(totalHutang)}</div></div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-3"><div className="text-[11px] font-bold text-gray-500">Vendor dengan hutang</div><div className="text-lg font-black text-gray-900">{nHutang}</div></div>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-2xl p-3 sm:p-4 space-y-3">
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <input type="text" value={cariInput} onChange={e => setCariInput(e.target.value)} placeholder="Cari vendor atau bahan…" className="flex-1 min-w-[180px] p-2 border border-gray-300 rounded-lg text-sm" />
+                            <select data-vendor-urut value={urut} onChange={e => setUrut(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm bg-white">
+                                <option value="terakhir">Urut: Terakhir beli</option>
+                                <option value="total">Urut: Total belanja</option>
+                                <option value="hutang">Urut: Hutang terbesar</option>
+                                <option value="nama">Urut: Nama</option>
+                            </select>
+                            <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                                {[['semua', 'Semua'], ['hutang', 'Ada hutang'], ['lunas', 'Lunas']].map(([id, label]) => (
+                                    <button key={id} type="button" data-vendor-saring={id} onClick={() => setSaring(id)} className={`px-2.5 py-1 rounded-md text-xs font-bold ${saring === id ? 'bg-white text-blue-700 shadow' : 'text-gray-500'}`}>{label}</button>
+                                ))}
+                            </div>
+                        </div>
+                        {list.length === 0 ? (
+                            <div className="text-sm text-gray-500 text-center py-8">{semua.length === 0 ? 'Belum ada nota pembelian. Data vendor muncul otomatis dari nota di menu Pembelian Bahan.' : 'Tidak ada vendor yang cocok.'}</div>
+                        ) : (
+                            <>
+                                <div className="hidden md:block overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 bg-gray-50">
+                                            <th className="p-2.5">Vendor</th><th className="p-2.5 text-right">Nota</th><th className="p-2.5 text-right">Total belanja</th><th className="p-2.5 text-right">Sisa hutang</th><th className="p-2.5">Terakhir beli</th><th className="p-2.5">Bahan yang sering dibeli</th>
+                                        </tr></thead>
+                                        <tbody>
+                                            {paged.map(v => (
+                                                <React.Fragment key={v.key}>
+                                                    <tr data-vendor-baris={v.name} onClick={() => setBuka(buka === v.key ? null : v.key)} className="border-t border-gray-100 cursor-pointer hover:bg-gray-50">
+                                                        <td className="p-2.5 font-bold text-gray-900">{buka === v.key ? '▾' : '▸'} {v.name}</td>
+                                                        <td className="p-2.5 text-right tabular-nums">{v.notes.length}</td>
+                                                        <td className="p-2.5 text-right tabular-nums">{formatRupiah(v.total)}</td>
+                                                        <td className="p-2.5 text-right">{pillHutang(v)}</td>
+                                                        <td className="p-2.5 whitespace-nowrap">{tglV(v.lastDate)}</td>
+                                                        <td className="p-2.5 text-gray-600">{v.bahan.slice(0, 2).map(b => b.name).join(', ') || '-'}</td>
+                                                    </tr>
+                                                    {buka === v.key && <tr className="bg-slate-50"><td colSpan={6} className="px-6 py-3">{rincian(v)}</td></tr>}
+                                                </React.Fragment>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="md:hidden space-y-2">
+                                    {paged.map(v => (
+                                        <div key={v.key} data-vendor-kartu={v.name} className="border border-gray-200 rounded-xl p-3">
+                                            <button type="button" onClick={() => setBuka(buka === v.key ? null : v.key)} className="w-full text-left">
+                                                <div className="flex items-start justify-between gap-2"><span className="font-bold text-gray-900 min-w-0 break-words">{v.name}</span>{pillHutang(v)}</div>
+                                                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mt-1.5">
+                                                    <span className="text-gray-500">Nota</span><b className="tabular-nums">{v.notes.length}</b>
+                                                    <span className="text-gray-500">Total belanja</span><b className="tabular-nums">{formatRupiah(v.total)}</b>
+                                                    <span className="text-gray-500">Terakhir beli</span><b>{tglV(v.lastDate)}</b>
+                                                </div>
+                                                {v.bahan.length > 0 && <div className="text-xs text-gray-500 mt-1 truncate">{v.bahan.slice(0, 2).map(b => b.name).join(', ')}</div>}
+                                            </button>
+                                            {buka === v.key && <div className="mt-2 pt-2 border-t border-gray-100">{rincian(v)}</div>}
+                                        </div>
+                                    ))}
+                                </div>
+                                <Paginator page={page} setPage={setPage} totalPages={totalPages} total={total} pageSize={20} label="vendor" />
+                            </>
+                        )}
+                    </div>
+                    <div className="text-xs text-gray-500 leading-relaxed">ℹ Total belanja = jumlah semua nota (setelah diskon); sisa hutang = yang belum dibayar, dihitung sama seperti di menu Pembelian Bahan. Berbeda dengan "Pembelian per Vendor" di Laporan Keuangan yang menghitung uang yang <b>sudah dibayar</b> pada periode terpilih. Nota yang dihapus tidak dihitung.</div>
+                </div>
+            );
+        };
+
+        // Menu Data Master: tab yang muncul mengikuti izin akun; tab yang sudah dibuka tetap tersimpan (isian form tidak hilang saat pindah tab)
+        const DATA_MASTER_TAB_KEY = 'simpati_data_master_tab';
+        const DataMasterView = ({ izin = [], karyawanProps, klienProps, purchaseNotes, onLihatNotaVendor }) => {
+            const tabs = DATA_MASTER_TABS.filter(t => izin.includes(t.izin));
+            const [tab, setTab] = useState(() => { try { return localStorage.getItem(DATA_MASTER_TAB_KEY) || ''; } catch (e) { return ''; } });
+            const aktif = tabs.some(t => t.id === tab) ? tab : (tabs[0] ? tabs[0].id : '');
+            const [dimuat, setDimuat] = useState(() => new Set());
+            useEffect(() => { if (aktif) setDimuat(prev => prev.has(aktif) ? prev : new Set(prev).add(aktif)); }, [aktif]);
+            const pilih = (id) => { setTab(id); try { localStorage.setItem(DATA_MASTER_TAB_KEY, id); } catch (e) { /* abaikan */ } };
+            const tampil = (id) => tabs.some(t => t.id === id) && (aktif === id || dimuat.has(id));
+            return (
+                <div data-data-master className="space-y-5">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-800">Data Master</h2>
+                        <p className="text-sm text-gray-500 mt-1">Data karyawan, klien &amp; instansi, dan vendor di satu tempat.</p>
+                    </div>
+                    {tabs.length > 1 && (
+                        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                            {tabs.map(t => (
+                                <button key={t.id} type="button" data-dm-tab={t.id} onClick={() => pilih(t.id)}
+                                    className={`flex-1 min-w-0 py-2 px-2 rounded-lg text-xs sm:text-sm font-bold transition-all ${aktif === t.id ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    <span className="mr-1">{t.icon}</span><span className="sm:hidden">{t.labelPendek || t.label}</span><span className="hidden sm:inline">{t.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {tampil('karyawan') && <div data-dm-isi="karyawan" hidden={aktif !== 'karyawan'}><KaryawanView {...karyawanProps} /></div>}
+                    {tampil('klien') && <div data-dm-isi="klien" hidden={aktif !== 'klien'}><ClientsView {...klienProps} /></div>}
+                    {tampil('vendor') && <div data-dm-isi="vendor" hidden={aktif !== 'vendor'}><VendorPanel purchaseNotes={purchaseNotes} onLihatNota={onLihatNotaVendor} /></div>}
+                </div>
             );
         };
 
@@ -12455,7 +12677,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <div className="min-w-0">
                                             <input list="client-list-invoice" className="w-full p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Nama instansi/customer" value={form.customer} onChange={e => gantiCustomer(e.target.value)} required/>
                                             <datalist id="client-list-invoice">{safeClientRows.filter(isVisibleRecord).map(client => <option key={client.id} value={client.name}/>)}</datalist>
-                                            <KlienInfo nama={form.customer} clients={safeClientRows} klien={resolveFormClient(form.customer, editId)} abaikan={klienAbaikanInv} onPakai={gantiCustomer} onAbaikan={setKlienAbaikanInv} teksBaru="otomatis ditambahkan ke menu Klien & Instansi saat invoice disimpan."
+                                            <KlienInfo nama={form.customer} clients={safeClientRows} klien={resolveFormClient(form.customer, editId)} abaikan={klienAbaikanInv} onPakai={gantiCustomer} onAbaikan={setKlienAbaikanInv} teksBaru="otomatis ditambahkan ke Data Master → Klien & Instansi saat invoice disimpan."
                                                 tambahan={availableDpForForm > 0 ? <span data-klien-dp className="font-normal text-emerald-800">· Saldo DP tersedia: <b>{formatRupiah(availableDpForForm)}</b></span> : null} />
                                         </div>
                                         <input list="client-address-list" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/>
@@ -12538,7 +12760,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                 )}
                                 {!availableDpForForm && form.customer && (
-                                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm text-gray-500">Saldo klien: <b>Rp 0</b> — Klien belum memiliki saldo. Tambah saldo di menu Klien / Instansi.</div>
+                                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm text-gray-500">Saldo klien: <b>Rp 0</b> — Klien belum memiliki saldo. Tambah saldo di Data Master → Klien & Instansi.</div>
                                 )}
 
                                 {/* Pembayaran */}
@@ -26488,6 +26710,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [authUser, setAuthUser] = useState(null);
             const [activeTab, setActiveTab] = useState('dashboard');
             const [mountedTabs, setMountedTabs] = React.useState(() => new Set(['dashboard']));
+            // Data Master → Vendor → "Lihat nota vendor ini": buka Pembelian Bahan dengan pencarian nama vendor
+            const [notaVendorReq, setNotaVendorReq] = React.useState(null);
             React.useEffect(() => {
                 setMountedTabs(prev => {
                     if (prev.has(activeTab)) return prev;
@@ -29059,14 +29283,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const legacyTabRedirects = {
                     'riwayat_rekap_kinerja': 'laporan',
                     'riwayat_pengiriman': 'pengiriman',
-                    'riwayat': 'produksi'
+                    'riwayat': 'produksi',
+                    // Menu lama yang sekarang menjadi tab di Data Master
+                    'karyawan': 'data_master',
+                    'klien_instansi': 'data_master'
                 };
                 if (legacyTabRedirects[activeTab]) {
                     setActiveTab(legacyTabRedirects[activeTab]);
                     return;
                 }
                 if (!authUser || !isReady) return;
-                const allowedIds = getAccountMenuAccess(authUser);
+                const allowedIds = getAccountNavAccess(authUser);
                 if (allowedIds.length > 0 && !allowedIds.includes(activeTab)) {
                     setActiveTab(allowedIds[0]);
                 }
@@ -29608,7 +29835,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 // Migrasi password lama hanya setelah semua data termuat (efek di atas juga menjalankannya saat siap)
                 if (isReady) setTimeout(() => migrateAccountPasswords(accounts), 500);
                 showToast(`Selamat datang, ${user.name}!`, 'success');
-                const userAccess = getAccountMenuAccess(user);
+                const userAccess = getAccountNavAccess(user);
                 if (user.role === 'Karyawan' && userAccess.includes('produksi')) {
                     setActiveTab('produksi');
                 } else {
@@ -29763,14 +29990,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 { id: 'pengiriman', label: 'Pengiriman', icon: <IconTruck /> },
                 { id: 'biaya', label: 'Biaya', icon: <IconDocument /> },
                 { id: 'invoice', label: 'Invoice', icon: <IconDocument /> },
-                { id: 'klien_instansi', label: 'Klien / Instansi', icon: <IconUsers /> },
+                { id: 'data_master', label: 'Data Master', icon: <IconUsers /> },
                 { id: 'tracking_instansi', label: 'Tracking Instansi', icon: <IconBarChart /> },
                 { id: 'laporan', label: authUser?.role === 'Karyawan' ? 'Laporan Rekap Saya' : 'Laporan Kinerja', icon: <IconBarChart /> },
                 { id: 'laporan_keuangan', label: 'Laporan Keuangan', icon: <IconBarChart /> },
                 { id: 'laporan_order', label: 'Laporan Per Order', icon: <IconDocument /> },
                 { id: 'investor', label: 'Investor', icon: <IconBarChart /> },
                 { id: 'ekspedisi', label: 'Driver / Ekspedisi', icon: <IconTruck /> },
-                { id: 'karyawan', label: 'Data Karyawan', icon: <IconUsers /> },
                 { id: 'dana_operasional', label: 'Dana Operasional', icon: <IconDocument /> },
                 { id: 'pengaturan', label: 'Pengaturan Cetak', icon: <IconSettings /> },
                 { id: 'master_akun', label: 'Master Akun', icon: <IconKey /> },
@@ -29779,7 +30005,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 { id: 'absensi_finger', label: 'Absensi Finger', icon: <IconFingerprint /> },
                 { id: 'hpp_kalkulator', label: 'Kalkulator HPP', icon: <IconCalculatorHpp /> },
             ];
-            const allowedMenuIds = new Set(getAccountMenuAccess(authUser));
+            const allowedMenuIds = new Set(getAccountNavAccess(authUser));
             const canOpen = (menuId) => allowedMenuIds.has(menuId);
             const navItems = allNavItems.filter(item => canOpen(item.id));
             const activeMenuAllowed = navItems.some(item => item.id === activeTab);
@@ -29947,15 +30173,17 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} templates={templates} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
-                                {tabMounted('karyawan', canOpen('karyawan')) && <div hidden={!tabVisible('karyawan')}><KaryawanView employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} /></div>}
-                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} /></div>}
+                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} bukaNotaVendor={notaVendorReq} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
-                                {tabMounted('klien_instansi', canOpen('klien_instansi')) && <div hidden={!tabVisible('klien_instansi')}><ClientsView clients={clients} setClients={updateClients} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} /></div>}
+                                {tabMounted('data_master', canOpen('data_master')) && <div hidden={!tabVisible('data_master')}><DataMasterView izin={getAccountMenuAccess(authUser)} purchaseNotes={purchaseNotes}
+                                    karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
+                                    klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
+                                    onLihatNotaVendor={canOpen('pembelian_bahan') ? (vendor) => { setNotaVendorReq({ vendor, t: Date.now() }); setActiveTab('pembelian_bahan'); } : null} /></div>}
                                 {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
@@ -31014,7 +31242,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 </div>
 
                                 {empsFP.length === 0 ? (
-                                    <div className="text-center py-10 text-gray-400 italic text-sm">Belum ada karyawan dengan PIN Finger. Tambahkan PIN di menu Data Karyawan.</div>
+                                    <div className="text-center py-10 text-gray-400 italic text-sm">Belum ada karyawan dengan PIN Finger. Tambahkan PIN di menu Data Master → Karyawan.</div>
                                 ) : !rekapEmpObj ? null : (<>
 
                                 {/* Employee header */}
