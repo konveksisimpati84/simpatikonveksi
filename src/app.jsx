@@ -1921,7 +1921,7 @@
             const ordersById = new Map(safeArray(orders).filter(o => o && !o.isDeleted).map(o => [String(o.id), o]));
             const entry = (name, code) => {
                 const key = normBahanKey(name, code);
-                if (!map.has(key)) map.set(key, { key, name: normBahanText(name), code: normBahanText(code), colors: new Set(), vendors: new Set(), lastPrice: null, lastUnit: '', lastBuyDate: '', buyCount: 0, usedBy: new Map(), lastUsedDate: '', manual: null });
+                if (!map.has(key)) map.set(key, { key, name: normBahanText(name), code: normBahanText(code), colors: new Set(), vendors: new Set(), lastPrice: null, lastUnit: '', lastBuyDate: '', lastVendor: '', buyCount: 0, usedBy: new Map(), lastUsedDate: '', manual: null });
                 return map.get(key);
             };
             const addUse = (e, order, date) => {
@@ -1941,7 +1941,7 @@
                     if (n.vendor) e.vendors.add(normBahanText(n.vendor));
                     e.buyCount++;
                     const d = String(n.date || '');
-                    if (d >= e.lastBuyDate) { e.lastBuyDate = d; e.lastPrice = safeMoney(it.price); e.lastUnit = normBahanUnit(it.unit); }
+                    if (d >= e.lastBuyDate) { e.lastBuyDate = d; e.lastPrice = safeMoney(it.price); e.lastUnit = normBahanUnit(it.unit); e.lastVendor = normBahanText(n.vendor); }
                     if (it.orderId) addUse(e, ordersById.get(String(it.orderId)), d);
                     else if (normBahanText(it.instansi)) addUse(e, { client: it.instansi }, d);
                 });
@@ -1968,6 +1968,51 @@
                 return db.localeCompare(da) || a.name.localeCompare(b.name);
             });
         };
+        // Dropdown bahan (hanya membaca Database Bahan): nama yang paling sering dipakai di atas, kode sesuai nama,
+        // warna sesuai nama + kode, dan bahan yang cocok untuk info "terakhir dibeli" / satuan otomatis.
+        const BAHAN_SARAN_MAX = 300;
+        const buatSaranBahan = (db) => {
+            const perNama = new Map();
+            safeArray(db).forEach(e => {
+                const k = normBahanText(e.name).toLowerCase();
+                if (!k) return;
+                if (!perNama.has(k)) perNama.set(k, { name: e.name, skor: 0, entries: [] });
+                const g = perNama.get(k);
+                g.skor += e.buyCount + e.usedBy.size + (e.manual ? 1 : 0);
+                g.entries.push(e);
+            });
+            const terbaru = (a, b) => (b.lastBuyDate || '').localeCompare(a.lastBuyDate || '') || b.buyCount - a.buyCount;
+            const nama = [...perNama.values()].sort((a, b) => b.skor - a.skor || a.name.localeCompare(b.name)).slice(0, BAHAN_SARAN_MAX).map(g => g.name);
+            const grup = (name) => perNama.get(normBahanText(name).toLowerCase());
+            const kode = (name) => { const g = grup(name); return g ? [...new Set(g.entries.filter(e => e.code).sort(terbaru).map(e => e.code))] : []; };
+            // Nama + kode persis; bila kode kosong: bahan tanpa kode, atau yang terakhir dibeli dengan nama itu
+            const cari = (name, code) => {
+                const g = grup(name);
+                if (!g) return null;
+                const c = normBahanText(code).toLowerCase();
+                if (c) return g.entries.find(e => e.code.toLowerCase() === c) || null;
+                return g.entries.find(e => !e.code) || [...g.entries].sort(terbaru)[0] || null;
+            };
+            const warna = (name, code) => {
+                const e = normBahanText(code) ? cari(name, code) : null;
+                const g = grup(name);
+                const sumber = e ? [e] : (g ? g.entries : []);
+                return [...new Set(sumber.flatMap(x => [...x.colors]))].sort((a, b) => a.localeCompare(b));
+            };
+            return { nama, kode, cari, warna };
+        };
+        const formatTglBahan = (d) => { const t = new Date(`${d}T00:00:00`); return isNaN(t.getTime()) ? d : t.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); };
+        // Info kecil di bawah baris bahan: pembelian terakhir (hanya ditampilkan, tidak ikut disimpan)
+        const InfoBahanTerakhir = ({ e, kode }) => {
+            if (!e || !e.lastBuyDate) return null;
+            const beda = e.code && normBahanText(kode).toLowerCase() !== e.code.toLowerCase();
+            return (
+                <div data-info-bahan className="text-[11px] leading-snug text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5">
+                    ℹ Terakhir dibeli{beda ? ` (kode ${e.code})` : ''}{e.lastVendor ? <> di <b>{e.lastVendor}</b></> : ''}, {formatTglBahan(e.lastBuyDate)}{e.lastPrice > 0 ? <> · <b>{formatRupiah(e.lastPrice)}{e.lastUnit ? ` / ${e.lastUnit}` : ''}</b></> : ''}
+                </div>
+            );
+        };
+
         // Saran bahan untuk satu instansi: dari rencana bahan order-order sebelumnya + nota yang terhubung ke order instansi itu
         // atau item nota yang diisi "Untuk Instansi" (dibeli sebelum ordernya ada)
         const getSaranBahanInstansi = (client, orders, purchaseNotes, excludeOrderId) => {
@@ -2019,6 +2064,26 @@
             const [cari, setCari] = useState('');
             const db = useMemo(() => buildDatabaseBahan(purchaseNotes, orders, masterBahan), [purchaseNotes, orders, masterBahan]);
             const saran = useMemo(() => getSaranBahanInstansi(client, orders, purchaseNotes, excludeOrderId), [client, orders, purchaseNotes, excludeOrderId]);
+            // Dropdown nama / kode / warna + satuan otomatis dari pembelian terakhir. Satuan hanya diisi otomatis untuk baris baru
+            // yang satuannya belum diubah admin; baris yang sudah tersimpan di order tidak pernah diubah otomatis.
+            const ddId = 'rb' + React.useId().replace(/[^a-zA-Z0-9]/g, '');
+            const saranDd = useMemo(() => buatSaranBahan(db), [db]);
+            const unitManual = React.useRef(new Set());
+            const [unitOtomatis, setUnitOtomatis] = useState(() => new Set());
+            const idTersimpan = useMemo(() => {
+                const o = excludeOrderId ? safeArray(orders).find(x => x && String(x.id) === String(excludeOrderId)) : null;
+                return new Set(safeArray(o && o.rencanaBahan).map(r => r && r.id).filter(Boolean));
+            }, [orders, excludeOrderId]);
+            const [idAwal] = useState(() => new Set(rows.filter(r => r && r.id && normBahanText(r.name)).map(r => r.id)));
+            const isiSatuan = (idx) => {
+                const r = rows[idx];
+                if (!r || !r.id || unitManual.current.has(r.id) || idTersimpan.has(r.id) || idAwal.has(r.id)) return;
+                const e = saranDd.cari(r.name, r.code);
+                const u = e ? normBahanUnit(e.lastUnit) : '';
+                if (!u || u === r.unit) return;
+                onChange(rows.map((x, i) => i === idx ? { ...x, unit: u } : x));
+                setUnitOtomatis(prev => new Set(prev).add(r.id));
+            };
             const sudahAda = (r) => rows.some(x => normBahanKey(x.name, x.code) === normBahanKey(r.name, r.code) && normBahanText(x.color).toLowerCase() === normBahanText(r.color).toLowerCase());
             const saranTampil = saran.filter(r => !sudahAda(r));
             // Bahan yang pernah dipakai untuk jenis produksi yang sama ditaruh di atas
@@ -2075,21 +2140,29 @@
                         <div className="space-y-2">
                             {rows.map((r, idx) => (
                                 <div key={r.id || idx} data-baris-bahan className="grid grid-cols-2 md:grid-cols-12 gap-2 items-center bg-white border border-teal-100 rounded-lg p-2">
-                                    <input type="text" value={r.name || ''} onChange={e => ubah(idx, 'name', e.target.value)} placeholder="Nama kain" className="col-span-2 md:col-span-4 p-2 border rounded text-sm" />
-                                    <input type="text" value={r.code || ''} onChange={e => ubah(idx, 'code', e.target.value)} placeholder="Kode" className="md:col-span-2 p-2 border rounded text-sm" />
-                                    <input type="text" value={r.color || ''} onChange={e => ubah(idx, 'color', e.target.value)} placeholder="Warna" className="md:col-span-2 p-2 border rounded text-sm" />
+                                    <input type="text" list={`${ddId}-nama`} value={r.name || ''} onChange={e => ubah(idx, 'name', e.target.value)} onBlur={() => isiSatuan(idx)} placeholder="Nama kain" className="col-span-2 md:col-span-4 p-2 border rounded text-sm" />
+                                    <input type="text" list={`${ddId}-kode-${idx}`} value={r.code || ''} onChange={e => ubah(idx, 'code', e.target.value)} onBlur={() => isiSatuan(idx)} placeholder="Kode" className="md:col-span-2 p-2 border rounded text-sm" />
+                                    <input type="text" list={`${ddId}-warna-${idx}`} value={r.color || ''} onChange={e => ubah(idx, 'color', e.target.value)} placeholder="Warna" className="md:col-span-2 p-2 border rounded text-sm" />
+                                    <datalist id={`${ddId}-kode-${idx}`}>{saranDd.kode(r.name).map(k => <option key={k} value={k} />)}</datalist>
+                                    <datalist id={`${ddId}-warna-${idx}`}>{saranDd.warna(r.name, r.code).map(w => <option key={w} value={w} />)}</datalist>
                                     <input type="text" inputMode="decimal" value={r.qty || ''} onChange={e => ubah(idx, 'qty', e.target.value)} placeholder="Kebutuhan" className="md:col-span-2 p-2 border rounded text-sm" />
                                     <div className="flex gap-1 md:col-span-2">
-                                        <select value={r.unit || ''} onChange={e => ubah(idx, 'unit', e.target.value)} className="flex-1 min-w-0 p-2 border rounded text-sm bg-white">
+                                        <select data-satuan-bahan value={r.unit || ''} onChange={e => { if (r.id) { unitManual.current.add(r.id); setUnitOtomatis(prev => { const n = new Set(prev); n.delete(r.id); return n; }); } ubah(idx, 'unit', e.target.value); }}
+                                            title={unitOtomatis.has(r.id) ? 'Diisi otomatis dari pembelian terakhir' : undefined}
+                                            className={`flex-1 min-w-0 p-2 border rounded text-sm ${unitOtomatis.has(r.id) ? 'bg-emerald-50 border-emerald-300' : 'bg-white'}`}>
                                             <option value="">-</option>
                                             {[...new Set([...BAHAN_UNITS, ...(r.unit && !BAHAN_UNITS.includes(r.unit) ? [r.unit] : [])])].map(u => <option key={u} value={u}>{u}</option>)}
                                         </select>
                                         <button type="button" onClick={() => hapus(idx)} title="Hapus baris" className="shrink-0 px-2 text-red-600 bg-red-50 rounded font-bold">✕</button>
                                     </div>
+                                    {normBahanText(r.name) && saranDd.cari(r.name, r.code) && saranDd.cari(r.name, r.code).lastBuyDate && (
+                                        <div className="col-span-2 md:col-span-12"><InfoBahanTerakhir e={saranDd.cari(r.name, r.code)} kode={r.code} /></div>
+                                    )}
                                 </div>
                             ))}
                         </div>
                     )}
+                    <datalist id={`${ddId}-nama`}>{saranDd.nama.map(n => <option key={n} value={n} />)}</datalist>
                 </div>
             );
         };
@@ -2103,6 +2176,7 @@
             const [editId, setEditId] = useState(null);
             const [hapusId, setHapusId] = useState(null);
             const db = useMemo(() => buildDatabaseBahan(purchaseNotes, orders, masterBahan), [purchaseNotes, orders, masterBahan]);
+            const ddDb = useMemo(() => buatSaranBahan(db), [db]);
             const q = normBahanText(cari).toLowerCase();
             const list = q ? db.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].flatMap(u => [u.client, ...u.types])].join(' ').toLowerCase().includes(q)) : db;
             const { page, setPage, totalPages, paged, total } = usePagination(list, 20, q);
@@ -2143,9 +2217,12 @@
                         <div data-form-bahan className="bg-teal-50 border border-teal-200 rounded-2xl p-4 space-y-3">
                             <div className="font-bold text-teal-900">{editId ? 'Edit Bahan (manual)' : 'Tambah Bahan (manual)'}</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                                <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nama kain *" className="p-2 border rounded text-sm bg-white" />
-                                <input type="text" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="Kode kain" className="p-2 border rounded text-sm bg-white" />
-                                <input type="text" value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="Warna (pisahkan dengan koma)" className="p-2 border rounded text-sm bg-white" />
+                                <input type="text" list="db-bahan-nama" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nama kain *" className="p-2 border rounded text-sm bg-white" />
+                                <input type="text" list="db-bahan-kode" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="Kode kain" className="p-2 border rounded text-sm bg-white" />
+                                <input type="text" list="db-bahan-warna" value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="Warna (pisahkan dengan koma)" className="p-2 border rounded text-sm bg-white" />
+                                <datalist id="db-bahan-nama">{ddDb.nama.map(n => <option key={n} value={n} />)}</datalist>
+                                <datalist id="db-bahan-kode">{ddDb.kode(form.name).map(k => <option key={k} value={k} />)}</datalist>
+                                <datalist id="db-bahan-warna">{ddDb.warna(form.name, form.code).map(w => <option key={w} value={w} />)}</datalist>
                                 <input type="text" value={form.vendor} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))} placeholder="Vendor / toko" className="p-2 border rounded text-sm bg-white" />
                                 <select value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} className="p-2 border rounded text-sm bg-white">
                                     <option value="">Satuan -</option>
@@ -2153,6 +2230,19 @@
                                 </select>
                                 <input type="text" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="Catatan" className="p-2 border rounded text-sm bg-white" />
                             </div>
+                            {(() => {
+                                // Info saja (tidak memblokir simpan): bahan dengan nama + kode ini sudah ada / nama ini sudah dipakai dengan kode lain
+                                if (!normBahanText(form.name)) return null;
+                                const e = ddDb.cari(form.name, form.code);
+                                const persis = e && normBahanKey(e.name, e.code) === normBahanKey(form.name, form.code);
+                                if (persis && !(editId && e.manual && e.manual.id === editId)) return (
+                                    <div data-info-bahan-ada className="text-xs leading-snug text-emerald-800 bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                                        ℹ Bahan ini <b>sudah ada</b> di Database Bahan{e.buyCount > 0 ? ` (${e.buyCount}× dibeli${e.lastVendor ? `, terakhir di ${e.lastVendor}` : ''})` : ''}. Tidak perlu ditambah lagi, kecuali untuk mencatat warna, vendor, atau catatan.
+                                    </div>
+                                );
+                                const kodeLain = persis ? [] : ddDb.kode(form.name).filter(k => k.toLowerCase() !== normBahanText(form.code).toLowerCase());
+                                return kodeLain.length > 0 ? <div data-info-bahan-ada className="text-xs text-gray-600">ℹ Nama ini sudah ada dengan kode: <b>{kodeLain.slice(0, 6).join(', ')}</b>{kodeLain.length > 6 ? ` +${kodeLain.length - 6} lainnya` : ''}</div> : null;
+                            })()}
                             <div className="flex gap-2">
                                 <button type="button" onClick={simpan} className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-teal-600 hover:bg-teal-700">Simpan</button>
                                 <button type="button" onClick={() => { setFormOpen(false); setEditId(null); }} className="px-4 py-2 rounded-lg text-sm font-bold text-gray-700 bg-white border border-gray-300">Batal</button>
@@ -8209,6 +8299,33 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const updateItem = (idx, field, val) => setNoteForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, [field]: val } : x) }));
 
+            // Dropdown nama / kode bahan di form nota (dari Database Bahan; nota yang sedang diedit tidak ikut dihitung).
+            // Satuan diisi otomatis dari pembelian terakhir hanya untuk item baru yang satuannya belum diubah admin.
+            const NOTA_SATUAN = ['Meter', 'Roll', 'Kg', 'Yard', 'Lusin', 'Gross', 'Pcs', 'Pak'];
+            const notaSaranDd = useMemo(() => noteFormOpen
+                ? buatSaranBahan(buildDatabaseBahan(safeArray(purchaseNotes).filter(n => !(editNoteId && n && String(n.id) === String(editNoteId))), orders, masterBahan))
+                : null, [noteFormOpen, purchaseNotes, orders, masterBahan, editNoteId]);
+            const notaUnitManual = React.useRef(new Set());
+            const [notaUnitOtomatis, setNotaUnitOtomatis] = useState(() => new Set());
+            // Item yang sudah berisi nama saat form dibuka (edit nota / data lama) tidak pernah diubah satuannya secara otomatis
+            const notaItemAwal = React.useRef(new Set());
+            useEffect(() => {
+                notaItemAwal.current = new Set(noteFormOpen ? safeArray(noteForm.items).filter(it => it && it.id && normBahanText(it.name)).map(it => it.id) : []);
+            }, [noteFormOpen, editNoteId]);
+            const isiSatuanNota = (idx) => {
+                const it = noteForm.items[idx];
+                if (!it || !it.id || !notaSaranDd || notaUnitManual.current.has(it.id) || notaItemAwal.current.has(it.id)) return;
+                const e = notaSaranDd.cari(it.name, it.code);
+                const u = e ? NOTA_SATUAN.find(x => x.toLowerCase() === String(e.lastUnit || '').toLowerCase()) : null;
+                if (!u || u === it.unit) return;
+                updateItem(idx, 'unit', u);
+                setNotaUnitOtomatis(prev => new Set(prev).add(it.id));
+            };
+            const ubahSatuanNota = (idx, it, val) => {
+                if (it.id) { notaUnitManual.current.add(it.id); setNotaUnitOtomatis(prev => { const n = new Set(prev); n.delete(it.id); return n; }); }
+                updateItem(idx, 'unit', val);
+            };
+
             // "Untuk Instansi": catatan instansi untuk bahan yang dibeli sebelum ordernya ada (untuk Database Bahan & saran bahan).
             // Tidak menautkan ke order, jadi status bahan order/pembayaran/laporan tidak terpengaruh.
             const instansiOptions = useMemo(() => {
@@ -8773,6 +8890,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Rincian Item Bahan</span>
                                         </div>
                                         <div className="space-y-3">
+                                            <datalist id="pn-bahan-list">{notaSaranDd ? notaSaranDd.nama.map(n => <option key={n} value={n} />) : null}</datalist>
                                             {noteForm.items.map((it, idx) => (
                                                 <div key={it.id} className="rounded-xl border border-gray-200" style={{ background: '#F8FAFC' }}>
                                                     <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 rounded-t-xl" style={{ background: '#EFF6FF' }}>
@@ -8784,11 +8902,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         <div className="grid grid-cols-12 gap-2">
                                                             <div className="col-span-5">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Nama Bahan</label>
-                                                                <input type="text" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="Cth: Kain Cotton 30s" value={it.name} onChange={e => updateItem(idx, 'name', e.target.value)} />
+                                                                <input type="text" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="Cth: Kain Cotton 30s" list="pn-bahan-list" value={it.name} onChange={e => updateItem(idx, 'name', e.target.value)} onBlur={() => isiSatuanNota(idx)} />
                                                             </div>
                                                             <div className="col-span-3">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Kode <span className="normal-case font-normal text-gray-300">(opsional)</span></label>
-                                                                <input type="text" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="KB-001" value={it.code} onChange={e => updateItem(idx, 'code', e.target.value)} />
+                                                                <input type="text" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="KB-001" list={`pn-kode-${idx}`} value={it.code} onChange={e => updateItem(idx, 'code', e.target.value)} onBlur={() => isiSatuanNota(idx)} />
+                                                                <datalist id={`pn-kode-${idx}`}>{notaSaranDd ? notaSaranDd.kode(it.name).map(k => <option key={k} value={k} />) : null}</datalist>
                                                             </div>
                                                             <div className="col-span-2">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Qty</label>
@@ -8796,11 +8915,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             </div>
                                                             <div className="col-span-2">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Satuan</label>
-                                                                <select className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" value={it.unit} onChange={e => updateItem(idx, 'unit', e.target.value)}>
+                                                                <select data-satuan-nota className={`w-full px-2 py-2 text-sm border rounded-lg focus:ring-1 focus:ring-blue-400 ${notaUnitOtomatis.has(it.id) ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-gray-200'}`} title={notaUnitOtomatis.has(it.id) ? 'Diisi otomatis dari pembelian terakhir' : undefined} value={it.unit} onChange={e => ubahSatuanNota(idx, it, e.target.value)}>
                                                                     <option>Meter</option><option>Roll</option><option>Kg</option><option>Yard</option><option>Lusin</option><option>Gross</option><option>Pcs</option><option>Pak</option>
                                                                 </select>
                                                             </div>
                                                         </div>
+                                                        {notaSaranDd && normBahanText(it.name) && <InfoBahanTerakhir e={notaSaranDd.cari(it.name, it.code)} kode={it.code} />}
                                                         <div className="grid grid-cols-12 gap-2 items-end">
                                                             <div className="col-span-3">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Harga Satuan (Rp)</label>
