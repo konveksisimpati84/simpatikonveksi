@@ -2075,6 +2075,23 @@
             return hasil.sort((a, b) => b.date.localeCompare(a.date));
         };
 
+        // Pengganti bagian "Bahan / Kain" bila "Pembelian Bahan" di Alur Proses Order tidak dicentang.
+        // Isian kain yang sudah ada TIDAK dihapus: tetap disimpan dan muncul lagi bila dicentang.
+        const BahanNonaktifInfo = ({ value }) => {
+            const isi = cleanRencanaBahan(value);
+            if (isi.length === 0) return (
+                <div data-bahan-nonaktif="kosong" className="p-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-600">
+                    🧵 <b>Order ini tanpa pembelian bahan.</b> Bagian Bahan / Kain disembunyikan. Centang "Pembelian Bahan" di Alur Proses Order bila order ini butuh bahan.
+                </div>
+            );
+            const nama = [...new Set(isi.map(r => r.name).filter(Boolean))];
+            return (
+                <div data-bahan-nonaktif="ada-isian" className="p-3 rounded-lg border border-amber-300 bg-amber-50 text-sm text-amber-900 leading-relaxed">
+                    ⚠ <b>{isi.length} kain sudah diisi</b>{nama.length > 0 ? ` (${nama.slice(0, 4).join(', ')}${nama.length > 4 ? ', …' : ''})` : ''}. Karena "Pembelian Bahan" tidak dicentang, isian ini <b>tidak dipakai</b>: tidak masuk Daftar Belanja &amp; tidak dicetak di Lembar Kerja/SPK. Isian tetap disimpan dan muncul lagi bila dicentang.
+                </div>
+            );
+        };
+
         // Bagian "Bahan / Kain" di Input Order & Edit Order
         const RencanaBahanEditor = ({ value, onChange, client, jenis, orders, purchaseNotes, masterBahan, excludeOrderId }) => {
             const rows = safeArray(value);
@@ -3389,7 +3406,9 @@ ${blocks}
         };
         const DashIsianBadge = ({ order }) => {
             const { g, n } = dashIsianInfo(order);
-            if (g === 'tidak' || g === 'selesai') return null;
+            if (g === 'selesai') return null;
+            // Order tanpa pembelian bahan: lencana abu-abu agar beda dengan "Bahan belum diisi"
+            if (g === 'tidak') return <div><span data-dash-isian="tidak" className="inline-flex items-center mt-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold whitespace-nowrap bg-gray-100 text-gray-500 border-gray-300">Tanpa bahan</span></div>;
             const cls = g === 'belum' ? 'bg-orange-50 text-orange-700 border-orange-300' : g === 'sudah' ? 'bg-teal-50 text-teal-700 border-teal-300' : 'bg-gray-50 text-gray-600 border-gray-300';
             const label = g === 'belum' ? '🧵 Bahan belum diisi' : g === 'sudah' ? `🧵 Bahan diisi (${n})` : '🧾 Ada nota bahan';
             return <div><span data-dash-isian={g} className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold whitespace-nowrap ${cls}`}>{label}</span></div>;
@@ -4235,7 +4254,9 @@ ${blocks}
                                         </div>
                                     </div>
 
-                                    <RencanaBahanEditor value={editOrder.rencanaBahan} onChange={(next) => setEditOrder(prev => ({ ...prev, rencanaBahan: next }))} client={editOrder.client} jenis={editOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} excludeOrderId={editOrder.id} />
+                                    {getOrderProcessFlow(editOrder).materials === false
+                                        ? <BahanNonaktifInfo value={editOrder.rencanaBahan} />
+                                        : <RencanaBahanEditor value={editOrder.rencanaBahan} onChange={(next) => setEditOrder(prev => ({ ...prev, rencanaBahan: next }))} client={editOrder.client} jenis={editOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} excludeOrderId={editOrder.id} />}
 
                                     <div>
                                         <label className="block text-sm font-semibold mb-1">Catatan Tambahan</label>
@@ -5829,7 +5850,9 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                 </div>
                             </div>
 
-                            <RencanaBahanEditor value={newOrder.rencanaBahan} onChange={(next) => setNewOrder(prev => ({ ...prev, rencanaBahan: next }))} client={newOrder.client} jenis={newOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} />
+                            {getOrderProcessFlow(newOrder).materials === false
+                                ? <BahanNonaktifInfo value={newOrder.rencanaBahan} />
+                                : <RencanaBahanEditor value={newOrder.rencanaBahan} onChange={(next) => setNewOrder(prev => ({ ...prev, rencanaBahan: next }))} client={newOrder.client} jenis={newOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} />}
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Catatan Tambahan Produksi</label>
@@ -6043,7 +6066,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#1e293b;background:#fff;-web
   <div class="sizes-container">${sizesHtml}</div>
 </div>
 
-${cleanRencanaBahan(order.rencanaBahan).length > 0 ? `
+${getOrderProcessFlow(order).materials !== false && cleanRencanaBahan(order.rencanaBahan).length > 0 ? `
 <div class="notes-box" style="border-color:#0d9488;background:#f0fdfa">
   <div class="lbl" style="color:#0f766e">Bahan / Kain</div>
   <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">
