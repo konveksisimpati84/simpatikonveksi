@@ -2387,8 +2387,8 @@
             const set = (k, v) => setF(p => ({ ...p, [k]: v }));
             const warnaNow = normBahanText(f.color).toLowerCase();
             const kandidatSemua = safeArray(awal.kandidat);
-            const cocokWarna = warnaNow ? kandidatSemua.filter(k => k.colors.has(warnaNow)) : [];
-            const kandidat = cocokWarna.length ? cocokWarna : kandidatSemua;
+            // Warna dipilih → hanya order dengan warna itu (atau order yang warnanya belum diisi)
+            const kandidat = warnaNow ? kandidatSemua.filter(k => k.colors.has(warnaNow) || k.colors.has('')) : kandidatSemua;
             const dariProduksi = f.asal === 'sisa_produksi';
             const orderOtomatis = dariProduksi && kandidat.length === 1 ? String(kandidat[0].order.id) : '';
             const orderId = !dariProduksi ? '' : orderOtomatis || (kandidat.some(k => String(k.order.id) === f.orderId) ? f.orderId : '');
