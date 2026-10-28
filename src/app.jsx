@@ -2454,11 +2454,12 @@
         };
 
         // ===== Daftar Belanja (tab di Pembelian Bahan) =====
-        // Hanya MEMBACA order (isian Bahan/Kain = rencanaBahan) dan nota pembelian; keduanya tidak pernah diubah.
-        // Status "sudah ada nota / sebagian" dihitung ulang dari nota setiap kali, tidak disimpan.
-        // Yang disimpan hanya vendor & tanda "dibeli" per bahan per order, sebagai baris cloud kecil terpisah
-        // ('belanja:v:<order>:<kode>' dan 'belanja:d:<order>:<kode>'), satu baris per isian, seperti pin,
-        // sehingga dua perangkat yang mengisi bersamaan tidak saling menimpa. Tanpa harga / uang sama sekali.
+        // Rekap murni dari order: hanya MEMBACA isian Bahan/Kain (rencanaBahan) order aktif; order tidak pernah diubah.
+        // Nota pembelian TIDAK dibaca (nota yang salah ditautkan ke order tidak memengaruhi daftar ini).
+        // Yang disimpan hanya isian Daftar Belanja sendiri per bahan per order, sebagai baris cloud kecil terpisah:
+        // 'belanja:v:' vendor, 'belanja:q:' jumlah sudah dibeli (total), 'belanja:c:' catatan, 'belanja:d:' tanda dibeli
+        // (tanda lama tetap dibaca sebagai sudah dibeli penuh). Satu baris per isian, seperti pin, sehingga dua perangkat
+        // yang mengisi bersamaan tidak saling menimpa. Tanpa harga / uang sama sekali.
         const BELANJA_PREFIX = 'belanja:';
         const BELANJA_CACHE_KEY = 'simpati_belanja_marks';
         const BELANJA_OPS_KEY = 'simpati_belanja_pending';
@@ -2476,6 +2477,13 @@
         const belanjaRowId = (field, orderId, key) => `${BELANJA_PREFIX}${field}:${orderId}:${belanjaHash(key)}`;
         const readBelanjaCache = () => { try { const v = JSON.parse(localStorage.getItem(BELANJA_CACHE_KEY) || 'null'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } };
         const writeBelanjaCache = (obj) => { try { localStorage.setItem(BELANJA_CACHE_KEY, JSON.stringify(obj)); } catch (e) {} };
+        // Jumlah sudah dibeli: angka > 0, selain itu dianggap kosong (belum dibeli). Catatan: teks pendek.
+        const belanjaQtyValid = (v) => (typeof v === 'number' && isFinite(v) && v > 0) ? Math.round(v * 100) / 100 : null;
+        const belanjaCatatanValid = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, 200);
+        const belanjaRowData = (field, value) => field === 'v' ? { vendor: normBahanText(value) }
+            : field === 'd' ? { dibeli: value === true }
+            : field === 'q' ? { qty: belanjaQtyValid(value) }
+            : { catatan: belanjaCatatanValid(value) };
         const applyBelanjaOps = (rows, ops) => {
             const out = { ...rows };
             safeArray(ops).forEach(op => { if (op && op.id && op.data) out[op.id] = op.data; });
@@ -2544,7 +2552,7 @@
                     window.removeEventListener('storage', onStorage);
                 };
             }, []);
-            // Peta isian: 'ORD-1\u0001lacoste pe|lc-012|navy' -> { vendor, dibeli }
+            // Peta isian: 'ORD-1\u0001lacoste pe|lc-012|navy' -> { vendor, dibeli, qtySet, qty, catatan }
             const marks = useMemo(() => {
                 const m = new Map();
                 Object.keys(rows).forEach(id => {
@@ -2552,20 +2560,22 @@
                     if (!d || typeof d !== 'object' || !d.o || typeof d.k !== 'string') return;
                     const field = id.slice(BELANJA_PREFIX.length, BELANJA_PREFIX.length + 2);
                     const mk = `${d.o}\u0001${d.k}`;
-                    const cur = m.get(mk) || { vendor: '', dibeli: false };
+                    const cur = m.get(mk) || { vendor: '', dibeli: false, qtySet: false, qty: null, catatan: '' };
                     if (field === 'v:') cur.vendor = normBahanText(d.vendor);
                     else if (field === 'd:') cur.dibeli = d.dibeli === true;
+                    else if (field === 'q:') { cur.qtySet = true; cur.qty = belanjaQtyValid(d.qty); }
+                    else if (field === 'c:') cur.catatan = belanjaCatatanValid(d.catatan);
                     m.set(mk, cur);
                 });
                 return m;
             }, [rows]);
-            // lines: [{ orderId, key }]; field: 'v' (vendor) / 'd' (dibeli)
-            const setField = (lines, field, value) => {
+            // entries: [{ line: { orderId, key }, field: 'v' | 'd' | 'q' | 'c', value }]
+            const setMany = (entries) => {
                 const at = new Date().toISOString();
                 const stamp = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-                const newOps = safeArray(lines).filter(l => l && l.orderId).map((l, i) => ({
-                    id: belanjaRowId(field, l.orderId, l.key),
-                    data: field === 'v' ? { vendor: normBahanText(value), at, o: String(l.orderId), k: l.key } : { dibeli: value === true, at, o: String(l.orderId), k: l.key },
+                const newOps = safeArray(entries).filter(e => e && e.line && e.line.orderId).map((e, i) => ({
+                    id: belanjaRowId(e.field, e.line.orderId, e.line.key),
+                    data: { ...belanjaRowData(e.field, e.value), at, o: String(e.line.orderId), k: e.line.key },
                     k: `${stamp}-${i}`,
                 }));
                 if (!newOps.length) return;
@@ -2573,7 +2583,9 @@
                 setRows(prev => applyBelanjaOps(prev, newOps));
                 schedule(400);
             };
-            return { marks, setField };
+            // lines: [{ orderId, key }] dengan nilai yang sama
+            const setField = (lines, field, value) => setMany(safeArray(lines).map(line => ({ line, field, value })));
+            return { marks, setField, setMany };
         };
 
         // Kebutuhan di isian Bahan/Kain order (teks bebas, gaya Indonesia): titik = ribuan (1.000 / 12.500 / 1.000,5), koma = desimal.
@@ -2587,33 +2599,15 @@
             const n = parseFloat(t);
             return isFinite(n) && n > 0 ? n : null;
         };
-        // Jumlah di nota dibaca sama persis seperti hitungan nota di bagian lain aplikasi
-        const parseNotaQtyBelanja = (it) => { const n = getMaterialQty(it); return n > 0 ? n : null; };
-        // Nama bahan di nota yang "mirip" (salah ketik / disingkat), untuk peringatan agar tidak beli dobel.
-        // Kata umum seperti "kain"/"bahan" tidak dihitung; kode yang sama (tanpa tanda baca) juga dianggap mirip.
-        const BELANJA_KATA_UMUM = new Set(['kain', 'bahan', 'warna']);
-        const belanjaKata = (v) => normBahanText(v).toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !BELANJA_KATA_UMUM.has(w));
-        const belanjaMirip = (a, b) => {
-            const ka = belanjaKata(a.name), kb = belanjaKata(b.name);
-            if (ka.some(x => kb.some(y => x.startsWith(y) || y.startsWith(x)))) return true;
-            const ca = normBahanText(a.code).toLowerCase().replace(/[^a-z0-9]/g, ''), cb = normBahanText(b.code).toLowerCase().replace(/[^a-z0-9]/g, '');
-            return !!ca && ca === cb;
-        };
         const fmtBelanjaQty = (n) => (Math.round(n * 100) / 100).toLocaleString('id-ID');
         const belanjaOrderNeedsBahan = (o) => getOrderProcessFlow(o).materials !== false && o.materialStatus !== 'Tidak Perlu';
         // Order yang masuk daftar: aktif (belum Siap Kirim / Terkirim, tidak diarsip, tidak dihapus) dan butuh bahan
         const belanjaOrderAktif = (o) => isVisibleOrder(o) && !o.isArchived && o.status !== 'Siap Kirim' && o.status !== 'Terkirim' && belanjaOrderNeedsBahan(o);
 
-        // Hitung baris belanja per bahan per order beserta statusnya dari nota (tanpa mengubah apa pun).
-        const buildDaftarBelanja = (orders, purchaseNotes, marks) => {
+        // Hitung baris belanja per bahan per order beserta statusnya dari jumlah yang dicatat di Daftar Belanja
+        // (tanpa membaca nota, tanpa mengubah apa pun).
+        const buildDaftarBelanja = (orders, marks) => {
             const aktif = safeArray(orders).filter(belanjaOrderAktif);
-            const itemsByOrder = new Map();
-            safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => safeArray(n.items).forEach(it => {
-                const oid = String((it && it.orderId) || '').trim();
-                if (!oid) return;
-                if (!itemsByOrder.has(oid)) itemsByOrder.set(oid, []);
-                itemsByOrder.get(oid).push({ it, vendor: normBahanText(n.vendor) });
-            }));
             const lines = [];
             const kosong = [];
             aktif.forEach(o => {
@@ -2629,50 +2623,21 @@
                     const qty = parseBelanjaQty(r.qty);
                     const cur = byLine.get(id);
                     if (cur) { cur.need = (cur.need == null || qty == null) ? null : cur.need + qty; if (qty == null) cur.qtyKosong = true; return; }
-                    byLine.set(id, { id, orderId: oid, order: o, key, name: r.name, code: r.code, color: r.color, unit, need: qty, qtyKosong: qty == null, bought: 0, beda: [], items: [], shared: false });
+                    byLine.set(id, { id, orderId: oid, order: o, key, name: r.name, code: r.code, color: r.color, unit, need: qty, qtyKosong: qty == null });
                 });
-                const oLines = [...byLine.values()];
-                const nm = (v) => normBahanText(v).toLowerCase();
-                const lain = [];
-                safeArray(itemsByOrder.get(oid)).forEach(({ it, vendor }) => {
-                    const itName = nm(it.name), itCode = nm(it.code);
-                    let cand = oLines.filter(l => itName && nm(l.name) === itName && !(nm(l.code) && itCode && nm(l.code) !== itCode));
-                    if (cand.length === 0 && itCode) cand = oLines.filter(l => nm(l.code) && nm(l.code) === itCode);
-                    const qty = parseNotaQtyBelanja(it);
-                    const unit = normBahanUnit(it.unit);
-                    const info = { name: normBahanText(it.name), code: normBahanText(it.code), qty, unit, vendor };
-                    if (cand.length === 0) { lain.push(info); return; }
-                    const cocok = cand.filter(l => !l.unit || !unit || l.unit === unit);
-                    cand.forEach(l => l.items.push(info));
-                    if (cocok.length === 0 || qty == null) {
-                        if (qty != null) cand.forEach(l => l.beda.push(info));
-                        return;
-                    }
-                    if (cocok.length === 1) { cocok[0].bought += qty; return; }
-                    // Nota tanpa warna untuk bahan yang dipesan dalam beberapa warna: dibagi berurutan sesuai kebutuhan
-                    let sisa = qty;
-                    cocok.forEach((l, i) => {
-                        l.shared = true;
-                        const butuh = l.need == null ? 0 : Math.max(0, l.need - l.bought);
-                        const ambil = i === cocok.length - 1 ? sisa : Math.min(sisa, butuh);
-                        l.bought += ambil; sisa -= ambil;
-                    });
-                });
-                oLines.forEach(l => {
+                byLine.forEach(l => {
                     const m = marks.get(`${oid}\u0001${l.key}`) || {};
                     l.vendor = m.vendor || '';
-                    l.dibeli = m.dibeli === true;
-                    l.notaLain = lain.filter(b => belanjaMirip(b, l));
+                    l.catatan = m.catatan || '';
+                    // Jumlah dicatat (total) dipakai bila ada; tanda "dibeli" lama = sudah dibeli penuh
+                    l.bought = m.qtySet ? (m.qty || 0) : (m.dibeli && l.need != null ? l.need : 0);
                     let st;
-                    if (l.need != null) {
-                        if (l.bought >= l.need - 1e-9) st = 'lengkap';
-                        else if (l.bought > 0) st = 'sebagian';
-                        else if (l.beda.length) st = 'cek';
-                        else st = 'belum';
-                    } else st = l.items.length ? 'lengkap' : 'belum';
-                    if (st !== 'lengkap' && l.dibeli) st = 'ditandai';
+                    if (l.need != null) st = l.bought >= l.need - 1e-9 ? 'lengkap' : l.bought > 0 ? 'sebagian' : 'belum';
+                    else st = (m.qtySet ? m.qty > 0 : m.dibeli) ? 'lengkap' : 'belum';
                     l.status = st;
-                    l.done = st === 'lengkap' || st === 'ditandai';
+                    l.done = st === 'lengkap';
+                    l.kurang = l.need != null ? Math.max(0, l.need - l.bought) : null;
+                    l.lebih = l.need != null ? Math.max(0, l.bought - l.need) : 0;
                     lines.push(l);
                 });
             });
@@ -2681,9 +2646,7 @@
         const BELANJA_STATUS = {
             belum: { label: 'Belum dibeli', cls: 'bg-red-100 text-red-800' },
             sebagian: { label: 'Sebagian', cls: 'bg-amber-100 text-amber-800' },
-            cek: { label: 'Ada nota, satuan beda', cls: 'bg-orange-100 text-orange-800' },
-            lengkap: { label: '✓ Sudah ada nota', cls: 'bg-green-100 text-green-800' },
-            ditandai: { label: '✓ Ditandai dibeli', cls: 'bg-indigo-100 text-indigo-800' },
+            lengkap: { label: '✓ Sudah dibeli', cls: 'bg-green-100 text-green-800' },
         };
         // Gabungkan baris beberapa order menjadi satu baris per bahan (nama+kode+warna+satuan)
         const gabungBelanja = (lines) => {
@@ -2698,12 +2661,14 @@
                 const needOk = ls.every(l => l.need != null);
                 const need = needOk ? ls.reduce((s, l) => s + l.need, 0) : null;
                 const bought = ls.reduce((s, l) => s + l.bought, 0);
+                const kurang = needOk ? ls.reduce((s, l) => s + l.kurang, 0) : null;
                 const vendors = [...new Set(ls.map(l => l.vendor))];
+                const catatan = [...new Set(ls.map(l => l.catatan).filter(Boolean))];
                 let status;
-                if (ls.every(l => l.done)) status = ls.every(l => l.status === 'ditandai') ? 'ditandai' : 'lengkap';
+                if (ls.every(l => l.done)) status = 'lengkap';
                 else if (ls.some(l => l.done || l.status === 'sebagian')) status = 'sebagian';
-                else status = ls.some(l => l.status === 'cek') ? 'cek' : 'belum';
-                return { ...g, need, bought, vendor: vendors.length === 1 ? vendors[0] : null, status, done: status === 'lengkap' || status === 'ditandai', doneCount: ls.filter(l => l.done).length };
+                else status = 'belum';
+                return { ...g, need, bought, kurang, catatan, vendor: vendors.length === 1 ? vendors[0] : null, status, done: status === 'lengkap', doneCount: ls.filter(l => l.done).length };
             }).sort((a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code) || a.color.localeCompare(b.color));
         };
         // Bahan yang sama (nama + kode + warna) tetapi satuannya berbeda di beberapa order: kemungkinan salah input.
@@ -3086,8 +3051,96 @@ ${blocks}
             );
         };
 
+        // Pembagian jumlah yang dibeli ke beberapa order (bahan yang sama): deadline terdekat dulu.
+        // Kelebihan masuk ke order tanpa jumlah kebutuhan, atau ke order terakhir.
+        const urutBelanjaDeadline = (a, b) => String(a.order.deadline || '9999').localeCompare(String(b.order.deadline || '9999')) || String(a.orderId).localeCompare(String(b.orderId));
+        const bagiPembelianBelanja = (lines, total) => {
+            const out = new Map();
+            const ls = [...safeArray(lines)].sort(urutBelanjaDeadline);
+            ls.forEach(l => out.set(l.id, null));
+            if (!(total > 0)) return out;
+            let sisa = total;
+            ls.forEach(l => { if (l.need != null && sisa > 1e-9) { const a = Math.min(sisa, l.need); out.set(l.id, Math.round(a * 100) / 100); sisa -= a; } });
+            if (sisa > 1e-9 && ls.length) { const t = ls.find(l => l.need == null) || ls[ls.length - 1]; out.set(t.id, Math.round(((out.get(t.id) || 0) + sisa) * 100) / 100); }
+            return out;
+        };
+        // Jendela "Catat pembelian": jumlah yang SUDAH dibeli (total, bukan tambahan) + catatan, untuk satu bahan (1 atau beberapa order)
+        const BelanjaCatatModal = ({ lines, onSave, onClose }) => {
+            const ls = useMemo(() => [...safeArray(lines)].sort(urutBelanjaDeadline), [lines]);
+            const unit = ls[0] ? ls[0].unit : '';
+            const u = unit ? ' ' + unit : '';
+            const needOk = ls.length > 0 && ls.every(l => l.need != null);
+            const need = needOk ? ls.reduce((s, l) => s + l.need, 0) : null;
+            const sudah = ls.reduce((s, l) => s + l.bought, 0);
+            const [jumlah, setJumlah] = useState(() => sudah > 0 ? fmtBelanjaQty(sudah) : '');
+            const catatanAwal = [...new Set(ls.map(l => l.catatan).filter(Boolean))].join(' · ');
+            const [catatan, setCatatan] = useState(catatanAwal);
+            const total = String(jumlah).trim() ? parseBelanjaQty(jumlah) : null;
+            const salah = String(jumlah).trim() !== '' && total == null && !/^0+([.,]0+)?$/.test(String(jumlah).trim());
+            const alloc = useMemo(() => bagiPembelianBelanja(ls, total), [ls, total]);
+            const kurang = needOk ? ls.reduce((s, l) => s + Math.max(0, l.need - (alloc.get(l.id) || 0)), 0) : null;
+            const hasil = !(total > 0) ? { cls: 'text-red-700', t: 'Belum dibeli' }
+                : needOk && kurang > 1e-9 ? { cls: 'text-amber-700', t: `Sebagian · kurang ${fmtBelanjaQty(kurang)}${u}` }
+                : { cls: 'text-green-700', t: `✓ Sudah dibeli${needOk && total > need + 1e-9 ? ` · lebih ${fmtBelanjaQty(total - need)}${u}` : ''}` };
+            const l0 = ls[0] || {};
+            const simpan = () => {
+                if (salah) return;
+                const entries = [];
+                ls.forEach(l => {
+                    const q = alloc.get(l.id);
+                    const done = l.need != null ? (q || 0) >= l.need - 1e-9 : (q || 0) > 0;
+                    entries.push({ line: l, field: 'q', value: q }, { line: l, field: 'd', value: done });
+                    if (catatan.trim() !== catatanAwal) entries.push({ line: l, field: 'c', value: catatan });
+                });
+                onSave(entries, hasil.t);
+            };
+            return (
+                <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+                    <div data-belanja-catat className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="px-5 py-4 border-b border-gray-100">
+                            <div className="font-black text-gray-800">✎ Catat pembelian — {[l0.name, l0.code, l0.color].filter(Boolean).join(' · ')}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">{need != null ? `Kebutuhan ${fmtBelanjaQty(need)}${u}` : 'Jumlah kebutuhan belum diisi'}{ls.length > 1 ? ` (${ls.map(l => `${l.orderId}${l.need != null ? ' ' + fmtBelanjaQty(l.need) + u : ''}`).join(', ')})` : ` · ${l0.orderId || ''} ${(l0.order && l0.order.client) || ''}`}</div>
+                        </div>
+                        <div className="p-5 space-y-3 overflow-y-auto">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Jumlah SUDAH dibeli (total, bukan tambahan)</label>
+                                <div className="flex items-center gap-2">
+                                    <input type="text" inputMode="decimal" data-belanja-catat-jumlah autoFocus value={jumlah} onChange={e => setJumlah(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') simpan(); }} placeholder="0" className="flex-1 min-w-0 p-2.5 border-2 border-teal-500 rounded-lg text-lg font-black outline-none focus:ring-2 focus:ring-teal-200" />
+                                    <span className="text-sm font-bold text-gray-500">{unit || ''}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {need != null && <button type="button" data-belanja-catat-semua onClick={() => setJumlah(fmtBelanjaQty(need))} className="text-xs font-bold px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-teal-800">Semua ({fmtBelanjaQty(need)}{u})</button>}
+                                    <button type="button" data-belanja-catat-kosong onClick={() => setJumlah('')} className="text-xs font-bold px-2.5 py-1 rounded-lg bg-white border border-gray-300 text-gray-700">Kosongkan (belum dibeli)</button>
+                                </div>
+                                {salah ? <div className="text-xs font-bold text-red-700 mt-2">Angka tidak dikenali.</div>
+                                    : <div data-belanja-catat-hasil className={`text-sm font-bold mt-2 ${hasil.cls}`}>→ {hasil.t}</div>}
+                            </div>
+                            {ls.length > 1 && (
+                                <div>
+                                    <div className="text-xs font-bold text-gray-600 mb-1">Dibagi ke order (deadline terdekat dulu)</div>
+                                    <div data-belanja-catat-bagi className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs leading-6">
+                                        {ls.map(l => { const a = alloc.get(l.id) || 0; return (
+                                            <div key={l.id}><b className="text-blue-700">{l.orderId}</b>{l.order.deadline ? ` (deadline ${l.order.deadline})` : ''} — {fmtBelanjaQty(a)}{l.need != null ? ` dari ${fmtBelanjaQty(l.need)}` : ''}{u}{l.need != null && a >= l.need - 1e-9 ? ' ✓' : l.need != null && a > 0 ? ` · kurang ${fmtBelanjaQty(l.need - a)}` : ''}</div>
+                                        ); })}
+                                    </div>
+                                    <div className="text-[11px] text-gray-500 mt-1">Untuk mengatur jumlah per order sendiri-sendiri, pakai tampilan "Per order".</div>
+                                </div>
+                            )}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1">Catatan (opsional)</label>
+                                <input type="text" data-belanja-catat-catatan value={catatan} onChange={e => setCatatan(e.target.value)} maxLength={200} placeholder="mis. Toko Maju hanya ada 30 m, sisa cari di vendor lain" className="w-full p-2 border border-gray-300 rounded-lg text-sm" />
+                            </div>
+                        </div>
+                        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+                            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg font-bold text-gray-700 bg-white border border-gray-300">Batal</button>
+                            <button type="button" data-belanja-catat-simpan disabled={salah} onClick={simpan} className="px-4 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40">Simpan</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
         const DaftarBelanjaPanel = ({ orders, purchaseNotes, templates, showToast }) => {
-            const { marks, setField } = useBelanjaMarks();
+            const { marks, setField, setMany } = useBelanjaMarks();
             const VIEW_KEY = 'simpati_belanja_view';
             const [view, setView] = useState(() => { try { return localStorage.getItem(VIEW_KEY) === 'order' ? 'order' : 'bahan'; } catch (e) { return 'bahan'; } });
             useEffect(() => { try { localStorage.setItem(VIEW_KEY, view); } catch (e) {} }, [view]);
@@ -3100,11 +3153,12 @@ ${blocks}
             const [bulkVendor, setBulkVendor] = useState('');
             const [kosongOpen, setKosongOpen] = useState(false);
             const [cetakDialog, setCetakDialog] = useState(null); // { pilihan, sumber }
+            const [catatDialog, setCatatDialog] = useState(null); // baris bahan yang dicatat pembeliannya
             const bukaCetak = (pilihan, sumber) => {
                 if (!pilihan.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
                 setCetakDialog({ pilihan, sumber });
             };
-            const { lines, kosong } = useMemo(() => buildDaftarBelanja(orders, purchaseNotes, marks), [orders, purchaseNotes, marks]);
+            const { lines, kosong } = useMemo(() => buildDaftarBelanja(orders, marks), [orders, marks]);
             const satuanBeda = useMemo(() => cariSatuanBeda(lines), [lines]);
             const satuanBedaKeys = useMemo(() => new Set(satuanBeda.map(x => x.key)), [satuanBeda]);
             const tagSatuanBeda = (key) => satuanBedaKeys.has(key) ? <div><span data-satuan-beda-tag className="inline-block mt-1 px-1.5 py-0.5 rounded-md border border-orange-300 bg-orange-50 text-orange-700 text-[11px] font-bold">⚠ satuan berbeda</span></div> : null;
@@ -3162,7 +3216,12 @@ ${blocks}
             const checkedLines = [...checked].map(id => lineById.get(id)).filter(Boolean);
             const toRef = (ls) => ls.map(l => ({ orderId: l.orderId, key: l.key }));
             const setVendor = (ls, v) => { setField(toRef(ls), 'v', v); };
-            const tandai = (ls, on) => { setField(toRef(ls), 'd', on); };
+            // Tandai sudah dibeli semua: jumlah dibeli = kebutuhan (baris tanpa jumlah kebutuhan cukup ditandai)
+            const tandaiLengkap = (ls) => setMany(ls.flatMap(l => [
+                ...(l.need != null ? [{ line: l, field: 'q', value: l.need }] : []),
+                { line: l, field: 'd', value: true },
+            ]));
+            const simpanCatat = (entries, hasilTeks) => { setMany(entries); setCatatDialog(null); showToast(`Pembelian dicatat: ${hasilTeks}.`, 'success'); };
             const terapkanVendor = () => {
                 const v = normBahanText(bulkVendor);
                 if (!v) { showToast('Isi nama vendor dulu.', 'error'); return; }
@@ -3176,21 +3235,15 @@ ${blocks}
                 return <span data-belanja-status={st} className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${s.cls}`}>{s.label}{extra ? ` · ${extra}` : ''}</span>;
             };
             const lineExtra = (l) => {
-                if (l.need != null && (l.status === 'sebagian' || l.status === 'lengkap' || (l.status === 'ditandai' && l.bought > 0))) return `${fmtBelanjaQty(l.bought)}/${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}`;
+                if (l.need != null && l.bought > 0) return `${fmtBelanjaQty(l.bought)}/${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}`;
+                if (l.need == null && l.bought > 0) return `${fmtBelanjaQty(l.bought)}${unitTxt(l.unit)}`;
                 return '';
             };
-            const lineNotes = (l) => (
-                <>
-                    {l.status === 'cek' && <div className="text-[11px] text-orange-700 mt-1">Nota: {l.beda.map(b => `${fmtBelanjaQty(b.qty)}${unitTxt(b.unit)}`).join(', ')} — satuan beda dengan kebutuhan, mohon dicek</div>}
-                    {l.shared && <div className="text-[11px] text-gray-500 mt-1">Nota tanpa warna, dihitung bersama warna lain</div>}
-                    {!l.done && l.items.length === 0 && l.notaLain.length > 0 && (
-                        <div className="text-[11px] text-amber-700 mt-1">⚠ Order ini punya nota dengan nama lain: {l.notaLain.slice(0, 3).map(b => `${b.name || b.code}${b.qty != null ? ' ' + fmtBelanjaQty(b.qty) + unitTxt(b.unit) : ''}`).join(', ')}{l.notaLain.length > 3 ? '…' : ''} — cek dulu agar tidak beli dobel</div>
-                    )}
-                </>
-            );
-            const tandaiBtn = (ls, done, st) => st === 'ditandai'
-                ? <button type="button" onClick={() => tandai(ls, false)} className="block text-[11px] text-gray-500 hover:text-red-600 underline mt-1">batalkan tanda</button>
-                : !done ? <button type="button" onClick={() => tandai(ls, true)} className="block text-[11px] text-indigo-700 hover:underline mt-1">✓ tandai dibeli</button> : null;
+            const kurangLebih = (kurang, lebih, unit) => kurang > 1e-9
+                ? <div data-belanja-kurang className="text-[11px] font-bold text-amber-700 mt-0.5">kurang {fmtBelanjaQty(kurang)}{unitTxt(unit)}</div>
+                : lebih > 1e-9 ? <div className="text-[11px] text-gray-500 mt-0.5">lebih {fmtBelanjaQty(lebih)}{unitTxt(unit)}</div> : null;
+            const catatanTxt = (list) => safeArray(list).length ? <div data-belanja-catatan className="text-[11px] text-gray-500 italic mt-1">📝 {list.join(' · ')}</div> : null;
+            const catatBtn = (ls, done) => <button type="button" data-belanja-catat-buka onClick={() => setCatatDialog(ls)} className={`block mt-1.5 text-[11px] font-bold rounded-lg px-2 py-1 border ${done ? 'bg-white border-gray-300 text-gray-600' : 'bg-teal-50 border-teal-200 text-teal-800'}`}>{done ? '✎ Ubah' : '✎ Catat pembelian'}</button>;
             const bahanCell = (name, code) => (
                 <span><span className="font-bold text-gray-800">{name || '-'}</span>{code ? <span className="ml-1.5 px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[11px] font-mono">{code}</span> : null}</span>
             );
@@ -3202,7 +3255,7 @@ ${blocks}
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
                                 <div className="font-black text-gray-800">🛒 Daftar Belanja <span className="text-xs font-bold text-gray-500">({totalKurang} bahan belum lengkap dari {lines.length})</span></div>
-                                <div className="text-xs text-gray-500">Dari isian Bahan / Kain di order aktif. Status dibaca otomatis dari nota pembelian yang ditautkan ke order.</div>
+                                <div className="text-xs text-gray-500">Dari isian Bahan / Kain di order aktif. Status dari jumlah yang dicatat di sini lewat "Catat pembelian" (nota pembelian tidak dibaca).</div>
                             </div>
                             <button type="button" data-belanja-cetak-semua onClick={() => bukaCetak(view === 'bahan' ? shownGroups.flatMap(g => g.lines) : shownLines, 'Semua yang tampil')} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">🖨 Cetak / Kirim ke vendor</button>
                         </div>
@@ -3216,8 +3269,7 @@ ${blocks}
                                 <option value="semua">Status: Semua</option>
                                 <option value="belum">Belum dibeli</option>
                                 <option value="sebagian">Sebagian</option>
-                                <option value="cek">Satuan beda (cek)</option>
-                                <option value="selesai">Sudah lengkap</option>
+                                <option value="selesai">Sudah dibeli</option>
                             </select>
                             <select data-belanja-fvendor value={fVendor} onChange={e => setFVendor(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm bg-white max-w-[200px]">
                                 <option value="">Vendor: Semua</option>
@@ -3253,9 +3305,8 @@ ${blocks}
                                     {view === 'bahan' && pgBahan.paged.map(g => {
                                         const ids = g.lines.map(l => l.id);
                                         const on = ids.every(id => checked.has(id));
-                                        // Angka nota hanya bila semuanya dari nota (bukan tanda manual); selain itu cukup jumlah order yang lengkap
-                                        const angkaNota = g.need != null && (g.status === 'sebagian' || g.status === 'lengkap') && g.lines.every(l => !l.beda.length && l.status !== 'ditandai');
-                                        const extra = angkaNota ? `${fmtBelanjaQty(g.bought)}/${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : (g.status === 'sebagian' && g.lines.length > 1 ? `${g.doneCount}/${g.lines.length} order` : '');
+                                        // Angka x/y bila semua order punya jumlah kebutuhan; selain itu cukup jumlah order yang sudah dibeli
+                                        const extra = g.need != null && g.bought > 0 ? `${fmtBelanjaQty(g.bought)}/${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : (g.status === 'sebagian' && g.lines.length > 1 ? `${g.doneCount}/${g.lines.length} order` : '');
                                         return (
                                             <tr key={g.id} data-belanja-row className={`border-t border-gray-100 align-top ${on ? 'bg-teal-50/60' : ''}`}>
                                                 <td className="p-3"><input type="checkbox" checked={on} onChange={e => toggleIds(ids, e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
@@ -3266,14 +3317,15 @@ ${blocks}
                                                     {g.lines.map(l => (
                                                         <div key={l.id} className="text-xs text-gray-700 leading-5">
                                                             <span className="font-bold text-blue-700">{l.orderId}</span> {l.order.client || ''}{l.order.type ? ` · ${l.order.type}` : ''}{l.need != null ? ` — ${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : ''}
-                                                            {g.lines.length > 1 && l.done && <span className="text-green-700 font-bold"> ✓</span>}
-                                                            {lineNotes(l)}
+                                                            {g.lines.length > 1 && (l.done ? <span className="text-green-700 font-bold"> ✓</span>
+                                                                : l.bought > 0 && l.need != null ? <span className="text-amber-700 font-bold"> · {fmtBelanjaQty(l.bought)}/{fmtBelanjaQty(l.need)}, kurang {fmtBelanjaQty(l.kurang)}</span>
+                                                                : <span className="text-red-600"> · belum</span>)}
                                                         </div>
                                                     ))}
                                                     {tagSatuanBeda(g.key)}
                                                 </td>
-                                                <td className="p-3"><BelanjaVendorInput value={g.vendor || ''} mixed={g.vendor == null} listId="belanja-vendor-list" onCommit={(v) => setVendor(g.lines, v)} /></td>
-                                                <td className="p-3">{statusBadge(g.status, extra)}{tandaiBtn(g.status === 'ditandai' ? g.lines : g.lines.filter(l => !l.done), g.done, g.status)}</td>
+                                                <td className="p-3"><BelanjaVendorInput value={g.vendor || ''} mixed={g.vendor == null} listId="belanja-vendor-list" onCommit={(v) => setVendor(g.lines, v)} />{catatanTxt(g.catatan)}</td>
+                                                <td className="p-3">{statusBadge(g.status, extra)}{g.status === 'sebagian' && kurangLebih(g.kurang, 0, g.unit)}{g.status === 'lengkap' && g.need != null && kurangLebih(0, g.bought - g.need, g.unit)}{catatBtn(g.lines, g.done)}</td>
                                             </tr>
                                         );
                                     })}
@@ -3289,11 +3341,11 @@ ${blocks}
                                             {og.lines.map(l => (
                                                 <tr key={l.id} data-belanja-row className={`border-t border-gray-100 align-top ${checked.has(l.id) ? 'bg-teal-50/60' : ''}`}>
                                                     <td className="p-3"><input type="checkbox" checked={checked.has(l.id)} onChange={e => toggleIds([l.id], e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
-                                                    <td className="p-3">{bahanCell(l.name, l.code)}{lineNotes(l)}{tagSatuanBeda(l.key)}</td>
+                                                    <td className="p-3">{bahanCell(l.name, l.code)}{tagSatuanBeda(l.key)}</td>
                                                     <td className="p-3 text-gray-700">{l.color || '-'}</td>
                                                     <td className="p-3 text-right whitespace-nowrap">{l.need != null ? `${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : <span className="text-xs text-gray-400">jumlah belum diisi</span>}</td>
-                                                    <td className="p-3"><BelanjaVendorInput value={l.vendor} listId="belanja-vendor-list" onCommit={(v) => setVendor([l], v)} /></td>
-                                                    <td className="p-3">{statusBadge(l.status, lineExtra(l))}{tandaiBtn([l], l.done, l.status)}</td>
+                                                    <td className="p-3"><BelanjaVendorInput value={l.vendor} listId="belanja-vendor-list" onCommit={(v) => setVendor([l], v)} />{catatanTxt(l.catatan ? [l.catatan] : [])}</td>
+                                                    <td className="p-3">{statusBadge(l.status, lineExtra(l))}{kurangLebih(l.status === 'sebagian' ? l.kurang : 0, l.lebih, l.unit)}{catatBtn([l], l.done)}</td>
                                                 </tr>
                                             ))}
                                         </React.Fragment>
@@ -3324,12 +3376,13 @@ ${blocks}
                                 <button type="button" data-belanja-bulk-apply onClick={terapkanVendor} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-white text-gray-900 whitespace-nowrap">Isi vendor</button>
                             </div>
                             <div className="flex items-center gap-2 w-full sm:w-auto">
-                                <button type="button" data-belanja-bulk-tandai onClick={() => { const ls = checkedLines.filter(l => !l.done); if (!ls.length) { showToast('Semua bahan yang dicentang sudah lengkap.', 'info'); return; } tandai(ls, true); showToast(`${ls.length} bahan ditandai sudah dibeli.`, 'success'); }} className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-sm font-bold bg-white text-gray-900 whitespace-nowrap">✓ Tandai dibeli</button>
+                                <button type="button" data-belanja-bulk-tandai onClick={() => { const ls = checkedLines.filter(l => !l.done); if (!ls.length) { showToast('Semua bahan yang dicentang sudah dibeli.', 'info'); return; } tandaiLengkap(ls); showToast(`${ls.length} bahan dicatat sudah dibeli semua.`, 'success'); }} className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-sm font-bold bg-white text-gray-900 whitespace-nowrap">✓ Sudah dibeli semua</button>
                                 <button type="button" data-belanja-bulk-cetak onClick={() => bukaCetak(checkedLines, 'Yang dicentang')} className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-sm font-bold bg-teal-500 hover:bg-teal-600 text-white whitespace-nowrap">🖨 Cetak / Kirim</button>
                             </div>
                             <button type="button" onClick={() => setChecked(new Set())} className="hidden sm:inline px-3 py-1.5 rounded-lg text-sm font-bold text-white/80 hover:text-white underline">Batal pilih</button>
                         </div>
                     )}
+                    {catatDialog && <BelanjaCatatModal lines={catatDialog} onSave={simpanCatat} onClose={() => setCatatDialog(null)} />}
                     {cetakDialog && <BelanjaCetakModal pilihan={cetakDialog.pilihan} sumber={cetakDialog.sumber} templates={templates} showToast={showToast} onClose={() => setCetakDialog(null)} vendorOptions={vendorOptions} vendorSaran={vendorSaran} onSimpanVendor={(ls, v) => setVendor(ls, v)} />}
                 </div>
             );
