@@ -1929,9 +1929,73 @@
         const escapeHtmlText = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         const cleanRencanaBahan = (list) => safeArray(list)
             .filter(r => r && typeof r === 'object')
-            .map(r => ({ id: r.id || genId('RB-'), name: normBahanText(r.name), code: normBahanText(r.code), color: normBahanText(r.color), qty: String(r.qty == null ? '' : r.qty).trim(), unit: normBahanUnit(r.unit) }))
+            .map(r => {
+                const qty = String(r.qty == null ? '' : r.qty).trim();
+                const pakai = rbPakaiStok({ qty, pakaiStok: r.pakaiStok });
+                return { id: r.id || genId('RB-'), name: normBahanText(r.name), code: normBahanText(r.code), color: normBahanText(r.color), qty, unit: normBahanUnit(r.unit), ...(pakai > 0 ? { pakaiStok: pakai } : {}) };
+            })
             .filter(r => r.name || r.code);
         const formatRencanaBahanItem = (r) => [r.name, r.code ? `kode ${r.code}` : '', r.color, r.qty ? `±${r.qty}${r.unit ? ' ' + r.unit : ''}` : ''].filter(Boolean).join(' · ');
+
+        // ===== Stok sisa bahan =====
+        // Stok masuk & koreksi disimpan di data tersendiri 'stokBahan' (satu catatan per kejadian). Pemakaian TIDAK
+        // disimpan di sana: dibaca dari isian "pakai stok" di Bahan/Kain order, sehingga order yang dihapus atau yang
+        // "Pembelian Bahan"-nya tidak dicentang otomatis mengembalikan stoknya. Satu stok = nama + kode + warna + satuan
+        // (huruf besar/kecil & spasi diabaikan). Tanpa harga / uang sama sekali.
+        const STOK_ASAL = [{ id: 'sisa_produksi', label: 'Sisa produksi' }, { id: 'kelebihan_beli', label: 'Kelebihan beli' }, { id: 'lainnya', label: 'Retur / lainnya' }];
+        const STOK_ALASAN = [{ id: 'rusak', label: 'Rusak / cacat' }, { id: 'hilang', label: 'Hilang' }, { id: 'selisih', label: 'Selisih cek fisik' }, { id: 'lainnya', label: 'Lainnya' }];
+        const stokLabel = (list, id) => (list.find(x => x.id === id) || {}).label || '';
+        const stokKey = (name, code, color, unit) => [name, code, color].map(v => normBahanText(v).toLowerCase()).join('|') + '|' + normBahanUnit(unit);
+        const stokBulat = (n) => Math.round(n * 100) / 100;
+        // Angka > 0 (teks gaya Indonesia seperti kolom kebutuhan, atau angka); selain itu 0
+        const stokAngka = (v) => {
+            if (typeof v === 'number') return isFinite(v) && v > 0 ? stokBulat(v) : 0;
+            const n = parseBelanjaQty(v);
+            return n ? stokBulat(n) : 0;
+        };
+        // Pemakaian stok satu baris bahan: tidak pernah lebih dari kebutuhannya (bila kebutuhan diisi angka)
+        const rbPakaiStok = (r) => {
+            const p = stokAngka(r && r.pakaiStok);
+            if (!p) return 0;
+            const need = parseBelanjaQty(r.qty);
+            return need != null ? Math.min(p, stokBulat(need)) : p;
+        };
+        const stokOrderDihitung = (o) => !!o && !o.isDeleted && getOrderProcessFlow(o).materials !== false;
+        const stokDelta = (s) => { const q = stokAngka(s && s.qty); return s && s.jenis === 'koreksi' && s.arah === 'kurang' ? -q : q; };
+        // Saldo per stok: masuk ± koreksi − pemakaian order (excludeOrderId: order yang sedang diedit tidak dihitung)
+        const hitungStokBahan = (stokBahan, orders, excludeOrderId) => {
+            const map = new Map();
+            const item = (name, code, color, unit) => {
+                const key = stokKey(name, code, color, unit);
+                if (!map.has(key)) map.set(key, { key, name: normBahanText(name), code: normBahanText(code), color: normBahanText(color), unit: normBahanUnit(unit), masuk: 0, dipakai: 0, saldo: 0, riwayat: [], pemakaian: [] });
+                return map.get(key);
+            };
+            safeArray(stokBahan).forEach(s => {
+                if (!s || s.isDeleted || !normBahanText(s.name)) return;
+                const d = stokDelta(s);
+                if (!d) return;
+                const e = item(s.name, s.code, s.color, s.unit);
+                e.masuk += d;
+                e.riwayat.push(s);
+            });
+            safeArray(orders).forEach(o => {
+                if (!stokOrderDihitung(o) || (excludeOrderId && String(o.id) === String(excludeOrderId))) return;
+                safeArray(o.rencanaBahan).forEach(r => {
+                    if (!r || !normBahanText(r.name)) return;
+                    const p = rbPakaiStok(r);
+                    if (!p) return;
+                    const e = item(r.name, r.code, r.color, r.unit);
+                    e.dipakai += p;
+                    e.pemakaian.push({ order: o, qty: p });
+                });
+            });
+            map.forEach(e => { e.masuk = stokBulat(e.masuk); e.dipakai = stokBulat(e.dipakai); e.saldo = stokBulat(e.masuk - e.dipakai); });
+            return map;
+        };
+        const stokTerakhirMasuk = (st) => safeArray(st && st.riwayat).filter(s => s.jenis !== 'koreksi')
+            .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
+        const stokOrderLabel = (o) => o ? [o.client, o.type].map(normBahanText).filter(Boolean).join(' · ') : '';
+        const lepasPakaiStok = (r) => { if (!r || r.pakaiStok === undefined) return r; const { pakaiStok, ...rest } = r; return rest; };
         // Gabungan: nota pembelian + rencana bahan order + bahan manual. Satu baris per nama+kode.
         const buildDatabaseBahan = (purchaseNotes, orders, masterBahan) => {
             const map = new Map();
@@ -2093,9 +2157,12 @@
         };
 
         // Bagian "Bahan / Kain" di Input Order & Edit Order
-        const RencanaBahanEditor = ({ value, onChange, client, jenis, orders, purchaseNotes, masterBahan, excludeOrderId }) => {
+        const RencanaBahanEditor = ({ value, onChange, client, jenis, orders, purchaseNotes, masterBahan, stokBahan, excludeOrderId }) => {
             const rows = safeArray(value);
             const [cari, setCari] = useState('');
+            // Stok sisa (order yang sedang diedit tidak dihitung: pemakaiannya diambil dari isian di form ini)
+            const stokMap = useMemo(() => hitungStokBahan(stokBahan, orders, excludeOrderId), [stokBahan, orders, excludeOrderId]);
+            const [stokPesan, setStokPesan] = useState({}); // id baris -> pesan "melebihi stok"
             const db = useMemo(() => buildDatabaseBahan(purchaseNotes, orders, masterBahan), [purchaseNotes, orders, masterBahan]);
             const saran = useMemo(() => getSaranBahanInstansi(client, orders, purchaseNotes, excludeOrderId), [client, orders, purchaseNotes, excludeOrderId]);
             // Dropdown nama / kode / warna + satuan otomatis dari pembelian terakhir. Satuan hanya diisi otomatis untuk baris baru
@@ -2115,7 +2182,7 @@
                 const e = saranDd.cari(r.name, r.code);
                 const u = e ? normBahanUnit(e.lastUnit) : '';
                 if (!u || u === r.unit) return;
-                onChange(rows.map((x, i) => i === idx ? { ...x, unit: u } : x));
+                onChange(rows.map((x, i) => i === idx ? lepasPakaiStok({ ...x, unit: u }) : x));
                 setUnitOtomatis(prev => new Set(prev).add(r.id));
             };
             const sudahAda = (r) => rows.some(x => normBahanKey(x.name, x.code) === normBahanKey(r.name, r.code) && normBahanText(x.color).toLowerCase() === normBahanText(r.color).toLowerCase());
@@ -2137,8 +2204,96 @@
             const hasilCari = q ? db.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].map(u => u.client)].join(' ').toLowerCase().includes(q)).slice(0, 8) : [];
             const setRows = (next) => onChange(next);
             const tambah = (r) => setRows([...rows, { id: genId('RB-'), name: r.name || '', code: r.code || '', color: r.color || '', qty: '', unit: normBahanUnit(r.unit) || 'kg' }]);
-            const ubah = (idx, field, v) => setRows(rows.map((x, i) => i === idx ? { ...x, [field]: v } : x));
+            // Nama / kode / warna / satuan diubah → bahannya lain, jadi pemakaian stok dilepas.
+            // Kebutuhan dikecilkan → pemakaian stok ikut dibatasi.
+            const ubah = (idx, field, v) => setRows(rows.map((x, i) => {
+                if (i !== idx) return x;
+                const next = { ...x, [field]: v };
+                if (['name', 'code', 'color', 'unit'].includes(field)) return lepasPakaiStok(next);
+                if (field === 'qty' && x.pakaiStok !== undefined) {
+                    const need = parseBelanjaQty(v);
+                    if (need != null && stokAngka(x.pakaiStok) > need + 1e-9) next.pakaiStok = fmtBelanjaQty(need);
+                }
+                return next;
+            }));
             const hapus = (idx) => setRows(rows.filter((_, i) => i !== idx));
+            // Stok yang masih bisa dipakai baris ini: saldo − pemakaian baris lain (bahan sama) di form ini
+            const stokBaris = (idx) => {
+                const r = rows[idx];
+                if (!r || !normBahanText(r.name)) return null;
+                const key = stokKey(r.name, r.code, r.color, r.unit);
+                const st = stokMap.get(key) || null;
+                const lain = rows.reduce((s, x, i) => i !== idx && x && normBahanText(x.name) && stokKey(x.name, x.code, x.color, x.unit) === key ? s + rbPakaiStok(x) : s, 0);
+                const tersedia = stokBulat((st ? st.saldo : 0) - lain);
+                const need = parseBelanjaQty(r.qty);
+                const maks = Math.max(0, need != null ? Math.min(tersedia, stokBulat(need)) : tersedia);
+                return { st, tersedia, need, maks, aktif: r.pakaiStok !== undefined };
+            };
+            const setPesan = (id, teks) => setStokPesan(prev => { if ((prev[id] || '') === (teks || '')) return prev; const n = { ...prev }; if (teks) n[id] = teks; else delete n[id]; return n; });
+            const isiPakaiStok = (idx, v) => {
+                const r = rows[idx];
+                const s = stokBaris(idx);
+                if (!r || !s) return;
+                const n = parseBelanjaQty(v);
+                if (n != null && n > s.maks + 1e-9) {
+                    const u = r.unit ? ' ' + r.unit : '';
+                    const kurang = s.need != null ? stokBulat(s.need - s.maks) : null;
+                    setPesan(r.id, s.need != null && s.need <= s.tersedia
+                        ? `Kebutuhan hanya ${fmtBelanjaQty(s.need)}${u}, jadi pakai stok maksimal ${fmtBelanjaQty(s.maks)}${u}.`
+                        : `Stok hanya ${fmtBelanjaQty(Math.max(0, s.tersedia))}${u}. Maksimal ${fmtBelanjaQty(s.maks)}${u}${kurang > 0 ? `, kekurangan ${fmtBelanjaQty(kurang)}${u} dibeli lewat Daftar Belanja` : ''}.`);
+                    ubahPakai(idx, fmtBelanjaQty(s.maks));
+                    return;
+                }
+                setPesan(r.id, '');
+                ubahPakai(idx, v);
+            };
+            const ubahPakai = (idx, v) => setRows(rows.map((x, i) => i === idx ? { ...x, pakaiStok: v } : x));
+            const batalPakai = (idx) => { const r = rows[idx]; if (r) setPesan(r.id, ''); setRows(rows.map((x, i) => i === idx ? lepasPakaiStok(x) : x)); };
+            const kotakStok = (r, idx) => {
+                const s = stokBaris(idx);
+                if (!s) return null;
+                const u = r.unit ? ' ' + r.unit : '';
+                if (!s.aktif) {
+                    if (s.tersedia <= 1e-9) return null;
+                    const t = stokTerakhirMasuk(s.st);
+                    const asal = t ? [stokLabel(STOK_ASAL, t.asal), t.orderId, t.note].filter(Boolean).join(' · ') : '';
+                    return (
+                        <div className="col-span-2 md:col-span-12">
+                            <div data-stok-info className="flex flex-wrap items-center gap-2 text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5">
+                                <span>📦 <b>Stok sisa: {fmtBelanjaQty(s.tersedia)}{u}</b>{asal ? <span className="text-blue-700"> ({asal})</span> : null}</span>
+                                {s.maks > 0 && <button type="button" data-stok-pakai onClick={() => { setPesan(r.id, ''); ubahPakai(idx, fmtBelanjaQty(s.maks)); }} className="px-2.5 py-1 rounded-lg font-bold bg-white border border-blue-300 text-blue-800 hover:bg-blue-100">Pakai dari stok</button>}
+                            </div>
+                        </div>
+                    );
+                }
+                const p = stokAngka(r.pakaiStok);
+                const pakaiEf = s.need != null ? Math.min(p, stokBulat(s.need)) : p;
+                const kurangStok = p > Math.max(0, s.tersedia) + 1e-9;
+                const beli = s.need != null ? stokBulat(Math.max(0, s.need - pakaiEf)) : null;
+                const kotak = (label, nilai, cls) => <div className="bg-gray-50 border border-gray-200 rounded-md px-2 py-1"><div className="text-gray-500">{label}</div><div className={`text-sm font-black ${cls || 'text-gray-900'}`}>{nilai}</div></div>;
+                return (
+                    <div className="col-span-2 md:col-span-12">
+                        <div data-stok-pakai-box className={`rounded-lg border-2 px-3 py-2 space-y-2 ${kurangStok ? 'border-red-400 bg-red-50' : 'border-blue-400 bg-white'}`}>
+                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                                <b className="text-blue-900">📦 Pakai dari stok:</b>
+                                <input type="text" inputMode="decimal" data-stok-pakai-input value={r.pakaiStok == null ? '' : String(r.pakaiStok)} onChange={e => isiPakaiStok(idx, e.target.value)} placeholder="0" className="w-24 p-1.5 border border-gray-300 rounded font-black text-sm" />
+                                <span className="text-gray-600">{r.unit || ''}</span>
+                                {s.maks > 0 && <button type="button" data-stok-pakai-semua onClick={() => isiPakaiStok(idx, fmtBelanjaQty(s.maks))} className="px-2 py-1 rounded-lg text-xs font-bold bg-white border border-gray-300 text-gray-700">Semua ({fmtBelanjaQty(s.maks)}{u})</button>}
+                                <button type="button" data-stok-pakai-batal onClick={() => batalPakai(idx)} className="ml-auto text-xs text-gray-500 hover:text-gray-800">✕ batal pakai</button>
+                            </div>
+                            <div data-stok-hitung className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px]">
+                                {kotak('Kebutuhan', s.need != null ? `${fmtBelanjaQty(s.need)}${u}` : '—')}
+                                {kotak('Pakai stok', `${fmtBelanjaQty(pakaiEf)}${u}`)}
+                                {kotak('Tinggal beli', beli != null ? `${fmtBelanjaQty(beli)}${u}` : '—', beli > 0 ? 'text-amber-700' : 'text-green-700')}
+                                {kotak('Sisa stok', `${fmtBelanjaQty(stokBulat(s.tersedia - p))}${u}`, kurangStok ? 'text-red-700' : 'text-gray-900')}
+                            </div>
+                            {stokPesan[r.id] && <div data-stok-pesan className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1">{stokPesan[r.id]}</div>}
+                            {kurangStok && <div data-stok-kurang className="text-xs font-bold text-red-800">⚠ Stok tidak cukup: tersedia {fmtBelanjaQty(Math.max(0, s.tersedia))}{u}, diisi {fmtBelanjaQty(p)}{u} (kemungkinan sudah dipakai order lain). Kurangi isian pakai stok.</div>}
+                            {s.need == null && <div className="text-[11px] text-gray-500">Isi kolom kebutuhan agar jumlah yang perlu dibeli terhitung.</div>}
+                        </div>
+                    </div>
+                );
+            };
             return (
                 <div data-rencana-bahan className="p-4 bg-teal-50 rounded-lg border border-teal-200 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2192,6 +2347,7 @@
                                     {normBahanText(r.name) && saranDd.cari(r.name, r.code) && saranDd.cari(r.name, r.code).lastBuyDate && (
                                         <div className="col-span-2 md:col-span-12"><InfoBahanTerakhir e={saranDd.cari(r.name, r.code)} kode={r.code} /></div>
                                     )}
+                                    {kotakStok(r, idx)}
                                 </div>
                             ))}
                         </div>
@@ -2201,8 +2357,166 @@
             );
         };
 
+        // Kolom "Sisa dari order" (catatan asal-usul saja): dipilih dari daftar order, bukan diketik
+        const StokOrderPilih = ({ value, onChange, orders, name, code, color }) => {
+            const [q, setQ] = useState('');
+            const [buka, setBuka] = useState(false);
+            const urut = useMemo(() => safeArray(orders).filter(o => o && !o.isDeleted)
+                .sort((a, b) => orderInputSeq(b) - orderInputSeq(a) || String(b.date || '').localeCompare(String(a.date || ''))), [orders]);
+            if (value) {
+                const o = safeArray(orders).find(x => x && String(x.id) === String(value));
+                return (
+                    <div data-stok-order-terpilih className="flex items-center justify-between gap-2 p-2 border border-gray-300 rounded-lg bg-white text-sm">
+                        <span className="min-w-0"><b>{value}</b>{o && !o.isDeleted ? ` · ${stokOrderLabel(o)}` : <span className="text-gray-400"> (order sudah dihapus)</span>}</span>
+                        <button type="button" data-stok-order-kosongkan onClick={() => onChange('')} className="shrink-0 px-1.5 text-gray-400 hover:text-gray-700" aria-label="Kosongkan">✕</button>
+                    </div>
+                );
+            }
+            const kunci = normBahanKey(name, code);
+            const w = normBahanText(color).toLowerCase();
+            const pakaiBahan = (o) => !!normBahanText(name) && safeArray(o.rencanaBahan).some(r => r && normBahanKey(r.name, r.code) === kunci && (!w || normBahanText(r.color).toLowerCase() === w));
+            const t = normBahanText(q).toLowerCase();
+            const cocok = (o) => !t || [o.id, o.client, o.type].join(' ').toLowerCase().includes(t);
+            const atas = buka ? urut.filter(o => cocok(o) && pakaiBahan(o)).slice(0, 10) : [];
+            const lain = buka ? urut.filter(o => cocok(o) && !pakaiBahan(o)).slice(0, t ? 20 : 8) : [];
+            const pilih = (id) => { onChange(id); setQ(''); setBuka(false); };
+            const opsi = (o, rinci) => {
+                const r = rinci ? safeArray(o.rencanaBahan).find(x => x && normBahanKey(x.name, x.code) === kunci && (!w || normBahanText(x.color).toLowerCase() === w)) : null;
+                return (
+                    <button key={o.id} type="button" data-stok-order-opsi={o.id} onMouseDown={e => e.preventDefault()} onClick={() => pilih(String(o.id))} className="block w-full text-left px-2.5 py-1.5 border-t border-gray-100 hover:bg-blue-50">
+                        <b>{o.id}</b>{stokOrderLabel(o) ? ` · ${stokOrderLabel(o)}` : ''}
+                        {r && <div className="text-[11px] text-gray-500">{[o.deadline ? `Deadline ${formatTglBahan(o.deadline)}` : '', [r.name, r.color, r.qty ? `${r.qty}${r.unit ? ' ' + r.unit : ''}` : ''].filter(Boolean).join(' ')].filter(Boolean).join(' · ')}</div>}
+                    </button>
+                );
+            };
+            return (
+                <div>
+                    <input type="text" data-stok-order-cari value={q} onChange={e => { setQ(e.target.value); setBuka(true); }} onFocus={() => setBuka(true)} onBlur={() => setTimeout(() => setBuka(false), 200)} placeholder="Cari no. order / sekolah… (boleh kosong)" className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white" />
+                    {buka && (
+                        <div data-stok-order-list className="mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded-lg shadow text-sm">
+                            {atas.length > 0 && <div className="px-2.5 py-1 text-[10px] font-black tracking-wide text-teal-700 bg-teal-50">MEMAKAI {[normBahanText(name), normBahanText(color)].filter(Boolean).join(' · ').toUpperCase()}</div>}
+                            {atas.map(o => opsi(o, true))}
+                            {lain.length > 0 && <div className="px-2.5 py-1 text-[10px] font-black tracking-wide text-gray-500 bg-gray-50 border-t border-gray-200">{atas.length ? 'ORDER LAIN' : 'ORDER'}</div>}
+                            {lain.map(o => opsi(o, false))}
+                            {atas.length + lain.length === 0 && <div className="px-2.5 py-2 text-gray-500">Tidak ada order yang cocok.</div>}
+                            <button type="button" data-stok-order-tidak onMouseDown={e => e.preventDefault()} onClick={() => pilih('')} className="block w-full text-left px-2.5 py-2 text-gray-500 border-t border-gray-200 hover:bg-gray-50">— Tidak dari order —</button>
+                        </div>
+                    )}
+                    <div className="text-[11px] text-gray-500 mt-1">Catatan asal-usul saja. Stok tetap bisa dipakai order mana pun.</div>
+                </div>
+            );
+        };
+        const StokModalBingkai = ({ judul, sub, children, onClose, onSimpan, labelSimpan, dataAttr }) => (
+            <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+                <div {...{ [dataAttr]: '' }} className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="px-5 py-4 border-b border-gray-100">
+                        <div className="font-black text-gray-800">{judul}</div>
+                        {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
+                    </div>
+                    <div className="p-5 space-y-3 overflow-y-auto">{children}</div>
+                    <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg font-bold text-gray-700 bg-white border border-gray-300">Batal</button>
+                        <button type="button" data-stok-simpan onClick={onSimpan} className="px-4 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700">{labelSimpan}</button>
+                    </div>
+                </div>
+            </div>
+        );
+        // "+ Stok masuk": dari baris bahan (nama & kode terkunci) atau dari tombol atas (nama bebas, pakai dropdown bahan)
+        const StokMasukModal = ({ awal, ddDb, orders, stokMap, onSave, onClose }) => {
+            const kunci = !!awal.kunci;
+            const [f, setF] = useState(() => {
+                const e = awal.name ? ddDb.cari(awal.name, awal.code) : null;
+                return { name: awal.name || '', code: awal.code || '', color: awal.color || '', unit: normBahanUnit(awal.unit) || (e ? normBahanUnit(e.lastUnit) : '') || '', qty: '', asal: 'sisa_produksi', orderId: '', date: toLocalDateStr(), note: '' };
+            });
+            const [coba, setCoba] = useState(false);
+            const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+            const isiSatuan = () => setF(p => { if (p.unit) return p; const e = ddDb.cari(p.name, p.code); const u = e ? normBahanUnit(e.lastUnit) : ''; return u ? { ...p, unit: u } : p; });
+            const warnaList = (() => {
+                const m = new Map();
+                ddDb.warna(f.name, f.code).forEach(w => m.set(w.toLowerCase(), w));
+                stokMap.forEach(st => { if (st.color && normBahanKey(st.name, st.code) === normBahanKey(f.name, f.code)) m.set(st.color.toLowerCase(), st.color); });
+                return [...m.values()].sort((a, b) => a.localeCompare(b));
+            })();
+            const qty = stokAngka(f.qty);
+            const salah = !normBahanText(f.name) ? 'Nama bahan wajib diisi.' : !normBahanText(f.color) ? 'Warna wajib diisi (stok dicocokkan per warna).' : !normBahanUnit(f.unit) ? 'Pilih satuan.' : !(qty > 0) ? 'Isi jumlah lebih dari 0.' : '';
+            const st = normBahanText(f.name) && normBahanText(f.color) && normBahanUnit(f.unit) ? stokMap.get(stokKey(f.name, f.code, f.color, f.unit)) : null;
+            const simpan = () => {
+                setCoba(true);
+                if (salah) return;
+                // Ejaan warna disamakan dengan yang sudah ada (mis. "navy" → "Navy")
+                const warna = warnaList.find(w => w.toLowerCase() === normBahanText(f.color).toLowerCase()) || normBahanText(f.color);
+                onSave({ name: normBahanText(f.name), code: normBahanText(f.code), color: warna, unit: normBahanUnit(f.unit), qty, asal: f.asal, orderId: f.orderId, date: /^\d{4}-\d{2}-\d{2}$/.test(f.date) ? f.date : toLocalDateStr(), note: String(f.note || '').trim().slice(0, 200) });
+            };
+            const lbl = 'block text-xs font-bold text-gray-600 mb-1';
+            const inp = 'w-full p-2 border border-gray-300 rounded-lg text-sm bg-white';
+            return (
+                <StokModalBingkai dataAttr="data-stok-masuk-modal" judul="📦 Stok masuk" sub={kunci ? `dari baris ${[f.name, f.code].filter(Boolean).join(' · ')} (nama & kode sudah terisi)` : 'Sisa bahan yang disimpan untuk dipakai order berikutnya'} onClose={onClose} onSimpan={simpan} labelSimpan="Simpan stok">
+                    {kunci ? (
+                        <div><label className={lbl}>Nama bahan</label><div className="p-2 border border-gray-200 rounded-lg text-sm bg-gray-100 font-bold">{[f.name, f.code].filter(Boolean).join(' · ')}</div></div>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="col-span-2 sm:col-span-1"><label className={lbl}>Nama bahan *</label><input type="text" list="stok-bahan-nama" data-stok-nama value={f.name} onChange={e => set('name', e.target.value)} onBlur={isiSatuan} placeholder="mis. Drill Japan" className={inp} /></div>
+                            <div className="col-span-2 sm:col-span-1"><label className={lbl}>Kode</label><input type="text" list="stok-bahan-kode" data-stok-kode value={f.code} onChange={e => set('code', e.target.value)} onBlur={isiSatuan} placeholder="opsional" className={inp} /></div>
+                            <datalist id="stok-bahan-nama">{ddDb.nama.map(n => <option key={n} value={n} />)}</datalist>
+                            <datalist id="stok-bahan-kode">{ddDb.kode(f.name).map(k => <option key={k} value={k} />)}</datalist>
+                        </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                        <div><label className={lbl}>Warna *</label><input type="text" list="stok-bahan-warna" data-stok-warna value={f.color} onChange={e => set('color', e.target.value)} placeholder="mis. Navy" className={inp} /><datalist id="stok-bahan-warna">{warnaList.map(w => <option key={w} value={w} />)}</datalist></div>
+                        <div><label className={lbl}>Satuan *</label>
+                            <select data-stok-satuan value={f.unit} onChange={e => set('unit', e.target.value)} className={inp}>
+                                <option value="">-</option>
+                                {[...new Set([...BAHAN_UNITS, ...(f.unit && !BAHAN_UNITS.includes(f.unit) ? [f.unit] : [])])].map(u => <option key={u} value={u}>{u}</option>)}
+                            </select>
+                        </div>
+                        <div><label className={lbl}>Jumlah *</label><input type="text" inputMode="decimal" data-stok-jumlah value={f.qty} onChange={e => set('qty', e.target.value)} placeholder="0" className={inp + ' font-black'} /></div>
+                        <div><label className={lbl}>Asal</label>
+                            <select data-stok-asal value={f.asal} onChange={e => set('asal', e.target.value)} className={inp}>{STOK_ASAL.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select>
+                        </div>
+                        <div className="col-span-2"><label className={lbl}>Sisa dari order <span className="font-normal text-gray-400">(catatan saja, opsional)</span></label>
+                            <StokOrderPilih value={f.orderId} onChange={v => set('orderId', v)} orders={orders} name={f.name} code={f.code} color={f.color} />
+                        </div>
+                        <div><label className={lbl}>Tanggal</label><input type="date" data-stok-tanggal value={f.date} onChange={e => set('date', e.target.value)} className={inp} /></div>
+                        <div><label className={lbl}>Catatan / lokasi</label><input type="text" data-stok-catatan value={f.note} onChange={e => set('note', e.target.value)} maxLength={200} placeholder="mis. Rak B2, 2 gulung" className={inp} /></div>
+                    </div>
+                    {st && <div data-stok-masuk-info className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">Stok {[st.color, st.unit].join(' · ')} sekarang <b>{fmtBelanjaQty(st.saldo)} {st.unit}</b>{qty > 0 ? <> → setelah disimpan <b>{fmtBelanjaQty(stokBulat(st.saldo + qty))} {st.unit}</b></> : null}</div>}
+                    {coba && salah && <div data-stok-salah className="text-xs font-bold text-red-700">{salah}</div>}
+                </StokModalBingkai>
+            );
+        };
+        // Koreksi stok (rusak / hilang / selisih cek fisik): dicatat sebagai baris baru, catatan lama tidak diubah
+        const StokKoreksiModal = ({ st, onSave, onClose }) => {
+            const [arah, setArah] = useState('kurang');
+            const [jumlah, setJumlah] = useState('');
+            const [alasan, setAlasan] = useState('rusak');
+            const [note, setNote] = useState('');
+            const [coba, setCoba] = useState(false);
+            const q = stokAngka(jumlah);
+            const sesudah = stokBulat(st.saldo + (arah === 'kurang' ? -q : q));
+            const salah = !(q > 0) ? 'Isi jumlah lebih dari 0.' : arah === 'kurang' && sesudah < -1e-9 ? `Pengurangan melebihi stok (${fmtBelanjaQty(Math.max(0, st.saldo))} ${st.unit}).` : '';
+            const simpan = () => { setCoba(true); if (salah) return; onSave({ arah, qty: q, alasan, note: String(note || '').trim().slice(0, 200) }); };
+            const lbl = 'block text-xs font-bold text-gray-600 mb-1';
+            const inp = 'w-full p-2 border border-gray-300 rounded-lg text-sm bg-white';
+            return (
+                <StokModalBingkai dataAttr="data-stok-koreksi-modal" judul="✏️ Koreksi stok" sub={`${[st.name, st.code, st.color].filter(Boolean).join(' · ')} — stok sekarang ${fmtBelanjaQty(st.saldo)} ${st.unit}`} onClose={onClose} onSimpan={simpan} labelSimpan="Simpan koreksi">
+                    <div className="grid grid-cols-2 gap-2">
+                        <div><label className={lbl}>Tambah / kurangi *</label>
+                            <select data-stok-koreksi-arah value={arah} onChange={e => setArah(e.target.value)} className={inp}><option value="kurang">− Kurangi</option><option value="tambah">+ Tambah</option></select>
+                        </div>
+                        <div><label className={lbl}>Jumlah * ({st.unit})</label><input type="text" inputMode="decimal" data-stok-koreksi-jumlah value={jumlah} onChange={e => setJumlah(e.target.value)} placeholder="0" className={inp + ' font-black'} /></div>
+                        <div className="col-span-2"><label className={lbl}>Alasan *</label>
+                            <select data-stok-koreksi-alasan value={alasan} onChange={e => setAlasan(e.target.value)} className={inp}>{STOK_ALASAN.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select>
+                        </div>
+                        <div className="col-span-2"><label className={lbl}>Catatan</label><input type="text" data-stok-koreksi-catatan value={note} onChange={e => setNote(e.target.value)} maxLength={200} placeholder="mis. kena noda oli, 1 potong" className={inp} /></div>
+                    </div>
+                    <div className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">Stok {fmtBelanjaQty(st.saldo)} → setelah koreksi <b data-stok-koreksi-sesudah>{fmtBelanjaQty(sesudah)} {st.unit}</b>. Catatan lama tidak dihapus: koreksi tampil sebagai baris baru di riwayat.</div>
+                    {coba && salah && <div data-stok-salah className="text-xs font-bold text-red-700">{salah}</div>}
+                </StokModalBingkai>
+            );
+        };
+
         // Tab "Database Bahan" di menu Pembelian Bahan (nota hanya dibaca)
-        const DatabaseBahanPanel = ({ purchaseNotes, orders, masterBahan, setMasterBahan, showToast }) => {
+        const DatabaseBahanPanel = ({ purchaseNotes, orders, masterBahan, setMasterBahan, stokBahan = [], setStokBahan, showToast }) => {
             const [cari, setCari] = useState('');
             const kosong = { name: '', code: '', color: '', vendor: '', unit: 'kg', note: '' };
             const [form, setForm] = useState(kosong);
@@ -2211,9 +2525,120 @@
             const [hapusId, setHapusId] = useState(null);
             const db = useMemo(() => buildDatabaseBahan(purchaseNotes, orders, masterBahan), [purchaseNotes, orders, masterBahan]);
             const ddDb = useMemo(() => buatSaranBahan(db), [db]);
+            // Stok sisa per bahan (nama + kode) → per warna & satuan
+            const [fStok, setFStok] = useState('semua');
+            const [stokForm, setStokForm] = useState(null); // { name, code, color, unit, kunci }
+            const [koreksiKey, setKoreksiKey] = useState(null);
+            const [riwayatKey, setRiwayatKey] = useState(null);
+            const [hapusStokId, setHapusStokId] = useState(null);
+            const stokMap = useMemo(() => hitungStokBahan(stokBahan, orders), [stokBahan, orders]);
+            const stokPerBahan = useMemo(() => {
+                const m = new Map();
+                stokMap.forEach(st => { const k = normBahanKey(st.name, st.code); if (!m.has(k)) m.set(k, []); m.get(k).push(st); });
+                m.forEach(arr => arr.sort((a, b) => a.color.localeCompare(b.color) || a.unit.localeCompare(b.unit)));
+                return m;
+            }, [stokMap]);
+            // Bahan yang hanya ada di stok (belum pernah dibeli / dipakai order) tetap ditampilkan
+            const dbStok = useMemo(() => {
+                const ada = new Set(db.map(e => e.key));
+                const extra = [];
+                stokPerBahan.forEach((arr, k) => {
+                    if (ada.has(k)) return;
+                    extra.push({ key: k, name: arr[0].name, code: arr[0].code, colors: new Set(arr.map(x => x.color).filter(Boolean)), vendors: new Set(), lastPrice: null, lastUnit: arr[0].unit, lastBuyDate: '', lastVendor: '', buyCount: 0, usedBy: new Map(), lastUsedDate: '', manual: null });
+                });
+                return [...db, ...extra];
+            }, [db, stokPerBahan]);
+            const adaStok = (e) => (stokPerBahan.get(e.key) || []).some(st => Math.abs(st.saldo) > 1e-9);
+            const jumlahAdaStok = useMemo(() => dbStok.filter(adaStok).length, [dbStok, stokPerBahan]);
+            const orderById = useMemo(() => new Map(safeArray(orders).filter(Boolean).map(o => [String(o.id), o])), [orders]);
             const q = normBahanText(cari).toLowerCase();
-            const list = q ? db.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].flatMap(u => [u.client, ...u.types])].join(' ').toLowerCase().includes(q)) : db;
-            const { page, setPage, totalPages, paged, total } = usePagination(list, 20, q);
+            const list = (q ? dbStok.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].flatMap(u => [u.client, ...u.types])].join(' ').toLowerCase().includes(q)) : dbStok)
+                .filter(e => fStok !== 'stok' || adaStok(e));
+            const { page, setPage, totalPages, paged, total } = usePagination(list, 20, `${q}|${fStok}`);
+            const bukaStokMasuk = (awal) => setStokForm(awal);
+            const simpanStokMasuk = (d) => {
+                const now = new Date().toISOString();
+                setStokBahan(prev => [...safeArray(prev), { id: genId('STK-'), jenis: 'masuk', ...d, createdAt: now, _syncUpdatedAt: now, isDeleted: false }]);
+                setStokForm(null);
+                showToast(`Stok masuk dicatat: ${fmtBelanjaQty(d.qty)} ${d.unit} ${[d.name, d.color].filter(Boolean).join(' ')}.`, 'success');
+            };
+            const koreksiSt = koreksiKey ? stokMap.get(koreksiKey) || null : null;
+            const simpanKoreksi = (d) => {
+                const st = koreksiSt;
+                if (!st) return;
+                const now = new Date().toISOString();
+                setStokBahan(prev => [...safeArray(prev), { id: genId('STK-'), jenis: 'koreksi', name: st.name, code: st.code, color: st.color, unit: st.unit, qty: d.qty, arah: d.arah, alasan: d.alasan, note: d.note, date: toLocalDateStr(), createdAt: now, _syncUpdatedAt: now, isDeleted: false }]);
+                setKoreksiKey(null);
+                showToast('Koreksi stok dicatat.', 'success');
+            };
+            const hapusStok = (id) => {
+                const now = new Date().toISOString();
+                setStokBahan(prev => safeArray(prev).map(s => s && s.id === id ? { ...s, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : s));
+                setHapusStokId(null);
+                showToast('Catatan stok dihapus.', 'success');
+            };
+            const orderTeks = (id) => { const o = orderById.get(String(id)); return o && !o.isDeleted ? stokOrderLabel(o) : null; };
+            const riwayatStok = (st) => {
+                const ev = [
+                    ...st.riwayat.map(s => ({ date: String(s.date || ''), at: String(s.createdAt || ''), s })),
+                    ...st.pemakaian.map(p => ({ date: String(p.order.date || ''), at: '', p })),
+                ].sort((a, b) => a.date.localeCompare(b.date) || a.at.localeCompare(b.at));
+                const u = st.unit ? ' ' + st.unit : '';
+                return (
+                    <div data-stok-riwayat className="mt-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs leading-6">
+                        <div className="font-bold text-gray-800">{[st.name, st.code, st.color].filter(Boolean).join(' · ')} — <span className={st.saldo < -1e-9 ? 'text-red-700' : 'text-blue-800'}>stok {fmtBelanjaQty(st.saldo)}{u}</span></div>
+                        {ev.map((x, i) => {
+                            if (x.p) return (
+                                <div key={'p' + i} data-stok-riwayat-pakai><span className="font-bold text-red-700">−{fmtBelanjaQty(x.p.qty)}{u}</span> {x.date ? formatTglBahan(x.date) + ' · ' : ''}Dipakai <b>{x.p.order.id}</b> {stokOrderLabel(x.p.order)}</div>
+                            );
+                            const s = x.s;
+                            const d = stokDelta(s);
+                            const ket = s.jenis === 'koreksi'
+                                ? <>Koreksi: {stokLabel(STOK_ALASAN, s.alasan) || 'lainnya'}{s.note ? ` (${s.note})` : ''}</>
+                                : <>{stokLabel(STOK_ASAL, s.asal) || 'Stok masuk'}{s.orderId ? <> <b>{s.orderId}</b>{orderTeks(s.orderId) ? ` (${orderTeks(s.orderId)})` : <span className="text-gray-400"> (order sudah dihapus)</span>}</> : <span className="text-gray-400"> (tidak dari order)</span>}{s.note ? ` · ${s.note}` : ''}</>;
+                            return (
+                                <div key={s.id} data-stok-riwayat-catatan className="flex items-start justify-between gap-2">
+                                    <span><span className={`font-bold ${d < 0 ? 'text-red-700' : 'text-green-700'}`}>{d < 0 ? '−' : '+'}{fmtBelanjaQty(Math.abs(d))}{u}</span> {s.date ? formatTglBahan(s.date) + ' · ' : ''}{ket}</span>
+                                    <button type="button" data-stok-hapus={s.id} onClick={() => setHapusStokId(s.id)} title="Hapus catatan yang salah input" className="shrink-0 text-[11px] text-gray-400 hover:text-red-700">Hapus</button>
+                                </div>
+                            );
+                        })}
+                        <div className="text-[11px] text-gray-500">Pemakaian dibaca langsung dari order. Bila order dihapus, pemakaiannya hilang &amp; stok kembali.</div>
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                            <button type="button" data-stok-masuk-warna onClick={() => bukaStokMasuk({ name: st.name, code: st.code, color: st.color, unit: st.unit, kunci: true })} className="px-2.5 py-1 rounded-lg font-bold bg-teal-50 border border-teal-200 text-teal-800">+ Stok masuk</button>
+                            <button type="button" data-stok-koreksi onClick={() => setKoreksiKey(st.key)} className="px-2.5 py-1 rounded-lg font-bold bg-white border border-gray-300 text-gray-700">Koreksi (+/−)</button>
+                        </div>
+                    </div>
+                );
+            };
+            const kotakStokDb = (e) => {
+                const arr = stokPerBahan.get(e.key) || [];
+                if (!arr.length) return (
+                    <div data-stok-kosong className="mt-2 flex items-center justify-between gap-2 border border-dashed border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-400">
+                        <span>Belum ada stok sisa</span>
+                        <button type="button" data-stok-masuk-baris onClick={() => bukaStokMasuk({ name: e.name, code: e.code, unit: e.lastUnit, color: e.colors.size === 1 ? [...e.colors][0] : '', kunci: true })} className="px-2 py-0.5 rounded-md font-bold bg-teal-50 border border-teal-200 text-teal-800">+ Stok masuk</button>
+                    </div>
+                );
+                const minus = arr.filter(st => st.saldo < -1e-9);
+                return (
+                    <div data-stok-box className={`mt-2 rounded-lg border px-2.5 py-1.5 text-xs text-left ${minus.length ? 'border-red-300 bg-red-50 text-red-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
+                        <div className="text-[10px] font-black tracking-wide mb-0.5">📦 STOK SISA</div>
+                        {arr.map((st, i) => (
+                            <div key={st.key} data-stok-baris={st.color} className={`flex items-center justify-between gap-2 py-0.5 ${i > 0 ? 'border-t border-dashed border-blue-200' : ''}`}>
+                                <span>{st.color || 'tanpa warna'}</span>
+                                <span className="flex items-center gap-1.5">
+                                    <b data-stok-saldo className={st.saldo < -1e-9 ? 'text-red-700' : st.saldo > 1e-9 ? '' : 'text-gray-500'}>{fmtBelanjaQty(st.saldo)} {st.unit}{st.saldo < -1e-9 ? ' ⚠' : st.saldo > 1e-9 ? '' : ' · habis dipakai'}</b>
+                                    <button type="button" data-stok-riwayat-buka onClick={() => setRiwayatKey(k => k === st.key ? null : st.key)} className={`px-1.5 py-0.5 rounded-md font-bold border ${riwayatKey === st.key ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-700 border-gray-300'}`}>Riwayat</button>
+                                </span>
+                            </div>
+                        ))}
+                        {minus.map(st => (
+                            <div key={'m' + st.key} data-stok-minus className="mt-1 text-[11px] leading-snug">⚠ {st.color || 'Stok'}: dipakai lebih dari stok ({st.pemakaian.map(p => `${p.order.id} ${fmtBelanjaQty(p.qty)} ${st.unit}`).join(' + ')}, stok {fmtBelanjaQty(st.masuk)} {st.unit}). Kurangi "pakai stok" di salah satu order — kekurangannya otomatis pindah ke Daftar Belanja.</div>
+                        ))}
+                        <div className="text-right mt-1"><button type="button" data-stok-masuk-baris onClick={() => bukaStokMasuk({ name: e.name, code: e.code, unit: e.lastUnit, color: e.colors.size === 1 ? [...e.colors][0] : '', kunci: true })} className="px-2 py-0.5 rounded-md font-bold bg-white border border-teal-200 text-teal-800">+ Stok masuk</button></div>
+                    </div>
+                );
+            };
             const bukaTambah = () => { setForm(kosong); setEditId(null); setFormOpen(true); };
             const bukaEdit = (m) => { setForm({ name: m.name || '', code: m.code || '', color: m.color || '', vendor: m.vendor || '', unit: m.unit || '', note: m.note || '' }); setEditId(m.id); setFormOpen(true); };
             const simpan = () => {
@@ -2240,12 +2665,19 @@
                     <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                                <div className="font-black text-gray-800">📚 Database Bahan <span className="text-xs font-bold text-gray-500">({db.length} bahan)</span></div>
+                                <div className="font-black text-gray-800">📚 Database Bahan <span className="text-xs font-bold text-gray-500">({dbStok.length} bahan{jumlahAdaStok > 0 ? ` · 📦 ${jumlahAdaStok} bahan ada stok sisa` : ''})</span></div>
                                 <div className="text-xs text-gray-500">Terkumpul otomatis dari nota pembelian & rencana bahan order. Bisa ditambah manual.</div>
                             </div>
-                            <button type="button" onClick={bukaTambah} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">+ Tambah Bahan</button>
+                            <div className="flex flex-wrap gap-2">
+                                <button type="button" data-stok-masuk-atas onClick={() => bukaStokMasuk({ kunci: false })} className="text-sm font-bold bg-teal-50 border border-teal-200 text-teal-800 px-3 py-2 rounded-lg">📦 + Stok masuk</button>
+                                <button type="button" onClick={bukaTambah} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">+ Tambah Bahan</button>
+                            </div>
                         </div>
-                        <input type="text" value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari instansi / jenis produksi / nama kain / kode / warna / vendor…" className="w-full p-2.5 border border-gray-300 rounded-lg text-sm" />
+                        <div className="flex flex-wrap items-center gap-2">
+                            <input type="text" value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari instansi / jenis produksi / nama kain / kode / warna / vendor…" className="flex-1 min-w-[200px] p-2.5 border border-gray-300 rounded-lg text-sm" />
+                            <button type="button" data-stok-filter="semua" onClick={() => setFStok('semua')} className={`px-3 py-1.5 rounded-full text-sm font-bold border ${fStok === 'semua' ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white border-gray-300 text-gray-700'}`}>Semua bahan</button>
+                            <button type="button" data-stok-filter="stok" onClick={() => setFStok('stok')} className={`px-3 py-1.5 rounded-full text-sm font-bold border ${fStok === 'stok' ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white border-gray-300 text-gray-700'}`}>📦 Hanya yang ada stok</button>
+                        </div>
                     </div>
                     {formOpen && (
                         <div data-form-bahan className="bg-teal-50 border border-teal-200 rounded-2xl p-4 space-y-3">
@@ -2284,7 +2716,7 @@
                         </div>
                     )}
                     {list.length === 0 ? (
-                        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center text-sm text-gray-500">{q ? 'Tidak ada bahan yang cocok.' : 'Belum ada data bahan. Data muncul otomatis dari nota pembelian dan rencana bahan order, atau tambah manual.'}</div>
+                        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center text-sm text-gray-500">{fStok === 'stok' ? (q ? 'Tidak ada bahan dengan stok sisa yang cocok.' : 'Belum ada bahan dengan stok sisa. Catat lewat "📦 + Stok masuk".') : q ? 'Tidak ada bahan yang cocok.' : 'Belum ada data bahan. Data muncul otomatis dari nota pembelian dan rencana bahan order, atau tambah manual.'}</div>
                     ) : (
                         <div className="space-y-2">
                             {paged.map(e => (
@@ -2300,7 +2732,7 @@
                                             {e.usedBy.size > 0 && <div className="text-xs text-gray-500 mt-1">Dipakai: {[...e.usedBy.values()].map(u => `${u.client}${u.types.size ? ` (${[...u.types].join(', ')})` : ''}`).join(', ')}</div>}
                                             {e.manual && e.manual.note && <div className="text-xs text-gray-400 italic mt-0.5">“{e.manual.note}”</div>}
                                         </div>
-                                        <div className="text-right shrink-0">
+                                        <div className="text-right shrink-0 w-full sm:w-72">
                                             <div className="text-[11px] text-gray-500">{e.lastBuyDate ? `Terakhir beli ${e.lastBuyDate}` : 'Belum pernah dibeli'}{e.buyCount > 1 ? ` · ${e.buyCount}x` : ''}</div>
                                             {e.manual && (
                                                 <div className="flex gap-1 justify-end mt-1.5">
@@ -2308,8 +2740,10 @@
                                                     <button type="button" onClick={() => setHapusId(e.manual.id)} className="text-xs font-bold text-red-700 bg-red-50 px-2 py-1 rounded">Hapus</button>
                                                 </div>
                                             )}
+                                            {kotakStokDb(e)}
                                         </div>
                                     </div>
+                                    {(stokPerBahan.get(e.key) || []).filter(st => st.key === riwayatKey).map(st => <div key={st.key}>{riwayatStok(st)}</div>)}
                                 </div>
                             ))}
                             <Paginator page={page} setPage={setPage} totalPages={totalPages} total={total} pageSize={20} label="bahan" />
@@ -2327,6 +2761,20 @@
                             </div>
                         </div>
                     )}
+                    {hapusStokId && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[130] p-4" onClick={() => setHapusStokId(null)}>
+                            <div data-stok-hapus-konfirmasi className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl" onClick={ev => ev.stopPropagation()}>
+                                <h3 className="font-bold text-gray-800 mb-2">Hapus catatan stok ini?</h3>
+                                <p className="text-sm text-gray-600 mb-4">Untuk catatan yang salah input. Jumlahnya tidak lagi dihitung di stok. Untuk bahan rusak / hilang, pakai "Koreksi" agar tercatat di riwayat.</p>
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => setHapusStokId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
+                                    <button data-stok-hapus-ya onClick={() => hapusStok(hapusStokId)} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {stokForm && <StokMasukModal awal={stokForm} ddDb={ddDb} orders={orders} stokMap={stokMap} onSave={simpanStokMasuk} onClose={() => setStokForm(null)} />}
+                    {koreksiSt && <StokKoreksiModal st={koreksiSt} onSave={simpanKoreksi} onClose={() => setKoreksiKey(null)} />}
                 </div>
             );
         };
@@ -2621,11 +3069,16 @@
                     const unit = normBahanUnit(r.unit);
                     const id = `${oid}\u0001${key}\u0001${unit}`;
                     const qty = parseBelanjaQty(r.qty);
+                    const pakai = rbPakaiStok(r);
                     const cur = byLine.get(id);
-                    if (cur) { cur.need = (cur.need == null || qty == null) ? null : cur.need + qty; if (qty == null) cur.qtyKosong = true; return; }
-                    byLine.set(id, { id, orderId: oid, order: o, key, name: r.name, code: r.code, color: r.color, unit, need: qty, qtyKosong: qty == null });
+                    if (cur) { cur.need = (cur.need == null || qty == null) ? null : cur.need + qty; if (qty == null) cur.qtyKosong = true; cur.stok += pakai; return; }
+                    byLine.set(id, { id, orderId: oid, order: o, key, name: r.name, code: r.code, color: r.color, unit, need: qty, qtyKosong: qty == null, stok: pakai });
                 });
                 byLine.forEach(l => {
+                    // Yang perlu dibeli = kebutuhan − pakai stok sisa (lihat Database Bahan)
+                    l.stok = stokBulat(l.stok);
+                    l.needTotal = l.need;
+                    if (l.need != null && l.stok > 0) l.need = stokBulat(Math.max(0, l.need - l.stok));
                     const m = marks.get(`${oid}\u0001${l.key}`) || {};
                     l.vendor = m.vendor || '';
                     l.catatan = m.catatan || '';
@@ -2638,6 +3091,7 @@
                     l.done = st === 'lengkap';
                     l.kurang = l.need != null ? Math.max(0, l.need - l.bought) : null;
                     l.lebih = l.need != null ? Math.max(0, l.bought - l.need) : 0;
+                    l.dariStok = l.stok > 0 && l.need === 0 && l.bought === 0;
                     lines.push(l);
                 });
             });
@@ -2664,11 +3118,13 @@
                 const kurang = needOk ? ls.reduce((s, l) => s + l.kurang, 0) : null;
                 const vendors = [...new Set(ls.map(l => l.vendor))];
                 const catatan = [...new Set(ls.map(l => l.catatan).filter(Boolean))];
+                const stok = stokBulat(ls.reduce((s, l) => s + (l.stok || 0), 0));
+                const needTotal = needOk ? ls.reduce((s, l) => s + l.needTotal, 0) : null;
                 let status;
                 if (ls.every(l => l.done)) status = 'lengkap';
                 else if (ls.some(l => l.done || l.status === 'sebagian')) status = 'sebagian';
                 else status = 'belum';
-                return { ...g, need, bought, kurang, catatan, vendor: vendors.length === 1 ? vendors[0] : null, status, done: status === 'lengkap', doneCount: ls.filter(l => l.done).length };
+                return { ...g, need, needTotal, stok, bought, kurang, catatan, vendor: vendors.length === 1 ? vendors[0] : null, status, done: status === 'lengkap', doneCount: ls.filter(l => l.done).length, dariStok: ls.every(l => l.dariStok) };
             }).sort((a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code) || a.color.localeCompare(b.color));
         };
         // Bahan yang sama (nama + kode + warna) tetapi satuannya berbeda di beberapa order: kemungkinan salah input.
@@ -3230,10 +3686,14 @@ ${blocks}
                 setBulkVendor('');
             };
             const unitTxt = (u) => u ? ' ' + u : '';
-            const statusBadge = (st, extra) => {
+            const statusBadge = (st, extra, dariStok) => {
+                // Kebutuhan seluruhnya dipenuhi stok sisa: tidak perlu dibeli
+                if (dariStok) return <span data-belanja-status={st} data-belanja-stok-cukup className="inline-block px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap bg-blue-100 text-blue-800">✓ Cukup dari stok</span>;
                 const s = BELANJA_STATUS[st] || BELANJA_STATUS.belum;
                 return <span data-belanja-status={st} className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap ${s.cls}`}>{s.label}{extra ? ` · ${extra}` : ''}</span>;
             };
+            // Keterangan di bawah jumlah kebutuhan bila sebagian diambil dari stok sisa
+            const stokKet = (x) => x.stok > 0 ? <div data-belanja-stok-ket className="text-[11px] font-semibold text-gray-500">{x.needTotal != null ? `${fmtBelanjaQty(x.needTotal)} − stok ${fmtBelanjaQty(x.stok)}` : `pakai stok ${fmtBelanjaQty(x.stok)}`}{unitTxt(x.unit)}</div> : null;
             const lineExtra = (l) => {
                 if (l.need != null && l.bought > 0) return `${fmtBelanjaQty(l.bought)}/${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}`;
                 if (l.need == null && l.bought > 0) return `${fmtBelanjaQty(l.bought)}${unitTxt(l.unit)}`;
@@ -3312,11 +3772,12 @@ ${blocks}
                                                 <td className="p-3"><input type="checkbox" checked={on} onChange={e => toggleIds(ids, e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
                                                 <td className="p-3">{bahanCell(g.name, g.code)}</td>
                                                 <td className="p-3 text-gray-700">{g.color || '-'}</td>
-                                                <td className="p-3 text-right font-bold whitespace-nowrap">{g.need != null ? `${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : <span className="text-xs font-normal text-gray-400">jumlah belum diisi</span>}</td>
+                                                <td className="p-3 text-right font-bold whitespace-nowrap">{g.need != null ? `${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : <span className="text-xs font-normal text-gray-400">jumlah belum diisi</span>}{stokKet(g)}</td>
                                                 <td className="p-3">
                                                     {g.lines.map(l => (
                                                         <div key={l.id} className="text-xs text-gray-700 leading-5">
-                                                            <span className="font-bold text-blue-700">{l.orderId}</span> {l.order.client || ''}{l.order.type ? ` · ${l.order.type}` : ''}{l.need != null ? ` — ${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : ''}
+                                                            <span className="font-bold text-blue-700">{l.orderId}</span> {l.order.client || ''}{l.order.type ? ` · ${l.order.type}` : ''}{l.needTotal != null ? ` — ${fmtBelanjaQty(l.needTotal)}${unitTxt(l.unit)}` : ''}
+                                                            {l.stok > 0 && <span data-belanja-stok-pill className="ml-1 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-bold whitespace-nowrap">📦 stok {fmtBelanjaQty(l.stok)}{unitTxt(l.unit)}</span>}
                                                             {g.lines.length > 1 && (l.done ? <span className="text-green-700 font-bold"> ✓</span>
                                                                 : l.bought > 0 && l.need != null ? <span className="text-amber-700 font-bold"> · {fmtBelanjaQty(l.bought)}/{fmtBelanjaQty(l.need)}, kurang {fmtBelanjaQty(l.kurang)}</span>
                                                                 : <span className="text-red-600"> · belum</span>)}
@@ -3325,7 +3786,7 @@ ${blocks}
                                                     {tagSatuanBeda(g.key)}
                                                 </td>
                                                 <td className="p-3"><BelanjaVendorInput value={g.vendor || ''} mixed={g.vendor == null} listId="belanja-vendor-list" onCommit={(v) => setVendor(g.lines, v)} />{catatanTxt(g.catatan)}</td>
-                                                <td className="p-3">{statusBadge(g.status, extra)}{g.status === 'sebagian' && kurangLebih(g.kurang, 0, g.unit)}{g.status === 'lengkap' && g.need != null && kurangLebih(0, g.bought - g.need, g.unit)}{catatBtn(g.lines, g.done)}</td>
+                                                <td className="p-3">{statusBadge(g.status, extra, g.dariStok)}{g.status === 'sebagian' && kurangLebih(g.kurang, 0, g.unit)}{g.status === 'lengkap' && g.need != null && kurangLebih(0, g.bought - g.need, g.unit)}{catatBtn(g.lines, g.done)}</td>
                                             </tr>
                                         );
                                     })}
@@ -3343,9 +3804,9 @@ ${blocks}
                                                     <td className="p-3"><input type="checkbox" checked={checked.has(l.id)} onChange={e => toggleIds([l.id], e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
                                                     <td className="p-3">{bahanCell(l.name, l.code)}{tagSatuanBeda(l.key)}</td>
                                                     <td className="p-3 text-gray-700">{l.color || '-'}</td>
-                                                    <td className="p-3 text-right whitespace-nowrap">{l.need != null ? `${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : <span className="text-xs text-gray-400">jumlah belum diisi</span>}</td>
+                                                    <td className="p-3 text-right whitespace-nowrap">{l.need != null ? `${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : <span className="text-xs text-gray-400">jumlah belum diisi</span>}{stokKet(l)}</td>
                                                     <td className="p-3"><BelanjaVendorInput value={l.vendor} listId="belanja-vendor-list" onCommit={(v) => setVendor([l], v)} />{catatanTxt(l.catatan ? [l.catatan] : [])}</td>
-                                                    <td className="p-3">{statusBadge(l.status, lineExtra(l))}{kurangLebih(l.status === 'sebagian' ? l.kurang : 0, l.lebih, l.unit)}{catatBtn([l], l.done)}</td>
+                                                    <td className="p-3">{statusBadge(l.status, lineExtra(l), l.dariStok)}{kurangLebih(l.status === 'sebagian' ? l.kurang : 0, l.lebih, l.unit)}{catatBtn([l], l.done)}</td>
                                                 </tr>
                                             ))}
                                         </React.Fragment>
@@ -3467,7 +3928,7 @@ ${blocks}
             return <div><span data-dash-isian={g} className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold whitespace-nowrap ${cls}`}>{label}</span></div>;
         };
 
-        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], templates }) => {
+        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], stokBahan = [], templates }) => {
             const [dashChartRef, dashChartW] = useElementWidth();
             const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
             const { totalOrders, activeOrders, doneOrders, shippedOrders } = React.useMemo(() => ({
@@ -3669,6 +4130,8 @@ ${blocks}
                     materialPayments: {},
                     materialPurchasedBatches: {},
                     materials: safeArray(order.materials).filter(m => m && !m.isDeleted).map(({ purchaseStatus, purchaseDate, ...m }) => ({ ...m, id: genId('MAT-'), _syncUpdatedAt: now })),
+                    // Pemakaian stok sisa milik order asal tidak ikut disalin (stok yang sama tidak boleh terpakai dua kali)
+                    ...(Array.isArray(order.rencanaBahan) ? { rencanaBahan: order.rencanaBahan.map(r => { if (!r || typeof r !== 'object') return r; const { pakaiStok, ...rest } = r; return rest; }) } : {}),
                     revisiItems: [],
                     deletedAt: null,
                 };
@@ -4309,7 +4772,7 @@ ${blocks}
 
                                     {getOrderProcessFlow(editOrder).materials === false
                                         ? <BahanNonaktifInfo value={editOrder.rencanaBahan} />
-                                        : <RencanaBahanEditor value={editOrder.rencanaBahan} onChange={(next) => setEditOrder(prev => ({ ...prev, rencanaBahan: next }))} client={editOrder.client} jenis={editOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} excludeOrderId={editOrder.id} />}
+                                        : <RencanaBahanEditor value={editOrder.rencanaBahan} onChange={(next) => setEditOrder(prev => ({ ...prev, rencanaBahan: next }))} client={editOrder.client} jenis={editOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} excludeOrderId={editOrder.id} />}
 
                                     <div>
                                         <label className="block text-sm font-semibold mb-1">Catatan Tambahan</label>
@@ -5658,7 +6121,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             );
         };
 
-        const InputOrderView = ({ orders, setOrders, setActiveTab, showToast, purchaseNotes = [], masterBahan = [] }) => {
+        const InputOrderView = ({ orders, setOrders, setActiveTab, showToast, purchaseNotes = [], masterBahan = [], stokBahan = [] }) => {
             const allOrders = orders || [];
             const safeOrders = allOrders.filter(isVisibleOrder);
             const [newOrder, setNewOrder] = useState({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
@@ -5905,7 +6368,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
 
                             {getOrderProcessFlow(newOrder).materials === false
                                 ? <BahanNonaktifInfo value={newOrder.rencanaBahan} />
-                                : <RencanaBahanEditor value={newOrder.rencanaBahan} onChange={(next) => setNewOrder(prev => ({ ...prev, rencanaBahan: next }))} client={newOrder.client} jenis={newOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} />}
+                                : <RencanaBahanEditor value={newOrder.rencanaBahan} onChange={(next) => setNewOrder(prev => ({ ...prev, rencanaBahan: next }))} client={newOrder.client} jenis={newOrder.type} orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} />}
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Catatan Tambahan Produksi</label>
@@ -6124,7 +6587,7 @@ ${getOrderProcessFlow(order).materials !== false && cleanRencanaBahan(order.renc
   <div class="lbl" style="color:#0f766e">Bahan / Kain</div>
   <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">
     <tr style="background:#ccfbf1"><th style="text-align:left;padding:3px 6px;border:1px solid #99f6e4">Nama Kain</th><th style="text-align:left;padding:3px 6px;border:1px solid #99f6e4">Kode</th><th style="text-align:left;padding:3px 6px;border:1px solid #99f6e4">Warna</th><th style="text-align:left;padding:3px 6px;border:1px solid #99f6e4">Kebutuhan</th></tr>
-    ${cleanRencanaBahan(order.rencanaBahan).map(r => `<tr><td style="padding:3px 6px;border:1px solid #99f6e4;font-weight:700">${escapeHtmlText(r.name || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4;font-weight:800">${escapeHtmlText(r.code || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4">${escapeHtmlText(r.color || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4">${r.qty ? '±' + escapeHtmlText(r.qty) + (r.unit ? ' ' + escapeHtmlText(r.unit) : '') : '-'}</td></tr>`).join('')}
+    ${cleanRencanaBahan(order.rencanaBahan).map(r => `<tr><td style="padding:3px 6px;border:1px solid #99f6e4;font-weight:700">${escapeHtmlText(r.name || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4;font-weight:800">${escapeHtmlText(r.code || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4">${escapeHtmlText(r.color || '-')}</td><td style="padding:3px 6px;border:1px solid #99f6e4">${r.qty ? '±' + escapeHtmlText(r.qty) + (r.unit ? ' ' + escapeHtmlText(r.unit) : '') : '-'}${r.pakaiStok ? `<br/><b style="color:#1d4ed8">pakai stok ${escapeHtmlText(fmtBelanjaQty(r.pakaiStok))}${r.unit ? ' ' + escapeHtmlText(r.unit) : ''}</b>` : ''}</td></tr>`).join('')}
   </table>
 </div>` : ''}
 
@@ -8353,7 +8816,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [], masterBahan = [], setMasterBahan, bukaNotaVendor = null }) => {
+        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [], masterBahan = [], setMasterBahan, stokBahan = [], setStokBahan, bukaNotaVendor = null }) => {
             const [previewImage, setPreviewImage] = useState(null);
             const [bahanTab, setBahanTab] = useState('nota');
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
@@ -9435,7 +9898,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     </div>
 
                     {bahanTab === 'database'
-                        ? <DatabaseBahanPanel purchaseNotes={purchaseNotes} orders={orders} masterBahan={masterBahan} setMasterBahan={setMasterBahan} showToast={showToast} />
+                        ? <DatabaseBahanPanel purchaseNotes={purchaseNotes} orders={orders} masterBahan={masterBahan} setMasterBahan={setMasterBahan} stokBahan={stokBahan} setStokBahan={setStokBahan} showToast={showToast} />
                         : bahanTab === 'belanja'
                         ? <DaftarBelanjaPanel orders={orders} purchaseNotes={purchaseNotes} templates={templates} showToast={showToast} />
                         : renderInputPembelian()}
@@ -26828,6 +27291,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [driverKasbon, setDriverKasbon] = useState([]);
             const [stockItems, setStockItems] = useState([]);
             const [masterBahan, setMasterBahan] = useState([]);
+            const [stokBahan, setStokBahan] = useState([]);
             const [absensiEdits, setAbsensiEdits] = useState([]);
             const [absensiRawLogs, setAbsensiRawLogs] = useState([]);
             const needsAbsensiRawRef = useRef(true);
@@ -27254,7 +27718,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 invoices: 'simpati_invoices_sync', clients: 'simpati_clients_sync', templates: 'simpati_templates_sync',
                 manualPurchases: 'simpati_manual_purchases_sync', investors: 'simpati_investors_sync', investorBagiHasil: 'simpati_investor_bagi_hasil_sync',
                 drivers: 'simpati_drivers_sync', driverTarifs: 'simpati_driver_tarifs_sync', driverTransactions: 'simpati_driver_trx_sync',
-                driverRekapGaji: 'simpati_driver_rekap_gaji_sync', driverKasbon: 'simpati_driver_kasbon_sync', stockItems: 'simpati_stock_items_sync', masterBahan: 'simpati_master_bahan_sync',
+                driverRekapGaji: 'simpati_driver_rekap_gaji_sync', driverKasbon: 'simpati_driver_kasbon_sync', stockItems: 'simpati_stock_items_sync', masterBahan: 'simpati_master_bahan_sync', stokBahan: 'simpati_stok_bahan_sync',
                 absensiEdits: 'simpati_absensi_edits_sync', absensiRawLogs: 'simpati_absensiRawLogs_sync', kartu_kredit: 'simpati_kartu_kredit_sync',
                 transaksi_kartu: 'simpati_transaksi_kartu_sync', purchaseNotes: 'simpati_purchase_notes_sync', danaOperasional: 'simpati_dana_operasional_sync',
                 bagiHasilPromosi: 'simpati_bagi_hasil_promosi_sync'
@@ -28075,6 +28539,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         return merged;
                     });
                 }
+                // Stok sisa bahan — dimuat terpisah seperti Database Bahan manual
+                const remoteStokBahan = await fetchStoreDataCached('stokBahan', [], remoteTsMap);
+                if (Array.isArray(remoteStokBahan)) {
+                    setStokBahan(prev => {
+                        const merged = mergeRecordLists(prev || [], remoteStokBahan);
+                        safeLocalSet('simpati_stok_bahan_sync', JSON.stringify(merged));
+                        if (!sameJson(merged, remoteStokBahan)) setTimeout(() => saveToSupabase('stokBahan', merged), 0);
+                        return merged;
+                    });
+                }
                 commitFetchedTimestamps();
             };
 
@@ -28167,6 +28641,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     }
                     if (e.key === 'simpati_master_bahan_sync' && e.newValue) {
                         try { setMasterBahan(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
+                    }
+                    if (e.key === 'simpati_stok_bahan_sync' && e.newValue) {
+                        try { setStokBahan(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
                     }
                     if (e.key === 'simpati_absensi_edits_sync' && e.newValue) {
                         try { setAbsensiEdits(prev => mergeRecordLists(prev || [], JSON.parse(e.newValue))); } catch(err) {}
@@ -28450,6 +28927,18 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     setMasterBahan(lokalMasterBahan);
                                 }
                             } catch (e) { setMasterBahan(loadLocalData('simpati_master_bahan_sync', [])); }
+                            // Stok sisa bahan: dimuat terpisah, maks. 8 detik (tidak menahan aplikasi bila lambat)
+                            try {
+                                const remStokBahan = await Promise.race([fetchStoreDataCached('stokBahan', [], initTsMap), new Promise(r => setTimeout(() => r(null), 8000))]);
+                                const lokalStokBahan = loadLocalData('simpati_stok_bahan_sync', []);
+                                if (Array.isArray(remStokBahan)) {
+                                    const next = mergeRecordLists(lokalStokBahan, remStokBahan);
+                                    setStokBahan(next); safeLocalSet('simpati_stok_bahan_sync', JSON.stringify(next));
+                                    if (!sameJson(next, remStokBahan)) setTimeout(() => saveToSupabase('stokBahan', next), 0);
+                                } else {
+                                    setStokBahan(lokalStokBahan);
+                                }
+                            } catch (e) { setStokBahan(loadLocalData('simpati_stok_bahan_sync', [])); }
                             supabaseLoadedRef.current = true;
                             commitFetchedTimestamps();
                             setTimeout(() => seedRemoteTimestamps(['accounts','employees','orders','rekapKinerja','riwayatPengiriman','expenses','invoices','clients','templates','manualPurchases','investors','investorBagiHasil','drivers','driverTarifs','driverTransactions','driverRekapGaji','driverKasbon','stockItems','absensiEdits','absensiRawLogs','kartu_kredit','transaksi_kartu','purchaseNotes','danaOperasional','bagiHasilPromosi']), 2000);
@@ -28493,6 +28982,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     setDriverKasbon(loadLocalData('simpati_driver_kasbon_sync', []));
                     setStockItems(loadLocalData('simpati_stock_items_sync', []));
                     setMasterBahan(loadLocalData('simpati_master_bahan_sync', []));
+                    setStokBahan(loadLocalData('simpati_stok_bahan_sync', []));
                     setAbsensiEdits(loadLocalData('simpati_absensi_edits_sync', []));
                     setAbsensiRawLogs(loadLocalData('simpati_absensiRawLogs_sync', []));
                     setKartuKredit(loadLocalData('simpati_kartu_kredit_sync', []));
@@ -29228,6 +29718,25 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
+            const updateStokBahan = (updater) => {
+                setStokBahan(prev => {
+                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
+                    const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
+                    // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
+                    safeLocalSet('simpati_stok_bahan_sync', JSON.stringify(valid));
+                    setTimeout(async () => {
+                        const merged = await mergeRemoteRecordsForSave('stokBahan', valid);
+                        safeLocalSet('simpati_stok_bahan_sync', JSON.stringify(merged));
+                        saveToSupabase('stokBahan', merged);
+                        setStokBahan(current => {
+                            const m = mergeRecordLists(current || [], merged);
+                            return JSON.stringify(m) !== JSON.stringify(current || []) ? m : current;
+                        });
+                    }, 0);
+                    return valid;
+                });
+            };
+
             const updateAbsensiEdits = (updater) => {
                 setAbsensiEdits(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -29304,7 +29813,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     ['bagiHasilPromosi', 'Bagi Hasil Promosi', bagiHasilPromosi], ['manualPurchases', 'Pembelian Manual', manualPurchases], ['investors', 'Investor', investors],
                     ['investorBagiHasil', 'Bagi Hasil Investor', investorBagiHasil], ['drivers', 'Driver', drivers], ['driverTarifs', 'Tarif Driver', driverTarifs],
                     ['driverTransactions', 'Transaksi Driver', driverTransactions], ['driverRekapGaji', 'Rekap Gaji Driver', driverRekapGaji], ['driverKasbon', 'Kasbon Driver', driverKasbon],
-                    ['stockItems', 'Stock Barang', stockItems], ['masterBahan', 'Database Bahan (manual)', masterBahan], ['kartu_kredit', 'Kartu Kredit', kartuKredit], ['transaksi_kartu', 'Transaksi Kartu', transaksiKartu],
+                    ['stockItems', 'Stock Barang', stockItems], ['masterBahan', 'Database Bahan (manual)', masterBahan], ['stokBahan', 'Stok Sisa Bahan', stokBahan], ['kartu_kredit', 'Kartu Kredit', kartuKredit], ['transaksi_kartu', 'Transaksi Kartu', transaksiKartu],
                     ['accounts', 'Akun', accounts]
                 ];
                 const photoRe = /data:image\/[a-zA-Z+.-]+;base64,[A-Za-z0-9+/=]+/g;
@@ -29504,7 +30013,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 manualPurchases: updateManualPurchases, purchaseNotes: updatePurchaseNotes, danaOperasional: updateDanaOperasional,
                 investors: updateInvestors, investorBagiHasil: updateInvestorBagiHasil, bagiHasilPromosi: updateBagiHasilPromosi,
                 drivers: updateDrivers, driverTarifs: updateDriverTarifs, driverTransactions: updateDriverTransactions,
-                driverRekapGaji: updateDriverRekapGaji, driverKasbon: updateDriverKasbon, stockItems: updateStockItems, masterBahan: updateMasterBahan,
+                driverRekapGaji: updateDriverRekapGaji, driverKasbon: updateDriverKasbon, stockItems: updateStockItems, masterBahan: updateMasterBahan, stokBahan: updateStokBahan,
                 absensiEdits: updateAbsensiEdits, templates: updateTemplates, labelTemplates: updateTemplates
             };
             // Kirim ulang data yang belum tersimpan: satu jenis data per giliran (berikutnya baru dikirim setelah
@@ -30247,11 +30756,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
-                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} templates={templates} /></div>}
+                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} templates={templates} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
                                 {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
-                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} /></div>}
-                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} bukaNotaVendor={notaVendorReq} /></div>}
+                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} /></div>}
+                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} stokBahan={stokBahan} setStokBahan={updateStokBahan} bukaNotaVendor={notaVendorReq} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
