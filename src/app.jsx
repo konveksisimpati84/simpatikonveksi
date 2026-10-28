@@ -2443,9 +2443,12 @@
             const simpan = () => {
                 setCoba(true);
                 if (salah) return;
-                // Ejaan warna disamakan dengan yang sudah ada (mis. "navy" → "Navy")
+                // Ejaan nama, kode & warna disamakan dengan yang sudah ada (mis. "drill japan" → "Drill Japan", "navy" → "Navy")
+                const kunciBahan = normBahanKey(f.name, f.code);
+                const e = ddDb.cari(f.name, f.code);
+                const sama = e && normBahanKey(e.name, e.code) === kunciBahan ? e : [...stokMap.values()].find(x => normBahanKey(x.name, x.code) === kunciBahan) || null;
                 const warna = warnaList.find(w => w.toLowerCase() === normBahanText(f.color).toLowerCase()) || normBahanText(f.color);
-                onSave({ name: normBahanText(f.name), code: normBahanText(f.code), color: warna, unit: normBahanUnit(f.unit), qty, asal: f.asal, orderId: f.orderId, date: /^\d{4}-\d{2}-\d{2}$/.test(f.date) ? f.date : toLocalDateStr(), note: String(f.note || '').trim().slice(0, 200) });
+                onSave({ name: sama ? sama.name : normBahanText(f.name), code: sama ? sama.code : normBahanText(f.code), color: warna, unit: normBahanUnit(f.unit), qty, asal: f.asal, orderId: f.orderId, date: /^\d{4}-\d{2}-\d{2}$/.test(f.date) ? f.date : toLocalDateStr(), note: String(f.note || '').trim().slice(0, 200) });
             };
             const lbl = 'block text-xs font-bold text-gray-600 mb-1';
             const inp = 'w-full p-2 border border-gray-300 rounded-lg text-sm bg-white';
@@ -2571,7 +2574,17 @@
                 setKoreksiKey(null);
                 showToast('Koreksi stok dicatat.', 'success');
             };
+            // Catatan yang sudah terpakai order tidak bisa dihapus (stok tidak boleh jadi minus)
+            const cekHapusStok = (id) => {
+                const s = safeArray(stokBahan).find(x => x && x.id === id);
+                if (!s) return null;
+                const st = stokMap.get(stokKey(s.name, s.code, s.color, s.unit));
+                const sesudah = st ? stokBulat(st.saldo - stokDelta(s)) : 0;
+                return { s, st, sesudah, bisa: sesudah > -1e-9 };
+            };
             const hapusStok = (id) => {
+                const c = cekHapusStok(id);
+                if (c && !c.bisa) { setHapusStokId(null); showToast('Tidak bisa dihapus: stok ini sudah dipakai order.', 'error'); return; }
                 const now = new Date().toISOString();
                 setStokBahan(prev => safeArray(prev).map(s => s && s.id === id ? { ...s, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : s));
                 setHapusStokId(null);
@@ -2764,12 +2777,26 @@
                     {hapusStokId && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[130] p-4" onClick={() => setHapusStokId(null)}>
                             <div data-stok-hapus-konfirmasi className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl" onClick={ev => ev.stopPropagation()}>
-                                <h3 className="font-bold text-gray-800 mb-2">Hapus catatan stok ini?</h3>
-                                <p className="text-sm text-gray-600 mb-4">Untuk catatan yang salah input. Jumlahnya tidak lagi dihitung di stok. Untuk bahan rusak / hilang, pakai "Koreksi" agar tercatat di riwayat.</p>
-                                <div className="flex justify-end gap-2">
-                                    <button onClick={() => setHapusStokId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
-                                    <button data-stok-hapus-ya onClick={() => hapusStok(hapusStokId)} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>
-                                </div>
+                                {(() => {
+                                    const c = cekHapusStok(hapusStokId);
+                                    if (c && !c.bisa) return (
+                                        <>
+                                            <h3 className="font-bold text-gray-800 mb-2">Catatan ini tidak bisa dihapus</h3>
+                                            <p data-stok-hapus-tolak className="text-sm text-gray-600 mb-4">Stoknya sudah dipakai order ({c.st.pemakaian.map(p => `${p.order.id} ${fmtBelanjaQty(p.qty)} ${c.st.unit}`).join(', ')}). Bila dihapus, stok jadi {fmtBelanjaQty(c.sesudah)} {c.st.unit}. Lepas dulu "pakai stok" di order tersebut, atau pakai "Koreksi" bila jumlahnya salah.</p>
+                                            <div className="flex justify-end"><button onClick={() => setHapusStokId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg font-bold">Tutup</button></div>
+                                        </>
+                                    );
+                                    return (
+                                        <>
+                                            <h3 className="font-bold text-gray-800 mb-2">Hapus catatan stok ini?</h3>
+                                            <p className="text-sm text-gray-600 mb-4">Untuk catatan yang salah input. Jumlahnya tidak lagi dihitung di stok. Untuk bahan rusak / hilang, pakai "Koreksi" agar tercatat di riwayat.</p>
+                                            <div className="flex justify-end gap-2">
+                                                <button onClick={() => setHapusStokId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
+                                                <button data-stok-hapus-ya onClick={() => hapusStok(hapusStokId)} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </div>
                     )}
