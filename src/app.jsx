@@ -2019,6 +2019,7 @@
                 safeArray(n.items).forEach(it => {
                     if (!it || !normBahanText(it.name)) return;
                     const e = entry(it.name, it.code);
+                    if (normBahanText(it.color)) e.colors.add(normBahanText(it.color));
                     if (n.vendor) e.vendors.add(normBahanText(n.vendor));
                     e.buyCount++;
                     const d = String(n.date || '');
@@ -2357,132 +2358,89 @@
             );
         };
 
-        // Kolom "Sisa dari order" (catatan asal-usul saja): dipilih dari daftar order, bukan diketik
-        const StokOrderPilih = ({ value, onChange, orders, name, code, color }) => {
-            const [q, setQ] = useState('');
-            const [buka, setBuka] = useState(false);
-            const urut = useMemo(() => safeArray(orders).filter(o => o && !o.isDeleted)
-                .sort((a, b) => orderInputSeq(b) - orderInputSeq(a) || String(b.date || '').localeCompare(String(a.date || ''))), [orders]);
-            if (value) {
-                const o = safeArray(orders).find(x => x && String(x.id) === String(value));
-                return (
-                    <div data-stok-order-terpilih className="flex items-center justify-between gap-2 p-2 border border-gray-300 rounded-lg bg-white text-sm">
-                        <span className="min-w-0"><b>{value}</b>{o && !o.isDeleted ? ` · ${stokOrderLabel(o)}` : <span className="text-gray-400"> (order sudah dihapus)</span>}</span>
-                        <button type="button" data-stok-order-kosongkan onClick={() => onChange('')} className="shrink-0 px-1.5 text-gray-400 hover:text-gray-700" aria-label="Kosongkan">✕</button>
-                    </div>
-                );
-            }
-            const kunci = normBahanKey(name, code);
-            const w = normBahanText(color).toLowerCase();
-            const pakaiBahan = (o) => !!normBahanText(name) && safeArray(o.rencanaBahan).some(r => r && normBahanKey(r.name, r.code) === kunci && (!w || normBahanText(r.color).toLowerCase() === w));
-            const t = normBahanText(q).toLowerCase();
-            const cocok = (o) => !t || [o.id, o.client, o.type].join(' ').toLowerCase().includes(t);
-            const atas = buka ? urut.filter(o => cocok(o) && pakaiBahan(o)).slice(0, 10) : [];
-            const lain = buka ? urut.filter(o => cocok(o) && !pakaiBahan(o)).slice(0, t ? 20 : 8) : [];
-            const pilih = (id) => { onChange(id); setQ(''); setBuka(false); };
-            const opsi = (o, rinci) => {
-                const r = rinci ? safeArray(o.rencanaBahan).find(x => x && normBahanKey(x.name, x.code) === kunci && (!w || normBahanText(x.color).toLowerCase() === w)) : null;
-                return (
-                    <button key={o.id} type="button" data-stok-order-opsi={o.id} onMouseDown={e => e.preventDefault()} onClick={() => pilih(String(o.id))} className="block w-full text-left px-2.5 py-1.5 border-t border-gray-100 hover:bg-blue-50">
-                        <b>{o.id}</b>{stokOrderLabel(o) ? ` · ${stokOrderLabel(o)}` : ''}
-                        {r && <div className="text-[11px] text-gray-500">{[o.deadline ? `Deadline ${formatTglBahan(o.deadline)}` : '', [r.name, r.color, r.qty ? `${r.qty}${r.unit ? ' ' + r.unit : ''}` : ''].filter(Boolean).join(' ')].filter(Boolean).join(' · ')}</div>}
-                    </button>
-                );
-            };
-            return (
-                <div>
-                    <input type="text" data-stok-order-cari value={q} onChange={e => { setQ(e.target.value); setBuka(true); }} onFocus={() => setBuka(true)} onBlur={() => setTimeout(() => setBuka(false), 200)} placeholder="Cari no. order / sekolah… (boleh kosong)" className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white" />
-                    {buka && (
-                        <div data-stok-order-list className="mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded-lg shadow text-sm">
-                            {atas.length > 0 && <div className="px-2.5 py-1 text-[10px] font-black tracking-wide text-teal-700 bg-teal-50">MEMAKAI {[normBahanText(name), normBahanText(color)].filter(Boolean).join(' · ').toUpperCase()}</div>}
-                            {atas.map(o => opsi(o, true))}
-                            {lain.length > 0 && <div className="px-2.5 py-1 text-[10px] font-black tracking-wide text-gray-500 bg-gray-50 border-t border-gray-200">{atas.length ? 'ORDER LAIN' : 'ORDER'}</div>}
-                            {lain.map(o => opsi(o, false))}
-                            {atas.length + lain.length === 0 && <div className="px-2.5 py-2 text-gray-500">Tidak ada order yang cocok.</div>}
-                            <button type="button" data-stok-order-tidak onMouseDown={e => e.preventDefault()} onClick={() => pilih('')} className="block w-full text-left px-2.5 py-2 text-gray-500 border-t border-gray-200 hover:bg-gray-50">— Tidak dari order —</button>
-                        </div>
-                    )}
-                    <div className="text-[11px] text-gray-500 mt-1">Catatan asal-usul saja. Stok tetap bisa dipakai order mana pun.</div>
-                </div>
-            );
-        };
+        // Jendela hanya tertutup lewat tombol Batal / Simpan (klik di luar jendela tidak menutup, agar isian tidak hilang)
         const StokModalBingkai = ({ judul, sub, children, onClose, onSimpan, labelSimpan, dataAttr }) => (
-            <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
-                <div {...{ [dataAttr]: '' }} className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4">
+                <div {...{ [dataAttr]: '' }} className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
                     <div className="px-5 py-4 border-b border-gray-100">
                         <div className="font-black text-gray-800">{judul}</div>
                         {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
                     </div>
                     <div className="p-5 space-y-3 overflow-y-auto">{children}</div>
                     <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex justify-end gap-2">
-                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg font-bold text-gray-700 bg-white border border-gray-300">Batal</button>
+                        <button type="button" data-stok-batal onClick={onClose} className="px-4 py-2 rounded-lg font-bold text-gray-700 bg-white border border-gray-300">Batal</button>
                         <button type="button" data-stok-simpan onClick={onSimpan} className="px-4 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700">{labelSimpan}</button>
                     </div>
                 </div>
             </div>
         );
-        // "+ Stok masuk": dari baris bahan (nama & kode terkunci) atau dari tombol atas (nama bebas, pakai dropdown bahan)
-        const StokMasukModal = ({ awal, ddDb, orders, stokMap, onSave, onClose }) => {
-            const kunci = !!awal.kunci;
-            const [f, setF] = useState(() => {
-                const e = awal.name ? ddDb.cari(awal.name, awal.code) : null;
-                return { name: awal.name || '', code: awal.code || '', color: awal.color || '', unit: normBahanUnit(awal.unit) || (e ? normBahanUnit(e.lastUnit) : '') || '', qty: '', asal: 'sisa_produksi', orderId: '', date: toLocalDateStr(), note: '' };
-            });
+        // "+ Stok masuk" dari baris Database Bahan. Yang sudah ada datanya di baris terisi otomatis:
+        // nama & kode (terkunci), warna (1 warna → terkunci; beberapa → pilih dari warna baris; belum ada → diketik, boleh kosong),
+        // satuan (dari pembelian terakhir, boleh diubah), sisa dari order (hanya order yang memakai bahan ini; 1 order → otomatis).
+        // awal: { name, code, unit, vendor, warnaList, warnaKunci?, kandidat: [{ order, colors:Set }] }
+        const StokMasukModal = ({ awal, stokMap, onSave, onClose }) => {
+            const warnaList = safeArray(awal.warnaList);
+            const warnaTerkunci = awal.warnaKunci !== undefined ? awal.warnaKunci : (warnaList.length === 1 ? warnaList[0] : null);
+            const unitAwal = normBahanUnit(awal.unit);
+            const [f, setF] = useState({ color: warnaTerkunci || '', unit: unitAwal, qty: '', asal: 'sisa_produksi', orderId: '', date: toLocalDateStr(), note: '' });
             const [coba, setCoba] = useState(false);
             const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-            const isiSatuan = () => setF(p => { if (p.unit) return p; const e = ddDb.cari(p.name, p.code); const u = e ? normBahanUnit(e.lastUnit) : ''; return u ? { ...p, unit: u } : p; });
-            const warnaList = (() => {
-                const m = new Map();
-                ddDb.warna(f.name, f.code).forEach(w => m.set(w.toLowerCase(), w));
-                stokMap.forEach(st => { if (st.color && normBahanKey(st.name, st.code) === normBahanKey(f.name, f.code)) m.set(st.color.toLowerCase(), st.color); });
-                return [...m.values()].sort((a, b) => a.localeCompare(b));
-            })();
+            const warnaNow = normBahanText(f.color).toLowerCase();
+            const kandidatSemua = safeArray(awal.kandidat);
+            const cocokWarna = warnaNow ? kandidatSemua.filter(k => k.colors.has(warnaNow)) : [];
+            const kandidat = cocokWarna.length ? cocokWarna : kandidatSemua;
+            const dariProduksi = f.asal === 'sisa_produksi';
+            const orderOtomatis = dariProduksi && kandidat.length === 1 ? String(kandidat[0].order.id) : '';
+            const orderId = !dariProduksi ? '' : orderOtomatis || (kandidat.some(k => String(k.order.id) === f.orderId) ? f.orderId : '');
             const qty = stokAngka(f.qty);
-            const salah = !normBahanText(f.name) ? 'Nama bahan wajib diisi.' : !normBahanText(f.color) ? 'Warna wajib diisi (stok dicocokkan per warna).' : !normBahanUnit(f.unit) ? 'Pilih satuan.' : !(qty > 0) ? 'Isi jumlah lebih dari 0.' : '';
-            const st = normBahanText(f.name) && normBahanText(f.color) && normBahanUnit(f.unit) ? stokMap.get(stokKey(f.name, f.code, f.color, f.unit)) : null;
+            const pilihWarna = warnaTerkunci === null && warnaList.length > 1;
+            const salah = pilihWarna && !warnaNow ? 'Pilih warna.' : !normBahanUnit(f.unit) ? 'Pilih satuan.' : !(qty > 0) ? 'Isi jumlah lebih dari 0.' : '';
+            const st = normBahanUnit(f.unit) ? stokMap.get(stokKey(awal.name, awal.code, f.color, f.unit)) : null;
             const simpan = () => {
                 setCoba(true);
                 if (salah) return;
-                // Ejaan nama, kode & warna disamakan dengan yang sudah ada (mis. "drill japan" → "Drill Japan", "navy" → "Navy")
-                const kunciBahan = normBahanKey(f.name, f.code);
-                const e = ddDb.cari(f.name, f.code);
-                const sama = e && normBahanKey(e.name, e.code) === kunciBahan ? e : [...stokMap.values()].find(x => normBahanKey(x.name, x.code) === kunciBahan) || null;
-                const warna = warnaList.find(w => w.toLowerCase() === normBahanText(f.color).toLowerCase()) || normBahanText(f.color);
-                onSave({ name: sama ? sama.name : normBahanText(f.name), code: sama ? sama.code : normBahanText(f.code), color: warna, unit: normBahanUnit(f.unit), qty, asal: f.asal, orderId: f.orderId, date: /^\d{4}-\d{2}-\d{2}$/.test(f.date) ? f.date : toLocalDateStr(), note: String(f.note || '').trim().slice(0, 200) });
+                // Ejaan warna disamakan dengan yang sudah ada (mis. "putih" → "Putih")
+                const warna = warnaList.find(w => w.toLowerCase() === warnaNow) || normBahanText(f.color);
+                onSave({ name: awal.name, code: awal.code, color: warna, unit: normBahanUnit(f.unit), qty, asal: f.asal, orderId, date: /^\d{4}-\d{2}-\d{2}$/.test(f.date) ? f.date : toLocalDateStr(), note: String(f.note || '').trim().slice(0, 200) });
             };
             const lbl = 'block text-xs font-bold text-gray-600 mb-1';
             const inp = 'w-full p-2 border border-gray-300 rounded-lg text-sm bg-white';
+            const kunci = (teks, tanda, attr) => <div {...{ [attr]: '' }} className="flex items-center justify-between gap-2 p-2 border border-gray-200 rounded-lg text-sm bg-gray-100 font-bold min-h-[38px]"><span className="min-w-0">{teks}</span><span className="shrink-0 text-[10px] font-bold text-teal-700 bg-teal-100 rounded px-1.5 py-0.5">🔒 {tanda}</span></div>;
+            const labelOrder = (o) => `${o.id}${stokOrderLabel(o) ? ' · ' + stokOrderLabel(o) : ''}`;
             return (
-                <StokModalBingkai dataAttr="data-stok-masuk-modal" judul="📦 Stok masuk" sub={kunci ? `dari baris ${[f.name, f.code].filter(Boolean).join(' · ')} (nama & kode sudah terisi)` : 'Sisa bahan yang disimpan untuk dipakai order berikutnya'} onClose={onClose} onSimpan={simpan} labelSimpan="Simpan stok">
-                    {kunci ? (
-                        <div><label className={lbl}>Nama bahan</label><div className="p-2 border border-gray-200 rounded-lg text-sm bg-gray-100 font-bold">{[f.name, f.code].filter(Boolean).join(' · ')}</div></div>
-                    ) : (
-                        <div className="grid grid-cols-2 gap-2">
-                            <div className="col-span-2 sm:col-span-1"><label className={lbl}>Nama bahan *</label><input type="text" list="stok-bahan-nama" data-stok-nama value={f.name} onChange={e => set('name', e.target.value)} onBlur={isiSatuan} placeholder="mis. Drill Japan" className={inp} /></div>
-                            <div className="col-span-2 sm:col-span-1"><label className={lbl}>Kode</label><input type="text" list="stok-bahan-kode" data-stok-kode value={f.code} onChange={e => set('code', e.target.value)} onBlur={isiSatuan} placeholder="opsional" className={inp} /></div>
-                            <datalist id="stok-bahan-nama">{ddDb.nama.map(n => <option key={n} value={n} />)}</datalist>
-                            <datalist id="stok-bahan-kode">{ddDb.kode(f.name).map(k => <option key={k} value={k} />)}</datalist>
-                        </div>
-                    )}
+                <StokModalBingkai dataAttr="data-stok-masuk-modal" judul="📦 Stok masuk" sub={`dari baris ${[awal.name, awal.code].filter(Boolean).join(' · ')}`} onClose={onClose} onSimpan={simpan} labelSimpan="Simpan stok">
+                    <div><label className={lbl}>Nama bahan</label>{kunci([awal.name, awal.code].filter(Boolean).join(' · '), 'dari baris', 'data-stok-nama-kunci')}</div>
                     <div className="grid grid-cols-2 gap-2">
-                        <div><label className={lbl}>Warna *</label><input type="text" list="stok-bahan-warna" data-stok-warna value={f.color} onChange={e => set('color', e.target.value)} placeholder="mis. Navy" className={inp} /><datalist id="stok-bahan-warna">{warnaList.map(w => <option key={w} value={w} />)}</datalist></div>
+                        <div><label className={lbl}>Warna{pilihWarna ? ' *' : ''}</label>
+                            {warnaTerkunci !== null
+                                ? kunci(warnaTerkunci || 'tanpa warna', 'otomatis', 'data-stok-warna-kunci')
+                                : pilihWarna
+                                    ? <select data-stok-warna-pilih value={f.color} onChange={e => set('color', e.target.value)} className={inp}><option value="">Pilih warna…</option>{warnaList.map(w => <option key={w} value={w}>{w}</option>)}</select>
+                                    : <><input type="text" data-stok-warna value={f.color} onChange={e => set('color', e.target.value)} placeholder="mis. Putih" className={inp} /><div data-stok-warna-hint className="text-[11px] text-amber-800 mt-1 leading-snug">Baris ini belum punya data warna. Isi warna bila tahu, agar stok cocok dengan order yang memakai warna itu. Dikosongkan → stok tanpa warna.</div></>}
+                        </div>
                         <div><label className={lbl}>Satuan *</label>
                             <select data-stok-satuan value={f.unit} onChange={e => set('unit', e.target.value)} className={inp}>
                                 <option value="">-</option>
                                 {[...new Set([...BAHAN_UNITS, ...(f.unit && !BAHAN_UNITS.includes(f.unit) ? [f.unit] : [])])].map(u => <option key={u} value={u}>{u}</option>)}
                             </select>
+                            {unitAwal && f.unit && f.unit !== unitAwal && <div data-stok-satuan-hint className="text-[11px] text-amber-800 mt-1 leading-snug">Bahan ini biasanya dalam {unitAwal}. Stok dalam {f.unit} hanya cocok dengan order yang kebutuhannya ditulis {f.unit}.</div>}
                         </div>
-                        <div><label className={lbl}>Jumlah *</label><input type="text" inputMode="decimal" data-stok-jumlah value={f.qty} onChange={e => set('qty', e.target.value)} placeholder="0" className={inp + ' font-black'} /></div>
+                        <div><label className={lbl}>Jumlah *</label><input type="text" inputMode="decimal" data-stok-jumlah value={f.qty} onChange={e => set('qty', e.target.value)} placeholder="0" className="w-full p-2 border-2 border-teal-500 rounded-lg text-sm bg-white font-black" /></div>
                         <div><label className={lbl}>Asal</label>
                             <select data-stok-asal value={f.asal} onChange={e => set('asal', e.target.value)} className={inp}>{STOK_ASAL.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select>
                         </div>
-                        <div className="col-span-2"><label className={lbl}>Sisa dari order <span className="font-normal text-gray-400">(catatan saja, opsional)</span></label>
-                            <StokOrderPilih value={f.orderId} onChange={v => set('orderId', v)} orders={orders} name={f.name} code={f.code} color={f.color} />
+                        <div className="col-span-2"><label className={lbl}>Sisa dari order <span className="font-normal text-gray-400">(catatan saja)</span></label>
+                            {!dariProduksi ? <div data-stok-order-bukan className="p-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500">— bukan sisa produksi —</div>
+                                : orderOtomatis ? kunci(labelOrder(kandidat[0].order), 'otomatis', 'data-stok-order-kunci')
+                                : kandidat.length === 0 ? <div data-stok-order-tidak className="p-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500">— Tidak dari order — <span className="text-[11px]">(belum ada order yang memakai bahan ini)</span></div>
+                                : <select data-stok-order-pilih value={orderId} onChange={e => set('orderId', e.target.value)} className={inp}><option value="">— Tidak dari order —</option>{kandidat.map(k => <option key={k.order.id} value={String(k.order.id)}>{labelOrder(k.order)}</option>)}</select>}
+                            <div className="text-[11px] text-gray-500 mt-1">Catatan asal-usul saja. Stok tetap bisa dipakai order / sekolah mana pun.</div>
                         </div>
                         <div><label className={lbl}>Tanggal</label><input type="date" data-stok-tanggal value={f.date} onChange={e => set('date', e.target.value)} className={inp} /></div>
                         <div><label className={lbl}>Catatan / lokasi</label><input type="text" data-stok-catatan value={f.note} onChange={e => set('note', e.target.value)} maxLength={200} placeholder="mis. Rak B2, 2 gulung" className={inp} /></div>
                     </div>
-                    {st && <div data-stok-masuk-info className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">Stok {[st.color, st.unit].join(' · ')} sekarang <b>{fmtBelanjaQty(st.saldo)} {st.unit}</b>{qty > 0 ? <> → setelah disimpan <b>{fmtBelanjaQty(stokBulat(st.saldo + qty))} {st.unit}</b></> : null}</div>}
+                    {awal.vendor && <div className="text-[11px] text-gray-500">Vendor terakhir: {awal.vendor}</div>}
+                    {st && <div data-stok-masuk-info className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">Stok {[st.color || 'tanpa warna', st.unit].join(' · ')} sekarang <b>{fmtBelanjaQty(st.saldo)} {st.unit}</b>{qty > 0 ? <> → setelah disimpan <b>{fmtBelanjaQty(stokBulat(st.saldo + qty))} {st.unit}</b></> : null}</div>}
                     {coba && salah && <div data-stok-salah className="text-xs font-bold text-red-700">{salah}</div>}
                 </StokModalBingkai>
             );
@@ -2558,7 +2516,22 @@
             const list = (q ? dbStok.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].flatMap(u => [u.client, ...u.types])].join(' ').toLowerCase().includes(q)) : dbStok)
                 .filter(e => fStok !== 'stok' || adaStok(e));
             const { page, setPage, totalPages, paged, total } = usePagination(list, 20, `${q}|${fStok}`);
-            const bukaStokMasuk = (awal) => setStokForm(awal);
+            // Order yang memakai bahan ini (isian Bahan/Kain order, atau nota yang ditautkan ke order), terbaru dulu
+            const kandidatOrder = (key) => {
+                const per = new Map();
+                const tambah = (o, color) => { if (!o || o.isDeleted) return; const id = String(o.id); if (!per.has(id)) per.set(id, { order: o, colors: new Set() }); per.get(id).colors.add(normBahanText(color).toLowerCase()); };
+                safeArray(orders).forEach(o => safeArray(o && o.rencanaBahan).forEach(r => { if (r && normBahanKey(r.name, r.code) === key) tambah(o, r.color); }));
+                safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => safeArray(n.items).forEach(it => {
+                    if (it && it.orderId && normBahanKey(it.name, it.code) === key) tambah(orderById.get(String(it.orderId)), it.color);
+                }));
+                return [...per.values()].sort((a, b) => orderInputSeq(b.order) - orderInputSeq(a.order) || String(b.order.date || '').localeCompare(String(a.order.date || '')));
+            };
+            // warnaKunci: dibuka dari stok satu warna (Riwayat) → warna itu langsung dipakai
+            const bukaStokMasuk = (e, warnaKunci) => {
+                const warna = new Map();
+                [...e.colors, ...(stokPerBahan.get(e.key) || []).map(st => st.color)].forEach(c => { const t = normBahanText(c); if (t && !warna.has(t.toLowerCase())) warna.set(t.toLowerCase(), t); });
+                setStokForm({ name: e.name, code: e.code, unit: e.lastUnit, vendor: e.lastVendor || [...e.vendors][0] || '', warnaList: [...warna.values()].sort((a, b) => a.localeCompare(b)), ...(warnaKunci !== undefined ? { warnaKunci } : {}), kandidat: kandidatOrder(e.key) });
+            };
             const simpanStokMasuk = (d) => {
                 const now = new Date().toISOString();
                 setStokBahan(prev => [...safeArray(prev), { id: genId('STK-'), jenis: 'masuk', ...d, createdAt: now, _syncUpdatedAt: now, isDeleted: false }]);
@@ -2591,7 +2564,7 @@
                 showToast('Catatan stok dihapus.', 'success');
             };
             const orderTeks = (id) => { const o = orderById.get(String(id)); return o && !o.isDeleted ? stokOrderLabel(o) : null; };
-            const riwayatStok = (st) => {
+            const riwayatStok = (st, e) => {
                 const ev = [
                     ...st.riwayat.map(s => ({ date: String(s.date || ''), at: String(s.createdAt || ''), s })),
                     ...st.pemakaian.map(p => ({ date: String(p.order.date || ''), at: '', p })),
@@ -2618,7 +2591,7 @@
                         })}
                         <div className="text-[11px] text-gray-500">Pemakaian dibaca langsung dari order. Bila order dihapus, pemakaiannya hilang &amp; stok kembali.</div>
                         <div className="flex flex-wrap gap-1.5 mt-1.5">
-                            <button type="button" data-stok-masuk-warna onClick={() => bukaStokMasuk({ name: st.name, code: st.code, color: st.color, unit: st.unit, kunci: true })} className="px-2.5 py-1 rounded-lg font-bold bg-teal-50 border border-teal-200 text-teal-800">+ Stok masuk</button>
+                            <button type="button" data-stok-masuk-warna onClick={() => bukaStokMasuk({ ...e, lastUnit: st.unit }, st.color)} className="px-2.5 py-1 rounded-lg font-bold bg-teal-50 border border-teal-200 text-teal-800">+ Stok masuk</button>
                             <button type="button" data-stok-koreksi onClick={() => setKoreksiKey(st.key)} className="px-2.5 py-1 rounded-lg font-bold bg-white border border-gray-300 text-gray-700">Koreksi (+/−)</button>
                         </div>
                     </div>
@@ -2629,7 +2602,7 @@
                 if (!arr.length) return (
                     <div data-stok-kosong className="mt-2 flex items-center justify-between gap-2 border border-dashed border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-400">
                         <span>Belum ada stok sisa</span>
-                        <button type="button" data-stok-masuk-baris onClick={() => bukaStokMasuk({ name: e.name, code: e.code, unit: e.lastUnit, color: e.colors.size === 1 ? [...e.colors][0] : '', kunci: true })} className="px-2 py-0.5 rounded-md font-bold bg-teal-50 border border-teal-200 text-teal-800">+ Stok masuk</button>
+                        <button type="button" data-stok-masuk-baris onClick={() => bukaStokMasuk(e)} className="px-2 py-0.5 rounded-md font-bold bg-teal-50 border border-teal-200 text-teal-800">+ Stok masuk</button>
                     </div>
                 );
                 const minus = arr.filter(st => st.saldo < -1e-9);
@@ -2648,7 +2621,7 @@
                         {minus.map(st => (
                             <div key={'m' + st.key} data-stok-minus className="mt-1 text-[11px] leading-snug">⚠ {st.color || 'Stok'}: dipakai lebih dari stok ({st.pemakaian.map(p => `${p.order.id} ${fmtBelanjaQty(p.qty)} ${st.unit}`).join(' + ')}, stok {fmtBelanjaQty(st.masuk)} {st.unit}). Kurangi "pakai stok" di salah satu order — kekurangannya otomatis pindah ke Daftar Belanja.</div>
                         ))}
-                        <div className="text-right mt-1"><button type="button" data-stok-masuk-baris onClick={() => bukaStokMasuk({ name: e.name, code: e.code, unit: e.lastUnit, color: e.colors.size === 1 ? [...e.colors][0] : '', kunci: true })} className="px-2 py-0.5 rounded-md font-bold bg-white border border-teal-200 text-teal-800">+ Stok masuk</button></div>
+                        <div className="text-right mt-1"><button type="button" data-stok-masuk-baris onClick={() => bukaStokMasuk(e)} className="px-2 py-0.5 rounded-md font-bold bg-white border border-teal-200 text-teal-800">+ Stok masuk</button></div>
                     </div>
                 );
             };
@@ -2682,7 +2655,6 @@
                                 <div className="text-xs text-gray-500">Terkumpul otomatis dari nota pembelian & rencana bahan order. Bisa ditambah manual.</div>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                                <button type="button" data-stok-masuk-atas onClick={() => bukaStokMasuk({ kunci: false })} className="text-sm font-bold bg-teal-50 border border-teal-200 text-teal-800 px-3 py-2 rounded-lg">📦 + Stok masuk</button>
                                 <button type="button" onClick={bukaTambah} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">+ Tambah Bahan</button>
                             </div>
                         </div>
@@ -2729,7 +2701,7 @@
                         </div>
                     )}
                     {list.length === 0 ? (
-                        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center text-sm text-gray-500">{fStok === 'stok' ? (q ? 'Tidak ada bahan dengan stok sisa yang cocok.' : 'Belum ada bahan dengan stok sisa. Catat lewat "📦 + Stok masuk".') : q ? 'Tidak ada bahan yang cocok.' : 'Belum ada data bahan. Data muncul otomatis dari nota pembelian dan rencana bahan order, atau tambah manual.'}</div>
+                        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center text-sm text-gray-500">{fStok === 'stok' ? (q ? 'Tidak ada bahan dengan stok sisa yang cocok.' : 'Belum ada bahan dengan stok sisa. Catat lewat tombol "+ Stok masuk" di baris bahan.') : q ? 'Tidak ada bahan yang cocok.' : 'Belum ada data bahan. Data muncul otomatis dari nota pembelian dan rencana bahan order, atau tambah manual.'}</div>
                     ) : (
                         <div className="space-y-2">
                             {paged.map(e => (
@@ -2756,7 +2728,7 @@
                                             {kotakStokDb(e)}
                                         </div>
                                     </div>
-                                    {(stokPerBahan.get(e.key) || []).filter(st => st.key === riwayatKey).map(st => <div key={st.key}>{riwayatStok(st)}</div>)}
+                                    {(stokPerBahan.get(e.key) || []).filter(st => st.key === riwayatKey).map(st => <div key={st.key}>{riwayatStok(st, e)}</div>)}
                                 </div>
                             ))}
                             <Paginator page={page} setPage={setPage} totalPages={totalPages} total={total} pageSize={20} label="bahan" />
@@ -2775,7 +2747,7 @@
                         </div>
                     )}
                     {hapusStokId && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[130] p-4" onClick={() => setHapusStokId(null)}>
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[130] p-4">
                             <div data-stok-hapus-konfirmasi className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl" onClick={ev => ev.stopPropagation()}>
                                 {(() => {
                                     const c = cekHapusStok(hapusStokId);
@@ -2800,7 +2772,7 @@
                             </div>
                         </div>
                     )}
-                    {stokForm && <StokMasukModal awal={stokForm} ddDb={ddDb} orders={orders} stokMap={stokMap} onSave={simpanStokMasuk} onClose={() => setStokForm(null)} />}
+                    {stokForm && <StokMasukModal awal={stokForm} stokMap={stokMap} onSave={simpanStokMasuk} onClose={() => setStokForm(null)} />}
                     {koreksiSt && <StokKoreksiModal st={koreksiSt} onSave={simpanKoreksi} onClose={() => setKoreksiKey(null)} />}
                 </div>
             );
@@ -3443,7 +3415,7 @@ ${blocks}
                 { id: 'C', ikon: '💬', judul: 'Pesan WhatsApp', ket: 'salin lalu tempel ke chat vendor' },
             ];
             return (
-                <div className="fixed inset-0 z-[110] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+                <div className="fixed inset-0 z-[110] bg-black/50 flex items-end sm:items-center justify-center sm:p-4">
                     <div data-belanja-cetak-modal className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
                             <div>
@@ -3578,7 +3550,7 @@ ${blocks}
                 onSave(entries, hasil.t);
             };
             return (
-                <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+                <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4">
                     <div data-belanja-catat className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="px-5 py-4 border-b border-gray-100">
                             <div className="font-black text-gray-800">✎ Catat pembelian — {[l0.name, l0.code, l0.color].filter(Boolean).join(' · ')}</div>
@@ -5903,7 +5875,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                     )}
 
                     {profileEmp && (
-                        <div className="fixed inset-0 bg-black/50 overflow-y-auto z-[100]" style={{ WebkitOverflowScrolling: 'touch' }} onClick={e => { if (e.target === e.currentTarget) setProfileEmp(null); }}>
+                        <div className="fixed inset-0 bg-black/50 overflow-y-auto z-[100]" style={{ WebkitOverflowScrolling: 'touch' }}>
                             <div className="flex min-h-full items-center justify-center p-4">
                             <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl flex flex-col max-h-[90vh]">
                                 <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b shrink-0">
@@ -8105,7 +8077,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 const totalAvailAll = clientSelectedOrders.reduce((s,o)=>s+Object.keys(o.sizes||{}).reduce((ss,sz)=>ss+getAvailableToShip(o,sz),0),0);
                                 const totalShippedAll = clientSelectedOrders.reduce((s,o)=>s+Object.values(o.shipped||{}).reduce((ss,v)=>ss+(parseInt(v)||0),0),0);
                                 return (
-                                    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setShipModalOrderId(null)}>
+                                    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4">
                                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                                             <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-5 py-4 flex items-center justify-between flex-shrink-0">
                                                 <div>
@@ -8971,7 +8943,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     globalDiscountType: noteForm.globalDiscountType || 'Rp',
                     globalDiscountValue: safeMoney(noteForm.globalDiscountValue),
                     items: fc.validItems.map(it => {
-                        const { instansi, ...rest } = it;
+                        const { instansi, color, ...rest } = it;
+                        const warna = normBahanText(color);
                         const orderId = String(it.orderId || '').trim();
                         const inst = orderId ? '' : cleanInstansi(instansi);
                         return {
@@ -8982,6 +8955,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             discountRp: safeMoney(it.discountRp),
                             discountPct: safeMoney(it.discountPct),
                             code: String(it.code || '').trim(),
+                            ...(warna ? { color: warna } : {}),
                             orderId,
                             ...(inst ? { instansi: inst } : {}),
                         };
@@ -9085,7 +9059,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     if (filterStatus !== 'Semua' && noteStatus(note) !== filterStatus) return false;
                     if (!noteSearch.trim()) return true;
                     const term = noteSearch.toLowerCase();
-                    const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.orderId, it.instansi, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
+                    const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.color, it.orderId, it.instansi, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
                     const paymentMethodsText = safeArray(note.payments).map(p => p.method || '').join(' ');
                     return [note.vendor, note.date, note.note, note.method, noteStatus(note), itemsText, paymentMethodsText].join(' ').toLowerCase().includes(term);
                 });
@@ -9260,6 +9234,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
                                                             <span className="text-sm text-gray-800 font-semibold">{it.name || '-'}</span>
                                                             {it.code && <span className="text-[10px] text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded shrink-0">{it.code}</span>}
+                                                            {it.color && <span data-nota-warna className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded shrink-0">{it.color}</span>}
                                                             <span className="text-xs text-gray-400 shrink-0">{it.qty || 0} {it.unit || ''}{(() => { const qty = getMaterialQty(it); const total = getMaterialLineTotal(it); if (qty > 0 && total > 0) { return <span className="text-[10px] text-gray-400 ml-1">· {formatRupiah(Math.round(total / qty))}/{it.unit || 'pcs'}</span>; } return null; })()}</span>
                                                             {linkedOrder && (
                                                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}>
@@ -9493,20 +9468,25 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     </div>
                                                     <div className="p-3 space-y-2">
                                                         <div className="grid grid-cols-12 gap-2">
-                                                            <div className="col-span-5">
+                                                            <div className="col-span-12 sm:col-span-4">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Nama Bahan</label>
                                                                 <input type="text" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="Cth: Kain Cotton 30s" list="pn-bahan-list" value={it.name} onChange={e => updateItem(idx, 'name', e.target.value)} onBlur={() => isiSatuanNota(idx)} />
                                                             </div>
-                                                            <div className="col-span-3">
+                                                            <div className="col-span-6 sm:col-span-2">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Kode <span className="normal-case font-normal text-gray-300">(opsional)</span></label>
                                                                 <input type="text" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="KB-001" list={`pn-kode-${idx}`} value={it.code} onChange={e => updateItem(idx, 'code', e.target.value)} onBlur={() => isiSatuanNota(idx)} />
                                                                 <datalist id={`pn-kode-${idx}`}>{notaSaranDd ? notaSaranDd.kode(it.name).map(k => <option key={k} value={k} />) : null}</datalist>
                                                             </div>
-                                                            <div className="col-span-2">
+                                                            <div className="col-span-6 sm:col-span-2">
+                                                                <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Warna <span className="normal-case font-normal text-gray-300">(opsional)</span></label>
+                                                                <input type="text" data-warna-nota className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-400" placeholder="Navy" list={`pn-warna-${idx}`} value={it.color || ''} onChange={e => updateItem(idx, 'color', e.target.value)} />
+                                                                <datalist id={`pn-warna-${idx}`}>{notaSaranDd ? notaSaranDd.warna(it.name, it.code).map(w => <option key={w} value={w} />) : null}</datalist>
+                                                            </div>
+                                                            <div className="col-span-6 sm:col-span-2">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Qty</label>
                                                                 <input type="number" min="0" step="any" className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-center focus:ring-1 focus:ring-blue-400" placeholder="0" value={it.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
                                                             </div>
-                                                            <div className="col-span-2">
+                                                            <div className="col-span-6 sm:col-span-2">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Satuan</label>
                                                                 <select data-satuan-nota className={`w-full px-2 py-2 text-sm border rounded-lg focus:ring-1 focus:ring-blue-400 ${notaUnitOtomatis.has(it.id) ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-gray-200'}`} title={notaUnitOtomatis.has(it.id) ? 'Diisi otomatis dari pembelian terakhir' : undefined} value={it.unit} onChange={e => ubahSatuanNota(idx, it, e.target.value)}>
                                                                     <option>Meter</option><option>Roll</option><option>Kg</option><option>Yard</option><option>Lusin</option><option>Gross</option><option>Pcs</option><option>Pak</option>
@@ -9765,7 +9745,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 </div>
                             </div>
                         ); return editNoteId
-                            ? (<div className="fixed inset-0 z-[115] bg-black/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }} onClick={e => { if (e.target === e.currentTarget) { setNoteFormOpen(false); setEditNoteId(null); } }}><div className="w-full max-w-3xl my-10" style={{ position: 'relative' }}>{_noteFormEl}</div></div>)
+                            ? (<div className="fixed inset-0 z-[115] bg-black/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}><div className="w-full max-w-3xl my-10" style={{ position: 'relative' }}>{_noteFormEl}</div></div>)
                             : _noteFormEl;
                         })()}
 
@@ -9931,8 +9911,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         : renderInputPembelian()}
 
                     {previewImage && (
-                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4" onClick={() => setPreviewImage(null)}>
-                            <div className="bg-white p-3 rounded-2xl max-w-4xl max-h-[92vh] shadow-2xl">
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+                            <div className="relative bg-white p-3 rounded-2xl max-w-4xl max-h-[92vh] shadow-2xl">
+                                <button type="button" data-preview-tutup onClick={() => setPreviewImage(null)} className="absolute -top-3 -right-3 z-10 px-3 py-1.5 rounded-full bg-white text-gray-800 font-bold text-sm shadow-lg border border-gray-200">✕ Tutup</button>
                                 <StoredImg src={previewImage} alt="Preview desain" className="max-w-full max-h-[84vh] object-contain rounded-lg" placeholderClassName="w-64 h-64 rounded-lg" />
                             </div>
                         </div>
@@ -10242,7 +10223,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     </>)}
 
                     {showKartuForm && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowKartuForm(false)}>
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
                                 <h3 className="font-bold text-gray-800 text-lg mb-4">{editKartuId ? 'Edit Kartu' : 'Tambah Kartu Kredit'}</h3>
                                 <div className="space-y-3">
@@ -11437,7 +11418,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const disc = safeMoney(item.discountAmount);
                 const title = getExpenseItemsTitle(item) || item.category || item.note || '-';
                 return (
-                    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-3 sm:p-4" onClick={e => { if (e.target === e.currentTarget) setDetailId(null); }}>
+                    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-3 sm:p-4">
                         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" data-biaya-detail>
                             <div className={`px-5 py-3.5 border-b flex items-start justify-between gap-3 ${isMasuk ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                                 <div className="min-w-0">
@@ -12543,7 +12524,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
 
                     {/* Share Modal */}
                     {shareModal && (
-                        <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4" onClick={() => setShareModal(null)}>
+                        <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="font-black text-gray-800">Share WA – Bagi Hasil Promosi</h3>
@@ -12570,7 +12551,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
 
                     {/* Delete Confirm */}
                     {deleteConfirmId && (
-                        <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4" onClick={() => setDeleteConfirmId(null)}>
+                        <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
                                 <h3 className="font-black text-gray-800 mb-2">Hapus Data?</h3>
                                 <p className="text-sm text-gray-500 mb-4">Data bagi hasil ini akan dihapus dan tidak dapat dikembalikan.</p>
@@ -13217,7 +13198,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                     {activeInvoiceTab === 'invoice' && <>
                     {/* ── FORM CARD ── (inline untuk create, modal overlay untuk edit) */}
-                    {editModalOpen && <div className="fixed inset-0 bg-black/60 z-[190]" onClick={() => { setEditModalOpen(false); resetForm(); }} />}
+                    {editModalOpen && <div className="fixed inset-0 bg-black/60 z-[190]" />}
                     <div className={editModalOpen ? "fixed inset-0 z-[200] flex items-center justify-center p-4" : ""}>
                     <div className={`rounded-2xl overflow-hidden shadow-md border border-gray-100 ${editModalOpen ? "w-full max-w-3xl max-h-[90vh] flex flex-col" : ""}`}>
                         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between gap-3">
@@ -13552,7 +13533,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     }
                 </div>
                 {proofViewImg && (
-                    <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[200] p-4" onClick={() => setProofViewImg(null)}>
+                    <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[200] p-4">
                         <div className="relative max-w-2xl w-full">
                             <StoredImg src={proofViewImg} alt="Bukti Transfer" className="w-full max-h-[80vh] object-contain rounded-xl shadow-2xl" placeholderClassName="w-full h-64 rounded-xl" />
                             <button onClick={() => setProofViewImg(null)} className="absolute top-2 right-2 bg-white text-gray-800 rounded-full w-8 h-8 flex items-center justify-center font-bold text-lg shadow">✕</button>
@@ -13660,7 +13641,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         : status === 'Termin' ? { bar:'#F59E0B', bg:'#FEF3C7', text:'#92400E', label:'◑ TERMIN' }
                         : { bar:'#EF4444', bg:'#FEE2E2', text:'#991B1B', label:'✗ BELUM BAYAR' };
                     return (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[150] p-3" onClick={() => setDetailInvId(null)}>
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[150] p-3">
                             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
 
                                 {/* Header gradient */}
@@ -13859,7 +13840,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const waDp = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nAlhamdulillah, terima kasih atas kepercayaan Bapak/Ibu yang telah mempercayakan kebutuhan seragamnya kepada *Simpati Konveksi*.\n\nBerikut kami sampaikan *ringkasan nilai pesanan* Bapak/Ibu:\n\n————————————————\n*RINGKASAN NILAI PESANAN*\n${sTotals.discount > 0 ? '• Subtotal            : ' + formatRupiah(sTotals.subtotal) + '\n• Diskon              : - ' + formatRupiah(sTotals.discount) + '\n' : ''}• *Total Nilai Pesanan : ${formatRupiah(sTotals.total)}*\n————————————————\n\nMohon bantuan Bapak/Ibu untuk dapat melakukan pembayaran *uang muka (DP)* guna memulai proses produksi.\n\n*Pembayaran DP sangat kami butuhkan untuk pembelian bahan dan persiapan produksi*, agar proses pengerjaan pesanan dapat segera kami mulai dan berjalan dengan lancar sesuai rencana.\n\nUntuk konfirmasi nominal DP dan informasi pembayaran, silakan menghubungi kami langsung.\n\nTerima kasih atas bantuan, kepercayaan, dan kerja sama Bapak/Ibu kepada *Simpati Konveksi*.\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*\n\nDetail Invoice:\n${shareUrl}`;
                     const mkUrl = (msg) => rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
                     return (
-                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4" onClick={() => setInvShareModal(null)}>
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4">
                             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
                                 <h3 className="font-black text-gray-800 text-lg mb-1">📱 WhatsApp Invoice</h3>
                                 <p className="text-sm text-gray-700 font-bold mb-0.5">{sInv.customer}</p>
@@ -20110,7 +20091,7 @@ ${getRekapShareLink(rekap)}
                         const statusLabel = c.status === 'lunas' ? 'Sudah Dibayar' : c.status === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
                         const history = safeArray(bRekap.bonusHistory).slice().reverse();
                         return (
-                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200] p-4" onClick={() => setBonusEdit(null)}>
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200] p-4">
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                                     <div className="p-5 border-b">
                                         <h3 className="font-black text-lg text-gray-800">🎁 Bonus Kinerja</h3>
@@ -20254,7 +20235,7 @@ ${getRekapShareLink(rekap)}
                         const dEffectiveTotalIncome = dTotalIncome + dPreviewDailyTotal + dPreviewOvertimeTotal;
                         const dEffectiveNetSalary = Math.max(0, dEffectiveTotalIncome - Math.min(safeNumber(dCashAdvanceSummary.remaining), dEffectiveTotalIncome));
                         return (
-                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setInputDetailEmpId(null)}>
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4">
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                                     <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
                                         <div>
@@ -20402,7 +20383,7 @@ ${getRekapShareLink(rekap)}
                             return null; // rekap lama, tidak bisa deteksi per-invoice
                         })();
                         return (
-                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={closeModal}>
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4">
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                                     {detailKomisiSelisih > 0 && (
                                         <div className="bg-amber-50 border-b border-amber-200 flex-shrink-0">
@@ -23588,7 +23569,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const drvKasbon = visibleKasbon.filter(k=>k.driverId===showKasbonDriver).sort((a,b)=>a.tanggal>b.tanggal?1:-1);
                         const totalSisa = getTotalSisaKasbon(showKasbonDriver);
                         return (
-                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={()=>setShowKasbonDriver(null)}>
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
                                 <div className="flex justify-between items-start p-4 border-b">
                                     <div>
@@ -31728,7 +31709,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         </table>
                                     </div>
                                     {detailRow && (
-                                        <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center p-4" onClick={() => setDetailRow(null)}>
+                                        <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center p-4">
                                             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
                                                 <div className="flex justify-between items-start mb-4">
                                                     <div>
@@ -32952,7 +32933,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         const totalKeluarItem = txns.filter(t => t.type === 'Keluar').reduce((s, t) => s + (t.qty || 0), 0);
                         const saldo = totalMasukItem - totalKeluarItem;
                         return (
-                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setHistoryItem(null)}>
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                                     <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
                                         <div>
@@ -33066,7 +33047,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     })()}
 
                     {printStokItem && (
-                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setPrintStokItem(null)}>
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
                                 <div className="bg-gradient-to-r from-blue-600 to-cyan-600 px-5 py-4 rounded-t-2xl flex items-center justify-between">
                                     <div>
