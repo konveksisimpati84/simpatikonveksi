@@ -15625,7 +15625,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null }) => {
             const [finChartRef, finChartW] = useElementWidth();
             // Gaji Direksi & Marketing: tanpa akses "Lihat", tetap DIHITUNG di semua total (kas & laba benar),
             // tapi ditampilkan gabungan tanpa nama/rincian per orang
@@ -15657,6 +15657,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [divisionFilter, setDivisionFilter] = useState('Semua');
             const [cashAdvanceStatusFilter, setCashAdvanceStatusFilter] = useState('Semua');
             const [activeFinanceTab, setActiveFinanceTab] = useState('dashboard');
+            const [saldoForm, setSaldoForm] = useState(null); // { tanggal, nominal } saat mengisi/mengubah saldo kas awal
             const [finChartYear, setFinChartYear] = React.useState(() => String(new Date().getFullYear()));
             React.useEffect(() => { if (fYear !== 'semua') setFinChartYear(fYear); }, [fYear]);
             const [finChartMode, setFinChartMode] = React.useState('masuk');
@@ -15992,7 +15993,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const isLegacy = !Array.isArray(r.payments);
                 return (isLegacy || r.paymentStatus === 'lunas') ? [{ date: r.date, amount: r.netSalary }] : [];
             };
-            const cashOutRows = gabungBarisSensitif([
+            // Semua kas keluar (pakaiFilterKaryawan=false untuk saldo kas seluruh perusahaan)
+            const kasKeluarBaris = (pakaiFilterKaryawan) => [
                 ...allUnifiedNotes.flatMap(note => {
                     const base = { ref: note.id || '-', sumber: 'Pembelian Bahan', ket: note.vendor || '-' };
                     const pays = safeArray(note.payments).filter(p => (parseFloat(p.amount) || 0) > 0);
@@ -16000,17 +16002,66 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const paid = notePaid(note);
                     return paid > 0 ? [{ ...base, date: note.date || '-', nominal: paid }] : [];
                 }),
-                ...allWageRows.filter(passEmpFilters).flatMap(r => getWagePaidEvents(r).map(ev => ({ date: ev.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: ev.amount }))),
-                ...allCashAdvanceRows.filter(passEmpFilters).map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
+                ...allWageRows.filter(r => !pakaiFilterKaryawan || passEmpFilters(r)).flatMap(r => getWagePaidEvents(r).map(ev => ({ date: ev.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: ev.amount }))),
+                ...allCashAdvanceRows.filter(r => !pakaiFilterKaryawan || passEmpFilters(r)).map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                 ...(expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Keluar').flatMap(e => getExpensePaidEvents(e).map(ev => ({ date: ev.date || '-', ref: e.id || '-', sumber: 'Biaya Operasional', ket: getExpenseLabel(e), nominal: ev.amount }))),
                 ...safeArray(bagiHasilPromosi).filter(isVisibleRecord).flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
-            ].filter(r => r.nominal > 0 && isInPeriod(r.date) && (!normalizedSearch || [r.date, r.ref, r.sumber, r.ket].join(' ').toLowerCase().includes(normalizedSearch)))
+            ];
+            const cashOutRows = gabungBarisSensitif(kasKeluarBaris(true).filter(r => r.nominal > 0 && isInPeriod(r.date) && (!normalizedSearch || [r.date, r.ref, r.sumber, r.ket].join(' ').toLowerCase().includes(normalizedSearch)))
              .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)));
             // Buku Kas: tabel dibagi per halaman (25 baris); TOTAL tetap dari semua baris pada periode/pencarian
             const cashResetKey = `${period}|${searchTerm}|${employeeFilter}|${divisionFilter}|${cashAdvanceStatusFilter}`;
             const { page: cashInPage, setPage: setCashInPage, totalPages: cashInTotalPages, paged: pagedCashInRows, total: cashInTotal } = usePagination(cashInRows, 25, cashResetKey);
             const { page: cashOutPage, setPage: setCashOutPage, totalPages: cashOutTotalPages, paged: pagedCashOutRows, total: cashOutTotal } = usePagination(cashOutRows, 25, cashResetKey);
             const totalBebanKas = cashOutRows.reduce((s, r) => s + r.nominal, 0);
+
+            // ===== Saldo kas: Saldo awal + Kas masuk − Kas keluar = Saldo akhir =====
+            // Memakai sumber kas yang sama dengan Buku Kas, untuk seluruh perusahaan (tidak terpengaruh filter pencarian/karyawan).
+            // Saldo kas awal (uang kas sebelum aplikasi dipakai) diisi sekali: { tanggal, nominal } = saldo pada awal tanggal itu.
+            // Tanggal tidak valid dianggap paling awal agar tetap terhitung (sama seperti Buku Kas "Semua tahun")
+            const tglKas = (d) => { const v = String(d || ''); if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v; const t = new Date(v); return isNaN(t.getTime()) ? '0000-00-00' : toLocalDateStr(t); };
+            const saldoAwalSet = templates?.saldoKasAwal && /^\d{4}-\d{2}-\d{2}$/.test(String(templates.saldoKasAwal.tanggal || ''))
+                ? { tanggal: templates.saldoKasAwal.tanggal, nominal: Number(templates.saldoKasAwal.nominal) || 0 } : null;
+            const kasSemua = [
+                ...allInvoiceCashEvents.map(e => ({ t: tglKas(e.date), v: e.amount })),
+                ...(clients || []).filter(isVisibleRecord).flatMap(c => safeArray(c.clientDpPayments).filter(isVisibleRecord).map(dp => ({ t: tglKas(dp.date), v: safeMoney(dp.amount) }))),
+                ...(expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Masuk').map(e => ({ t: tglKas(e.date), v: safeMoney(e.amount) })),
+                ...kasKeluarBaris(false).filter(r => r.nominal > 0).map(r => ({ t: tglKas(r.date), v: -r.nominal })),
+            ].filter(r => r.v);
+            const kasDari = saldoAwalSet ? saldoAwalSet.tanggal : '';
+            // Saldo pada awal tanggal D (sebelum transaksi tanggal D)
+            const saldoSebelum = (D) => (saldoAwalSet ? saldoAwalSet.nominal : 0) + kasSemua.reduce((sum, r) => r.t >= kasDari && r.t < D ? sum + r.v : sum, 0);
+            const saldoKas = (() => {
+                let mulai = '', akhir = '9999-12-31';
+                if (period.length === 4) { mulai = `${period}-01-01`; akhir = `${Number(period) + 1}-01-01`; }
+                else if (period.length === 7) { const [y, m] = period.split('-').map(Number); mulai = `${period}-01`; akhir = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`; }
+                if (kasDari && akhir <= kasDari) return { belumAda: true };
+                const dari = mulai && mulai > kasDari ? mulai : kasDari;
+                const dalam = kasSemua.filter(r => r.t >= dari && r.t < akhir);
+                const masuk = dalam.reduce((x, r) => r.v > 0 ? x + r.v : x, 0);
+                const keluar = dalam.reduce((x, r) => r.v < 0 ? x - r.v : x, 0);
+                const awal = dari ? saldoSebelum(dari) : (saldoAwalSet ? saldoAwalSet.nominal : 0);
+                const tglAkhir = akhir === '9999-12-31' ? '' : (() => { const t = new Date(`${akhir}T00:00:00`); t.setDate(t.getDate() - 1); return toLocalDateStr(t); })();
+                return { awal, masuk, keluar, akhir: awal + masuk - keluar, tglAwal: dari, tglAkhir, mulaiSetelahPeriode: !!(kasDari && (!mulai || kasDari > mulai)) };
+            })();
+            const besok = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return toLocalDateStr(t); })();
+            const kasHariIni = saldoSebelum(besok);
+            const fmtTglKas = (t) => formatDate(`${t}T00:00:00`);
+            const filterKasAktif = !!normalizedSearch || employeeFilter !== 'Semua' || divisionFilter !== 'Semua';
+            const simpanSaldoAwal = () => {
+                const tanggal = String(saldoForm?.tanggal || '');
+                const nominal = Number(String(saldoForm?.nominal ?? '').replace(/\D/g, ''));
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) { showToast('Isi tanggal saldo kas awal.', 'error'); return; }
+                if (!String(saldoForm?.nominal ?? '').replace(/\D/g, '')) { showToast('Isi nominal saldo kas awal (boleh 0).', 'error'); return; }
+                setTemplates(prev => ({ ...(prev || {}), saldoKasAwal: { tanggal, nominal } }));
+                setSaldoForm(null);
+                showToast('Saldo kas awal disimpan.');
+            };
+            const hapusSaldoAwal = () => {
+                setTemplates(prev => { const { saldoKasAwal, ...rest } = prev || {}; return rest; });
+                setSaldoForm(null);
+                showToast('Saldo kas awal dihapus (dianggap Rp 0).');
+            };
             // Tagihan periode ini yang belum dibayar — tidak masuk kas, ditampilkan terpisah agar tidak tersembunyi
             const unpaidExpenseTotal = expenseRows.filter(e => e.type === 'Uang Keluar').reduce((s, e) => s + Math.max(0, safeMoney(e.amount) - getExpensePaidEvents(e).reduce((ps, ev) => ps + ev.amount, 0)), 0);
             const unpaidWageTotal = wageRows.reduce((s, r) => s + Math.max(0, r.netSalary - getWagePaidEvents(r).reduce((ps, ev) => ps + ev.amount, 0)), 0);
@@ -16332,6 +16383,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <h2>Buku Kas</h2>
                             <p class="periode">Periode: ${periodLabel}</p>
                         </div>
+                        ${saldoKas.belumAda ? '' : `<h3>SALDO KAS</h3>
+                        <table>
+                            <tbody>
+                                <tr><td>Saldo awal (${saldoKas.tglAwal ? `per ${fmtTglKas(saldoKas.tglAwal)}` : 'awal data'})${saldoAwalSet ? '' : ' — saldo kas awal belum diisi, dianggap Rp 0'}</td><td class="text-right">${formatRupiah(saldoKas.awal)}</td></tr>
+                                <tr><td>+ Kas masuk</td><td class="text-right">${formatRupiah(saldoKas.masuk)}</td></tr>
+                                <tr><td>− Kas keluar</td><td class="text-right">${formatRupiah(saldoKas.keluar)}</td></tr>
+                                <tr class="total-row"><td>Saldo akhir (${saldoKas.tglAkhir ? `per ${fmtTglKas(saldoKas.tglAkhir)}` : 'seluruh data'})</td><td class="text-right">${formatRupiah(saldoKas.akhir)}</td></tr>
+                            </tbody>
+                        </table>`}
                         <h3>KAS MASUK</h3>
                         <table>
                             <thead><tr><th>Tanggal</th><th>Referensi</th><th>Sumber</th><th>Keterangan</th><th class="text-right">Nominal (Rp)</th></tr></thead>
@@ -16604,7 +16664,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <span className="font-black text-blue-700">{formatRupiah(totalKasbonOutstanding)}</span>
                                         </div>
                                         )}
-                                        <p className="text-xs text-blue-600 italic">Kas tidak dihitung otomatis — perlu rekonsiliasi manual.</p>
+                                        <div className="flex justify-between border-b border-blue-100 pb-2" data-keu-kas-hari-ini>
+                                            <span className="text-gray-700">Kas (Buku Kas)</span>
+                                            <span className={`font-black ${kasHariIni < 0 ? 'text-red-600' : 'text-blue-700'}`}>{formatRupiah(kasHariIni)}</span>
+                                        </div>
+                                        <p className="text-xs text-blue-600 italic">{saldoAwalSet ? `Saldo kas awal ${formatRupiah(saldoAwalSet.nominal)} per ${fmtTglKas(saldoAwalSet.tanggal)} + kas masuk − kas keluar sampai hari ini.` : 'Saldo kas awal belum diisi (dianggap Rp 0) — isi di tab Buku Kas.'}</p>
                                     </div>
                                 </div>
                                 <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
@@ -16783,6 +16847,65 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     {/* Tab: Buku Kas */}
                     {activeFinanceTab === 'buku-kas' && (
                         <>
+                            <div data-keu-saldo><Card className="border-indigo-300">
+                                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+                                    <h3 className="text-lg font-bold text-gray-800">Saldo Kas — {labelPeriode()}</h3>
+                                    <span className="text-xs text-gray-500">Saldo awal + kas masuk − kas keluar = saldo akhir</span>
+                                </div>
+                                {saldoKas.belumAda ? (
+                                    <p className="text-sm text-gray-600 italic" data-keu-saldo-belum>Saldo kas dihitung mulai {fmtTglKas(kasDari)} (tanggal saldo kas awal). Periode ini sebelum tanggal itu.</p>
+                                ) : (
+                                    <div className="divide-y divide-gray-100 text-sm">
+                                        <div className="flex justify-between gap-3 py-2 font-bold text-gray-800" data-keu-saldo-awal>
+                                            <span>Saldo awal ({saldoKas.tglAwal ? `per ${fmtTglKas(saldoKas.tglAwal)}` : 'awal data'})</span>
+                                            <span className="whitespace-nowrap">{formatRupiah(saldoKas.awal)}</span>
+                                        </div>
+                                        <div className="flex justify-between gap-3 py-2 text-gray-700" data-keu-saldo-masuk>
+                                            <span>+ Kas masuk <span className="text-gray-400">(invoice, DP, pemasukan lain)</span></span>
+                                            <span className="whitespace-nowrap font-bold text-green-700">{formatRupiah(saldoKas.masuk)}</span>
+                                        </div>
+                                        <div className="flex justify-between gap-3 py-2 text-gray-700" data-keu-saldo-keluar>
+                                            <span>− Kas keluar <span className="text-gray-400">(bahan, gaji, kasbon, operasional, bagi hasil)</span></span>
+                                            <span className="whitespace-nowrap font-bold text-red-700">{formatRupiah(saldoKas.keluar)}</span>
+                                        </div>
+                                        <div className={`flex justify-between gap-3 py-2 px-3 -mx-3 rounded-lg font-black ${saldoKas.akhir < 0 ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-800'}`} data-keu-saldo-akhir>
+                                            <span>Saldo akhir ({saldoKas.tglAkhir ? `per ${fmtTglKas(saldoKas.tglAkhir)}` : 'seluruh data'})</span>
+                                            <span className="whitespace-nowrap">{formatRupiah(saldoKas.akhir)}</span>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="mt-3 space-y-1 text-xs text-gray-500">
+                                    {!saldoKas.belumAda && saldoKas.akhir < 0 && <p className="text-red-600" data-keu-saldo-minus>Saldo minus: kemungkinan saldo kas awal belum diisi atau ada kas masuk yang belum dicatat.</p>}
+                                    {saldoKas.mulaiSetelahPeriode && <p data-keu-saldo-mulai>Saldo kas awal tercatat per {fmtTglKas(kasDari)}, jadi periode ini dihitung mulai tanggal itu.</p>}
+                                    {filterKasAktif && <p data-keu-saldo-filter>Saldo dihitung dari seluruh transaksi kas; tabel di bawah mengikuti pencarian/filter.</p>}
+                                </div>
+                                {saldoForm ? (
+                                    <div className="mt-3 p-3 rounded-lg bg-gray-50 border border-gray-200" data-keu-saldo-form>
+                                        <p className="text-sm font-bold text-gray-800 mb-1">Saldo kas awal</p>
+                                        <p className="text-xs text-gray-500 mb-3">Uang kas yang sudah ada sebelum transaksi pertama dicatat di aplikasi. Diisi sekali.</p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <label className="text-xs font-bold text-gray-600">Per tanggal
+                                                <input type="date" className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm font-normal" value={saldoForm.tanggal} onChange={e => setSaldoForm(f => ({ ...f, tanggal: e.target.value }))} data-keu-saldo-tgl />
+                                            </label>
+                                            <label className="text-xs font-bold text-gray-600">Nominal (Rp)
+                                                <input type="text" inputMode="numeric" className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm font-normal" placeholder="0" value={saldoForm.nominal === '' ? '' : Number(String(saldoForm.nominal).replace(/\D/g, '') || 0).toLocaleString('id-ID')} onChange={e => setSaldoForm(f => ({ ...f, nominal: e.target.value.replace(/\D/g, '') }))} data-keu-saldo-nominal />
+                                            </label>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 mt-3">
+                                            <button type="button" className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold" onClick={simpanSaldoAwal} data-keu-saldo-simpan>Simpan</button>
+                                            <button type="button" className="px-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-700 text-sm font-bold" onClick={() => setSaldoForm(null)} data-keu-saldo-batal>Batal</button>
+                                            {saldoAwalSet && <button type="button" className="px-4 py-2 rounded-lg bg-white border border-red-200 text-red-600 text-sm font-bold" onClick={hapusSaldoAwal} data-keu-saldo-hapus>Hapus saldo awal</button>}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                                        {saldoAwalSet
+                                            ? <span className="text-gray-600" data-keu-saldo-info>Saldo kas awal: <b>{formatRupiah(saldoAwalSet.nominal)}</b> per {fmtTglKas(saldoAwalSet.tanggal)}</span>
+                                            : <span className="text-amber-700" data-keu-saldo-info>Saldo kas awal belum diisi — dianggap Rp 0.</span>}
+                                        <button type="button" className="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 font-bold bg-white" onClick={() => setSaldoForm(saldoAwalSet ? { tanggal: saldoAwalSet.tanggal, nominal: String(saldoAwalSet.nominal) } : { tanggal: '', nominal: '' })} data-keu-saldo-ubah>{saldoAwalSet ? 'Ubah' : 'Isi saldo kas awal'}</button>
+                                    </div>
+                                )}
+                            </Card></div>
                             <Card>
                                 <h3 className="text-lg font-bold text-gray-800 mb-4">Buku Kas Masuk</h3>
                                 <div className="overflow-x-auto hidden md:block">
@@ -30960,7 +31083,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
                                     onLihatNotaVendor={canOpen('pembelian_bahan') ? (vendor) => { setNotaVendorReq({ vendor, t: Date.now() }); setActiveTab('pembelian_bahan'); } : null} /></div>}
-                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></div>}
+                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} /></div>}
