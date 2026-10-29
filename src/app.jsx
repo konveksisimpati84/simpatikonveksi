@@ -3306,6 +3306,14 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#111;background:#fff;-webkit
             if (!groups.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
             const safe = escapeHtmlText;
             const kop = belanjaKop(templates);
+            // TTD / Stempel (barcode) dari Pengaturan Cetak, sama seperti invoice & kwitansi; tanpa gambar → garis TTD manual
+            const ttdImg = templates?.signatureImage && templates?.showSignatureOnPrint !== false ? String(templates.signatureImage) : '';
+            // Ukuran TTD di Pengaturan Cetak memperbesar ruangnya juga, agar gambar tidak menutupi tulisan
+            const ttdSkala = Math.min(3, Math.max(0.3, (Number(templates?.signatureSize) || 100) / 100));
+            const ttdTinggi = Math.round(20 * ttdSkala * 10) / 10;
+            const sigHtml = (vendor) => ttdImg
+                ? `<div class="sig sig-ttd"><div><div class="st">Hormat Kami,</div><div class="sbox"><img class="si" src="${safe(ttdImg)}" alt="ttd"/></div><div class="sn">${safe(kop.nama)}</div><div class="ss">Purchasing</div></div><div><div class="st">Diterima oleh,</div><div class="sbox"></div><div class="sl"></div><div class="sv">${vendor ? safe(vendor) : 'Vendor'}</div></div></div>`
+                : `<div class="sig"><div>Hormat kami,<div class="ln"></div>Purchasing<div class="sm">${safe(kop.nama)}</div></div><div>Diterima oleh,<div class="ln"></div>${vendor ? safe(vendor) : 'Vendor'}</div></div>`;
             const now = new Date();
             const pad = (n) => String(n).padStart(2, '0');
             const dasarNo = `SP-${String(now.getFullYear()).slice(2)}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
@@ -3325,7 +3333,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#111;background:#fff;-webkit
 <div class="to"><div class="box"><div class="lbl">KEPADA YTH.</div><div class="v">${g.vendor ? safe(g.vendor) : '<span class="kosong">......................................</span>'}</div></div>${tglButuh ? `<div class="butuh">Dibutuhkan paling lambat:<br/><b>${tglButuh}</b></div>` : ''}</div>
 <table><thead><tr><th style="width:9mm">No</th><th>Nama Bahan</th><th>Kode</th><th>Warna</th><th style="text-align:right">Jumlah</th><th style="width:30mm">Keterangan</th></tr></thead><tbody>${trs}</tbody></table>
 <div class="note">Mohon konfirmasi <b>ketersediaan &amp; harga</b> sebelum barang dikirim. Jika warna/kode tidak tersedia, mohon hubungi kami terlebih dahulu.</div>
-<div class="sig"><div>Hormat kami,<div class="ln"></div>Purchasing<div class="sm">${safe(kop.nama)}</div></div><div>Diterima oleh,<div class="ln"></div>${g.vendor ? safe(g.vendor) : 'Vendor'}</div></div>
+${sigHtml(g.vendor)}
 </div>`;
             }).join('');
             const html = `<!DOCTYPE html><html><head><title>Surat Pesanan Bahan - ${safe(kop.nama)}</title><style>${BELANJA_PRINT_CSS}
@@ -3346,6 +3354,10 @@ tr{page-break-inside:avoid}
 .note{margin-top:5mm;font-size:12px;border-left:4px solid #111;padding:2mm 3mm;background:#f3f4f6;line-height:1.6}
 .sig{display:flex;justify-content:space-between;margin-top:10mm;font-size:12.5px;text-align:center}
 .sig>div{width:62mm}.sig .ln{border-bottom:1px solid #111;height:18mm;margin-bottom:1.5mm}.sig .sm{font-size:10px;color:#555;margin-top:.5mm}
+.sig-ttd .st{font-weight:700;color:#374151}.sig-ttd .sbox{height:${ttdTinggi + 4}mm;display:flex;align-items:center;justify-content:center}
+.sig-ttd .si{max-height:${ttdTinggi}mm;max-width:60mm;object-fit:contain}
+.sig-ttd .sn{font-weight:700;color:#1e3a5f;text-decoration:underline;text-underline-offset:3px}.sig-ttd .ss{font-size:10px;color:#64748b;margin-top:.8mm}
+.sig-ttd .sl{border-bottom:1px solid #111;margin:0 4mm 1.5mm}.sig-ttd .sv{font-weight:700}
 </style></head><body>${pages}<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script></body></html>`;
             bukaJendelaCetak(html, showToast);
         };
