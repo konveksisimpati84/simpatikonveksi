@@ -3358,6 +3358,7 @@ tr{page-break-inside:avoid}
 .sig-ttd .si{max-height:${ttdTinggi}mm;max-width:60mm;object-fit:contain}
 .sig-ttd .sn{font-weight:700;color:#1e3a5f;text-decoration:underline;text-underline-offset:3px}.sig-ttd .ss{font-size:10px;color:#64748b;margin-top:.8mm}
 .sig-ttd .sl{border-bottom:1px solid #111;margin:0 4mm 1.5mm}.sig-ttd .sv{font-weight:700}
+.sig{break-inside:avoid;page-break-inside:avoid}
 </style></head><body>${pages}<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script></body></html>`;
             bukaJendelaCetak(html, showToast);
         };
