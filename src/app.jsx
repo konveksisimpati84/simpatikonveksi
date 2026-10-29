@@ -2250,12 +2250,90 @@
             };
             const ubahPakai = (idx, v) => setRows(rows.map((x, i) => i === idx ? { ...x, pakaiStok: v } : x));
             const batalPakai = (idx) => { const r = rows[idx]; if (r) setPesan(r.id, ''); setRows(rows.map((x, i) => i === idx ? lepasPakaiStok(x) : x)); };
+            // Stok bahan yang sama (nama + kode) dengan warna / satuan lain yang masih tersedia
+            const stokBahanLain = (idx) => {
+                const r = rows[idx];
+                if (!r || !normBahanText(r.name)) return [];
+                const kb = normBahanKey(r.name, r.code);
+                const key = stokKey(r.name, r.code, r.color, r.unit);
+                const out = [];
+                stokMap.forEach(st => {
+                    if (st.key === key || normBahanKey(st.name, st.code) !== kb) return;
+                    const lain = rows.reduce((acc, x, i) => i !== idx && x && normBahanText(x.name) && stokKey(x.name, x.code, x.color, x.unit) === st.key ? acc + rbPakaiStok(x) : acc, 0);
+                    const tersedia = stokBulat(st.saldo - lain);
+                    if (tersedia > 1e-9) out.push({ st, tersedia });
+                });
+                return out.sort((a, b) => a.st.color.localeCompare(b.st.color) || a.st.unit.localeCompare(b.st.unit));
+            };
+            // Warna / satuan diisi dari stok yang dipilih (satuan ditandai pilihan admin agar tidak diganti otomatis)
+            const pakaiStokLain = (idx, ubah) => {
+                const r = rows[idx];
+                if (r && r.id) { unitManual.current.add(r.id); setUnitOtomatis(prev => { if (!prev.has(r.id)) return prev; const n = new Set(prev); n.delete(r.id); return n; }); }
+                if (r) setPesan(r.id, '');
+                setRows(rows.map((x, i) => i === idx ? lepasPakaiStok({ ...x, ...ubah }) : x));
+            };
+            // Pilihan warna: warna bahan dari Database Bahan + warna stok sisa bahan itu (dengan keterangan jumlahnya)
+            const warnaOpsi = (r) => {
+                const m = new Map();
+                saranDd.warna(r.name, r.code).forEach(w => m.set(w.toLowerCase(), { w, label: undefined }));
+                if (normBahanText(r.name)) {
+                    const kb = normBahanKey(r.name, r.code);
+                    stokMap.forEach(st => {
+                        if (!st.color || st.saldo <= 1e-9 || normBahanKey(st.name, st.code) !== kb) return;
+                        const k = st.color.toLowerCase();
+                        const cur = m.get(k) || { w: st.color, label: '' };
+                        cur.label = [cur.label, `📦 stok ${fmtBelanjaQty(st.saldo)} ${st.unit}`].filter(Boolean).join(' · ');
+                        m.set(k, cur);
+                    });
+                }
+                return [...m.values()].sort((a, b) => a.w.localeCompare(b.w));
+            };
+            const asalStok = (st) => { const t = stokTerakhirMasuk(st); return t ? [stokLabel(STOK_ASAL, t.asal), t.orderId, t.note].filter(Boolean).join(' · ') : ''; };
+            const infoStokLain = (r, idx, habis) => {
+                const alt = stokBahanLain(idx);
+                if (!alt.length) return null;
+                const qtyTxt = (a) => `${fmtBelanjaQty(a.tersedia)}${a.st.unit ? ' ' + a.st.unit : ''}`;
+                const warna = normBahanText(r.color);
+                if (!warna) return (
+                    <div className="col-span-2 md:col-span-12">
+                        <div data-stok-ada className="text-xs text-blue-900 bg-blue-50 border-2 border-blue-400 rounded-lg px-2.5 py-1.5">
+                            <div className="font-bold mb-0.5">📦 Ada stok sisa bahan ini{alt.length > 1 ? ' — pilih warna:' : ':'}</div>
+                            {alt.map((a, i) => (
+                                <div key={a.st.key} className={`flex flex-wrap items-center justify-between gap-2 py-1 ${i > 0 ? 'border-t border-dashed border-blue-200' : ''}`}>
+                                    <span><b>{a.st.color || 'tanpa warna'}</b> · {qtyTxt(a)}{asalStok(a.st) ? <span className="text-blue-700"> ({asalStok(a.st)})</span> : null}</span>
+                                    {a.st.color
+                                        ? <button type="button" data-stok-pakai-warna={a.st.color} onClick={() => pakaiStokLain(idx, { color: a.st.color, unit: a.st.unit })} className="px-2.5 py-1 rounded-lg font-bold bg-blue-600 text-white hover:bg-blue-700">Pakai warna ini</button>
+                                        : <button type="button" data-stok-ganti-satuan={a.st.unit} onClick={() => pakaiStokLain(idx, { unit: a.st.unit })} className="px-2.5 py-1 rounded-lg font-bold bg-blue-600 text-white hover:bg-blue-700">Ganti satuan ke {a.st.unit}</button>}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+                const w = warna.toLowerCase();
+                const satuanLain = alt.filter(a => a.st.color.toLowerCase() === w);
+                const warnaLain = alt.filter(a => a.st.color.toLowerCase() !== w);
+                return (
+                    <div className="col-span-2 md:col-span-12 space-y-1">
+                        {satuanLain.map(a => (
+                            <div key={a.st.key} data-stok-satuan-lain className="flex flex-wrap items-center gap-2 text-xs leading-snug text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-1.5">
+                                <span>ℹ Stok {a.st.color} ada <b>{qtyTxt(a)}</b>, sedangkan baris ini dalam <b>{r.unit || 'tanpa satuan'}</b>. Stok hanya bisa dipakai bila satuannya sama.</span>
+                                <button type="button" data-stok-ganti-satuan={a.st.unit} onClick={() => pakaiStokLain(idx, { unit: a.st.unit })} className="px-2 py-0.5 rounded-md font-bold bg-white border border-amber-400 text-amber-900">Ganti satuan ke {a.st.unit}</button>
+                            </div>
+                        ))}
+                        {satuanLain.length === 0 && warnaLain.length > 0 && (
+                            <div data-stok-warna-lain className="text-xs leading-snug text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-1.5">
+                                ℹ {habis ? `Stok warna ${warna} sudah habis.` : `Belum ada stok warna ${warna}.`} Stok tersedia untuk warna lain: {warnaLain.map((a, i) => <React.Fragment key={a.st.key}>{i > 0 ? ', ' : ''}<b>{a.st.color || 'tanpa warna'} {qtyTxt(a)}</b></React.Fragment>)}.
+                            </div>
+                        )}
+                    </div>
+                );
+            };
             const kotakStok = (r, idx) => {
                 const s = stokBaris(idx);
                 if (!s) return null;
                 const u = r.unit ? ' ' + r.unit : '';
                 if (!s.aktif) {
-                    if (s.tersedia <= 1e-9) return null;
+                    if (s.tersedia <= 1e-9) return infoStokLain(r, idx, !!s.st);
                     const t = stokTerakhirMasuk(s.st);
                     const asal = t ? [stokLabel(STOK_ASAL, t.asal), t.orderId, t.note].filter(Boolean).join(' · ') : '';
                     return (
@@ -2334,7 +2412,7 @@
                                     <input type="text" list={`${ddId}-kode-${idx}`} value={r.code || ''} onChange={e => ubah(idx, 'code', e.target.value)} onBlur={() => isiSatuan(idx)} placeholder="Kode" className="md:col-span-2 p-2 border rounded text-sm" />
                                     <input type="text" list={`${ddId}-warna-${idx}`} value={r.color || ''} onChange={e => ubah(idx, 'color', e.target.value)} placeholder="Warna" className="md:col-span-2 p-2 border rounded text-sm" />
                                     <datalist id={`${ddId}-kode-${idx}`}>{saranDd.kode(r.name).map(k => <option key={k} value={k} />)}</datalist>
-                                    <datalist id={`${ddId}-warna-${idx}`}>{saranDd.warna(r.name, r.code).map(w => <option key={w} value={w} />)}</datalist>
+                                    <datalist id={`${ddId}-warna-${idx}`}>{warnaOpsi(r).map(o => <option key={o.w} value={o.w} label={o.label} />)}</datalist>
                                     <input type="text" inputMode="decimal" value={r.qty || ''} onChange={e => ubah(idx, 'qty', e.target.value)} placeholder="Kebutuhan" className="md:col-span-2 p-2 border rounded text-sm" />
                                     <div className="flex gap-1 md:col-span-2">
                                         <select data-satuan-bahan value={r.unit || ''} onChange={e => { if (r.id) { unitManual.current.add(r.id); setUnitOtomatis(prev => { const n = new Set(prev); n.delete(r.id); return n; }); } ubah(idx, 'unit', e.target.value); }}
