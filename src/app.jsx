@@ -15643,7 +15643,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 });
                 return out;
             };
-            const [period, setPeriod] = useState('');
+            // Periode laporan: per tahun buku (bawaan tahun berjalan) atau per bulan; 'semua' = seluruh data.
+            // period: '' (semua) | 'YYYY' (satu tahun) | 'YYYY-MM' (satu bulan) — dipakai semua perhitungan lewat isInPeriod.
+            const tahunIni = String(new Date().getFullYear());
+            const [fYear, setFYear] = useState(tahunIni);
+            const [fMonth, setFMonth] = useState('');
+            const period = fYear === 'semua' ? '' : (fMonth ? `${fYear}-${fMonth}` : fYear);
+            const setPeriodeCepat = (y, m) => { setFYear(y); setFMonth(m); };
             const [searchTerm, setSearchTerm] = useState('');
             const [searchInput, setSearchInput] = React.useState('');
             React.useEffect(() => { const t = setTimeout(() => setSearchTerm(searchInput), 300); return () => clearTimeout(t); }, [searchInput]);
@@ -15652,6 +15658,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [cashAdvanceStatusFilter, setCashAdvanceStatusFilter] = useState('Semua');
             const [activeFinanceTab, setActiveFinanceTab] = useState('dashboard');
             const [finChartYear, setFinChartYear] = React.useState(() => String(new Date().getFullYear()));
+            React.useEffect(() => { if (fYear !== 'semua') setFinChartYear(fYear); }, [fYear]);
             const [finChartMode, setFinChartMode] = React.useState('masuk');
             const safeOrders = React.useMemo(() => (Array.isArray(orders) ? orders : []).filter(isVisibleOrder), [orders]);
             const safeFinanceEmployees = Array.isArray(employees) ? employees : [];
@@ -15667,12 +15674,24 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
             };
 
+            const NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+            // Label periode untuk judul cetakan: 'Semua Periode' / 'Tahun 2026' / 'Oktober 2026'
+            const labelPeriode = () => !period ? 'Semua Periode' : period.length === 4 ? `Tahun ${period}` : new Date(`${period}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+            // Rentang tanggal untuk keterangan di layar
+            const rentangPeriode = () => {
+                if (!period) return 'Semua periode (seluruh data)';
+                if (period.length === 4) return `1 Januari – 31 Desember ${period}`;
+                const [y, m] = period.split('-').map(Number);
+                const akhir = new Date(y, m, 0).getDate();
+                return `1 – ${akhir} ${NAMA_BULAN[m - 1]} ${y}`;
+            };
             const isInPeriod = (value) => {
                 if (!period) return true;
                 if (!value) return false;
                 const date = new Date(value);
                 if (isNaN(date.getTime())) return false;
-                return toLocalMonthStr(date) === period;
+                const bulan = toLocalMonthStr(date);
+                return period.length === 4 ? bulan.slice(0, 4) === period : bulan === period;
             };
 
             const allUnifiedNotes = safeArray(purchaseNotes).filter(isVisibleRecord).filter(n => noteTotal(n) > 0 || notePaid(n) > 0);
@@ -15819,6 +15838,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalClientDpIncome = clientDpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalManualIncome = expenseRows.filter(row => row.type === 'Uang Masuk').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
+
+            // Pilihan tahun di filter: tahun yang punya data (invoice, biaya, nota, rekap gaji, saldo DP, order) + tahun berjalan
+            const tahunOpsi = React.useMemo(() => {
+                const ys = new Set([tahunIni]);
+                const add = (d) => { const y = String(d || '').slice(0, 4); if (/^\d{4}$/.test(y)) ys.add(y); };
+                safeFinanceInvoices.filter(isVisibleRecord).forEach(inv => add(inv.date));
+                (expenses || []).filter(isVisibleRecord).forEach(e => add(e.date));
+                safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => add(n.date));
+                safeFinanceRekaps.filter(isVisibleRecord).forEach(r => add(r.dateProcessed || r.date));
+                safeArray(clients).filter(isVisibleRecord).forEach(c => safeArray(c.clientDpPayments).forEach(dp => add(dp.date)));
+                safeOrders.forEach(o => add(o.date));
+                if (fYear !== 'semua') ys.add(fYear);
+                return [...ys].sort((a, b) => Number(b) - Number(a));
+            }, [safeFinanceInvoices, expenses, purchaseNotes, rekapKinerja, clients, safeOrders, fYear]);
 
             // Chart keuangan bulanan
             const finChartYears = React.useMemo(() => {
@@ -16108,7 +16141,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             }, {})).sort((a, b) => b.total - a.total);
 
             const handlePrint = () => {
-                const periodLabel = period ? new Date(`${period}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : 'Semua Periode';
+                const periodLabel = labelPeriode();
                 const rowsHtml = orderCostRows.map((row, index) => `
                     <tr>
                         <td class="text-center">${index + 1}</td>
@@ -16185,7 +16218,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const handlePrintPL = () => {
-                const periodLabel = period ? new Date(`${period}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : 'Semua Periode';
+                const periodLabel = labelPeriode();
                 const printedDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
                 const plContent = `
                     <!DOCTYPE html>
@@ -16264,7 +16297,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const handlePrintCashBook = () => {
-                const periodLabel = period ? new Date(`${period}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : 'Semua Periode';
+                const periodLabel = labelPeriode();
                 const printedDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
                 const kasmasukRows = cashInRows;
                 const kaskeluarRows = cashOutRows;
@@ -16358,15 +16391,39 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                     <Card>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-600 mb-1">Periode</label>
-                                <input type="month" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" value={period} onChange={e => setPeriod(e.target.value)} />
+                            <div data-keu-periode className="md:col-span-4 flex flex-wrap items-end gap-2">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Tahun</label>
+                                    <select data-keu-tahun value={fYear} onChange={e => { setFYear(e.target.value); if (e.target.value === 'semua') setFMonth(''); }} className="p-3 border border-gray-300 rounded-lg text-sm font-bold bg-white min-w-[140px]">
+                                        {tahunOpsi.map(y => <option key={y} value={y}>{y}</option>)}
+                                        <option value="semua">Semua tahun</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">Bulan</label>
+                                    <select data-keu-bulan value={fMonth} disabled={fYear === 'semua'} onChange={e => setFMonth(e.target.value)} className="p-3 border border-gray-300 rounded-lg text-sm font-bold bg-white min-w-[150px] disabled:bg-gray-100 disabled:text-gray-400">
+                                        <option value="">Semua bulan</option>
+                                        {NAMA_BULAN.map((b, i) => <option key={b} value={String(i + 1).padStart(2, '0')}>{b}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {[
+                                        { id: 'tahun_ini', label: 'Tahun ini', y: tahunIni, m: '' },
+                                        { id: 'bulan_ini', label: 'Bulan ini', y: tahunIni, m: String(new Date().getMonth() + 1).padStart(2, '0') },
+                                        { id: 'tahun_lalu', label: 'Tahun lalu', y: String(Number(tahunIni) - 1), m: '' },
+                                        { id: 'semua', label: 'Semua tahun', y: 'semua', m: '' },
+                                    ].map(c => (
+                                        <button key={c.id} type="button" data-keu-cepat={c.id} onClick={() => setPeriodeCepat(c.y, c.m)}
+                                            className={`px-3 py-2 rounded-full text-xs font-bold border ${fYear === c.y && fMonth === c.m ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}>{c.label}</button>
+                                    ))}
+                                </div>
+                                <div data-keu-rentang className="sm:ml-auto text-xs text-slate-700 bg-slate-100 rounded-lg px-3 py-2">Periode: <b>{rentangPeriode()}</b></div>
                             </div>
                             <div className="md:col-span-2">
                                 <label className="block text-xs font-bold text-gray-600 mb-1">Cari Data</label>
                                 <input type="text" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="Cari order, instansi, vendor, karyawan..." value={searchInput} onChange={e => setSearchInput(e.target.value)} />
                             </div>
-                            <button type="button" onClick={() => { setPeriod(''); setSearchTerm(''); setSearchInput(''); setEmployeeFilter('Semua'); setDivisionFilter('Semua'); setCashAdvanceStatusFilter('Semua'); }} className="p-3 border border-gray-300 rounded-lg font-bold text-gray-700 hover:bg-gray-50">Reset Filter</button>
+                            <button type="button" onClick={() => { setPeriodeCepat(tahunIni, ''); setSearchTerm(''); setSearchInput(''); setEmployeeFilter('Semua'); setDivisionFilter('Semua'); setCashAdvanceStatusFilter('Semua'); }} className="p-3 border border-gray-300 rounded-lg font-bold text-gray-700 hover:bg-gray-50">Reset Filter</button>
                             <div>
                                 <label className="block text-xs font-bold text-gray-600 mb-1">Karyawan</label>
                                 <select className="w-full p-3 border border-gray-300 rounded-lg text-sm" value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)}>
@@ -16534,7 +16591,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
                                     <div className="flex items-baseline justify-between mb-3">
                                         <h3 className="text-base font-black text-blue-800 uppercase tracking-wide">Aset</h3>
-                                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Akumulatif (semua periode)</span>
+                                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Posisi per hari ini</span>
                                     </div>
                                     <div className="space-y-2 text-sm">
                                         <div className="flex justify-between border-b border-blue-100 pb-2">
@@ -16553,7 +16610,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
                                     <div className="flex items-baseline justify-between mb-3">
                                         <h3 className="text-base font-black text-orange-800 uppercase tracking-wide">Kewajiban</h3>
-                                        <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wide">Akumulatif (semua periode)</span>
+                                        <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wide">Posisi per hari ini</span>
                                     </div>
                                     <div className="space-y-2 text-sm">
                                         <div className="flex justify-between border-b border-orange-100 pb-2">
@@ -17120,7 +17177,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <div class="info-row"><span class="info-label">Nama</span><span class="info-value">${safe(row.marketing)}</span></div>
                                     <div class="info-row"><span class="info-label">Jumlah Invoice</span><span class="info-value">${row.invoices.length} invoice</span></div>
                                     <div class="info-row"><span class="info-label">Total Penjualan</span><span class="info-value">${fmt(row.totalSales)}</span></div>
-                                    ${period ? `<div class="info-row"><span class="info-label">Periode</span><span class="info-value">${period}</span></div>` : ''}
+                                    ${period ? `<div class="info-row"><span class="info-label">Periode</span><span class="info-value">${labelPeriode()}</span></div>` : ''}
                                 </div>
                                 <table>
                                     <thead><tr>
@@ -17252,7 +17309,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </div>
                                     </Card>
                                 ))}
-                                {allRows.length === 0 && <Card className="p-8 text-center text-gray-500 italic border-dashed border-2">{period ? `Tidak ada data komisi marketing untuk periode ${period}.` : 'Belum ada data komisi marketing.'}</Card>}
+                                {allRows.length === 0 && <Card className="p-8 text-center text-gray-500 italic border-dashed border-2">{period ? `Tidak ada data komisi marketing untuk periode ${labelPeriode()}.` : 'Belum ada data komisi marketing.'}</Card>}
                             </div>
                         );
                     })()}
