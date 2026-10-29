@@ -22903,7 +22903,7 @@ ${getRekapShareLink(rekap)}
                             {foto.map((l, i) => (
                                 <div key={i}>
                                     <StoredImg src={l.foto} alt={DRV_LANGKAH_INFO[l.k]?.catat || 'foto'} className="w-full max-h-[60vh] object-contain rounded-lg bg-gray-100" placeholderClassName="w-full h-48 rounded-lg" />
-                                    <p className="text-xs text-gray-700 mt-1.5"><b>{DRV_LANGKAH_INFO[l.k]?.catat || l.k}</b> · {drvJam(l.at)}</p>
+                                    <p className="text-xs text-gray-700 mt-1.5"><b>{l.kosong ? 'Pulang tanpa barang' : (DRV_LANGKAH_INFO[l.k]?.catat || l.k)}</b> · {drvJam(l.at)}</p>
                                 </div>
                             ))}
                         </div>
@@ -23500,7 +23500,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return (
                     <div className="flex gap-1 flex-wrap">
                         {foto.map((l, i) => (
-                            <button key={i} onClick={() => setFotoTrx(t)} className="text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded hover:bg-blue-100" data-drv-foto-btn={l.k}>📷 {DRV_LANGKAH_INFO[l.k]?.ikon || l.k}</button>
+                            <button key={i} onClick={() => setFotoTrx(t)} className="text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded hover:bg-blue-100" data-drv-foto-btn={l.k}>📷 {l.kosong ? 'Tanpa Barang' : (DRV_LANGKAH_INFO[l.k]?.ikon || l.k)}</button>
                         ))}
                     </div>
                 );
@@ -24279,11 +24279,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             );
         };
 
-        // Langkah ini wajib foto? (PP: Selesai tanpa foto bila pulang tanpa barang)
+        // Langkah ini wajib foto? (semua langkah kecuali Berangkat, termasuk PP yang pulang tanpa barang)
         const drvPerluFoto = (trx, k) => {
             const kode = drvUrutan(trx)[k.tahap];
-            if (!kode || !DRV_LANGKAH_INFO[kode]?.foto) return false;
-            return !(kode === 'selesai' && trx?.tripType === 'pp' && k.kosong);
+            return !!kode && !!DRV_LANGKAH_INFO[kode]?.foto;
         };
         const DRV_LABEL_SINGKAT = { berangkat: 'Berangkat', ambil: 'Ambil', sampai: 'Sampai', ambil2: 'Ambil Lagi', selesai: 'Selesai' };
         const DRV_WARNA_HEADER = { 'Menunggu': 'bg-yellow-500', 'Menuju Lokasi': 'bg-indigo-500', 'Dalam Perjalanan': 'bg-blue-500', 'Terkirim': 'bg-green-500', 'Gagal': 'bg-red-500' };
@@ -24301,7 +24300,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [foto, setFoto] = React.useState(''); // foto yang dipasang driver (belum terkirim)
             const [prosesFoto, setProsesFoto] = React.useState(false);
             const [pesan, setPesan] = React.useState(null); // { jenis: 'error' | 'info', teks }
-            const [konfirmasi, setKonfirmasi] = React.useState(''); // '' | 'tolak' | 'kosong'
+            const [konfirmasi, setKonfirmasi] = React.useState(''); // '' | 'tolak'
+            const [tanpaBarang, setTanpaBarang] = React.useState(false); // PP langkah Ambil Lagi: pulang tanpa barang (tetap wajib foto)
             const [lihatFoto, setLihatFoto] = React.useState('');
             const sinyalRef = React.useRef(null);
             const savingRef = React.useRef(false);
@@ -24361,7 +24361,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         cloudHealth.ok();
                         if (savingRef.current) return;
                         const lama = tampilRef.current;
-                        if (lama.trx && d.trx && drvKeadaan(lama.trx, lama.prog).tahap !== drvKeadaan(d.trx, d.prog).tahap) setFoto('');
+                        if (lama.trx && d.trx && drvKeadaan(lama.trx, lama.prog).tahap !== drvKeadaan(d.trx, d.prog).tahap) { setFoto(''); setTanpaBarang(false); }
                         setTrx(d.trx); setProg(d.prog);
                     } catch (e) {}
                 };
@@ -24392,7 +24392,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setProsesFoto(false);
             };
 
-            // jenis: 'langkah' (langkah berikutnya) | 'kosong' (PP: tidak ada barang dibawa pulang) | 'tolak'
+            // jenis: 'langkah' (langkah berikutnya) | 'kosong' (PP: tidak ada barang dibawa pulang, dengan foto bukti) | 'tolak'
             const kirim = async (jenis) => {
                 if (!trx || savingRef.current || !supabaseClient) return;
                 const tahapDilihat = drvKeadaan(trx, prog).tahap;
@@ -24410,11 +24410,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     const dialihkan = !!driverLink && String(tNow.driverId || '') !== driverLink;
                     const berubah = k.gagal || k.selesai || k.tahap !== tahapDilihat || (jenis === 'tolak' && k.tahap !== 0) || (jenis === 'kosong' && kode !== 'ambil2');
                     if (dialihkan || berubah) {
-                        setTrx(tNow); setProg(pNow); setFoto('');
+                        setTrx(tNow); setProg(pNow); setFoto(''); setTanpaBarang(false);
                         if (!dialihkan) setPesan({ jenis: 'info', teks: 'Status order sudah berubah. Tampilan sudah diperbarui.' });
                         return;
                     }
-                    const wajibFoto = jenis === 'langkah' && drvPerluFoto(tNow, k);
+                    const wajibFoto = jenis === 'kosong' || (jenis === 'langkah' && drvPerluFoto(tNow, k));
                     if (wajibFoto && !foto) { setPesan({ jenis: 'error', teks: 'Pasang foto dulu.' }); return; }
                     let ref = '';
                     if (wajibFoto) {
@@ -24426,7 +24426,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         setSaving('kirim');
                     }
                     const at = isoSetelah(tNow.statusManualAt, tNow.drvAt, pNow?.at);
-                    const entri = jenis === 'tolak' ? { k: 'tolak', at } : jenis === 'kosong' ? { k: 'ambil2', at, kosong: true } : { k: kode, at, ...(ref ? { foto: ref } : {}) };
+                    const entri = jenis === 'tolak' ? { k: 'tolak', at } : jenis === 'kosong' ? { k: 'ambil2', at, kosong: true, foto: ref } : { k: kode, at, ...(ref ? { foto: ref } : {}) };
                     const tahapBaru = jenis === 'tolak' ? k.tahap : k.tahap + 1;
                     const baru = { trxId: String(trxId), driverId: String(tNow.driverId || ''), tahap: tahapBaru, selesai: jenis !== 'tolak' && tahapBaru >= urut.length, gagal: jenis === 'tolak', kosong: k.kosong || jenis === 'kosong', langkah: [...k.langkah, entri], at };
                     const { error: errTulis } = await supabaseClient.from('app_data').upsert({ id: `drvp:${trxId}`, data: baru }, { onConflict: 'id' });
@@ -24434,7 +24434,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     // Pastikan benar-benar tersimpan sebelum tampilan maju
                     const cek = await supabaseClient.from('app_data').select('data').eq('id', `drvp:${trxId}`).maybeSingle();
                     if (cek.error || String(cek.data?.data?.at || '') !== at) throw new Error('Belum tersimpan');
-                    setTrx(tNow); setProg(baru); setFoto(''); setPesan(null);
+                    setTrx(tNow); setProg(baru); setFoto(''); setPesan(null); setTanpaBarang(false);
                     simpanCache(tNow, baru, tarif, namaUsaha);
                     cloudHealth.ok();
                     kirimSinyal();
@@ -24503,6 +24503,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const akhir = k.langkah[k.langkah.length - 1];
             const catatLangkah = (l) => l.kosong ? '↩ Pulang tanpa barang' : l.k === 'berangkat' ? '🚗 Berangkat' : l.k === 'ambil' ? '📦 Barang diambil' : l.k === 'sampai' ? '📍 Sampai tujuan' : l.k === 'ambil2' ? '📦 Barang dibawa pulang' : l.k === 'selesai' ? (pp ? '✅ Selesai (kembali)' : '✅ Selesai diantar') : l.k === 'tolak' ? '✖ Ditolak driver' : l.k;
             const sibuk = !!saving || prosesFoto;
+            const modeKosong = kode === 'ambil2' && tanpaBarang;
+            const labelFoto = modeKosong ? 'Foto bukti kendaraan kosong / tidak ada barang'
+                : kode === 'selesai' && pp ? (k.kosong ? 'Foto bukti sudah kembali di konveksi' : 'Foto bukti barang sampai kembali')
+                : info.label;
+            const tombolLangkah = modeKosong ? '↩ Lanjut Tanpa Barang' : info.tombol;
+            const gantiMode = (v) => { setTanpaBarang(v); setFoto(''); setPesan(null); };
 
             return (
                 <div className="min-h-screen bg-gray-50 flex items-start justify-center py-8 px-4">
@@ -24556,7 +24562,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             {!selesai && !gagal && k.tahap > 0 && (
                                 <div className="space-y-2 pt-1">
                                     {perluFoto && (<>
-                                        <div className="text-xs font-bold text-gray-700">{info.label} *</div>
+                                        <div className="text-xs font-bold text-gray-700" data-dc-foto-label>{labelFoto} *</div>
                                         {foto ? (
                                             <div className="flex items-center gap-3 border border-green-200 bg-green-50 rounded-xl p-2" data-dc-foto-ada>
                                                 <img src={foto} alt="foto" className="w-16 h-16 object-cover rounded-lg cursor-pointer" onClick={() => setLihatFoto(foto)} />
@@ -24568,18 +24574,18 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         ) : (
                                             <label className={`block border-2 border-dashed border-blue-300 bg-blue-50 rounded-xl p-4 text-center text-blue-700 text-sm font-bold ${sibuk ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`} data-dc-foto-kotak>
                                                 {prosesFoto ? 'Memproses foto…' : '📷 Ambil foto / pilih dari galeri'}
-                                                <span className="block text-xs font-medium text-gray-500 mt-0.5">Wajib sebelum menekan {DRV_LABEL_SINGKAT[kode]}</span>
+                                                <span className="block text-xs font-medium text-gray-500 mt-0.5">Wajib sebelum menekan {modeKosong ? 'Lanjut Tanpa Barang' : DRV_LABEL_SINGKAT[kode]}</span>
                                                 <input type="file" accept="image/*" className="hidden" onChange={pilihFoto} disabled={sibuk} data-dc-foto-input />
                                             </label>
                                         )}
                                     </>)}
-                                    {!perluFoto && kode === 'selesai' && pp && k.kosong && <p className="text-xs text-gray-500 text-center">Tidak perlu foto karena pulang tanpa barang. Tekan Selesai saat sudah kembali.</p>}
-                                    <button disabled={sibuk || (perluFoto && !foto)} onClick={() => kirim('langkah')}
-                                        className={`w-full py-3 rounded-xl font-bold text-base ${sibuk || (perluFoto && !foto) ? 'bg-gray-200 text-gray-400' : kode === 'selesai' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`} data-dc-aksi={kode}>
-                                        {saving === 'foto' ? 'Mengunggah foto…' : saving ? 'Mengirim…' : info.tombol}
+                                    <button disabled={sibuk || (perluFoto && !foto)} onClick={() => kirim(modeKosong ? 'kosong' : 'langkah')}
+                                        className={`w-full py-3 rounded-xl font-bold text-base ${sibuk || (perluFoto && !foto) ? 'bg-gray-200 text-gray-400' : kode === 'selesai' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`} data-dc-aksi={modeKosong ? 'kosong-kirim' : kode}>
+                                        {saving === 'foto' ? 'Mengunggah foto…' : saving ? 'Mengirim…' : tombolLangkah}
                                     </button>
                                     {perluFoto && !foto && !sibuk && <p className="text-xs text-gray-500 text-center">Pasang foto dulu untuk melanjutkan</p>}
-                                    {kode === 'ambil2' && <button disabled={sibuk} onClick={() => setKonfirmasi('kosong')} className="w-full text-sm text-gray-600 underline py-1 disabled:opacity-50" data-dc-aksi="kosong">Tidak ada barang dibawa pulang</button>}
+                                    {kode === 'ambil2' && !tanpaBarang && <button disabled={sibuk} onClick={() => gantiMode(true)} className="w-full text-sm text-gray-600 underline py-1 disabled:opacity-50" data-dc-aksi="kosong">Tidak ada barang dibawa pulang</button>}
+                                    {modeKosong && <button disabled={sibuk} onClick={() => gantiMode(false)} className="w-full text-sm text-gray-600 underline py-1 disabled:opacity-50" data-dc-aksi="ada-barang">Ternyata ada barang dibawa pulang</button>}
                                 </div>
                             )}
 
@@ -24610,9 +24616,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         {konfirmasi && (
                             <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center p-4" data-dc-konfirmasi={konfirmasi}>
                                 <div className="bg-white rounded-2xl p-4 w-full space-y-2">
-                                    <div className="font-bold text-gray-900">{konfirmasi === 'tolak' ? 'Yakin menolak order ini?' : 'Tidak ada barang dibawa pulang?'}</div>
-                                    <p className="text-xs text-gray-600 pb-1">{konfirmasi === 'tolak' ? 'Admin akan diberi tahu dan order dialihkan ke driver lain.' : 'Langkah Ambil Lagi dilewati dan Selesai tidak perlu foto.'}</p>
-                                    <button onClick={() => kirim(konfirmasi === 'tolak' ? 'tolak' : 'kosong')} className={`w-full py-3 rounded-xl font-bold text-white ${konfirmasi === 'tolak' ? 'bg-red-600' : 'bg-blue-600'}`} data-dc-konfirmasi-ya>{konfirmasi === 'tolak' ? 'Ya, tolak' : 'Ya, lanjut'}</button>
+                                    <div className="font-bold text-gray-900">Yakin menolak order ini?</div>
+                                    <p className="text-xs text-gray-600 pb-1">Admin akan diberi tahu dan order dialihkan ke driver lain.</p>
+                                    <button onClick={() => kirim('tolak')} className="w-full py-3 rounded-xl font-bold text-white bg-red-600" data-dc-konfirmasi-ya>Ya, tolak</button>
                                     <button onClick={() => setKonfirmasi('')} className="w-full py-3 rounded-xl font-bold text-gray-700 border border-gray-300 bg-white" data-dc-konfirmasi-kembali>Kembali</button>
                                 </div>
                             </div>
