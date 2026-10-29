@@ -2286,7 +2286,8 @@
                         m.set(k, cur);
                     });
                 }
-                return [...m.values()].sort((a, b) => a.w.localeCompare(b.w));
+                // Label selalu memuat nama warna (sebagian browser HP hanya menampilkan label, bukan nilainya)
+                return [...m.values()].map(o => o.label ? { ...o, label: `${o.w} · ${o.label}` } : o).sort((a, b) => a.w.localeCompare(b.w));
             };
             const asalStok = (st) => { const t = stokTerakhirMasuk(st); return t ? [stokLabel(STOK_ASAL, t.asal), t.orderId, t.note].filter(Boolean).join(' · ') : ''; };
             const infoStokLain = (r, idx, habis) => {
