@@ -24399,6 +24399,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [qClientName,  setQClientName]  = React.useState('');
             const [qClientContact, setQClientContact] = React.useState('');
             const [qNotes, setQNotes] = React.useState('');
+            // Tampilan diskon di cetakan (disimpan per penawaran): 'lengkap' = harga coret + tulisan diskon + net,
+            // 'coret' = harga coret + net, 'net' = hanya harga net. qSatuanNet: kolom Harga Satuan ikut harga net (hanya untuk 'net').
+            const [qDiskonTampil, setQDiskonTampil] = React.useState('lengkap');
+            const [qSatuanNet, setQSatuanNet] = React.useState(false);
             const QUO_DEFAULT_OPENING = 'Dengan hormat,\n\nMenanggapi kebutuhan Bapak/Ibu/Sdr., dengan ini kami sampaikan penawaran harga pengerjaan produk konveksi dari kami. Kami berkomitmen menghadirkan produk berkualitas dengan jahitan rapi, bahan pilihan, pengiriman tepat waktu, dan harga yang kompetitif.\n\nAdapun rincian penawaran kami adalah sebagai berikut:';
             const QUO_DEFAULT_TERMS = '- DP 50% saat Order Disetujui (SPK terbit).\n- Pelunasan 50% dilakukan sebelum pengiriman barang.';
             const QUO_DEFAULT_CLOSING = 'Demikian penawaran ini kami sampaikan dengan sepenuh hati. Besar harapan kami dapat menjalin kerja sama yang saling menguntungkan. Penawaran ini berlaku {validDays} hari kerja sejak tanggal terbit.\n\nUntuk konfirmasi order, negosiasi, atau informasi lebih lanjut, jangan ragu untuk menghubungi kami kapan saja. Kami siap melayani dengan sepenuh hati dan profesional.\n\nTerima kasih atas kepercayaan dan perhatian Bapak/Ibu/Sdr.';
@@ -24719,7 +24723,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     window.addEventListener('afterprint', () => { document.title = originalTitle; }, { once: true });
                     window.print();
                 }
-            }, [pendingPrint, qClientName, qClientContact, qNotes, quotationItems]);
+            }, [pendingPrint, qClientName, qClientContact, qNotes, quotationItems, qDiskonTampil, qSatuanNet]);
 
             // ── Chart.js doughnut ─────────────────────────────────────────────────
             React.useEffect(() => {
@@ -24999,6 +25003,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return Math.max(0, gross * (1 - (qi.discountValue || 0) / 100));
             };
 
+            // Harga di kolom "Harga Satuan" cetakan: harga net bila dipilih "Hanya harga net" + centang Harga Satuan = net
+            const satuanTampil = (qi) => qDiskonTampil === 'net' && qSatuanNet ? calcQuotationItemNet(qi) : qi.unitPrice;
+
             const saveQuotation = () => {
                 if (quotationItems.length === 0) { showToast('Tambahkan minimal satu item penawaran.', 'warning'); return; }
                 const quoNumber = generateQuoNumber();
@@ -25012,6 +25019,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     clientName: qClientName,
                     clientContact: qClientContact,
                     notes: qNotes,
+                    diskonTampil: qDiskonTampil,
+                    satuanNet: qDiskonTampil === 'net' && qSatuanNet,
                     items: JSON.parse(JSON.stringify(quotationItems)),
                 };
                 setSavedQuotations(prev => [newQ, ...prev]);
@@ -25022,6 +25031,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 setQClientName(q.clientName || '');
                 setQClientContact(q.clientContact || '');
                 setQNotes(q.notes || '');
+                // Penawaran lama (belum punya pilihan ini) tetap tampil lengkap seperti dulu
+                setQDiskonTampil(['lengkap', 'coret', 'net'].includes(q.diskonTampil) ? q.diskonTampil : 'lengkap');
+                setQSatuanNet(q.diskonTampil === 'net' && q.satuanNet === true);
                 setQuotationItems(JSON.parse(JSON.stringify(q.items || [])));
                 setActiveSection('quotation');
                 showToast(`Penawaran ${q.quoNumber} dibuka.`, 'info');
@@ -26328,6 +26340,28 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <div className="flex justify-between text-[10px] text-slate-400 mt-0.5"><span>Kecil</span><span>Normal</span></div>
                                     </div>
                                 </div>
+                                <div data-quo-diskon className="mt-5 pt-4 border-t border-slate-100">
+                                    <div className="text-xs font-semibold text-slate-600 mb-2">🏷 Tampilan diskon di cetakan <span className="font-normal text-slate-400">(disimpan bersama penawaran)</span></div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        {[
+                                            { id: 'lengkap', judul: '1. Lengkap', ket: 'Harga coret + tulisan "Diskon Rp…" + harga net' },
+                                            { id: 'coret', judul: '2. Tanpa tulisan diskon', ket: 'Harga coret + harga net' },
+                                            { id: 'net', judul: '3. Hanya harga net', ket: 'Tanpa harga coret & tulisan diskon' },
+                                        ].map(o => (
+                                            <button key={o.id} type="button" data-quo-diskon-pilih={o.id} onClick={() => setQDiskonTampil(o.id)}
+                                                className={`text-left rounded-xl border-2 px-3 py-2 ${qDiskonTampil === o.id ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+                                                <div className="text-sm font-bold text-slate-800">{qDiskonTampil === o.id ? '◉' : '◯'} {o.judul}</div>
+                                                <div className="text-[11px] text-slate-500 leading-snug mt-0.5">{o.ket}</div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {qDiskonTampil === 'net' && (
+                                        <label className="flex items-start gap-2 mt-2 text-xs text-slate-700 bg-slate-50 border border-dashed border-slate-300 rounded-lg px-3 py-2">
+                                            <input type="checkbox" data-quo-satuan-net checked={qSatuanNet} onChange={e => setQSatuanNet(e.target.checked)} className="mt-0.5 accent-indigo-600" />
+                                            <span>Kolom <b>Harga Satuan</b> juga menampilkan harga net (diskon tidak terlihat sama sekali)</span>
+                                        </label>
+                                    )}
+                                </div>
                             </div>
 
                             {/* inject dynamic print CSS */}
@@ -26462,10 +26496,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                                     <td style={{padding:'5pt 6pt', textAlign:'center', fontWeight:700, color:'#334155'}}>
                                                                         {qi.estQtyDisplay?.trim() || `~${(qi.estQty||0).toLocaleString('id-ID')} Pcs`}
                                                                     </td>
-                                                                    <td style={{padding:'5pt 6pt', textAlign:'right', color:'#475569'}}>{formatRp(qi.unitPrice)}</td>
+                                                                    <td style={{padding:'5pt 6pt', textAlign:'right', color:'#475569'}}>{formatRp(satuanTampil(qi))}</td>
                                                                     <td style={{padding:'5pt 6pt', textAlign:'right'}}>
-                                                                        {hasDiscount && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#f43f5e', textDecoration:'line-through', display:'block'}}>{formatRp(qi.unitPrice)}</span>}
-                                                                        {hasDiscount && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#94a3b8', display:'block'}}>Diskon {qi.discountType==='pct'?`${qi.discountValue}%`:formatRp(qi.discountValue)}</span>}
+                                                                        {hasDiscount && qDiskonTampil !== 'net' && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#f43f5e', textDecoration:'line-through', display:'block'}}>{formatRp(qi.unitPrice)}</span>}
+                                                                        {hasDiscount && qDiskonTampil === 'lengkap' && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#94a3b8', display:'block'}}>Diskon {qi.discountType==='pct'?`${qi.discountValue}%`:formatRp(qi.discountValue)}</span>}
                                                                         <span style={{fontWeight:800, color:'#0f172a'}}>{formatRp(net)}</span>
                                                                     </td>
                                                                 </tr>
@@ -26601,10 +26635,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                         {qi.detail&&qi.detail.split('\n').filter(l=>l.trim()).map((l,i)=><span key={i} style={{display:'block', fontSize:`${(printFontSize*0.79).toFixed(1)}pt`, color:'#94a3b8', fontStyle:'italic'}}>- {l.trim().replace(/^[-•]\s*/,'')}</span>)}
                                                     </td>
                                                     <td style={{padding:'5pt 6pt', textAlign:'center', fontWeight:700}}>{qi.estQtyDisplay?.trim()||`~${(qi.estQty||0).toLocaleString('id-ID')} Pcs`}</td>
-                                                    <td style={{padding:'5pt 6pt', textAlign:'right', color:'#475569'}}>{formatRp(qi.unitPrice)}</td>
+                                                    <td style={{padding:'5pt 6pt', textAlign:'right', color:'#475569'}}>{formatRp(satuanTampil(qi))}</td>
                                                     <td style={{padding:'5pt 6pt', textAlign:'right'}}>
-                                                        {hd&&<span style={{fontSize:`${(printFontSize*0.79).toFixed(1)}pt`,color:'#f43f5e',textDecoration:'line-through',display:'block'}}>{formatRp(qi.unitPrice)}</span>}
-                                                        {hd&&<span style={{fontSize:`${(printFontSize*0.79).toFixed(1)}pt`,color:'#94a3b8',display:'block'}}>Diskon {qi.discountType==='pct'?`${qi.discountValue}%`:formatRp(qi.discountValue)}</span>}
+                                                        {hd&&qDiskonTampil!=='net'&&<span style={{fontSize:`${(printFontSize*0.79).toFixed(1)}pt`,color:'#f43f5e',textDecoration:'line-through',display:'block'}}>{formatRp(qi.unitPrice)}</span>}
+                                                        {hd&&qDiskonTampil==='lengkap'&&<span style={{fontSize:`${(printFontSize*0.79).toFixed(1)}pt`,color:'#94a3b8',display:'block'}}>Diskon {qi.discountType==='pct'?`${qi.discountValue}%`:formatRp(qi.discountValue)}</span>}
                                                         <span style={{fontWeight:800, color:'#0f172a'}}>{formatRp(net)}</span>
                                                     </td>
                                                 </tr>);
@@ -26646,7 +26680,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                     <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-folder-open mr-2 text-indigo-300"></i>Riwayat Surat Penawaran</h2>
                                     <p className="text-xs text-indigo-300">Daftar penawaran yang telah disimpan. Buka kembali untuk edit/cetak ulang.</p>
                                 </div>
-                                <button onClick={() => { setQuotationItems([]); setQClientName(''); setQClientContact(''); setQNotes(''); setActiveSection('quotation'); }}
+                                <button onClick={() => { setQuotationItems([]); setQClientName(''); setQClientContact(''); setQNotes(''); setQDiskonTampil('lengkap'); setQSatuanNet(false); setActiveSection('quotation'); }}
                                     className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 px-3 py-2 rounded-xl transition font-bold flex items-center gap-1.5">
                                     <i className="fa-solid fa-plus"></i>Buat Penawaran Baru
                                 </button>
