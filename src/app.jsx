@@ -1072,11 +1072,19 @@
             try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
         };
 
+        // Link driver: #driver-confirm=<id transaksi>[&d=<id driver>]
         const getDriverConfirmFromHash = () => {
             const hash = window.location.hash || '';
             const prefix = '#driver-confirm=';
             if (!hash.startsWith(prefix)) return '';
-            try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
+            try { return decodeURIComponent(hash.slice(prefix.length).split('&d=')[0]); } catch(e) { return ''; }
+        };
+        const getDriverConfirmDriverFromHash = () => {
+            const hash = window.location.hash || '';
+            if (!hash.startsWith('#driver-confirm=')) return '';
+            const i = hash.indexOf('&d=');
+            if (i < 0) return '';
+            try { return decodeURIComponent(hash.slice(i + 3)); } catch(e) { return ''; }
         };
 
         const getDriverRekapGajiFromHash = () => {
@@ -22795,6 +22803,115 @@ ${getRekapShareLink(rekap)}
             );
         };
 
+        // ===== Link driver: langkah perjalanan =====
+        // Sekali Jalan: Berangkat → Ambil (foto) → Selesai (foto)
+        // Pulang Pergi: Berangkat → Ambil → Sampai → Ambil Lagi (atau "tidak ada barang dibawa pulang") → Selesai
+        // Langkah, jam & foto dari link disimpan di catatan sendiri 'drvp:<id transaksi>' (hanya ditulis link itu),
+        // lalu aplikasi admin menerapkannya ke transaksi. Jadi link tidak pernah menulis daftar transaksi bersama.
+        const DRV_STATUS = ['Menunggu', 'Menuju Lokasi', 'Dalam Perjalanan', 'Terkirim', 'Gagal'];
+        const DRV_LANGKAH_INFO = {
+            berangkat: { tombol: '🚗 Berangkat', catat: 'Berangkat', foto: false },
+            ambil: { tombol: '📦 Ambil', catat: 'Barang diambil', ikon: 'Ambil', foto: true, label: 'Foto barang yang diambil' },
+            sampai: { tombol: '📍 Sampai', catat: 'Sampai tujuan', ikon: 'Sampai', foto: true, label: 'Foto bukti barang sampai di tujuan' },
+            ambil2: { tombol: '📦 Ambil Lagi', catat: 'Barang dibawa pulang', ikon: 'Ambil Lagi', foto: true, label: 'Foto barang yang dibawa pulang' },
+            selesai: { tombol: '✅ Selesai', catat: 'Selesai diantar', ikon: 'Selesai', foto: true, label: 'Foto bukti barang sampai' },
+            tolak: { catat: 'Ditolak driver' },
+        };
+        const drvUrutan = (trx) => trx?.tripType === 'pp' ? ['berangkat', 'ambil', 'sampai', 'ambil2', 'selesai'] : ['berangkat', 'ambil', 'selesai'];
+        const drvStatusDariTahap = (tahap, n) => tahap <= 0 ? 'Menunggu' : tahap === 1 ? 'Menuju Lokasi' : tahap >= n ? 'Terkirim' : 'Dalam Perjalanan';
+        const drvTahapDariStatus = (status, n) => status === 'Menuju Lokasi' ? 1 : status === 'Dalam Perjalanan' ? 2 : status === 'Terkirim' ? n : 0;
+        // Waktu yang pasti lebih baru dari semua waktu yang diberikan (jam HP driver & admin bisa berbeda)
+        const isoSetelah = (...isos) => {
+            let t = Date.now();
+            isos.forEach(v => { const x = Date.parse(v || ''); if (!isNaN(x) && x >= t) t = x + 1; });
+            return new Date(t).toISOString();
+        };
+        // Keadaan perjalanan saat ini. Catatan link dipakai bila milik driver yang sama dan lebih baru dari
+        // perubahan status manual oleh admin; selain itu mengikuti status di transaksi.
+        const drvKeadaan = (trx, prog) => {
+            const n = drvUrutan(trx).length;
+            const pakai = !!prog && typeof prog === 'object' && String(prog.driverId || '') === String(trx?.driverId || '') && String(prog.at || '') > String(trx?.statusManualAt || '');
+            if (pakai) {
+                const gagal = !!prog.gagal, selesai = !gagal && !!prog.selesai;
+                const tahap = selesai ? n : Math.max(0, Math.min(Number(prog.tahap) || 0, n - 1));
+                return { tahap, n, gagal, selesai, kosong: !!prog.kosong, langkah: safeArray(prog.langkah), status: gagal ? 'Gagal' : drvStatusDariTahap(tahap, n), dariLink: true, at: prog.at };
+            }
+            const status = DRV_STATUS.includes(trx?.status) ? trx.status : 'Menunggu';
+            let tahap = drvTahapDariStatus(status, n);
+            if (status === 'Dalam Perjalanan') { const dt = Number(trx?.drvTahap); if (dt >= 2 && dt < n) tahap = dt; }
+            return { tahap, n, gagal: status === 'Gagal', selesai: status === 'Terkirim', kosong: !!trx?.drvKosong, langkah: safeArray(trx?.drvLangkah), status, dariLink: false, at: '' };
+        };
+        // Transaksi setelah catatan link diterapkan, atau null bila tidak ada yang perlu diubah
+        const drvTerapkan = (trx, prog) => {
+            const k = drvKeadaan(trx, prog);
+            if (!k.dariLink || String(trx?.drvAt || '') >= String(k.at || '')) return null;
+            return { ...trx, status: k.status, drvTahap: k.tahap, drvSelesai: k.selesai, drvKosong: k.kosong, drvLangkah: k.langkah, drvAt: k.at };
+        };
+        const drvJam = (iso) => { const d = new Date(iso || ''); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }); };
+        // Keterangan singkat di bawah status (menu Driver / Ekspedisi)
+        const drvKeterangan = (trx) => {
+            const langkah = safeArray(trx?.drvLangkah);
+            const akhir = langkah[langkah.length - 1];
+            if (!akhir) return '';
+            const status = trx.status || 'Menunggu';
+            if (status === 'Gagal') return akhir.k === 'tolak' ? `Ditolak driver ${drvJam(akhir.at)}` : '';
+            if (status === 'Terkirim') return akhir.k === 'selesai' ? `Selesai ${drvJam(akhir.at)}` : '';
+            if (status === 'Menunggu') return '';
+            const n = drvUrutan(trx).length;
+            const teks = akhir.kosong ? 'Pulang tanpa barang' : (DRV_LANGKAH_INFO[akhir.k]?.catat || '');
+            if (trx.tripType === 'pp' && status === 'Dalam Perjalanan') {
+                const tahap = Number(trx.drvTahap) >= 2 ? Number(trx.drvTahap) : 2;
+                return `Langkah ${tahap + 1} dari ${n} · ${tahap >= 3 ? 'pulang' : 'menuju tujuan'} · ${teks.toLowerCase()} ${drvJam(akhir.at)}`;
+            }
+            return `${teks} ${drvJam(akhir.at)}`;
+        };
+        // Foto dari HP dikecilkan dulu (sisi terpanjang 1280 px, JPEG) agar cepat terkirim walau sinyal lemah
+        const kompresFotoDriver = (file) => new Promise((resolve, reject) => {
+            if (!file || !/^image\//.test(file.type || 'image/')) { reject(new Error('Berkas bukan foto')); return; }
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const buat = (maks, mutu) => {
+                        const skala = Math.min(1, maks / Math.max(img.width, img.height));
+                        const c = document.createElement('canvas');
+                        c.width = Math.max(1, Math.round(img.width * skala)); c.height = Math.max(1, Math.round(img.height * skala));
+                        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                        return c.toDataURL('image/jpeg', mutu);
+                    };
+                    let hasil = buat(1280, 0.7);
+                    if (hasil.length > 550000) hasil = buat(1024, 0.6);
+                    URL.revokeObjectURL(url);
+                    resolve(hasil);
+                } catch (e) { URL.revokeObjectURL(url); reject(e); }
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Foto tidak bisa dibaca')); };
+            img.src = url;
+        });
+        // Jendela foto perjalanan (tutup lewat tombol)
+        const DrvFotoModal = ({ trx, onClose }) => {
+            const foto = safeArray(trx?.drvLangkah).filter(l => l && l.foto);
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4" data-drv-foto-modal>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+                            <h3 className="font-bold text-gray-800 text-sm sm:text-base">📷 Foto pengiriman · {trx?.driverName || 'Driver'} · {trx?.date || ''}</h3>
+                            <button onClick={onClose} className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-bold text-gray-700 bg-white hover:bg-gray-50 shrink-0" data-drv-foto-tutup>✕ Tutup</button>
+                        </div>
+                        <div className="p-4 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {foto.length === 0 && <p className="text-sm text-gray-500 italic">Belum ada foto.</p>}
+                            {foto.map((l, i) => (
+                                <div key={i}>
+                                    <StoredImg src={l.foto} alt={DRV_LANGKAH_INFO[l.k]?.catat || 'foto'} className="w-full max-h-[60vh] object-contain rounded-lg bg-gray-100" placeholderClassName="w-full h-48 rounded-lg" />
+                                    <p className="text-xs text-gray-700 mt-1.5"><b>{DRV_LANGKAH_INFO[l.k]?.catat || l.k}</b> · {drvJam(l.at)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates }) => {
             const [activeSubTab, setActiveSubTab] = React.useState('driver');
             const [activeRekapTab, setActiveRekapTab] = React.useState('rekap_pengiriman');
@@ -22809,6 +22926,9 @@ ${getRekapShareLink(rekap)}
             const [filterStatus, setFilterStatus] = React.useState('');
             const [dateFrom, setDateFrom] = React.useState('');
             const [dateTo, setDateTo] = React.useState('');
+            const [fotoTrx, setFotoTrx] = React.useState(null); // transaksi yang fotonya sedang dilihat
+            // Saat menu dibuka: ambil catatan perjalanan terbaru dari link driver
+            React.useEffect(() => { try { window.dispatchEvent(new Event('simpati-driver-remote')); } catch (e) {} }, [activeSubTab]);
 
             const visibleDrivers = (drivers || []).filter(isVisibleRecord);
             const visibleTarifs = (driverTarifs || []).filter(isVisibleRecord);
@@ -22834,7 +22954,8 @@ ${getRekapShareLink(rekap)}
 
             const generateShareLink = (trx) => {
                 const base = window.location.origin + window.location.pathname;
-                return `${base}#driver-confirm=${encodeURIComponent(trx.id)}`;
+                // &d= : penanda driver, agar link driver lama tidak bisa dipakai setelah order dialihkan
+                return `${base}#driver-confirm=${encodeURIComponent(trx.id)}${trx.driverId ? `&d=${encodeURIComponent(trx.driverId)}` : ''}`;
             };
 
             const copyShareLink = async (trx) => {
@@ -22931,7 +23052,24 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d=>d.id===xForm.driverId);
                 const payload = { ...xForm, tripType: xForm.tripType||'sekali', driverName: drv?drv.name:'', _syncUpdatedAt: new Date().toISOString() };
                 if (editTrx) {
-                    setDriverTransactions(prev => prev.map(t => t.id===editTrx.id ? {...t,...payload,id:t.id} : t));
+                    setDriverTransactions(prev => prev.map(t => {
+                        if (t.id !== editTrx.id) return t;
+                        // Status hanya ikut disimpan bila memang diubah di form, agar status dari link driver tidak mundur
+                        const statusDiubah = (xForm.status || 'Menunggu') !== (editTrx.status || 'Menunggu');
+                        const driverDiganti = String(xForm.driverId || '') !== String(editTrx.driverId || '');
+                        const next = { ...t, ...payload, id: t.id, status: statusDiubah ? xForm.status : (t.status || 'Menunggu') };
+                        if (statusDiubah) {
+                            next.statusManualAt = isoSetelah(t.drvAt, t.statusManualAt);
+                            next.drvTahap = drvTahapDariStatus(next.status, drvUrutan(next).length);
+                            next.drvSelesai = next.status === 'Terkirim';
+                        } else if (driverDiganti && (t.status || 'Menunggu') === 'Gagal') {
+                            // Order ditolak lalu dialihkan ke driver lain: mulai lagi dari Menunggu
+                            next.status = 'Menunggu';
+                            next.statusManualAt = isoSetelah(t.drvAt, t.statusManualAt);
+                            next.drvTahap = 0; next.drvSelesai = false; next.drvKosong = false; next.drvLangkah = [];
+                        }
+                        return next;
+                    }));
                 } else {
                     setDriverTransactions(prev => [...(prev||[]), { id:genId('XPDC-'), ...payload }]);
                 }
@@ -22943,7 +23081,8 @@ ${getRekapShareLink(rekap)}
                 showToast('Transaksi dihapus', 'success');
             };
             const updateStatus = (id, status) => {
-                setDriverTransactions(prev => prev.map(t => t.id===id ? {...t, status, _syncUpdatedAt:new Date().toISOString()} : t));
+                // Ubahan manual admin dicatat waktunya: catatan link yang lebih lama tidak menimpanya
+                setDriverTransactions(prev => prev.map(t => t.id===id ? {...t, status, statusManualAt: isoSetelah(t.drvAt, t.statusManualAt), drvTahap: drvTahapDariStatus(status, drvUrutan(t).length), drvSelesai: status === 'Terkirim', _syncUpdatedAt:new Date().toISOString()} : t));
                 showToast('Status diperbarui', 'success');
             };
 
@@ -23354,9 +23493,23 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const totalTerkirim = filteredRekapTrx.filter(t=>t.status==='Terkirim').length;
             const totalMenunggu = filteredRekapTrx.filter(t=>t.status==='Menunggu').length;
 
+            // Tombol 📷 per langkah yang punya foto
+            const fotoTombol = (t) => {
+                const foto = safeArray(t.drvLangkah).filter(l => l && l.foto);
+                if (!foto.length) return <span className="text-xs text-gray-300">—</span>;
+                return (
+                    <div className="flex gap-1 flex-wrap">
+                        {foto.map((l, i) => (
+                            <button key={i} onClick={() => setFotoTrx(t)} className="text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded hover:bg-blue-100" data-drv-foto-btn={l.k}>📷 {DRV_LANGKAH_INFO[l.k]?.ikon || l.k}</button>
+                        ))}
+                    </div>
+                );
+            };
+
             const statusColor = (s) => {
                 if (s==='Terkirim') return 'bg-green-100 text-green-700';
                 if (s==='Dalam Perjalanan') return 'bg-blue-100 text-blue-700';
+                if (s==='Menuju Lokasi') return 'bg-indigo-100 text-indigo-700';
                 if (s==='Gagal') return 'bg-red-100 text-red-700';
                 return 'bg-yellow-100 text-yellow-700';
             };
@@ -23562,7 +23715,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 </select>
                                 <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm">
                                     <option value="">Semua Status</option>
-                                    {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
+                                    {DRV_STATUS.map(s=><option key={s} value={s}>{s}</option>)}
                                 </select>
                                 <input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm" />
                                 <input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm" />
@@ -23578,11 +23731,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                             <th className="px-3 py-2 font-semibold">Berat/KM</th>
                                             <th className="px-3 py-2 font-semibold">Ongkir</th>
                                             <th className="px-3 py-2 font-semibold">Status</th>
+                                            <th className="px-3 py-2 font-semibold">Foto</th>
                                             <th className="px-3 py-2 font-semibold">Aksi</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {pagedTrx.length===0 && <tr><td colSpan="7" className="text-center py-8 text-gray-400">Tidak ada transaksi ditemukan</td></tr>}
+                                        {pagedTrx.length===0 && <tr><td colSpan="8" className="text-center py-8 text-gray-400">Tidak ada transaksi ditemukan</td></tr>}
                                         {pagedTrx.map((t)=>{
                                             const trf = visibleTarifs.find(x=>x.id===t.tarifId);
                                             return (
@@ -23602,9 +23756,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                 <td className="px-3 py-2">
                                                     <select value={t.status||'Menunggu'} onChange={e=>updateStatus(t.id,e.target.value)}
                                                         className={`text-xs font-bold px-2 py-1 rounded border-0 cursor-pointer ${statusColor(t.status||'Menunggu')}`}>
-                                                        {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
+                                                        {DRV_STATUS.map(s=><option key={s} value={s}>{s}</option>)}
                                                     </select>
+                                                    {drvKeterangan(t) && <div className="text-[11px] text-gray-500 mt-1" data-drv-ket>{drvKeterangan(t)}</div>}
                                                 </td>
+                                                <td className="px-3 py-2">{fotoTombol(t)}</td>
                                                 <td className="px-3 py-2">
                                                     <div className="flex gap-1 flex-wrap">
                                                         <button onClick={()=>printStruk(t)} title="Cetak Struk" className="text-slate-600 bg-gray-50 p-1 rounded hover:bg-gray-100"><IconPrinter /></button>
@@ -23632,14 +23788,16 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     <span className="font-bold text-gray-900 text-sm">{t.driverName||'-'}</span>
                                                     <select value={t.status||'Menunggu'} onChange={e=>updateStatus(t.id,e.target.value)}
                                                         className={`text-xs font-bold px-2 py-0.5 rounded border-0 cursor-pointer ${statusColor(t.status||'Menunggu')}`}>
-                                                        {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
+                                                        {DRV_STATUS.map(s=><option key={s} value={s}>{s}</option>)}
                                                     </select>
                                                 </div>
+                                                {drvKeterangan(t) && <div className="text-[11px] text-gray-500 mb-0.5" data-drv-ket>{drvKeterangan(t)}</div>}
                                                 <div className="text-xs text-gray-500">{t.date} · {trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' ? ' (PP)' : ''}</div>
                                                 <div className="flex items-center gap-2 mt-0.5">
                                                     <span className="text-xs text-gray-400">{trf?.pricingType==='per_km' ? (t.distance ? `${t.distance} km` : '-') : (t.weight ? `${t.weight} kg` : '-')}</span>
                                                     <span className="font-bold text-blue-700 text-sm">{formatRupiah(safeMoney(t.ongkir))}</span>
                                                 </div>
+                                                {safeArray(t.drvLangkah).some(l => l && l.foto) && <div className="mt-1">{fotoTombol(t)}</div>}
                                             </div>
                                             <div className="flex flex-col gap-1 items-end shrink-0">
                                                 <div className="flex gap-1">
@@ -24054,6 +24212,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         </div>
                     )}
 
+                    {fotoTrx && <DrvFotoModal trx={fotoTrx} onClose={() => setFotoTrx(null)} />}
+
                     {/* MODAL TRANSAKSI */}
                     {showTrxForm && (
                         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -24067,7 +24227,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <div><label className="block text-xs font-semibold text-gray-600 mb-1">Tanggal</label><input type="date" value={xForm.date} onChange={e=>handleXFormChange('date',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" /></div>
                                         <div><label className="block text-xs font-semibold text-gray-600 mb-1">Status</label>
                                             <select value={xForm.status} onChange={e=>handleXFormChange('status',e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
-                                                {['Menunggu','Dalam Perjalanan','Terkirim','Gagal'].map(s=><option key={s} value={s}>{s}</option>)}
+                                                {DRV_STATUS.map(s=><option key={s} value={s}>{s}</option>)}
                                             </select>
                                         </div>
                                     </div>
@@ -24119,74 +24279,182 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             );
         };
 
+        // Langkah ini wajib foto? (PP: Selesai tanpa foto bila pulang tanpa barang)
+        const drvPerluFoto = (trx, k) => {
+            const kode = drvUrutan(trx)[k.tahap];
+            if (!kode || !DRV_LANGKAH_INFO[kode]?.foto) return false;
+            return !(kode === 'selesai' && trx?.tripType === 'pp' && k.kosong);
+        };
+        const DRV_LABEL_SINGKAT = { berangkat: 'Berangkat', ambil: 'Ambil', sampai: 'Sampai', ambil2: 'Ambil Lagi', selesai: 'Selesai' };
+        const DRV_WARNA_HEADER = { 'Menunggu': 'bg-yellow-500', 'Menuju Lokasi': 'bg-indigo-500', 'Dalam Perjalanan': 'bg-blue-500', 'Terkirim': 'bg-green-500', 'Gagal': 'bg-red-500' };
+
         const DriverConfirmView = ({ trxId }) => {
+            const driverLink = getDriverConfirmDriverFromHash();
+            const CACHE_KEY = `simpati_dc2_cache_${trxId}`;
             const [trx, setTrx] = React.useState(null);
+            const [prog, setProg] = React.useState(null);
             const [tarif, setTarif] = React.useState(null);
+            const [namaUsaha, setNamaUsaha] = React.useState('');
             const [loading, setLoading] = React.useState(true);
-            const [actionDone, setActionDone] = React.useState('');
-            const [saving, setSaving] = React.useState(false);
-            const [templates2, setTemplates2] = React.useState({});
+            const [gagalMuat, setGagalMuat] = React.useState(false);
+            const [saving, setSaving] = React.useState(''); // '' | 'foto' | 'kirim'
+            const [foto, setFoto] = React.useState(''); // foto yang dipasang driver (belum terkirim)
+            const [prosesFoto, setProsesFoto] = React.useState(false);
+            const [pesan, setPesan] = React.useState(null); // { jenis: 'error' | 'info', teks }
+            const [konfirmasi, setKonfirmasi] = React.useState(''); // '' | 'tolak' | 'kosong'
+            const [lihatFoto, setLihatFoto] = React.useState('');
+            const sinyalRef = React.useRef(null);
+            const savingRef = React.useRef(false);
+            const tampilRef = React.useRef({ trx: null, prog: null });
+            tampilRef.current = { trx, prog };
+
+            // Data terbaru dari server: transaksi ini + catatan perjalanannya
+            const ambilData = async () => {
+                const [trxRes, progRes] = await Promise.all([
+                    supabaseClient.from('app_data').select('data').eq('id', 'driverTransactions').maybeSingle(),
+                    supabaseClient.from('app_data').select('data').eq('id', `drvp:${trxId}`).maybeSingle(),
+                ]);
+                if (trxRes.error) throw trxRes.error;
+                if (progRes.error) throw progRes.error;
+                const found = safeArray(trxRes.data?.data).find(t => t && String(t.id) === String(trxId) && !t.isDeleted) || null;
+                const p = progRes.data?.data && typeof progRes.data.data === 'object' ? progRes.data.data : null;
+                return { trx: found, prog: p };
+            };
+            const simpanCache = (t, p, tf, nama) => { try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ trx: t, prog: p, tarif: tf, nama })); } catch (e) {} };
 
             React.useEffect(() => {
-                const CACHE_KEY = `simpati_dc_cache_${trxId}`;
-                const load = async () => {
+                let hidup = true;
+                try {
+                    const c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
+                    if (c && c.trx) { setTrx(c.trx); setProg(c.prog || null); setTarif(c.tarif || null); setNamaUsaha(c.nama || ''); setLoading(false); }
+                } catch (e) {}
+                (async () => {
+                    if (!supabaseClient) { setGagalMuat(true); setLoading(false); return; }
+                    // Gangguan sinyal sebelumnya tidak boleh menahan link ini: langsung coba ke server
+                    cloudHealth.allowProbeNow();
                     try {
-                        const cached = sessionStorage.getItem(CACHE_KEY);
-                        if (cached) {
-                            const { trx: cTrx, tarif: cTarif, templates: cTpl } = JSON.parse(cached);
-                            setTrx(cTrx || null);
-                            setTarif(cTarif || null);
-                            setTemplates2(cTpl || {}); applyPrintSettingsFromTemplates(cTpl);
-                            setLoading(false);
-                        }
-                        if (supabaseClient) {
-                            const [trxRes, tplRes, tarRes] = await Promise.all([
-                                supabaseClient.from('app_data').select('data').eq('id','driverTransactions').single(),
-                                supabaseClient.from('app_data').select('data').eq('id','templates').single(),
-                                supabaseClient.from('app_data').select('data').eq('id','driverTarifs').single()
-                            ]);
-                            const allTrx = trxRes.data?.data || [];
-                            const found = allTrx.find(t => t.id === trxId && !t.isDeleted);
-                            const tpl = tplRes.data?.data || {};
-                            const foundTarif = found ? (tarRes.data?.data || []).find(t => t.id === found.tarifId) || null : null;
-                            setTrx(found || null);
-                            setTemplates2(tpl); applyPrintSettingsFromTemplates(tpl);
-                            setTarif(foundTarif);
-                            try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ trx: found, tarif: foundTarif, templates: tpl })); } catch(e) {}
-                        }
-                    } catch(e) { console.error(e); }
-                    setLoading(false);
-                };
-                load();
+                        const [d, tarRes, tplRes] = await Promise.all([
+                            ambilData(),
+                            supabaseClient.from('app_data').select('data').eq('id', 'driverTarifs').maybeSingle(),
+                            // Hanya nama usaha (pengaturan cetak bisa berisi logo/tanda tangan yang besar)
+                            supabaseClient.from('app_data').select('nama:data->>companyName').eq('id', 'templates').maybeSingle(),
+                        ]);
+                        if (!hidup) return;
+                        const tf = d.trx ? safeArray(tarRes.data?.data).find(t => t && t.id === d.trx.tarifId) || null : null;
+                        const nama = typeof tplRes.data?.nama === 'string' ? tplRes.data.nama : (typeof tplRes.data?.data?.companyName === 'string' ? tplRes.data.data.companyName : '');
+                        setTrx(d.trx); setProg(d.prog); setTarif(tf); setNamaUsaha(nama); setGagalMuat(false);
+                        simpanCache(d.trx, d.prog, tf, nama);
+                        cloudHealth.ok();
+                    } catch (e) { console.error(e); if (hidup) setGagalMuat(true); }
+                    if (hidup) setLoading(false);
+                })();
+                return () => { hidup = false; };
             }, [trxId]);
 
-            const doAction = async (newStatus) => {
-                if (!trx || saving) return;
-                setSaving(true);
-                setTrx(prev => ({...prev, status: newStatus}));
-                setActionDone(newStatus);
+            // Kembali ke halaman ini (mis. setelah memotret / pindah aplikasi): perbarui status tanpa membuang foto
+            React.useEffect(() => {
+                const segarkan = async () => {
+                    if (document.hidden || savingRef.current || !supabaseClient) return;
+                    try {
+                        cloudHealth.allowProbeNow();
+                        const d = await ambilData();
+                        cloudHealth.ok();
+                        if (savingRef.current) return;
+                        const lama = tampilRef.current;
+                        if (lama.trx && d.trx && drvKeadaan(lama.trx, lama.prog).tahap !== drvKeadaan(d.trx, d.prog).tahap) setFoto('');
+                        setTrx(d.trx); setProg(d.prog);
+                    } catch (e) {}
+                };
+                document.addEventListener('visibilitychange', segarkan);
+                return () => document.removeEventListener('visibilitychange', segarkan);
+            }, [trxId]);
+
+            // Sinyal langsung ke aplikasi admin yang sedang terbuka
+            React.useEffect(() => {
+                if (!supabaseClient) return;
+                let ch = null;
+                try { ch = supabaseClient.channel('simpati-sinyal', { config: { broadcast: { self: false } } }).subscribe(); sinyalRef.current = ch; } catch (e) {}
+                return () => { sinyalRef.current = null; try { if (ch) supabaseClient.removeChannel(ch); } catch (e) {} };
+            }, []);
+            const kirimSinyal = () => {
+                const ch = sinyalRef.current;
+                if (!ch) return;
+                try { const r = ch.send({ type: 'broadcast', event: 'driver', payload: { trxId, at: Date.now() } }); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch (e) {}
+            };
+
+            const pilihFoto = async (e) => {
+                const file = e.target.files && e.target.files[0];
+                e.target.value = '';
+                if (!file) return;
+                setProsesFoto(true); setPesan(null);
+                try { setFoto(await kompresFotoDriver(file)); }
+                catch (err) { setPesan({ jenis: 'error', teks: 'Foto tidak bisa dibaca. Coba ambil ulang.' }); }
+                setProsesFoto(false);
+            };
+
+            // jenis: 'langkah' (langkah berikutnya) | 'kosong' (PP: tidak ada barang dibawa pulang) | 'tolak'
+            const kirim = async (jenis) => {
+                if (!trx || savingRef.current || !supabaseClient) return;
+                const tahapDilihat = drvKeadaan(trx, prog).tahap;
+                savingRef.current = true;
+                setKonfirmasi(''); setPesan(null); setSaving('kirim');
+                // Driver menekan sendiri: gangguan sinyal sebelumnya tidak boleh menahan percobaan ini
+                cloudHealth.allowProbeNow();
+                const jalankan = async () => {
+                    // Selalu cek data terbaru: mencegah langkah dobel / melompat (2 tab, tekan dua kali, admin mengubah)
+                    const { trx: tNow, prog: pNow } = await ambilData();
+                    if (!tNow) { setTrx(null); setProg(null); return; }
+                    const k = drvKeadaan(tNow, pNow);
+                    const urut = drvUrutan(tNow);
+                    const kode = urut[k.tahap];
+                    const dialihkan = !!driverLink && String(tNow.driverId || '') !== driverLink;
+                    const berubah = k.gagal || k.selesai || k.tahap !== tahapDilihat || (jenis === 'tolak' && k.tahap !== 0) || (jenis === 'kosong' && kode !== 'ambil2');
+                    if (dialihkan || berubah) {
+                        setTrx(tNow); setProg(pNow); setFoto('');
+                        if (!dialihkan) setPesan({ jenis: 'info', teks: 'Status order sudah berubah. Tampilan sudah diperbarui.' });
+                        return;
+                    }
+                    const wajibFoto = jenis === 'langkah' && drvPerluFoto(tNow, k);
+                    if (wajibFoto && !foto) { setPesan({ jenis: 'error', teks: 'Pasang foto dulu.' }); return; }
+                    let ref = '';
+                    if (wajibFoto) {
+                        setSaving('foto');
+                        ref = `${IMG_REF_PREFIX}dx:${trxId}:${kode}:${hashImageString(foto)}`;
+                        const { error } = await supabaseClient.from('app_data').upsert({ id: ref, data: foto }, { onConflict: 'id' });
+                        if (error) throw error;
+                        imgMem.set(ref, foto); imgMissing.delete(ref); idbPutImg(ref, foto);
+                        setSaving('kirim');
+                    }
+                    const at = isoSetelah(tNow.statusManualAt, tNow.drvAt, pNow?.at);
+                    const entri = jenis === 'tolak' ? { k: 'tolak', at } : jenis === 'kosong' ? { k: 'ambil2', at, kosong: true } : { k: kode, at, ...(ref ? { foto: ref } : {}) };
+                    const tahapBaru = jenis === 'tolak' ? k.tahap : k.tahap + 1;
+                    const baru = { trxId: String(trxId), driverId: String(tNow.driverId || ''), tahap: tahapBaru, selesai: jenis !== 'tolak' && tahapBaru >= urut.length, gagal: jenis === 'tolak', kosong: k.kosong || jenis === 'kosong', langkah: [...k.langkah, entri], at };
+                    const { error: errTulis } = await supabaseClient.from('app_data').upsert({ id: `drvp:${trxId}`, data: baru }, { onConflict: 'id' });
+                    if (errTulis) throw errTulis;
+                    // Pastikan benar-benar tersimpan sebelum tampilan maju
+                    const cek = await supabaseClient.from('app_data').select('data').eq('id', `drvp:${trxId}`).maybeSingle();
+                    if (cek.error || String(cek.data?.data?.at || '') !== at) throw new Error('Belum tersimpan');
+                    setTrx(tNow); setProg(baru); setFoto(''); setPesan(null);
+                    simpanCache(tNow, baru, tarif, namaUsaha);
+                    cloudHealth.ok();
+                    kirimSinyal();
+                };
                 try {
-                    const res = await supabaseClient.from('app_data').select('data').eq('id','driverTransactions').single();
-                    const allTrx = res.data?.data || [];
-                    const updated = allTrx.map(t => t.id===trx.id ? {...t, status:newStatus, _syncUpdatedAt:new Date().toISOString()} : t);
-                    await supabaseClient.from('app_data').upsert({ id:'driverTransactions', data: updated });
-                    try { sessionStorage.removeItem(`simpati_dc_cache_${trx.id}`); } catch(e) {}
-                } catch(e) {
+                    // Sinyal sangat lemah: jangan biarkan "Mengirim…" menggantung. Bila kiriman ternyata sampai belakangan,
+                    // tekan ulang akan mendapati langkah sudah tercatat dan tampilan diperbarui.
+                    const proses = jalankan();
+                    proses.catch(() => {});
+                    await Promise.race([proses, new Promise((_, tolak) => setTimeout(() => tolak(new Error('Waktu habis')), 45000))]);
+                } catch (e) {
                     console.error(e);
-                    setTrx(prev => ({...prev, status: trx.status}));
-                    setActionDone('');
+                    setPesan({ jenis: 'error', teks: 'Gagal terkirim. Periksa sinyal lalu tekan lagi — foto tidak hilang.' });
+                } finally {
+                    savingRef.current = false;
+                    setSaving('');
                 }
-                setSaving(false);
             };
 
-            const statusBg = (s) => {
-                if (s==='Terkirim') return 'bg-green-500';
-                if (s==='Dalam Perjalanan') return 'bg-blue-500';
-                if (s==='Gagal') return 'bg-red-500';
-                return 'bg-yellow-500';
-            };
-
-            if (loading) return (
+            if (loading && !trx) return (
                 <div className="min-h-screen flex items-center justify-center bg-gray-50">
                     <div className="text-center"><div className="text-4xl mb-4">...</div><p className="text-gray-500">Memuat data pengiriman...</p></div>
                 </div>
@@ -24195,69 +24463,167 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             if (!trx) return (
                 <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
                     <div className="bg-white rounded-2xl shadow p-8 max-w-sm w-full text-center">
-                        <div className="text-5xl mb-4">404</div>
-                        <h2 className="text-xl font-bold text-gray-700 mb-2">Order Tidak Ditemukan</h2>
-                        <p className="text-gray-500 text-sm">Link ini tidak valid atau order sudah dihapus.</p>
+                        {gagalMuat ? (<>
+                            <div className="text-4xl mb-4">📶</div>
+                            <h2 className="text-xl font-bold text-gray-700 mb-2">Gagal Memuat</h2>
+                            <p className="text-gray-500 text-sm mb-4">Periksa sinyal internet lalu coba lagi.</p>
+                            <button onClick={() => window.location.reload()} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold" data-dc-muat-ulang>Coba lagi</button>
+                        </>) : (<>
+                            <div className="text-5xl mb-4">404</div>
+                            <h2 className="text-xl font-bold text-gray-700 mb-2">Order Tidak Ditemukan</h2>
+                            <p className="text-gray-500 text-sm">Link ini tidak valid atau order sudah dihapus.</p>
+                        </>)}
                     </div>
                 </div>
             );
 
-            const status = trx.status || 'Menunggu';
-            const isDone = status === 'Terkirim' || status === 'Gagal';
+            const namaHeader = namaUsaha || 'SIMPATI KONVEKSI';
+            const dialihkan = !!driverLink && String(trx.driverId || '') !== driverLink;
+            if (dialihkan) return (
+                <div className="min-h-screen bg-gray-50 flex items-start justify-center py-8 px-4">
+                    <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm overflow-hidden" data-dc-dialihkan>
+                        <div className="bg-gray-500 text-white p-5 text-center">
+                            <div className="text-sm font-medium opacity-80">{namaHeader}</div>
+                            <div className="text-2xl font-bold mt-1">Konfirmasi Pengiriman</div>
+                            <div className="mt-2 inline-block bg-white/20 rounded-full px-4 py-1 text-sm font-semibold">Dialihkan</div>
+                        </div>
+                        <div className="p-5 text-center text-sm text-gray-600">Order ini sudah dialihkan ke driver lain.<br />Hubungi admin bila ada pertanyaan.</div>
+                    </div>
+                </div>
+            );
+
+            const k = drvKeadaan(trx, prog);
+            const urut = drvUrutan(trx);
+            const pp = trx.tripType === 'pp';
+            const status = k.status;
+            const kode = urut[k.tahap];
+            const info = DRV_LANGKAH_INFO[kode] || {};
+            const selesai = k.selesai, gagal = k.gagal;
+            const perluFoto = !selesai && !gagal && k.tahap > 0 && drvPerluFoto(trx, k);
+            const akhir = k.langkah[k.langkah.length - 1];
+            const catatLangkah = (l) => l.kosong ? '↩ Pulang tanpa barang' : l.k === 'berangkat' ? '🚗 Berangkat' : l.k === 'ambil' ? '📦 Barang diambil' : l.k === 'sampai' ? '📍 Sampai tujuan' : l.k === 'ambil2' ? '📦 Barang dibawa pulang' : l.k === 'selesai' ? (pp ? '✅ Selesai (kembali)' : '✅ Selesai diantar') : l.k === 'tolak' ? '✖ Ditolak driver' : l.k;
+            const sibuk = !!saving || prosesFoto;
 
             return (
                 <div className="min-h-screen bg-gray-50 flex items-start justify-center py-8 px-4">
-                    <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm overflow-hidden">
-                        <div className={`${statusBg(status)} text-white p-5 text-center`}>
-                            <div className="text-sm font-medium opacity-80">{templates2?.companyName||'SIMPATI KONVEKSI'}</div>
+                    <div className="relative bg-white rounded-2xl shadow-lg w-full max-w-sm overflow-hidden" data-dc-status={status} data-dc-tahap={k.tahap}>
+                        <div className={`${DRV_WARNA_HEADER[status] || 'bg-yellow-500'} text-white p-5 text-center`}>
+                            <div className="text-sm font-medium opacity-80">{namaHeader}</div>
                             <div className="text-2xl font-bold mt-1">Konfirmasi Pengiriman</div>
-                            <div className="mt-2 inline-block bg-white/20 rounded-full px-4 py-1 text-sm font-semibold">{status}</div>
+                            <div className="mt-2 inline-block bg-white/20 rounded-full px-4 py-1 text-sm font-semibold" data-dc-pill>{status}{pp && status === 'Dalam Perjalanan' && k.tahap >= 3 ? ' · pulang' : ''}</div>
                         </div>
                         <div className="p-5 space-y-3">
+                            {!gagal && (
+                                <div className="flex items-start" data-dc-langkah>
+                                    {urut.map((kd, i) => {
+                                        const ok = selesai || i < k.tahap, now = !selesai && i === k.tahap;
+                                        return (
+                                            <React.Fragment key={kd}>
+                                                {i > 0 && <div className={`flex-1 h-0.5 mt-[11px] ${ok || now ? 'bg-green-500' : 'bg-gray-200'}`}></div>}
+                                                <div className={`flex flex-col items-center gap-1 w-14 text-center text-[10.5px] font-bold leading-tight ${ok ? 'text-green-700' : now ? 'text-blue-700' : 'text-gray-400'}`}>
+                                                    <span className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px] ${ok ? 'bg-green-500 text-white' : now ? 'bg-blue-600 text-white ring-4 ring-blue-100' : 'bg-gray-200 text-gray-500'}`}>{ok ? '✓' : i + 1}</span>
+                                                    {DRV_LABEL_SINGKAT[kd]}
+                                                </div>
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </div>
+                            )}
                             <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-                                <div className="flex justify-between"><span className="text-gray-500">Driver</span><span className="font-semibold">{trx.driverName||'-'}</span></div>
-                                {tarif && <div className="flex justify-between"><span className="text-gray-500">Rute</span><span className="font-semibold">{tarif.from} → {tarif.to}</span></div>}
-                                <div className="flex justify-between"><span className="text-gray-500">Tanggal</span><span className="font-medium">{trx.date}</span></div>
-                                <div className="flex justify-between"><span className="text-gray-500">Jenis</span><span className="font-medium">{trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}</span></div>
-                                {trx.weight && <div className="flex justify-between"><span className="text-gray-500">Berat</span><span className="font-medium">{trx.weight} kg</span></div>}
-                                {trx.distance && <div className="flex justify-between"><span className="text-gray-500">Jarak</span><span className="font-medium">{trx.distance} km</span></div>}
-                                {trx.note && <div className="flex justify-between"><span className="text-gray-500">Catatan</span><span className="font-medium text-right">{trx.note}</span></div>}
+                                <div className="flex justify-between gap-3"><span className="text-gray-500">Driver</span><span className="font-semibold text-right">{trx.driverName||'-'}</span></div>
+                                {tarif && <div className="flex justify-between gap-3"><span className="text-gray-500">Rute</span><span className="font-semibold text-right">{tarif.from} → {tarif.to}</span></div>}
+                                <div className="flex justify-between gap-3"><span className="text-gray-500">Tanggal</span><span className="font-medium">{trx.date}</span></div>
+                                <div className="flex justify-between gap-3"><span className="text-gray-500">Jenis</span><span className="font-medium">{pp?'Pulang Pergi (PP)':'Sekali Jalan'}</span></div>
+                                {trx.weight && <div className="flex justify-between gap-3"><span className="text-gray-500">Berat</span><span className="font-medium">{trx.weight} kg</span></div>}
+                                {trx.distance && <div className="flex justify-between gap-3"><span className="text-gray-500">Jarak</span><span className="font-medium">{trx.distance} km</span></div>}
+                                {trx.note && <div className="flex justify-between gap-3"><span className="text-gray-500">Catatan</span><span className="font-medium text-right">{trx.note}</span></div>}
+                                {!selesai && !gagal && akhir && akhir.at && <div className="flex justify-between gap-3" data-dc-terakhir><span className="text-gray-500">{(DRV_LANGKAH_INFO[akhir.k]?.catat || 'Terakhir').replace('Barang diambil', 'Diambil')}</span><span className="font-semibold">{drvJam(akhir.at)}</span></div>}
                             </div>
                             <div className="bg-blue-50 rounded-lg p-4 text-center">
-                                <div className="text-xs text-blue-500 font-semibold">ONGKIR</div>
+                                <div className="text-xs text-blue-500 font-semibold">ONGKIR{pp ? ' (PP)' : ''}</div>
                                 <div className="text-3xl font-bold text-blue-700">{formatRupiah(safeMoney(trx.ongkir))}</div>
                             </div>
-                            {!isDone && (
-                                <div className="space-y-2 pt-2">
-                                    <p className="text-xs text-gray-500 text-center font-medium">Pilih tindakan:</p>
-                                    {status === 'Menunggu' && (
-                                        <>
-                                            <button disabled={saving} onClick={()=>doAction('Dalam Perjalanan')}
-                                                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-base disabled:opacity-50">
-                                                {saving ? 'Memproses...' : 'Ambil Order'}
-                                            </button>
-                                            <button disabled={saving} onClick={()=>doAction('Gagal')}
-                                                className="w-full bg-red-50 hover:bg-red-100 text-red-600 py-3 rounded-xl font-bold text-base border border-red-200 disabled:opacity-50">
-                                                {saving ? 'Memproses...' : 'Batalkan'}
-                                            </button>
-                                        </>
-                                    )}
-                                    {status === 'Dalam Perjalanan' && (
-                                        <button disabled={saving} onClick={()=>doAction('Terkirim')}
-                                            className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold text-base disabled:opacity-50">
-                                            {saving ? 'Memproses...' : 'Selesai Diantar'}
-                                        </button>
-                                    )}
+
+                            {!selesai && !gagal && k.tahap === 0 && (
+                                <div className="space-y-2 pt-1">
+                                    <button disabled={sibuk} onClick={() => kirim('langkah')} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold text-base disabled:opacity-50" data-dc-aksi="berangkat">
+                                        {saving ? 'Mengirim…' : DRV_LANGKAH_INFO.berangkat.tombol}
+                                    </button>
+                                    <button disabled={sibuk} onClick={() => setKonfirmasi('tolak')} className="w-full bg-red-50 hover:bg-red-100 text-red-600 py-3 rounded-xl font-bold text-base border border-red-200 disabled:opacity-50" data-dc-aksi="tolak">✖ Tolak Order</button>
                                 </div>
                             )}
-                            {isDone && (
-                                <div className={`text-center py-4 rounded-xl font-bold text-lg ${status==='Terkirim'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>
-                                    {status==='Terkirim' ? 'Pengiriman Selesai!' : 'Order Dibatalkan'}
+
+                            {!selesai && !gagal && k.tahap > 0 && (
+                                <div className="space-y-2 pt-1">
+                                    {perluFoto && (<>
+                                        <div className="text-xs font-bold text-gray-700">{info.label} *</div>
+                                        {foto ? (
+                                            <div className="flex items-center gap-3 border border-green-200 bg-green-50 rounded-xl p-2" data-dc-foto-ada>
+                                                <img src={foto} alt="foto" className="w-16 h-16 object-cover rounded-lg cursor-pointer" onClick={() => setLihatFoto(foto)} />
+                                                <div className="text-xs">
+                                                    <div className="font-bold text-green-700">✓ Foto terpasang</div>
+                                                    <label className={`inline-block mt-1 text-blue-600 underline ${sibuk ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>Ganti foto<input type="file" accept="image/*" className="hidden" onChange={pilihFoto} disabled={sibuk} data-dc-foto-input /></label>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <label className={`block border-2 border-dashed border-blue-300 bg-blue-50 rounded-xl p-4 text-center text-blue-700 text-sm font-bold ${sibuk ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`} data-dc-foto-kotak>
+                                                {prosesFoto ? 'Memproses foto…' : '📷 Ambil foto / pilih dari galeri'}
+                                                <span className="block text-xs font-medium text-gray-500 mt-0.5">Wajib sebelum menekan {DRV_LABEL_SINGKAT[kode]}</span>
+                                                <input type="file" accept="image/*" className="hidden" onChange={pilihFoto} disabled={sibuk} data-dc-foto-input />
+                                            </label>
+                                        )}
+                                    </>)}
+                                    {!perluFoto && kode === 'selesai' && pp && k.kosong && <p className="text-xs text-gray-500 text-center">Tidak perlu foto karena pulang tanpa barang. Tekan Selesai saat sudah kembali.</p>}
+                                    <button disabled={sibuk || (perluFoto && !foto)} onClick={() => kirim('langkah')}
+                                        className={`w-full py-3 rounded-xl font-bold text-base ${sibuk || (perluFoto && !foto) ? 'bg-gray-200 text-gray-400' : kode === 'selesai' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`} data-dc-aksi={kode}>
+                                        {saving === 'foto' ? 'Mengunggah foto…' : saving ? 'Mengirim…' : info.tombol}
+                                    </button>
+                                    {perluFoto && !foto && !sibuk && <p className="text-xs text-gray-500 text-center">Pasang foto dulu untuk melanjutkan</p>}
+                                    {kode === 'ambil2' && <button disabled={sibuk} onClick={() => setKonfirmasi('kosong')} className="w-full text-sm text-gray-600 underline py-1 disabled:opacity-50" data-dc-aksi="kosong">Tidak ada barang dibawa pulang</button>}
                                 </div>
                             )}
+
+                            {pesan && <div className={`text-sm rounded-xl px-3 py-2 ${pesan.jenis === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`} data-dc-pesan={pesan.jenis}>{pesan.teks}</div>}
+                            {gagalMuat && <p className="text-[11px] text-amber-700 text-center">Sinyal lemah — data mungkin belum yang terbaru.</p>}
+
+                            {selesai && (<>
+                                <div className="space-y-2 text-sm" data-dc-riwayat>
+                                    {k.langkah.filter(l => l && l.k !== 'tolak').map((l, i) => (
+                                        <div key={i} className="flex gap-3">
+                                            <span className="w-11 shrink-0 text-gray-500">{drvJam(l.at)}</span>
+                                            <div>
+                                                <div>{catatLangkah(l)}</div>
+                                                {l.foto && <StoredImg src={l.foto} alt="foto" onClick={() => setLihatFoto(l.foto)} className="mt-1 w-14 h-14 object-cover rounded-lg cursor-pointer border border-gray-200" />}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="text-center py-4 rounded-xl font-bold text-lg bg-green-100 text-green-700">Pengiriman Selesai!</div>
+                            </>)}
+                            {gagal && (<>
+                                <div className="text-center py-4 rounded-xl font-bold text-lg bg-red-100 text-red-700" data-dc-gagal>{akhir && akhir.k === 'tolak' ? `Order ditolak driver · ${drvJam(akhir.at)}` : 'Order Dibatalkan'}</div>
+                                <p className="text-xs text-gray-500 text-center">Hubungi admin bila salah tekan.</p>
+                            </>)}
                             <p className="text-center text-xs text-gray-400 mt-2">ID: {trx.id}</p>
                         </div>
+
+                        {konfirmasi && (
+                            <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center p-4" data-dc-konfirmasi={konfirmasi}>
+                                <div className="bg-white rounded-2xl p-4 w-full space-y-2">
+                                    <div className="font-bold text-gray-900">{konfirmasi === 'tolak' ? 'Yakin menolak order ini?' : 'Tidak ada barang dibawa pulang?'}</div>
+                                    <p className="text-xs text-gray-600 pb-1">{konfirmasi === 'tolak' ? 'Admin akan diberi tahu dan order dialihkan ke driver lain.' : 'Langkah Ambil Lagi dilewati dan Selesai tidak perlu foto.'}</p>
+                                    <button onClick={() => kirim(konfirmasi === 'tolak' ? 'tolak' : 'kosong')} className={`w-full py-3 rounded-xl font-bold text-white ${konfirmasi === 'tolak' ? 'bg-red-600' : 'bg-blue-600'}`} data-dc-konfirmasi-ya>{konfirmasi === 'tolak' ? 'Ya, tolak' : 'Ya, lanjut'}</button>
+                                    <button onClick={() => setKonfirmasi('')} className="w-full py-3 rounded-xl font-bold text-gray-700 border border-gray-300 bg-white" data-dc-konfirmasi-kembali>Kembali</button>
+                                </div>
+                            </div>
+                        )}
                     </div>
+                    {lihatFoto && (
+                        <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4 gap-3" data-dc-lihat-foto>
+                            <StoredImg src={lihatFoto} alt="foto" className="max-w-full max-h-[80vh] object-contain rounded-lg" placeholderClassName="w-64 h-64 rounded-lg" />
+                            <button onClick={() => setLihatFoto('')} className="px-4 py-2 rounded-lg bg-white text-gray-800 font-bold text-sm" data-dc-lihat-tutup>✕ Tutup</button>
+                        </div>
+                    )}
                 </div>
             );
         };
@@ -29404,7 +29770,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const refresh = () => {
                     lastRefreshRef.current = Date.now();
                     applyRemoteDataSnapshot()
-                        .then(() => setLastSyncTime(Date.now()))
+                        .then(() => { setLastSyncTime(Date.now()); try { window.dispatchEvent(new Event('simpati-driver-remote')); } catch (e) {} })
                         .catch(err => console.error('Gagal refresh data Supabase:', err));
                 };
 
@@ -30040,6 +30406,54 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 });
             };
 
+            // ===== Link driver: terapkan catatan perjalanan (drvp:<id>) ke transaksi =====
+            // Dijalankan saat ada sinyal dari link driver, saat data diperbarui, saat menu Ekspedisi dibuka, dan tiap 1 menit.
+            // Hanya transaksi yang belum selesai (45 hari terakhir) yang dicek, dengan satu permintaan kecil.
+            const driverTrxRef = useRef([]);
+            driverTrxRef.current = driverTransactions;
+            const drvSinkronRef = useRef({ jalan: false, ulang: false });
+            const drvSinkronFnRef = useRef(null);
+            const sinkronPerjalananDriver = async () => {
+                if (!supabaseClient || cloudHealth.isBlocked()) return;
+                const st = drvSinkronRef.current;
+                if (st.jalan) { st.ulang = true; return; }
+                st.jalan = true; st.ulang = false;
+                try {
+                    const batas = toLocalDateStr(new Date(Date.now() - 45 * 864e5));
+                    const aktif = safeArray(driverTrxRef.current).filter(t => t && t.id != null && isVisibleRecord(t) && t.status !== 'Terkirim' && t.status !== 'Gagal' && (!t.date || String(t.date) >= batas));
+                    if (!aktif.length) return;
+                    const ids = aktif.map(t => `drvp:${t.id}`);
+                    const prog = new Map();
+                    for (let i = 0; i < ids.length; i += 50) {
+                        const { data, error } = await supabaseClient.from('app_data').select('id,data').in('id', ids.slice(i, i + 50));
+                        if (error) return;
+                        safeArray(data).forEach(r => { if (r && r.data && typeof r.data === 'object') prog.set(String(r.id).slice(5), r.data); });
+                    }
+                    if (!prog.size || !aktif.some(t => prog.has(String(t.id)) && drvTerapkan(t, prog.get(String(t.id))))) return;
+                    // Ambil data terbaru dulu agar ubahan admin di perangkat lain tidak tertimpa
+                    try { await applyRemoteDataSnapshot(); } catch (e) {}
+                    updateDriverTransactions(prev => {
+                        let ubah = false;
+                        const next = safeArray(prev).map(t => { const p = t && prog.get(String(t.id)); const baru = p ? drvTerapkan(t, p) : null; if (baru) { ubah = true; return baru; } return t; });
+                        return ubah ? next : prev;
+                    });
+                } catch (e) { console.warn('Sinkron link driver gagal', e); }
+                finally {
+                    st.jalan = false;
+                    if (st.ulang) setTimeout(() => { const f = drvSinkronFnRef.current; if (f) f(); }, 300);
+                }
+            };
+            drvSinkronFnRef.current = sinkronPerjalananDriver;
+            useEffect(() => {
+                if (!isReady || !supabaseClient) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                const jalan = () => { const f = drvSinkronFnRef.current; if (f) f(); };
+                window.addEventListener('simpati-driver-remote', jalan);
+                const awal = setTimeout(jalan, 2500);
+                const iv = setInterval(() => { if (!document.hidden) jalan(); }, 60000);
+                return () => { window.removeEventListener('simpati-driver-remote', jalan); clearTimeout(awal); clearInterval(iv); };
+            }, [isReady]);
+
             const updateDriverRekapGaji = (updater) => {
                 setDriverRekapGaji(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -30624,6 +31038,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         .on('broadcast', { event: 'maintenance' }, () => { checkMaintenanceNowRef.current(true); })
                         .on('broadcast', { event: 'pins' }, () => { try { window.dispatchEvent(new Event('simpati-pins-remote')); } catch (e) {} })
                         .on('broadcast', { event: 'belanja' }, () => { try { window.dispatchEvent(new Event('simpati-belanja-remote')); } catch (e) {} })
+                        .on('broadcast', { event: 'driver' }, () => { try { window.dispatchEvent(new Event('simpati-driver-remote')); } catch (e) {} })
                         .subscribe();
                     appSignalChannelRef.current = ch;
                 } catch (e) { console.warn('Sinyal langsung tidak tersedia', e); }
