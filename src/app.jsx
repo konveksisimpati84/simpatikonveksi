@@ -15625,8 +15625,158 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
+        // ===== Grafik Laporan Keuangan (SVG ringan, digambar 1:1 piksel supaya tulisan tetap terbaca di HP) =====
+        const rpSingkat = (v) => {
+            const a = Math.abs(v), t = v < 0 ? '-' : '';
+            const f = (x) => x.toFixed(1).replace(/\.0$/, '').replace('.', ',');
+            if (a >= 1e9) return `${t}${f(a / 1e9)} M`;
+            if (a >= 1e6) return `${t}${f(a / 1e6)} jt`;
+            if (a >= 1e3) return `${t}${Math.round(a / 1e3)} rb`;
+            return `${t}${Math.round(a)}`;
+        };
+        const skalaRapi = (min, max, n = 4) => {
+            if (max <= min) max = min + 1;
+            const kasar = (max - min) / n, p = Math.pow(10, Math.floor(Math.log10(kasar))), m = kasar / p;
+            const step = (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p;
+            const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
+            const ticks = [];
+            for (let i = 0; lo + i * step <= hi + step / 2; i++) ticks.push(lo + i * step);
+            return { lo, hi, ticks };
+        };
+        // Grafik kolom per bulan/tahun: beberapa batang per kelompok + garis opsional. Ketuk kelompok untuk rincian.
+        const GrafikKolom = ({ data, legenda, rincian, baris, namaGrafik }) => {
+            const [ref, w] = useElementWidth();
+            const [pilih, setPilih] = React.useState(null);
+            const W = Math.max(w || 0, 280), H = 236;
+            const kiri = 48, kanan = 12, atas = 18;
+            const lebar = (W - kiri - kanan) / Math.max(1, data.length);
+            const tampilBaris = !!baris && lebar >= 26;
+            const bawah = tampilBaris ? 40 : 24;
+            const nilai = data.flatMap(d => [...d.batang.map(b => b.v), ...(d.garis != null ? [d.garis] : [])]);
+            const kosong = nilai.every(v => !v);
+            const { lo, hi, ticks } = skalaRapi(Math.min(0, ...nilai), Math.max(0, ...nilai));
+            const y = (v) => atas + (hi - v) / (hi - lo) * (H - atas - bawah);
+            const nB = Math.max(1, data[0]?.batang.length || 1);
+            const bw = Math.max(3, Math.min(nB > 1 ? 14 : 22, (lebar * 0.72 - (nB - 1) * 2) / nB));
+            const idxAktif = data.findIndex(d => d.aktif);
+            const idxTerakhir = (() => { for (let i = data.length - 1; i >= 0; i--) if (data[i].batang.some(b => b.v) || data[i].garis) return i; return data.length - 1; })();
+            const idx = pilih != null && pilih < data.length ? pilih : (idxAktif >= 0 ? idxAktif : idxTerakhir);
+            const titik = data.map((d, i) => d.garis == null ? null : { x: kiri + lebar * (i + 0.5), y: y(d.garis), v: d.garis });
+            const ruas = []; let r = [];
+            titik.forEach(t => { if (t) r.push(t); else if (r.length) { ruas.push(r); r = []; } });
+            if (r.length) ruas.push(r);
+            const ujung = [...titik].reverse().find(Boolean);
+            const fsX = lebar < 24 ? 9 : 10;
+            return (
+                <div data-grafik={namaGrafik}>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 mb-1">
+                        {legenda.map(l => (
+                            <span key={l.label} className="inline-flex items-center gap-1.5">
+                                {l.garis ? <i className="inline-block w-4 h-0.5 bg-gray-900"></i> : <i className="inline-block w-3 h-3 rounded-sm" style={{ background: l.warna }}></i>}
+                                {l.label}
+                            </span>
+                        ))}
+                    </div>
+                    <div ref={ref} className="w-full">
+                        {kosong ? <p className="py-12 text-center text-sm text-gray-400 italic">Belum ada data pada periode ini.</p> : (
+                        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }} role="img" aria-label={namaGrafik}>
+                            {data.map((d, i) => (d.aktif || i === idx) && (
+                                <rect key={'bg' + i} x={kiri + lebar * i + 1} y={atas - 8} width={lebar - 2} height={H - atas - bawah + 8} rx="4" fill={d.aktif ? '#e0e7ff' : '#f1f5f9'} />
+                            ))}
+                            {ticks.map(t => (
+                                <g key={'t' + t}>
+                                    <line x1={kiri} x2={W - kanan} y1={y(t)} y2={y(t)} stroke={t === 0 ? '#9ca3af' : '#eceef1'} strokeWidth="1" />
+                                    <text x={kiri - 6} y={y(t) + 3.5} textAnchor="end" fontSize="10" fill="#6b7280">{rpSingkat(t)}</text>
+                                </g>
+                            ))}
+                            {data.map((d, i) => {
+                                const x0 = kiri + lebar * (i + 0.5) - (nB * bw + (nB - 1) * 2) / 2;
+                                return (
+                                    <g key={'k' + i}>
+                                        {d.batang.map((b, j) => b.v ? (
+                                            <rect key={j} x={x0 + j * (bw + 2)} y={y(Math.max(b.v, 0))} width={bw} height={Math.max(1, Math.abs(y(b.v) - y(0)))} rx="2" fill={b.warna} />
+                                        ) : null)}
+                                        <text x={kiri + lebar * (i + 0.5)} y={H - bawah + 15} textAnchor="middle" fontSize={fsX} fontWeight={i === idx || d.aktif ? 700 : 400} fill={d.aktif ? '#3730a3' : '#6b7280'}>{d.label}</text>
+                                        {tampilBaris && <text x={kiri + lebar * (i + 0.5)} y={H - bawah + 31} textAnchor="middle" fontSize="9.5" fill="#4b5563">{baris(d)}</text>}
+                                    </g>
+                                );
+                            })}
+                            {tampilBaris && <text x={kiri - 6} y={H - bawah + 31} textAnchor="end" fontSize="9" fill="#9ca3af">margin</text>}
+                            {ruas.map((rs, i) => (
+                                <polyline key={'r' + i} points={rs.map(t => `${t.x},${t.y}`).join(' ')} fill="none" stroke="#111827" strokeWidth="2" strokeLinejoin="round" />
+                            ))}
+                            {titik.map((t, i) => t && <circle key={'c' + i} cx={t.x} cy={t.y} r="4" fill="#111827" stroke="#fff" strokeWidth="1.5" />)}
+                            {ujung && (ujung.x < W - kanan - 52
+                                ? <text x={ujung.x + 8} y={ujung.y + 4} textAnchor="start" fontSize="10.5" fontWeight="700" fill="#111827" stroke="#fff" strokeWidth="3" paintOrder="stroke">{rpSingkat(ujung.v)}</text>
+                                : <text x={ujung.x - 8} y={Math.max(11, ujung.y - 8)} textAnchor="end" fontSize="10.5" fontWeight="700" fill="#111827" stroke="#fff" strokeWidth="3" paintOrder="stroke">{rpSingkat(ujung.v)}</text>)}
+                            {data.map((d, i) => (
+                                <rect key={'h' + i} x={kiri + lebar * i} y={0} width={lebar} height={H} fill="transparent" style={{ cursor: 'pointer' }} onClick={() => setPilih(i)} data-grafik-kolom={i}>
+                                    <title>{rincian(d)}</title>
+                                </rect>
+                            ))}
+                        </svg>
+                        )}
+                    </div>
+                    {!kosong && data[idx] && <p className="mt-1 text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-grafik-rincian>{rincian(data[idx])}</p>}
+                </div>
+            );
+        };
+        // Donat komposisi (nilai positif saja yang digambar; daftar tetap menampilkan semua)
+        const GrafikDonat = ({ items, total, judulTengah }) => {
+            const positif = items.filter(it => it.nilai > 0);
+            const jumlah = positif.reduce((x, it) => x + it.nilai, 0);
+            const R = 80, r0 = 50, c = 90;
+            const busur = (a0, a1) => {
+                const p = (a, rr) => [c + rr * Math.sin(a), c - rr * Math.cos(a)];
+                const besar = a1 - a0 > Math.PI ? 1 : 0;
+                const [x1, y1] = p(a0, R), [x2, y2] = p(a1, R), [x3, y3] = p(a1, r0), [x4, y4] = p(a0, r0);
+                return `M${x1},${y1} A${R},${R} 0 ${besar} 1 ${x2},${y2} L${x3},${y3} A${r0},${r0} 0 ${besar} 0 ${x4},${y4} Z`;
+            };
+            let sudut = 0;
+            return (
+                <div className="flex flex-wrap items-center justify-center gap-4" data-grafik="komposisi">
+                    <svg viewBox="0 0 180 180" width="160" height="160" style={{ flex: 'none' }} role="img" aria-label="Komposisi biaya">
+                        {jumlah <= 0 ? <circle cx={c} cy={c} r={(R + r0) / 2} fill="none" stroke="#e5e7eb" strokeWidth={R - r0} /> : positif.map(it => {
+                            const bagian = it.nilai / jumlah;
+                            if (bagian >= 0.9999) return <circle key={it.label} cx={c} cy={c} r={(R + r0) / 2} fill="none" stroke={it.warna} strokeWidth={R - r0}><title>{`${it.label}: ${formatRupiah(it.nilai)}`}</title></circle>;
+                            const a0 = sudut, a1 = sudut + bagian * 2 * Math.PI; sudut = a1;
+                            return <path key={it.label} d={busur(a0, a1)} fill={it.warna} stroke="#fff" strokeWidth="2"><title>{`${it.label}: ${formatRupiah(it.nilai)} (${Math.round(bagian * 100)}%)`}</title></path>;
+                        })}
+                        <text x={c} y={c - 4} textAnchor="middle" fontSize="11" fill="#6b7280">{judulTengah}</text>
+                        <text x={c} y={c + 14} textAnchor="middle" fontSize="15" fontWeight="800" fill="#111827">{rpSingkat(total)}</text>
+                    </svg>
+                    <div className="flex-1 min-w-[200px] divide-y divide-gray-100 text-xs">
+                        {items.map(it => (
+                            <div key={it.label} className="flex items-center gap-2 py-1.5" data-komposisi-baris={it.label}>
+                                <i className="inline-block w-3 h-3 rounded-sm flex-none" style={{ background: it.warna }}></i>
+                                <span className="flex-1 text-gray-700">{it.label}</span>
+                                <b className="tabular-nums text-gray-900 whitespace-nowrap">{formatRupiah(it.nilai)}</b>
+                                <span className="w-9 text-right text-gray-500 tabular-nums">{jumlah > 0 && it.nilai > 0 ? `${Math.round(it.nilai / jumlah * 100)}%` : '–'}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+        // Batang mendatar (umur piutang, klien terbesar)
+        const GrafikBaris = ({ rows, nama }) => {
+            const maks = Math.max(1, ...rows.map(r => r.nilai));
+            return (
+                <div className="space-y-2" data-grafik={nama}>
+                    {rows.map((r, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs" data-grafik-baris={i}>
+                            <span className="w-24 sm:w-32 flex-none truncate text-gray-700" title={r.label}>{r.label}</span>
+                            <div className="flex-1 min-w-0 h-4 rounded bg-gray-50">
+                                {r.nilai > 0 && <div className="h-4 rounded" style={{ width: `${Math.max(1.5, r.nilai / maks * 100)}%`, background: r.warna }} title={`${r.label}: ${formatRupiah(r.nilai)}`}></div>}
+                            </div>
+                            <span className="flex-none text-right font-bold text-gray-900 tabular-nums whitespace-nowrap">{rpSingkat(r.nilai)}{r.ket ? <span className="font-normal text-gray-500"> {r.ket}</span> : null}</span>
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
         const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null }) => {
-            const [finChartRef, finChartW] = useElementWidth();
             // Gaji Direksi & Marketing: tanpa akses "Lihat", tetap DIHITUNG di semua total (kas & laba benar),
             // tapi ditampilkan gabungan tanpa nama/rincian per orang
             const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : authUser?.role === 'Admin';
@@ -15658,9 +15808,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [cashAdvanceStatusFilter, setCashAdvanceStatusFilter] = useState('Semua');
             const [activeFinanceTab, setActiveFinanceTab] = useState('dashboard');
             const [saldoForm, setSaldoForm] = useState(null); // { tanggal, nominal } saat mengisi/mengubah saldo kas awal
-            const [finChartYear, setFinChartYear] = React.useState(() => String(new Date().getFullYear()));
-            React.useEffect(() => { if (fYear !== 'semua') setFinChartYear(fYear); }, [fYear]);
-            const [finChartMode, setFinChartMode] = React.useState('masuk');
             const safeOrders = React.useMemo(() => (Array.isArray(orders) ? orders : []).filter(isVisibleOrder), [orders]);
             const safeFinanceEmployees = Array.isArray(employees) ? employees : [];
             const safeFinanceRekaps = Array.isArray(rekapKinerja) ? rekapKinerja : [];
@@ -15686,14 +15833,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const akhir = new Date(y, m, 0).getDate();
                 return `1 – ${akhir} ${NAMA_BULAN[m - 1]} ${y}`;
             };
-            const isInPeriod = (value) => {
-                if (!period) return true;
+            const cekPeriode = (p) => (value) => {
+                if (!p) return true;
                 if (!value) return false;
                 const date = new Date(value);
                 if (isNaN(date.getTime())) return false;
                 const bulan = toLocalMonthStr(date);
-                return period.length === 4 ? bulan.slice(0, 4) === period : bulan === period;
+                return p.length === 4 ? bulan.slice(0, 4) === p : bulan === p;
             };
+            const isInPeriod = cekPeriode(period);
 
             const allUnifiedNotes = safeArray(purchaseNotes).filter(isVisibleRecord).filter(n => noteTotal(n) > 0 || notePaid(n) > 0);
 
@@ -15753,19 +15901,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 note: (!canViewSens && isSensitiveSalaryEmp(emp)) ? '' : (item.note || '')
             }))), [employees, canViewSens]);
 
-            const materialRows = allMaterialRows.filter(row => {
-                if (!isInPeriod(row.date)) return false;
-                if (!normalizedSearch) return true;
-                return [row.id, row.client, row.type, ...row.vendors, ...(row.materials || []).map(item => item.name)].join(' ').toLowerCase().includes(normalizedSearch);
-            });
-
-            const wageRows = allWageRows.filter(row => {
-                if (!isInPeriod(row.date)) return false;
+            // Syarat pencarian/filter per jenis data (dipakai juga oleh grafik laba per bulan)
+            const cocokBahan = (row) => !normalizedSearch || [row.id, row.client, row.type, ...row.vendors, ...(row.materials || []).map(item => item.name)].join(' ').toLowerCase().includes(normalizedSearch);
+            const cocokUpah = (row) => {
                 if (employeeFilter !== 'Semua' && String(row.empId) !== String(employeeFilter)) return false;
                 if (divisionFilter !== 'Semua' && row.division !== divisionFilter) return false;
                 if (!normalizedSearch) return true;
                 return [row.id, row.empName, row.division, ...row.items.map(item => `${item.orderId} ${item.client} ${item.type}`)].join(' ').toLowerCase().includes(normalizedSearch);
-            });
+            };
+            const cocokBiaya = (row) => !normalizedSearch || [row.date, row.type, row.category, getExpenseItemsTitle(row), row.amount, row.method, row.party, row.note].join(' ').toLowerCase().includes(normalizedSearch);
+            const invoiceMatchesSearch = (inv) => !normalizedSearch || [inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)].join(' ').toLowerCase().includes(normalizedSearch);
+            const materialRows = allMaterialRows.filter(row => isInPeriod(row.date) && cocokBahan(row));
+
+            const wageRows = allWageRows.filter(row => isInPeriod(row.date) && cocokUpah(row));
             const cashAdvanceRows = allCashAdvanceRows.filter(row => {
                 if (!isInPeriod(row.date)) return false;
                 if (employeeFilter !== 'Semua' && String(row.empId) !== String(employeeFilter)) return false;
@@ -15796,16 +15944,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 .filter(entry => isInPeriod(entry.date))
                 .reduce((sum, entry) => sum + safeMoney(entry.amount), 0), [employees, period]);
             const totalCashAdvanceRemaining = cashAdvanceRows.reduce((sum, row) => sum + row.remaining, 0);
-            const expenseRows = (expenses || []).filter(isVisibleRecord).filter(row => {
-                if (!isInPeriod(row.date)) return false;
-                if (!normalizedSearch) return true;
-                return [row.date, row.type, row.category, getExpenseItemsTitle(row), row.amount, row.method, row.party, row.note].join(' ').toLowerCase().includes(normalizedSearch);
-            });
-            const invoiceRows = safeFinanceInvoices.filter(isVisibleRecord).filter(inv => {
-                if (!isInPeriod(inv.date)) return false;
-                if (!normalizedSearch) return true;
-                return [inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)].join(' ').toLowerCase().includes(normalizedSearch);
-            });
+            const expenseRows = (expenses || []).filter(isVisibleRecord).filter(row => isInPeriod(row.date) && cocokBiaya(row));
+            const invoiceRows = safeFinanceInvoices.filter(isVisibleRecord).filter(inv => isInPeriod(inv.date) && invoiceMatchesSearch(inv));
             const getInvoiceTotal = (inv) => getInvoiceTotals(inv).total;
             // Komisi dihitung akrual penuh: total invoice (bukan proporsional yang sudah dibayar)
             const getInvoiceCommission = (inv) => getInvoiceCommissionTotal(inv);
@@ -15821,7 +15961,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return [dp.clientName, dp.date, dp.amount, dp.method, dp.note, dp.orderId, dp.invoiceId].join(' ').toLowerCase().includes(normalizedSearch);
             }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
             // Uang invoice yang diterima (DP invoice + tiap pembayaran) dicatat per TANGGAL DITERIMA, bukan tanggal invoice
-            const invoiceMatchesSearch = (inv) => !normalizedSearch || [inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)].join(' ').toLowerCase().includes(normalizedSearch);
             const allInvoiceCashEvents = safeFinanceInvoices.filter(isVisibleRecord).flatMap(inv => {
                 const events = [];
                 const dpAmount = getInvoiceDpAmount(inv);
@@ -15853,85 +15992,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (fYear !== 'semua') ys.add(fYear);
                 return [...ys].sort((a, b) => Number(b) - Number(a));
             }, [safeFinanceInvoices, expenses, purchaseNotes, rekapKinerja, clients, safeOrders, fYear]);
-
-            // Chart keuangan bulanan
-            const finChartYears = React.useMemo(() => {
-                const years = new Set();
-                safeFinanceInvoices.filter(isVisibleRecord).forEach(inv => { if (inv.date) years.add(String(inv.date).slice(0,4)); });
-                (expenses||[]).filter(isVisibleRecord).forEach(e => { if (e.date) years.add(String(e.date).slice(0,4)); });
-                years.add(String(new Date().getFullYear()));
-                return [...years].filter(y => y && y.length === 4).sort((a,b) => Number(b)-Number(a));
-            }, [safeFinanceInvoices, expenses]);
-
-            const monthlyFinanceMasuk = React.useMemo(() => {
-                const totals = Array(12).fill(0);
-                allInvoiceCashEvents.forEach(e => {
-                    if (!e.date) return;
-                    const parts = String(e.date).split('-');
-                    if (parts[0] !== finChartYear) return;
-                    const m = parseInt(parts[1], 10) - 1;
-                    if (m >= 0 && m < 12) totals[m] += e.amount;
-                });
-                (expenses||[]).filter(isVisibleRecord).forEach(e => {
-                    if (!e.date || e.type !== 'Uang Masuk') return;
-                    const parts = String(e.date).split('-');
-                    if (parts[0] !== finChartYear) return;
-                    const m = parseInt(parts[1], 10) - 1;
-                    if (m >= 0 && m < 12) totals[m] += safeMoney(e.amount);
-                });
-                (clients || []).filter(isVisibleRecord).forEach(c => safeArray(c.clientDpPayments).filter(isVisibleRecord).forEach(dp => {
-                    if (!dp.date) return;
-                    const parts = String(dp.date).split('-');
-                    if (parts[0] !== finChartYear) return;
-                    const m = parseInt(parts[1], 10) - 1;
-                    if (m >= 0 && m < 12) totals[m] += safeMoney(dp.amount);
-                }));
-                return totals;
-            }, [safeFinanceInvoices, expenses, clients, finChartYear]);
-
-            const monthlyFinanceKeluar = React.useMemo(() => {
-                const totals = Array(12).fill(0);
-                // 1. Biaya operasional (menu Biaya → Uang Keluar)
-                (expenses||[]).filter(isVisibleRecord).forEach(e => {
-                    if (!e.date || e.type !== 'Uang Keluar') return;
-                    const parts = String(e.date).split('-');
-                    if (parts[0] !== finChartYear) return;
-                    const m = parseInt(parts[1], 10) - 1;
-                    if (m >= 0 && m < 12) totals[m] += safeMoney(e.amount);
-                });
-                // 2. Pembelian bahan baku (nota yang sudah dibayar)
-                // Kelompokkan by payment.date (tgl bayar aktual), bukan note.date (tgl nota)
-                // Nota legacy tanpa payments[] fallback ke note.date
-                safeArray(purchaseNotes).filter(isVisibleRecord).forEach(note => {
-                    if (safeArray(note.payments).length > 0) {
-                        safeArray(note.payments).forEach(p => {
-                            const amount = parseFloat(p.amount) || 0;
-                            if (!p.date || amount <= 0) return;
-                            const parts = String(p.date).split('-');
-                            if (parts[0] !== finChartYear) return;
-                            const m = parseInt(parts[1], 10) - 1;
-                            if (m >= 0 && m < 12) totals[m] += amount;
-                        });
-                    } else {
-                        const paid = notePaid(note);
-                        if (!note.date || paid <= 0) return;
-                        const parts = String(note.date).split('-');
-                        if (parts[0] !== finChartYear) return;
-                        const m = parseInt(parts[1], 10) - 1;
-                        if (m >= 0 && m < 12) totals[m] += paid;
-                    }
-                });
-                // 3. Gaji karyawan (rekap kinerja, pakai netSalary)
-                (Array.isArray(rekapKinerja) ? rekapKinerja : []).filter(isVisibleRecord).forEach(rekap => {
-                    const wage = safeMoney(rekap.netSalary ?? rekap.totalWage);
-                    if (!rekap.dateProcessed || wage <= 0) return;
-                    const parts = String(rekap.dateProcessed).split('-');
-                    if (parts[0] !== finChartYear) return;
-                    const m = parseInt(parts[1], 10) - 1;
-                    if (m >= 0 && m < 12) totals[m] += wage;
-                });
-                return totals;
-            }, [expenses, purchaseNotes, rekapKinerja, finChartYear]);
 
             // Komisi dari invoice yang di-rekap sudah masuk totalWage; kecuali rekapnya sudah dihapus
             const deletedRekapIds = new Set(safeFinanceRekaps.filter(r => !isVisibleRecord(r)).map(r => String(r.id)));
@@ -16074,9 +16134,84 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiWage;
             const labaBersih = totalPendapatan - totalBeban; // = labaKotor - totalBebanUsaha
 
+            // ===== Data grafik (hanya membaca, tidak mengubah perhitungan di atas) =====
+            // Laba bersih untuk periode lain dengan rumus & filter yang sama (pendapatan − totalBeban)
+            const labaUntuk = (inP) => {
+                const invs = safeFinanceInvoices.filter(isVisibleRecord).filter(inv => inP(inv.date) && invoiceMatchesSearch(inv));
+                const exps = (expenses || []).filter(isVisibleRecord).filter(r => inP(r.date) && cocokBiaya(r));
+                const pendapatan = allInvoiceCashEvents.filter(e => inP(e.date) && invoiceMatchesSearch(e.inv)).reduce((x, e) => x + e.amount, 0)
+                    + invs.reduce((x, inv) => x + getInvoiceLinkedDpAmount(inv), 0)
+                    + exps.filter(r => r.type === 'Uang Masuk').reduce((x, r) => x + safeMoney(r.amount), 0);
+                const beban = allMaterialRows.filter(r => !r.isHutang && inP(r.date) && cocokBahan(r)).reduce((x, r) => x + r.total, 0)
+                    + allWageRows.filter(r => inP(r.date) && cocokUpah(r)).reduce((x, r) => x + r.grossSalary, 0)
+                    + exps.filter(r => r.type === 'Uang Keluar').reduce((x, r) => x + safeMoney(r.amount), 0)
+                    + invs.filter(inv => !inv.commissionRekapId || deletedRekapIds.has(String(inv.commissionRekapId)))
+                        .filter(inv => !filteredMktEmps || filteredMktEmps.some(emp => isInvoiceOfMarketing(inv, emp)))
+                        .reduce((x, inv) => x + getInvoiceCommission(inv), 0)
+                    + safeArray(bagiHasilPromosi).filter(isVisibleRecord).filter(b => inP(b.tanggal || '')).reduce((x, b) => x + safeArray(b.payments).reduce((ps, p) => ps + safeMoney(p.amount), 0), 0);
+                return { pendapatan, laba: pendapatan - beban };
+            };
+            // Kelompok waktu grafik: per bulan pada tahun terpilih (bulan terpilih ditandai), atau per tahun bila "Semua tahun"
+            const BLN_SINGKAT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            const hariIniStr = toLocalDateStr();
+            const grafikKelompok = !period
+                ? [...tahunOpsi].sort().map(y => ({ label: y, labelPanjang: `Tahun ${y}`, mulai: `${y}-01-01`, akhir: `${Number(y) + 1}-01-01`, p: y, aktif: false }))
+                : BLN_SINGKAT.map((b, i) => {
+                    const y = period.slice(0, 4), mm = String(i + 1).padStart(2, '0');
+                    return { label: b, labelPanjang: `${NAMA_BULAN[i]} ${y}`, mulai: `${y}-${mm}-01`, akhir: i === 11 ? `${Number(y) + 1}-01-01` : `${y}-${String(i + 2).padStart(2, '0')}-01`, p: `${y}-${mm}`, aktif: period === `${y}-${mm}` };
+                });
+            // Arus kas: sumber sama dengan saldo kas (seluruh perusahaan); titik saldo = saldo pada akhir bulan/tahun
+            const grafikArus = grafikKelompok.map(k => {
+                let masuk = 0, keluar = 0;
+                kasSemua.forEach(r => { if (r.t >= k.mulai && r.t < k.akhir) { if (r.v > 0) masuk += r.v; else keluar -= r.v; } });
+                const adaSaldo = k.mulai <= hariIniStr && (!kasDari || k.akhir > kasDari);
+                return { ...k, masuk, keluar, saldo: adaSaldo ? saldoSebelum(k.akhir) : null };
+            });
+            const grafikLaba = grafikKelompok.map(k => ({ ...k, ...labaUntuk(cekPeriode(k.p)) }));
+            // Komposisi biaya = rincian totalBeban
+            const komposisiBiaya = [
+                { label: 'Bahan baku', nilai: totalMaterialPaid, warna: '#2a78d6' },
+                { label: 'Upah produksi', nilai: totalProductionWage, warna: '#eb6834' },
+                { label: 'Operasional', nilai: totalOperationalExpense, warna: '#1baf7a' },
+                { label: 'Komisi & bagi hasil', nilai: totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiWage, warna: '#eda100' },
+            ];
+
             // Piutang (for balance sheet)
             const totalPiutangInvoice = safeFinanceInvoices.filter(isVisibleRecord)
                 .reduce((sum, inv) => sum + Math.max(0, getInvoiceTotals(inv).total - getInvoicePaidTotal(inv)), 0);
+            // Umur piutang (posisi per hari ini): sisa tagihan invoice dikelompokkan menurut lama sejak tanggal invoice
+            const umurPiutang = (() => {
+                const kel = [
+                    { label: '0–30 hari', nilai: 0, n: 0, warna: '#9ec5f0' },
+                    { label: '31–60 hari', nilai: 0, n: 0, warna: '#5a9be2' },
+                    { label: '61–90 hari', nilai: 0, n: 0, warna: '#2a78d6' },
+                    { label: '> 90 hari', nilai: 0, n: 0, warna: '#174a8a' },
+                ];
+                const kini = new Date(`${hariIniStr}T00:00:00`);
+                safeFinanceInvoices.filter(isVisibleRecord).forEach(inv => {
+                    const sisa = Math.max(0, getInvoiceTotals(inv).total - getInvoicePaidTotal(inv));
+                    if (sisa <= 0) return;
+                    const tgl = new Date(`${tglKas(inv.date)}T00:00:00`);
+                    const hari = isNaN(tgl.getTime()) ? Infinity : Math.round((kini - tgl) / 864e5);
+                    const k = kel[hari <= 30 ? 0 : hari <= 60 ? 1 : hari <= 90 ? 2 : 3];
+                    k.nilai += sisa; k.n += 1;
+                });
+                return kel;
+            })();
+            // Klien terbesar pada periode: pembayaran invoice diterima + saldo DP dipakai (sama dengan pendapatan invoice)
+            const klienTerbesar = (() => {
+                const peta = new Map();
+                const tambah = (inv, v) => {
+                    if (!(v > 0)) return;
+                    const nama = String(inv.customer || '').trim() || '-';
+                    const key = inv.clientId ? `id:${inv.clientId}` : `nm:${nama.toLowerCase()}`;
+                    if (!peta.has(key)) peta.set(key, { nama: (inv.clientId && (clients || []).find(c => String(c.id) === String(inv.clientId))?.name) || nama, nilai: 0 });
+                    peta.get(key).nilai += v;
+                };
+                invoiceCashEvents.forEach(e => tambah(e.inv, e.amount));
+                invoiceRows.forEach(inv => tambah(inv, getInvoiceLinkedDpAmount(inv)));
+                return [...peta.values()].sort((a, b) => b.nilai - a.nilai);
+            })();
             const vendorBilling = allUnifiedNotes.reduce((acc, note) => {
                 const tot = noteTotal(note), paid = notePaid(note), debt = noteDebt(note);
                 if (tot <= 0 && paid <= 0) return acc;
@@ -16685,103 +16820,51 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                             </div>
 
-                            {/* Grafik Arus Kas Bulanan */}
-                            <Card>
-                                {(() => {
-                                    const monthNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agt','Sep','Okt','Nov','Des'];
-                                    const activeData = finChartMode === 'masuk' ? monthlyFinanceMasuk : monthlyFinanceKeluar;
-                                    const peakIdx = activeData.indexOf(Math.max(...activeData));
-                                    const maxVal = Math.max(...activeData, 1);
-                                    const totalYear = activeData.reduce((a, b) => a + b, 0);
-                                    const formatShort = (v) => {
-                                        if (v >= 1e9) return (v/1e9).toFixed(1).replace(/\.0$/,'') + 'M';
-                                        if (v >= 1e6) return (v/1e6).toFixed(1).replace(/\.0$/,'') + 'jt';
-                                        if (v >= 1e3) return (v/1e3).toFixed(0) + 'rb';
-                                        return String(v);
-                                    };
-                                    const barColor = finChartMode === 'masuk' ? '#16a34a' : '#dc2626';
-                                    const peakColor = finChartMode === 'masuk' ? '#15803d' : '#b91c1c';
-                                    return (
-                                        <div>
-                                            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                                                <h3 className="text-base font-bold text-gray-800">Arus Kas per Bulan</h3>
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <div className="flex gap-1 p-0.5 bg-gray-100 rounded-lg text-xs font-semibold">
-                                                        {[['masuk','Uang Masuk'],['keluar','Uang Keluar']].map(([m,label]) => (
-                                                            <button key={m} onClick={() => setFinChartMode(m)}
-                                                                className={`px-3 py-1.5 rounded-md transition-all ${finChartMode===m ? (m==='masuk' ? 'bg-green-600 text-white shadow-sm' : 'bg-red-600 text-white shadow-sm') : 'text-gray-500 hover:text-gray-700'}`}>
-                                                                {label}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                    <select value={finChartYear} onChange={e => setFinChartYear(e.target.value)}
-                                                        className="text-xs font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                                                        {finChartYears.map(y => <option key={y} value={y}>{y}</option>)}
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div className="overflow-x-auto" ref={finChartRef}>
-                                                {(() => {
-                                                    // HP (kartu sempit): gambar 1:1 piksel supaya tulisan tetap ±10px; layar lebar: tampilan lama
-                                                    const narrow = finChartW > 0 && finChartW < CHART_NARROW_PX;
-                                                    const G = narrow
-                                                        ? { W: finChartW, H: 172, base: 145, maxH: 100, left: 6, step: (finChartW - 12) / 12, valFs: 10, monFs: 10, monY: 162 }
-                                                        : { W: 540, H: 160, base: 130, maxH: 110, left: 10, step: 43, valFs: 8, monFs: 9, monY: 148 };
-                                                    const barW = narrow ? G.step * 0.75 : 33;
-                                                    return (
-                                                <svg viewBox={`0 0 ${G.W} ${G.H}`} style={narrow ? {width:'100%',display:'block'} : {width:'100%',minWidth:'320px',display:'block'}}>
-                                                    {activeData.map((val, i) => {
-                                                        const barH = maxVal > 0 ? Math.max(2, Math.round((val / maxVal) * G.maxH)) : 2;
-                                                        const x = narrow ? G.left + i * G.step + (G.step - barW) / 2 : 10 + i * 43;
-                                                        const cx = x + barW / 2;
-                                                        const isPeak = i === peakIdx && val > 0;
-                                                        const valLbl = formatShort(val);
-                                                        const rotateVal = narrow && valLbl.length * G.valFs * 0.6 > G.step;
-                                                        return (
-                                                            <g key={i}>
-                                                                <rect x={x} y={G.base - barH} width={barW} height={barH}
-                                                                    rx="3"
-                                                                    fill={isPeak ? peakColor : barColor}
-                                                                    opacity={val > 0 ? 1 : 0.15}
-                                                                />
-                                                                {val > 0 && (rotateVal
-                                                                    ? <text x={cx} y={G.base - barH - 4} transform={`rotate(-90 ${cx} ${G.base - barH - 4})`} textAnchor="start" dominantBaseline="central"
-                                                                        fontSize={G.valFs} fontWeight="600"
-                                                                        fill={isPeak ? peakColor : '#374151'}>
-                                                                        {valLbl}
-                                                                    </text>
-                                                                    : <text x={cx} y={G.base - barH - 4} textAnchor="middle"
-                                                                        fontSize={G.valFs} fontWeight="600"
-                                                                        fill={isPeak ? peakColor : '#374151'}>
-                                                                        {valLbl}
-                                                                    </text>
-                                                                )}
-                                                                <text x={cx} y={G.monY} textAnchor="middle"
-                                                                    fontSize={G.monFs} fontWeight={isPeak ? '700' : '500'}
-                                                                    fill={isPeak ? peakColor : '#6b7280'}>
-                                                                    {monthNames[i]}
-                                                                </text>
-                                                            </g>
-                                                        );
-                                                    })}
-                                                    <line x1={narrow ? 4 : 8} y1={G.base} x2={narrow ? G.W - 4 : 532} y2={G.base} stroke="#e5e7eb" strokeWidth="1"/>
-                                                </svg>
-                                                    );
-                                                })()}
-                                            </div>
-                                            <div className="flex flex-wrap gap-4 mt-2 pt-3 border-t border-gray-100 text-xs text-gray-500">
-                                                <span>Total {finChartYear}: <strong className={finChartMode==='masuk' ? 'text-green-700' : 'text-red-700'}>{formatRupiah(totalYear)}</strong></span>
-                                                {totalYear > 0 && <span>Bulan terbesar: <strong className={finChartMode==='masuk' ? 'text-green-700' : 'text-red-700'}>{monthNames[peakIdx]} ({formatRupiah(Math.max(...activeData))})</strong></span>}
-                                            </div>
-                                            <p className="text-[10px] text-gray-400 mt-1.5">
-                                                {finChartMode === 'masuk'
-                                                    ? 'Sumber: pembayaran invoice + pemasukan manual (menu Biaya)'
-                                                    : 'Sumber: pembelian bahan baku (nota dibayar) + gaji karyawan (rekap kinerja) + biaya operasional (menu Biaya)'}
-                                            </p>
-                                        </div>
-                                    );
-                                })()}
-                            </Card>
+                            {/* Grafik keuangan — mengikuti filter periode */}
+                            <div className="space-y-4" data-keu-grafik>
+                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                    <Card>
+                                        <h3 className="text-base font-bold text-gray-800">Arus kas & saldo kas</h3>
+                                        <p className="text-xs text-gray-500 mb-2">{period ? `Per bulan · tahun ${period.slice(0, 4)}${period.length === 7 ? ` · ${NAMA_BULAN[Number(period.slice(5)) - 1]} ditandai` : ''}` : 'Per tahun · semua data'} · garis = saldo kas di akhir {period ? 'bulan' : 'tahun'}</p>
+                                        <GrafikKolom key={`arus-${period}`} namaGrafik="arus-kas"
+                                            data={grafikArus.map(d => ({ ...d, batang: [{ v: d.masuk, warna: '#2a78d6' }, { v: d.keluar, warna: '#eb6834' }], garis: d.saldo }))}
+                                            legenda={[{ label: 'Kas masuk', warna: '#2a78d6' }, { label: 'Kas keluar', warna: '#eb6834' }, { label: 'Saldo kas akhir', garis: true }]}
+                                            rincian={d => `${d.labelPanjang}: masuk ${formatRupiah(d.masuk)} · keluar ${formatRupiah(d.keluar)}${d.saldo != null ? ` · saldo akhir ${formatRupiah(d.saldo)}` : ''}`} />
+                                        <p className="text-[10px] text-gray-400 mt-1.5">Sumber sama dengan Buku Kas (seluruh transaksi kas, tidak ikut pencarian/filter karyawan).{saldoAwalSet ? '' : ' Saldo kas awal belum diisi — dianggap Rp 0.'}</p>
+                                    </Card>
+                                    <Card>
+                                        <h3 className="text-base font-bold text-gray-800">Laba bersih per {period ? 'bulan' : 'tahun'}</h3>
+                                        <p className="text-xs text-gray-500 mb-2">{period ? `Tahun ${period.slice(0, 4)}` : 'Semua data'} · baris bawah = margin laba bersih (laba ÷ pendapatan)</p>
+                                        <GrafikKolom key={`laba-${period}`} namaGrafik="laba"
+                                            data={grafikLaba.map(d => ({ ...d, batang: [{ v: d.laba, warna: d.laba >= 0 ? '#1baf7a' : '#eb6834' }], garis: null }))}
+                                            legenda={[{ label: 'Laba', warna: '#1baf7a' }, { label: 'Rugi', warna: '#eb6834' }]}
+                                            baris={d => d.pendapatan > 0 ? `${Math.round(d.laba / d.pendapatan * 100)}%` : '–'}
+                                            rincian={d => `${d.labelPanjang}: ${d.laba >= 0 ? 'laba' : 'rugi'} ${formatRupiah(Math.abs(d.laba))} · pendapatan ${formatRupiah(d.pendapatan)}${d.pendapatan > 0 ? ` · margin ${Math.round(d.laba / d.pendapatan * 100)}%` : ''}`} />
+                                    </Card>
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                    <Card>
+                                        <h3 className="text-base font-bold text-gray-800">Komposisi biaya</h3>
+                                        <p className="text-xs text-gray-500 mb-3">{labelPeriode()} · ke mana uang biaya keluar</p>
+                                        <GrafikDonat items={komposisiBiaya} total={totalBeban} judulTengah="Total biaya" />
+                                    </Card>
+                                    <Card>
+                                        <h3 className="text-base font-bold text-gray-800">Umur piutang</h3>
+                                        <p className="text-xs text-gray-500 mb-3">Posisi per hari ini · sisa tagihan invoice menurut lama sejak tanggal invoice</p>
+                                        <GrafikBaris nama="umur-piutang" rows={umurPiutang.map(k => ({ label: k.label, nilai: k.nilai, warna: k.warna, ket: k.n ? `(${k.n} inv)` : '' }))} />
+                                        <p className="text-xs text-gray-600 mt-3">Total piutang: <b>{formatRupiah(totalPiutangInvoice)}</b></p>
+                                        {umurPiutang[3].nilai > 0 && <p className="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-keu-piutang-lama>⚠ {formatRupiah(umurPiutang[3].nilai)} sudah lebih dari 90 hari ({umurPiutang[3].n} invoice) — perlu ditagih.</p>}
+                                    </Card>
+                                    <Card>
+                                        <h3 className="text-base font-bold text-gray-800">10 klien terbesar</h3>
+                                        <p className="text-xs text-gray-500 mb-3">{labelPeriode()} · pembayaran invoice + saldo DP dipakai</p>
+                                        {klienTerbesar.length === 0
+                                            ? <p className="py-8 text-center text-sm text-gray-400 italic">Belum ada pendapatan invoice pada periode ini.</p>
+                                            : <GrafikBaris nama="klien" rows={klienTerbesar.slice(0, 10).map(k => ({ label: k.nama, nilai: k.nilai, warna: '#2a78d6' }))} />}
+                                        {klienTerbesar.length > 10 && <p className="text-xs text-gray-500 mt-3">10 klien ini = {Math.round(klienTerbesar.slice(0, 10).reduce((x, k) => x + k.nilai, 0) / Math.max(1, klienTerbesar.reduce((x, k) => x + k.nilai, 0)) * 100)}% dari pendapatan invoice ({klienTerbesar.length} klien).</p>}
+                                    </Card>
+                                </div>
+                            </div>
 
                             {/* Grafik */}
                             <Card>
