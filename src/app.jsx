@@ -22889,21 +22889,93 @@ ${getRekapShareLink(rekap)}
             img.src = url;
         });
         // Jendela foto perjalanan (tutup lewat tombol)
-        const DrvFotoModal = ({ trx, onClose }) => {
+        // Foto (data URL / alamat gambar) → File, untuk Bagikan & Download
+        const fotoKeFile = async (src, namaDasar) => {
+            let blob;
+            if (/^data:/.test(String(src))) {
+                const [kepala, isi] = String(src).split(',');
+                const mime = (kepala.match(/^data:([^;,]+)/) || [])[1] || 'image/jpeg';
+                const bin = /;base64/i.test(kepala) ? atob(isi || '') : decodeURIComponent(isi || '');
+                const buf = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+                blob = new Blob([buf], { type: mime });
+            } else {
+                blob = await (await fetch(src)).blob();
+            }
+            const ext = /png/.test(blob.type) ? 'png' : /webp/.test(blob.type) ? 'webp' : 'jpg';
+            return new File([blob], `${namaDasar}.${ext}`, { type: blob.type || 'image/jpeg' });
+        };
+        const unduhFile = (file) => {
+            const url = URL.createObjectURL(file);
+            const a = document.createElement('a');
+            a.href = url; a.download = file.name; a.style.display = 'none';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+        };
+
+        const DrvFotoModal = ({ trx, rute, onClose }) => {
             const foto = safeArray(trx?.drvLangkah).filter(l => l && l.foto);
+            const judulFoto = (l) => l.kosong ? 'Pulang tanpa barang' : (DRV_LANGKAH_INFO[l.k]?.catat || l.k);
+            // Foto disiapkan sebagai file saat jendela dibuka, agar "Bagikan" di HP langsung jalan saat ditekan
+            const [files, setFiles] = React.useState([]);
+            const [pesan, setPesan] = React.useState('');
+            const fotoKey = foto.map(l => l.foto).join('|');
+            React.useEffect(() => {
+                let batal = false;
+                setFiles([]);
+                Promise.all(foto.map(async (l, i) => {
+                    try {
+                        const src = await loadImageRef(l.foto);
+                        if (!src) return null;
+                        return await fotoKeFile(src, namaFileCetak('Foto Pengiriman', trx?.driverName || 'Driver', fmtTglStruk(trx?.date), `${i + 1} ${judulFoto(l)}`));
+                    } catch (e) { return null; }
+                })).then(hasil => { if (!batal) setFiles(hasil); });
+                return () => { batal = true; };
+            }, [fotoKey]);
+            const siap = files.length === foto.length && foto.length > 0;
+            const fileAda = files.filter(Boolean);
+            const bisaBagikan = (daftar) => { try { return daftar.length > 0 && !!navigator.share && !!navigator.canShare && navigator.canShare({ files: daftar }); } catch (e) { return false; } };
+            const dukungBagikan = siap && bisaBagikan(fileAda.slice(0, 1));
+            const layarHP = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+            const utamaBagikan = dukungBagikan && layarHP;
+            const bagikan = async (daftar) => {
+                setPesan('');
+                if (!bisaBagikan(daftar)) { daftar.forEach((f, i) => setTimeout(() => unduhFile(f), i * 400)); return; }
+                try {
+                    await navigator.share({ files: daftar, title: `Foto pengiriman ${trx?.driverName || ''}`.trim() });
+                } catch (e) {
+                    if (e && e.name === 'AbortError') return; // dibatalkan pengguna
+                    setPesan('Tidak bisa membagikan dari perangkat ini. Pakai tombol Download lalu kirim dari WhatsApp.');
+                }
+            };
+            const unduhSemua = () => { setPesan(''); fileAda.forEach((f, i) => setTimeout(() => unduhFile(f), i * 400)); };
+            const kelasTombol = (utama, warna) => `px-3 py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap disabled:opacity-50 ${utama ? `${warna} text-white` : 'border border-gray-300 text-gray-700 bg-white hover:bg-gray-50'}`;
             return (
                 <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4" data-drv-foto-modal>
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
                         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
-                            <h3 className="font-bold text-gray-800 text-sm sm:text-base">📷 Foto pengiriman · {trx?.driverName || 'Driver'} · {trx?.date || ''}</h3>
+                            <h3 className="font-bold text-gray-800 text-sm sm:text-base min-w-0">📷 Foto pengiriman · {trx?.driverName || 'Driver'} · {trx?.date || ''}{rute && rute !== '-' ? <span className="hidden sm:inline"> · {rute}</span> : null}</h3>
                             <button onClick={onClose} className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-bold text-gray-700 bg-white hover:bg-gray-50 shrink-0" data-drv-foto-tutup>✕ Tutup</button>
                         </div>
+                        {foto.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-slate-50 border-b" data-drv-foto-bar>
+                                <span className="text-xs text-gray-500 mr-auto hidden sm:inline">{foto.length} foto · untuk dikirim ke customer</span>
+                                {dukungBagikan && <button type="button" disabled={!siap || !fileAda.length} onClick={() => bagikan(fileAda)} className={`flex-1 sm:flex-none ${kelasTombol(utamaBagikan, 'bg-green-500 hover:bg-green-600')}`} data-drv-foto-bagikan-semua>📤 Bagikan semua{foto.length > 1 ? ` (${foto.length})` : ''}</button>}
+                                <button type="button" disabled={!siap || !fileAda.length} onClick={unduhSemua} className={`flex-1 sm:flex-none ${kelasTombol(!utamaBagikan, 'bg-blue-600 hover:bg-blue-700')}`} data-drv-foto-unduh-semua>{siap ? `⬇ Download semua${foto.length > 1 ? ` (${foto.length})` : ''}` : 'Menyiapkan foto…'}</button>
+                            </div>
+                        )}
+                        {pesan && <p className="px-4 pt-2 text-xs text-red-600 font-medium" data-drv-foto-pesan>{pesan}</p>}
                         <div className="p-4 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {foto.length === 0 && <p className="text-sm text-gray-500 italic">Belum ada foto.</p>}
                             {foto.map((l, i) => (
-                                <div key={i}>
+                                <div key={i} data-drv-foto-item={i}>
                                     <StoredImg src={l.foto} alt={DRV_LANGKAH_INFO[l.k]?.catat || 'foto'} className="w-full max-h-[60vh] object-contain rounded-lg bg-gray-100" placeholderClassName="w-full h-48 rounded-lg" />
-                                    <p className="text-xs text-gray-700 mt-1.5"><b>{l.kosong ? 'Pulang tanpa barang' : (DRV_LANGKAH_INFO[l.k]?.catat || l.k)}</b> · {drvJam(l.at)}</p>
+                                    <p className="text-xs text-gray-700 mt-1.5"><b>{judulFoto(l)}</b> · {drvJam(l.at)}</p>
+                                    {siap && !files[i] && <p className="text-xs text-red-600 mt-1">Foto belum bisa dimuat (cek sinyal), tutup lalu buka lagi.</p>}
+                                    <div className="flex gap-2 mt-2">
+                                        {dukungBagikan && <button type="button" disabled={!files[i]} onClick={() => bagikan([files[i]])} className={`flex-1 ${kelasTombol(utamaBagikan, 'bg-green-500 hover:bg-green-600')}`} data-drv-foto-bagikan={i}>📤 Bagikan</button>}
+                                        <button type="button" disabled={!files[i]} onClick={() => { setPesan(''); unduhFile(files[i]); }} className={`flex-1 ${kelasTombol(!utamaBagikan, 'bg-blue-600 hover:bg-blue-700')}`} data-drv-foto-unduh={i}>⬇ Download</button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -24347,7 +24419,7 @@ ${getRekapShareLink(rekap)}
                         );
                     })()}
 
-                    {fotoTrx && <DrvFotoModal trx={fotoTrx} onClose={() => setFotoTrx(null)} />}
+                    {fotoTrx && <DrvFotoModal trx={fotoTrx} rute={namaRute(fotoTrx)} onClose={() => setFotoTrx(null)} />}
 
                     {/* MODAL TRANSAKSI */}
                     {showTrxForm && (
