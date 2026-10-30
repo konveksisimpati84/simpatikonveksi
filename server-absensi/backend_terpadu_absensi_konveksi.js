@@ -1,7 +1,8 @@
 /**
  * SERVER TERPADU — ABSENSI FINGER (AT-620 ADMS) + SIMPATI KONVEKSI
  *
- * Cara menjalankan:
+ * Cara menjalankan (di folder ini):
+ *   npm install          (sekali saja / setelah package.json berubah)
  *   node backend_terpadu_absensi_konveksi.js
  *
  * Konfigurasi mesin AT-620:
@@ -15,6 +16,14 @@
  *   - Kirim ke cloud satu per satu (antre), agar daftar lama tidak menimpa daftar yang lebih baru.
  *   - Setelah data scan terkirim, catatan "_timestamps" (absensiRawLogs) di cloud ikut diperbarui
  *     (paling sering 1x per 5 menit), supaya aplikasi di semua HP/PC tahu ada scan baru.
+ *
+ * Revisi 2026-10-30:
+ *   - Isi kiriman dibaca sendiri (tanpa body-parser): jalan di Express 4 maupun 5, tanpa batas 100 KB.
+ *   - Permintaan data ke mesin tiap 5 menit dengan batas tanggal (7 hari saat server baru menyala,
+ *     selanjutnya kemarin & hari ini). Bila mesin menolak, otomatis memakai permintaan lama tiap 30 menit.
+ *   - Kiriman ke cloud dikumpulkan (15 detik setelah scan terakhir, paling lama 1 menit), diulang
+ *     otomatis bila gagal, dan dikirim dulu sebelum server ditutup (Ctrl+C).
+ *   - Cek scan dobel memakai indeks (tetap cepat walau data sudah puluhan ribu).
  */
 
 const express = require('express');
@@ -85,13 +94,18 @@ const scheduleTimestampBump = () => {
 // tidak sampai belakangan dan menimpa daftar yang lebih baru.
 let syncRunning = false;
 let syncAgain   = false;
+let syncRetryTimer = null;
+const SYNC_RETRY_MS = 60 * 1000; // gagal kirim (mis. internet putus) → coba lagi 1 menit kemudian
 
 const syncLogsToSupabase = async () => {
     if (syncRunning) { syncAgain = true; return; }
     syncRunning = true;
+    if (syncRetryTimer) { clearTimeout(syncRetryTimer); syncRetryTimer = null; }
+    let gagal = false;
     try {
         do {
             syncAgain = false;
+            gagal = false;
             try {
                 const resp = await fetch(`${SUPABASE_URL}/rest/v1/app_data`, {
                     method: 'POST',
@@ -99,18 +113,51 @@ const syncLogsToSupabase = async () => {
                     body: JSON.stringify({ id: 'absensiRawLogs', data: attendanceLogs })
                 });
                 if (!resp.ok) {
+                    gagal = true;
                     console.error('[Supabase] Gagal sync log absensi:', resp.status, await resp.text());
                 } else {
                     console.log(`[Supabase] Sinkron ${attendanceLogs.length} log absensi ke cloud`);
                     scheduleTimestampBump();
                 }
             } catch (e) {
+                gagal = true;
                 console.error('[Supabase] Error sync ke cloud:', e.message);
             }
         } while (syncAgain);
     } finally {
         syncRunning = false;
     }
+    if (gagal && !syncRetryTimer) {
+        console.log('[Supabase] Akan dicoba kirim ulang 1 menit lagi');
+        syncRetryTimer = setTimeout(() => { syncRetryTimer = null; syncLogsToSupabase(); }, SYNC_RETRY_MS);
+    }
+};
+
+// Scan datang beruntun (pagi hari puluhan orang dalam beberapa menit): kiriman ke cloud dikumpulkan,
+// dikirim 15 detik setelah scan terakhir, paling lama 1 menit sejak scan pertama yang belum terkirim.
+const SYNC_TUNDA_MS      = 15 * 1000;
+const SYNC_TUNDA_MAKS_MS = 60 * 1000;
+let syncTimer = null;
+let syncDimintaSejak = 0;
+
+const jadwalkanSync = () => {
+    const now = Date.now();
+    if (!syncDimintaSejak) syncDimintaSejak = now;
+    if (syncTimer) clearTimeout(syncTimer);
+    const tunggu = Math.max(0, Math.min(SYNC_TUNDA_MS, syncDimintaSejak + SYNC_TUNDA_MAKS_MS - now));
+    syncTimer = setTimeout(() => {
+        syncTimer = null;
+        syncDimintaSejak = 0;
+        syncLogsToSupabase();
+    }, tunggu);
+};
+
+// Kirim sekarang juga bila masih ada yang menunggu (dipakai saat server ditutup)
+const kirimSisaSync = async () => {
+    if (!syncTimer && !syncRetryTimer && !syncRunning) return;
+    if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; syncDimintaSejak = 0; }
+    await syncLogsToSupabase();
+    while (syncRunning) await new Promise(r => setTimeout(r, 200));
 };
 
 // ── Persistensi ────────────────────────────────────────────────────────────
@@ -136,13 +183,22 @@ const saveLogs = (data) => {
     }
 };
 
-// Simpan ke file lokal sekaligus sinkron ke Supabase
+// Indeks scan (PIN + tanggal + jam) untuk cek dobel dengan cepat
+const kunciLog = (l) => `${l.pin}|${l.tanggal}|${l.jam}`;
+let indeksLog = new Set();
+const bangunIndeksLog = () => {
+    indeksLog = new Set(attendanceLogs.filter(l => !l.isDeleted).map(kunciLog));
+};
+
+// Simpan ke file lokal sekarang, kirim ke cloud dikumpulkan (lihat jadwalkanSync)
 const persistLogs = (data) => {
     saveLogs(data);
-    syncLogsToSupabase();
+    bangunIndeksLog();
+    jadwalkanSync();
 };
 
 let attendanceLogs = loadLogs();
+bangunIndeksLog();
 console.log(`[Storage] ${attendanceLogs.length} log dimuat dari file.`);
 syncLogsToSupabase();
 
@@ -150,23 +206,58 @@ syncLogsToSupabase();
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] }));
 
-// Tangkap raw body SEBELUM parser lain
+// Isi kiriman dibaca sendiri, tanpa express.text/json/urlencoded: body-parser di Express 4 menolak
+// stream yang sudah dibaca ("stream is not readable") dan membatasi kiriman 100 KB.
+const MAX_BODY_BYTES = 20 * 1024 * 1024;
+
+const parseBody = (req) => {
+    const raw  = req.rawBody;
+    const type = String(req.headers['content-type'] || '').toLowerCase();
+    if (!raw) return {};
+    if (type.includes('application/json')) {
+        try { return JSON.parse(raw); } catch (e) { return {}; }
+    }
+    if (type.includes('application/x-www-form-urlencoded')) {
+        return Object.fromEntries(new URLSearchParams(raw));
+    }
+    return raw;
+};
+
 app.use((req, res, next) => {
-    let raw = Buffer.alloc(0);
-    req.on('data', chunk => { raw = Buffer.concat([raw, chunk]); });
+    const chunks = [];
+    let size = 0;
+    let selesai = false;
+    req.on('data', chunk => {
+        if (selesai) return;
+        size += chunk.length;
+        if (size > MAX_BODY_BYTES) {
+            selesai = true;
+            console.error(`[ERROR] Kiriman terlalu besar (${size} byte) ke ${req.url.split('?')[0]}`);
+            res.status(413).type('text').send('Data terlalu besar');
+            req.destroy();
+            return;
+        }
+        chunks.push(chunk);
+    });
     req.on('end', () => {
-        req.rawBody = raw.toString('utf8');
+        if (selesai) return;
+        selesai = true;
+        req.rawBody = Buffer.concat(chunks).toString('utf8');
+        req.body    = parseBody(req);
+        req._body   = true; // tandai sudah dibaca (bila kelak ada body-parser, tidak dibaca ulang)
         if (req.method === 'POST' && req.rawBody.length > 0) {
             console.log(`[RAW POST] ${req.url.split('?')[0]} | Content-Type: ${req.headers['content-type']} | Length: ${req.rawBody.length}`);
             console.log(`[RAW DATA] ${req.rawBody.substring(0, 300)}`);
         }
         next();
     });
+    req.on('error', (e) => {
+        if (selesai) return;
+        selesai = true;
+        console.error('[ERROR] Gagal membaca kiriman:', e.message);
+        if (!res.headersSent) res.status(400).type('text').send('Kiriman rusak');
+    });
 });
-
-app.use(express.text({ type: '*/*' }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Log semua request masuk untuk diagnosa
 app.use((req, res, next) => {
@@ -218,28 +309,59 @@ app.get('/iclock/cdata', (req, res) => {
     res.type('text').send(response);
 });
 
-// Mesin polling perintah dari server
+// Mesin polling perintah dari server.
+// Scan baru sudah dikirim langsung oleh mesin (Realtime=1); permintaan ini hanya jaga-jaga bila ada
+// kiriman yang terlewat. Dibatasi tanggal supaya mesin tidak mengirim seluruh riwayat setiap kali.
+const QUERY_INTERVAL_MS              = 5 * 60 * 1000;  // tiap 5 menit
+const QUERY_HARI_AWAL                = 7;              // saat server baru menyala: 7 hari terakhir (PC mungkin sempat mati)
+const QUERY_HARI                     = 2;              // selanjutnya: kemarin & hari ini
+const QUERY_TANPA_FILTER_INTERVAL_MS = 30 * 60 * 1000; // bila mesin menolak batas tanggal: permintaan lama tiap 30 menit
+
 let cmdCounter = 1;
 let lastQueryTime = 0;
+let queryAwalTerkirim = false;
+let queryTanpaFilter = false;
+const cmdBatasTanggal = new Set(); // ID perintah yang memakai batas tanggal (untuk membaca jawaban mesin)
+
+const fmtWaktuMesin = (d) => `${toDateStr(d)} ${toTimeStr(d)}:${String(d.getSeconds()).padStart(2, '0')}`;
 
 app.get('/iclock/getrequest', (req, res) => {
     const now = Date.now();
-    // Setiap 30 detik kirim perintah upload data ke mesin
-    if (now - lastQueryTime > 30000) {
-        lastQueryTime = now;
-        const today = new Date();
-        const start = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')} 00:00:00`;
-        // Coba query tanpa filter tanggal dan juga operlog
-        const cmd = `C:${cmdCounter++}:DATA QUERY attlog`;
-        console.log(`[CMD] Minta upload data: ${cmd}`);
-        res.type('text').send(cmd);
+    const jeda = queryTanpaFilter ? QUERY_TANPA_FILTER_INTERVAL_MS : QUERY_INTERVAL_MS;
+    if (now - lastQueryTime < jeda) return res.type('text').send('OK');
+    lastQueryTime = now;
+
+    const id = cmdCounter++;
+    let cmd;
+    if (queryTanpaFilter) {
+        cmd = `C:${id}:DATA QUERY attlog`;
     } else {
-        res.type('text').send('OK');
+        const hari = queryAwalTerkirim ? QUERY_HARI : QUERY_HARI_AWAL;
+        queryAwalTerkirim = true;
+        const dari = new Date(); dari.setHours(0, 0, 0, 0); dari.setDate(dari.getDate() - (hari - 1));
+        const sampai = new Date(); sampai.setHours(23, 59, 59, 0);
+        cmd = `C:${id}:DATA QUERY ATTLOG StartTime=${fmtWaktuMesin(dari)}\tEndTime=${fmtWaktuMesin(sampai)}`;
+        if (cmdBatasTanggal.size > 100) cmdBatasTanggal.clear();
+        cmdBatasTanggal.add(String(id));
     }
+    console.log(`[CMD] Minta data scan: ${cmd.replace('\t', ' ')}`);
+    res.type('text').send(cmd);
 });
 
-// Mesin kirim hasil eksekusi perintah
+// Mesin kirim hasil eksekusi perintah, mis. "ID=3&Return=0&CMD=DATA" (Return < 0 = gagal)
 app.post('/iclock/devicecmd', (req, res) => {
+    String(req.rawBody || '').split(/\r?\n/).forEach(baris => {
+        if (!baris.trim()) return;
+        const p   = new URLSearchParams(baris.trim());
+        const id  = p.get('ID');
+        const ret = Number(p.get('Return'));
+        if (!id || !cmdBatasTanggal.has(id)) return;
+        cmdBatasTanggal.delete(id);
+        if (Number.isFinite(ret) && ret < 0 && !queryTanpaFilter) {
+            queryTanpaFilter = true;
+            console.log(`[CMD] Mesin menolak permintaan dengan batas tanggal (kode ${ret}). Selanjutnya memakai permintaan biasa tiap 30 menit.`);
+        }
+    });
     res.type('text').send('OK');
 });
 
@@ -269,10 +391,9 @@ app.post('/iclock/cdata', (req, res) => {
             const jam     = toTimeStr(dateObj);
 
             // Cegah duplikat (PIN + jam sama di hari yang sama)
-            const isDuplicate = attendanceLogs.some(
-                l => l.pin === pin && l.tanggal === tanggal && l.jam === jam && !l.isDeleted
-            );
-            if (isDuplicate) return;
+            const kunci = kunciLog({ pin, tanggal, jam });
+            if (indeksLog.has(kunci)) return;
+            indeksLog.add(kunci);
 
             const log = {
                 id        : genId('adms', pin),
@@ -386,6 +507,18 @@ process.on('uncaughtException', (err) => {
 process.on('exit', (code) => {
     console.log(`[INFO] Server berhenti dengan kode: ${code}`);
 });
+
+// Saat ditutup (Ctrl+C / jendela ditutup): kirim dulu scan yang belum terkirim ke cloud (maks. 10 detik).
+// Bila tetap gagal, data aman di absensi_logs.json dan dikirim saat server dinyalakan lagi.
+let sedangBerhenti = false;
+const berhenti = async (sinyal) => {
+    if (sedangBerhenti) return;
+    sedangBerhenti = true;
+    console.log(`[INFO] ${sinyal}: mengirim sisa data ke cloud sebelum berhenti...`);
+    await Promise.race([kirimSisaSync(), new Promise(r => setTimeout(r, 10000))]);
+    process.exit(0);
+};
+['SIGINT', 'SIGTERM', 'SIGHUP'].forEach(s => process.on(s, () => berhenti(s)));
 
 const server = app.listen(PORT, '0.0.0.0', () => {
     const { networkInterfaces } = require('os');

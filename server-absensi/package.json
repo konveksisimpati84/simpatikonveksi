@@ -1,0 +1,17 @@
+{
+  "name": "server-absensi-simpati",
+  "version": "2026.10.30",
+  "private": true,
+  "description": "Server absensi finger AT-620 (ADMS) untuk Simpati Konveksi",
+  "main": "backend_terpadu_absensi_konveksi.js",
+  "scripts": {
+    "start": "node backend_terpadu_absensi_konveksi.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0"
+  }
+}

@@ -204,8 +204,15 @@ File `server-absensi/backend_terpadu_absensi_konveksi.js` adalah program server 
 (`app_data` id `absensiRawLogs`) dan memperbarui `_timestamps.absensiRawLogs` (paling sering 1x per 5 menit)
 agar aplikasi di semua perangkat tahu ada scan baru.
 
-Cara memperbarui di PC: tutup jendela CMD server, cadangkan file lama, salin file baru dengan nama yang sama
-ke `C:\AbsensiServer`, lalu jalankan `start_absensi_server.bat`. Jangan mengganti/menghapus `absensi_logs.json`.
+Cara memperbarui di PC: tutup server dengan Ctrl+C (scan yang belum terkirim dikirim dulu), cadangkan file lama,
+salin file baru dengan nama yang sama ke `C:\AbsensiServer`, lalu jalankan `start_absensi_server.bat`.
+Jangan mengganti/menghapus `absensi_logs.json`.
+
+Program berjalan di Express 4 maupun 5 (isi kiriman dibaca sendiri, tanpa body-parser). `package.json` mencatat
+versi yang dipakai; untuk pemasangan di PC baru jalankan `npm install` di folder tersebut (Node.js 18 ke atas).
+
+Pengaturan jaringan mesin (menu Ethernet): IP mesin harus berbeda dari IP modem (mis. 192.168.1.201),
+Gateway & DNS = IP modem. Menu Cloud Server Setting: Server Address = IP PC server, port 8081.
 
 ---
 

@@ -23014,7 +23014,7 @@ ${getRekapShareLink(rekap)}
                 ${info ? `<div class="kasbon-box"><div class="t">Info Kasbon</div>
                     ${info.sebelum != null ? `<div class="row"><span>Sisa kasbon sebelumnya</span><span>${formatRupiah(info.sebelum)}</span></div>` : ''}
                     ${info.dipotong > 0 ? `<div class="row red"><span>Dipotong rekap ini</span><span>- ${formatRupiah(info.dipotong)}</span></div>` : ''}
-                    <div class="row" style="font-weight:900"><span>${info.perHariIni ? 'Sisa kasbon per hari ini' : 'Sisa kasbon sekarang'}</span><span class="${info.sesudah > 0 ? 'red' : 'green'}">${info.sesudah > 0 ? formatRupiah(info.sesudah) : 'Lunas'}</span></div>
+                    <div class="row" style="font-weight:900"><span>${info.perHariIni ? 'Sisa kasbon per hari ini' : 'Sisa kasbon setelah rekap ini'}</span><span class="${info.sesudah > 0 ? 'red' : 'green'}">${info.sesudah > 0 ? formatRupiah(info.sesudah) : 'Lunas'}</span></div>
                 </div>` : ''}
                 ${ttdStruk(tpl, 'Penerima,', '')}
                 </div></body></html>`;
@@ -24777,6 +24777,7 @@ ${getRekapShareLink(rekap)}
             const [tpl, setTpl] = React.useState({});
             const [kasbon, setKasbon] = React.useState([]);
             const [loading, setLoading] = React.useState(true);
+            const [popupDiblokir, setPopupDiblokir] = React.useState(false);
 
             React.useEffect(() => {
                 const CACHE_KEY = `simpati_drg_cache_${rekapId}`;
@@ -24846,7 +24847,7 @@ ${getRekapShareLink(rekap)}
             const pot = safeMoney(rekap.potonganKasbon);
             const diterima = safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir);
             // Cetak memakai nota yang sama persis dengan cetakan admin
-            const printRekap = () => { cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl, sisaSekarang })); };
+            const printRekap = () => { setPopupDiblokir(!cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl, sisaSekarang }))); };
             return (
                 <div className="min-h-screen bg-gray-50 py-8 px-4">
                     <div className="max-w-lg mx-auto">
@@ -24876,7 +24877,7 @@ ${getRekapShareLink(rekap)}
                                         <div className="font-bold text-red-800">💳 Info Kasbon</div>
                                         {info.sebelum != null && <div className="flex justify-between"><span className="text-gray-700">Sisa kasbon sebelumnya</span><b>{formatRupiah(info.sebelum)}</b></div>}
                                         {info.dipotong > 0 && <div className="flex justify-between text-red-600"><span>Dipotong rekap ini</span><b>- {formatRupiah(info.dipotong)}</b></div>}
-                                        <div className="flex justify-between font-black"><span>{info.perHariIni ? 'Sisa kasbon per hari ini' : 'Sisa kasbon sekarang'}</span><span className={info.sesudah > 0 ? 'text-red-600' : 'text-green-700'}>{info.sesudah > 0 ? formatRupiah(info.sesudah) : 'Lunas'}</span></div>
+                                        <div className="flex justify-between font-black"><span>{info.perHariIni ? 'Sisa kasbon per hari ini' : 'Sisa kasbon setelah rekap ini'}</span><span className={info.sesudah > 0 ? 'text-red-600' : 'text-green-700'}>{info.sesudah > 0 ? formatRupiah(info.sesudah) : 'Lunas'}</span></div>
                                     </div>
                                 )}
                                 <div>
@@ -24900,6 +24901,7 @@ ${getRekapShareLink(rekap)}
                                     </div>
                                 </div>
                                 <button onClick={printRekap} className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-xl font-bold text-base">Cetak / Simpan PDF</button>
+                                {popupDiblokir && <p className="text-xs text-red-600 text-center font-medium" data-rg-popup>Jendela cetak diblokir browser. Izinkan pop-up untuk halaman ini, lalu tekan tombol Cetak lagi.</p>}
                             </div>
                         </div>
                     </div>
