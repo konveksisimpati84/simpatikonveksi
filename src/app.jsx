@@ -22912,6 +22912,152 @@ ${getRekapShareLink(rekap)}
             );
         };
 
+        // ===== Struk driver (80 mm): rekap gaji & kasbon — dipakai menu Ekspedisi dan link rekap gaji driver =====
+        const fmtTglStruk = (s) => { const d = new Date(`${String(s || '').slice(0, 10)}T00:00:00`); return isNaN(d.getTime()) ? String(s || '-') : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); };
+        // "26 Okt-1 Nov 2026" / "30 Okt 2026"
+        const labelRentangStruk = (dari, sampai) => {
+            if (!dari && !sampai) return '';
+            if (!dari || !sampai || dari === sampai) return fmtTglStruk(dari || sampai);
+            const a = fmtTglStruk(dari), b = fmtTglStruk(sampai);
+            return String(dari).slice(0, 4) === String(sampai).slice(0, 4) ? `${a.replace(/ \d{4}$/, '')}-${b}` : `${a}-${b}`;
+        };
+        // Judul halaman cetak = nama file saat "Simpan sebagai PDF" (tanpa karakter yang dilarang di nama file)
+        const namaFileCetak = (...bagian) => bagian.filter(Boolean).map(v => String(v).replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' - ');
+        // Periode rekap: dari catatan rekap, atau (rekap lama) dari tanggal trip-tripnya
+        const periodeRekapGaji = (rekap, trips) => {
+            if (rekap?.periodeDari) return { dari: rekap.periodeDari, sampai: rekap.periodeSampai || rekap.periodeDari };
+            const tgl = safeArray(trips).map(t => String(t?.date || '')).filter(Boolean).sort();
+            return tgl.length ? { dari: tgl[0], sampai: tgl[tgl.length - 1] } : null;
+        };
+        // Info kasbon di nota: dicatat saat rekap dibuat; rekap lama memakai sisa kasbon per hari ini
+        const infoKasbonRekap = (rekap, sisaSekarang) => {
+            const dipotong = safeMoney(rekap?.potonganKasbon);
+            if (rekap && rekap.sisaKasbonSesudah != null && rekap.sisaKasbonSebelum != null) {
+                const sebelum = safeMoney(rekap.sisaKasbonSebelum), sesudah = safeMoney(rekap.sisaKasbonSesudah);
+                return sebelum > 0 || dipotong > 0 ? { sebelum, dipotong, sesudah, perHariIni: false } : null;
+            }
+            const sisa = safeMoney(sisaSekarang);
+            return sisa > 0 || dipotong > 0 ? { sebelum: null, dipotong, sesudah: sisa, perHariIni: true } : null;
+        };
+        const hitungSisaKasbonDriver = (kasbonList, driverId) => safeArray(kasbonList).filter(k => k && !k.isDeleted && k.driverId === driverId)
+            .reduce((s, k) => s + Math.max(0, safeMoney(k.jumlah) - safeMoney(k.sudahDipotong)), 0);
+        const STRUK_CSS = `
+            @page{size:80mm auto;margin:4mm;}
+            html,body{width:72mm;}
+            body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+            .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
+            .header{text-align:center;border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
+            .header-logo{max-height:44px;max-width:70px;object-fit:contain;margin-bottom:3px;}
+            .header h1{margin:0;font-size:14px;text-transform:uppercase;line-height:1.15;}
+            .header p{margin:2px 0 0;font-size:10.5px;}
+            .meta{border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
+            .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0;}
+            .lbl{color:#444;}
+            .val{font-weight:bold;text-align:right;}
+            .section-title{margin-top:7px;padding:4px 0 3px;border-top:1px dashed #000;border-bottom:1px dashed #bbb;font-size:10px;font-weight:900;text-transform:uppercase;}
+            .item-row{display:flex;justify-content:space-between;gap:6px;padding:4px 0;border-bottom:1px dashed #ddd;}
+            .item-row span:first-child{max-width:44mm;overflow-wrap:anywhere;}
+            .item-row span:last-child{text-align:right;font-weight:bold;white-space:nowrap;}
+            .item-row small{display:block;color:#555;font-size:8.6px;font-weight:normal;}
+            .total-box{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:6px 0;margin-top:6px;}
+            .grand{font-size:13px;font-weight:900;}
+            .red{color:#dc2626;}.green{color:#16a34a;}
+            .kasbon-box{border:1px dashed #000;border-radius:4px;padding:5px 6px;margin-top:8px;}
+            .kasbon-box .t{font-size:10px;font-weight:900;text-transform:uppercase;margin-bottom:2px;}
+            .footer{text-align:center;font-size:9px;margin-top:9px;color:#444;}
+            @media screen{body{background:#f3f4f6;padding:12px 0;}.receipt{background:#fff;padding:4mm;box-shadow:0 10px 30px rgba(0,0,0,.12);}}`;
+        const kepalaStruk = (tpl, judul) => `
+                <div class="header">
+                    ${tpl?.companyLogo ? `<img src="${tpl.companyLogo}" class="header-logo"/>` : ''}
+                    <h1>${escapeHtmlText(tpl?.companyName || 'SIMPATI KONVEKSI')}</h1>
+                    <p>${judul}</p>
+                    ${tpl?.companySubtitle ? `<p>${escapeHtmlText(tpl.companySubtitle)}</p>` : ''}
+                </div>`;
+        const ttdStruk = (tpl, kiriLabel, kiriNama) => `
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;text-align:center;font-size:9px;align-items:stretch">
+                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
+                        <div>${kiriLabel}</div>
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${kiriNama ? escapeHtmlText(kiriNama) : '&nbsp;'}</div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
+                        <div>Hormat Kami,</div>
+                        ${(tpl?.signatureImage && tpl?.showSignatureOnPrint !== false) ? `<img src="${tpl.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(tpl?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${escapeHtmlText(tpl?.companyName || 'Simpati Konveksi')}</div>
+                    </div>
+                </div>
+                <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>`;
+        // Nota rekap gaji driver (sumber yang sama untuk cetak admin & link driver)
+        const htmlStrukRekapGaji = ({ rekap, driver, trips, tarifs, tpl, sisaSekarang }) => {
+            const per = periodeRekapGaji(rekap, trips);
+            const info = infoKasbonRekap(rekap, sisaSekarang);
+            const pot = safeMoney(rekap.potonganKasbon);
+            const nama = rekap.driverName || driver?.name || 'Driver';
+            const rows = safeArray(trips).map(t => { const trf = safeArray(tarifs).find(x => x && x.id === t.tarifId); const rute = trf ? `${trf.from} → ${trf.to}` : '-'; return `<div class="item-row"><span><b>${escapeHtmlText(rute)}</b><small>${escapeHtmlText(t.date || '')}${t.tripType === 'pp' ? ' &bull; PP' : ''}${t.note ? ' &bull; ' + escapeHtmlText(t.note) : ''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`; }).join('');
+            const judul = namaFileCetak('SGD', nama, per ? labelRentangStruk(per.dari, per.sampai) : fmtTglStruk(rekap.tanggalRekap));
+            return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtmlText(judul)}</title><style>${STRUK_CSS}</style></head><body><div class="receipt">
+                ${kepalaStruk(tpl, 'REKAP GAJI DRIVER')}
+                <div class="meta">
+                    <div class="row"><span class="lbl">Driver</span><span class="val">${escapeHtmlText(nama)}</span></div>
+                    <div class="row"><span class="lbl">Kendaraan</span><span class="val">${escapeHtmlText(driver?.vehicle || '-')}${driver?.plateNumber ? ' (' + escapeHtmlText(driver.plateNumber) + ')' : ''}</span></div>
+                    ${per ? `<div class="row"><span class="lbl">Periode</span><span class="val">${escapeHtmlText(labelRentangStruk(per.dari, per.sampai))}</span></div>` : ''}
+                    <div class="row"><span class="lbl">Tgl Rekap</span><span class="val">${escapeHtmlText(rekap.tanggalRekap || '-')}</span></div>
+                    <div class="row"><span class="lbl">No Rekap</span><span style="font-size:9px;font-weight:bold">${escapeHtmlText(rekap.id)}</span></div>
+                    ${rekap.note ? `<div class="row"><span class="lbl">Catatan</span><span class="val">${escapeHtmlText(rekap.note)}</span></div>` : ''}
+                </div>
+                <div class="section-title">Detail Trip (${rekap.jumlahTrip || safeArray(trips).length} trip)</div>
+                <div>${rows}</div>
+                <div class="total-box">
+                    <div class="row"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                    ${pot > 0 ? `<div class="row red"><span>Potongan Kasbon</span><span>- ${formatRupiah(pot)}</span></div>` : ''}
+                    <div class="row grand" style="${pot > 0 ? 'border-top:1px dashed #000;padding-top:5px;margin-top:4px' : ''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}</span></div>
+                </div>
+                ${info ? `<div class="kasbon-box"><div class="t">Info Kasbon</div>
+                    ${info.sebelum != null ? `<div class="row"><span>Sisa kasbon sebelumnya</span><span>${formatRupiah(info.sebelum)}</span></div>` : ''}
+                    ${info.dipotong > 0 ? `<div class="row red"><span>Dipotong rekap ini</span><span>- ${formatRupiah(info.dipotong)}</span></div>` : ''}
+                    <div class="row" style="font-weight:900"><span>${info.perHariIni ? 'Sisa kasbon per hari ini' : 'Sisa kasbon sekarang'}</span><span class="${info.sesudah > 0 ? 'red' : 'green'}">${info.sesudah > 0 ? formatRupiah(info.sesudah) : 'Lunas'}</span></div>
+                </div>` : ''}
+                ${ttdStruk(tpl, 'Penerima,', '')}
+                </div></body></html>`;
+        };
+        // Struk kasbon driver
+        const htmlStrukKasbon = ({ driver, kasbonList, tpl }) => {
+            const list = safeArray(kasbonList).filter(k => k && !k.isDeleted && k.driverId === driver?.id).sort((a, b) => String(a.tanggal || '').localeCompare(String(b.tanggal || '')));
+            const totalJumlah = list.reduce((s, k) => s + safeMoney(k.jumlah), 0);
+            const totalDipotong = list.reduce((s, k) => s + safeMoney(k.sudahDipotong), 0);
+            const totalSisa = Math.max(0, totalJumlah - totalDipotong);
+            const rows = list.map(k => {
+                const sisa = Math.max(0, safeMoney(k.jumlah) - safeMoney(k.sudahDipotong));
+                return `<div class="item-row"><span><b>${escapeHtmlText(fmtTglStruk(k.tanggal))}</b><small>${k.keterangan ? escapeHtmlText(k.keterangan) + ' &bull; ' : ''}${formatRupiah(safeMoney(k.jumlah))}${safeMoney(k.sudahDipotong) > 0 ? ' &bull; dipotong ' + formatRupiah(safeMoney(k.sudahDipotong)) : ''}</small></span><span class="${sisa > 0 ? 'red' : 'green'}">${sisa > 0 ? formatRupiah(sisa) : 'Lunas'}</span></div>`;
+            }).join('');
+            const judul = namaFileCetak('KSB', driver?.name || 'Driver', fmtTglStruk(toLocalDateStr()));
+            return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtmlText(judul)}</title><style>${STRUK_CSS}</style></head><body><div class="receipt">
+                ${kepalaStruk(tpl, 'KASBON DRIVER')}
+                <div class="meta">
+                    <div class="row"><span class="lbl">Driver</span><span class="val">${escapeHtmlText(driver?.name || '-')}</span></div>
+                    <div class="row"><span class="lbl">Kendaraan</span><span class="val">${escapeHtmlText(driver?.vehicle || '-')}${driver?.plateNumber ? ' (' + escapeHtmlText(driver.plateNumber) + ')' : ''}</span></div>
+                    <div class="row"><span class="lbl">Tanggal Cetak</span><span class="val">${escapeHtmlText(fmtTglStruk(toLocalDateStr()))}</span></div>
+                </div>
+                <div class="section-title">Rincian Kasbon (${list.length})</div>
+                ${rows || '<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>'}
+                <div class="total-box">
+                    <div class="row"><span>Total Kasbon</span><span>${formatRupiah(totalJumlah)}</span></div>
+                    <div class="row green"><span>Total Dipotong</span><span>${formatRupiah(totalDipotong)}</span></div>
+                    <div class="row grand" style="border-top:1px dashed #000;padding-top:5px;margin-top:4px"><span>Sisa Kasbon</span><span class="${totalSisa > 0 ? 'red' : 'green'}">${totalSisa > 0 ? formatRupiah(totalSisa) : 'Lunas'}</span></div>
+                </div>
+                ${ttdStruk(tpl, 'Driver,', driver?.name || '')}
+                </div></body></html>`;
+        };
+        // Buka jendela cetak struk 80 mm (tinggi kertas mengikuti isi)
+        const cetakStruk80 = (html) => {
+            const w = window.open('', '_blank', 'width=420,height=700');
+            if (!w) return false;
+            w.document.write(html);
+            w.document.close();
+            const cetak = () => { const h = w.document.body.scrollHeight; const s = w.document.createElement('style'); s.textContent = `@page{size:80mm ${h + 12}px !important;margin:4mm;}`; w.document.head.appendChild(s); w.print(); w.close(); };
+            if (w.document.readyState === 'complete') setTimeout(cetak, 150); else w.onload = () => setTimeout(cetak, 100);
+            return true;
+        };
+
         const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates }) => {
             const [activeSubTab, setActiveSubTab] = React.useState('kirim');
             const [search, setSearch] = React.useState('');
@@ -23089,7 +23235,7 @@ ${getRekapShareLink(rekap)}
                 const tarif = visibleTarifs.find(t=>t.id===trx.tarifId);
                 const w = window.open('','_blank','width=420,height=700');
                 if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
-                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SD - ${drv?.name || 'Driver'}</title><style>
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtmlText(namaFileCetak('SD', drv?.name || trx.driverName || 'Driver', fmtTglStruk(trx.date)))}</title><style>
                     @page{size:80mm auto;margin:4mm;}
                     html,body{width:72mm;}
                     body{font-family:Arial,sans-serif;color:#000;line-height:1.28;margin:0 auto;padding:0;font-size:11.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
@@ -23191,96 +23337,10 @@ ${getRekapShareLink(rekap)}
                 showToast('Kasbon dihapus', 'success');
             };
 
+            // Kasbon dicetak sebagai struk 80 mm (sekaligus untuk Simpan sebagai PDF)
             const printKasbonDriver = (driverId) => {
-                const drv = visibleDrivers.find(d => d.id === driverId);
-                const list = visibleKasbon.filter(k => k.driverId === driverId).sort((a,b) => a.tanggal > b.tanggal ? 1 : -1);
-                const w = window.open('','_blank','width=480,height=640');
-                if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
-                const totalJumlah = list.reduce((s,k) => s + safeMoney(k.jumlah), 0);
-                const totalDipotong = list.reduce((s,k) => s + safeMoney(k.sudahDipotong), 0);
-                const totalSisa = totalJumlah - totalDipotong;
-                const rows = list.map((k,i) => {
-                    const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
-                    return `<tr><td>${i+1}</td><td>${k.tanggal}</td><td style="text-align:right">${formatRupiah(safeMoney(k.jumlah))}</td><td style="text-align:right;color:#16a34a">${safeMoney(k.sudahDipotong)>0?formatRupiah(safeMoney(k.sudahDipotong)):'-'}</td><td style="text-align:right;font-weight:bold;color:${sisa>0?'#dc2626':'#16a34a'}">${sisa>0?formatRupiah(sisa):'Lunas'}</td><td style="color:#555;font-size:10px">${k.keterangan||'-'}</td></tr>`;
-                }).join('');
-                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rekap Kasbon - ${drv?drv.name:''}</title><style>
-@page{size:A4 portrait;margin:12mm}body{font-family:Arial,sans-serif;font-size:11px;color:#111}
-h2{margin:0;font-size:15px}h3{margin:4px 0 2px;font-size:12px}
-table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ddd;padding:5px 7px}
-th{background:#f3f4f6;font-size:10px}tr:nth-child(even){background:#f9fafb}
-.total{margin-top:10px;font-size:12px;border-top:2px solid #111;padding-top:8px}
-.total div{display:flex;justify-content:space-between;padding:2px 0}
-.sisa{font-weight:900;font-size:13px;color:#dc2626}
-</style></head><body>
-<div style="text-align:center;border-bottom:2px dashed #111;padding-bottom:8px;margin-bottom:10px">
-${templates?.companyLogo?`<img src="${templates.companyLogo}" style="max-height:60px;max-width:240px;object-fit:contain;margin-bottom:4px"><br>`:''}
-<h2>${templates?.companyName||'SIMPATI KONVEKSI'}</h2>
-<div style="font-size:11px">REKAP KASBON DRIVER</div>
-</div>
-<div><b>Driver:</b> ${drv?drv.name:'-'}</div>
-<div><b>Kendaraan:</b> ${drv?.vehicle||'-'}${drv?.plateNumber?' ('+drv.plateNumber+')':''}</div>
-<div><b>Tanggal Cetak:</b> ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
-<table><thead><tr><th>No</th><th>Tanggal</th><th style="text-align:right">Jumlah</th><th style="text-align:right">Dipotong</th><th style="text-align:right">Sisa</th><th>Keterangan</th></tr></thead>
-<tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#aaa">Belum ada kasbon</td></tr>'}</tbody></table>
-<div class="total">
-<div><span>Total Kasbon</span><span>${formatRupiah(totalJumlah)}</span></div>
-<div><span>Total Dipotong</span><span style="color:#16a34a">${formatRupiah(totalDipotong)}</span></div>
-<div class="sisa"><span>Total Sisa Kasbon</span><span>${formatRupiah(totalSisa)}</span></div>
-</div>
-</body></html>`);
-                w.document.close();
-                setTimeout(() => { w.print(); w.close(); }, 400);
-            };
-
-            const printKasbonDriverThermal = (driverId) => {
-                const drv = visibleDrivers.find(d => d.id === driverId);
-                const list = visibleKasbon.filter(k => k.driverId === driverId).sort((a,b) => a.tanggal > b.tanggal ? 1 : -1);
-                const w = window.open('','_blank','width=360,height=640');
-                if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
-                const totalJumlah = list.reduce((s,k) => s + safeMoney(k.jumlah), 0);
-                const totalDipotong = list.reduce((s,k) => s + safeMoney(k.sudahDipotong), 0);
-                const totalSisa = totalJumlah - totalDipotong;
-                const rows = list.map((k,i) => {
-                    const sisa = safeMoney(k.jumlah) - safeMoney(k.sudahDipotong);
-                    return `<div class="item-row"><span><b>${k.tanggal||'-'}</b><small>${k.keterangan||'Kasbon'}</small></span><span class="${sisa>0?'red':'green'}">${sisa>0?formatRupiah(sisa):'Lunas'}</span></div>`;
-                }).join('');
-                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Kasbon - ${drv?drv.name:''}</title><style>
-@page{size:80mm auto;margin:4mm}html,body{width:72mm}
-body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0}
-.header{text-align:center;border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px}
-.header h1{margin:0;font-size:14px;text-transform:uppercase}
-.header p{margin:2px 0 0;font-size:10px}
-.meta{border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px}
-.meta-row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
-.meta-label{color:#444}.meta-value{font-weight:bold;text-align:right}
-.item-row{display:flex;justify-content:space-between;gap:6px;padding:4px 0;border-bottom:1px dashed #ddd}
-.item-row span:first-child{max-width:44mm;overflow-wrap:anywhere}
-.item-row span:last-child{text-align:right;font-weight:bold;white-space:nowrap}
-.item-row small{display:block;color:#555;font-size:8.6px;font-weight:normal;margin-top:1px}
-.total-box{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:7px 0;margin-top:6px}
-.total-row{display:flex;justify-content:space-between;gap:6px;margin:3px 0}
-.grand-total{font-size:13px;font-weight:900}.red{color:#dc2626}.green{color:#16a34a}
-@media screen{body{background:#f3f4f6;padding:12px 0}}
-</style></head><body>
-<div class="header">
-${templates?.companyLogo?`<img src="${templates.companyLogo}" style="max-height:38px;max-width:64px;object-fit:contain;margin-bottom:3px"><br>`:''}
-<h1>${templates?.companyName||'SIMPATI KONVEKSI'}</h1>
-<p>REKAP KASBON DRIVER</p>
-</div>
-<div class="meta">
-<div class="meta-row"><span class="meta-label">Driver</span><span class="meta-value">${drv?drv.name:'-'}</span></div>
-<div class="meta-row"><span class="meta-label">Kendaraan</span><span class="meta-value">${drv?.vehicle||'-'}${drv?.plateNumber?' ('+drv.plateNumber+')':''}</span></div>
-<div class="meta-row"><span class="meta-label">Tanggal Cetak</span><span class="meta-value">${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</span></div>
-</div>
-${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>'}
-<div class="total-box">
-<div class="total-row"><span>Total Kasbon</span><span>${formatRupiah(totalJumlah)}</span></div>
-<div class="total-row"><span>Total Dipotong</span><span class="green">${formatRupiah(totalDipotong)}</span></div>
-<div class="total-row grand-total"><span>Sisa Kasbon</span><span class="red">${formatRupiah(totalSisa)}</span></div>
-</div>
-</body></html>`);
-                w.document.close();
-                setTimeout(() => { w.print(); w.close(); }, 400);
+                const drv = (drivers || []).find(d => d && d.id === driverId);
+                if (!cetakStruk80(htmlStrukKasbon({ driver: drv, kasbonList: driverKasbon, tpl: templates }))) showToast('Izinkan pop-up browser untuk mencetak', 'error');
             };
 
             const visibleRekap = (driverRekapGaji||[]).filter(isVisibleRecord);
@@ -23316,6 +23376,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     totalOngkir,
                     potonganKasbon: potongan,
                     gajiDiterima,
+                    // Sisa kasbon saat rekap dibuat (untuk Info Kasbon di nota & link driver)
+                    sisaKasbonSebelum: sisaKasbonDriver,
+                    sisaKasbonSesudah: Math.max(0, sisaKasbonDriver - potongan),
                     jumlahTrip: selectedTripIds.length,
                     note: rekapNote,
                     tanggalRekap: toLocalDateStr(),
@@ -23371,70 +23434,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             };
 
             const printRekapGaji = (rekap) => {
-                const drv = visibleDrivers.find(d=>d.id===rekap.driverId);
-                const trips = visibleTrx.filter(t=>(rekap.tripIds||[]).includes(t.id));
-                const w = window.open('','_blank','width=420,height=700');
-                if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
-                const rows = trips.map(t=>{const trf=visibleTarifs.find(x=>x.id===t.tarifId);const rute=trf?trf.from+' → '+trf.to:'-';return `<div class="item-row"><span><b>${rute}</b><small>${t.date}${t.tripType==='pp'?' &bull; PP':''}${t.note?' &bull; '+t.note:''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`;}).join('');
-                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SD - ${drv?.name || 'Driver'}</title><style>
-                    @page{size:80mm auto;margin:4mm;}
-                    html,body{width:72mm;}
-                    body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-                    .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
-                    .header{text-align:center;border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
-                    .header-logo{max-height:44px;max-width:70px;object-fit:contain;margin-bottom:3px;}
-                    .header h1{margin:0;font-size:14px;text-transform:uppercase;line-height:1.15;}
-                    .header p{margin:2px 0 0;font-size:10.5px;}
-                    .meta{border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
-                    .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0;}
-                    .lbl{color:#444;}
-                    .val{font-weight:bold;text-align:right;}
-                    .section-title{margin-top:7px;padding:4px 0 3px;border-top:1px dashed #000;border-bottom:1px dashed #bbb;font-size:10px;font-weight:900;text-transform:uppercase;}
-                    .item-row{display:flex;justify-content:space-between;gap:6px;padding:4px 0;border-bottom:1px dashed #ddd;}
-                    .item-row span:first-child{max-width:44mm;overflow-wrap:anywhere;}
-                    .item-row span:last-child{text-align:right;font-weight:bold;white-space:nowrap;}
-                    .item-row small{display:block;color:#555;font-size:8.6px;font-weight:normal;}
-                    .total-box{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:6px 0;margin-top:6px;}
-                    .grand{font-size:13px;font-weight:900;}
-                    .footer{text-align:center;font-size:9px;margin-top:9px;color:#444;}
-                    @media screen{body{background:#f3f4f6;padding:12px 0;}.receipt{background:#fff;padding:4mm;box-shadow:0 10px 30px rgba(0,0,0,.12);}}
-                </style></head><body><div class="receipt">
-                <div class="header">
-                    ${templates?.companyLogo?`<img src="${templates.companyLogo}" class="header-logo"/>`:''}
-                    <h1>${templates?.companyName||'SIMPATI KONVEKSI'}</h1>
-                    <p>REKAP GAJI DRIVER</p>
-                    ${templates?.companySubtitle?`<p>${templates.companySubtitle}</p>`:''}
-                </div>
-                <div class="meta">
-                    <div class="row"><span class="lbl">Driver</span><span class="val">${rekap.driverName}</span></div>
-                    <div class="row"><span class="lbl">Kendaraan</span><span class="val">${drv?.vehicle||'-'}${drv?.plateNumber?' ('+drv.plateNumber+')':''}</span></div>
-                    <div class="row"><span class="lbl">Tgl Rekap</span><span class="val">${rekap.tanggalRekap}</span></div>
-                    <div class="row"><span class="lbl">No Rekap</span><span style="font-size:9px;font-weight:bold">${rekap.id}</span></div>
-                    ${rekap.note?`<div class="row"><span class="lbl">Catatan</span><span class="val">${rekap.note}</span></div>`:''}
-                </div>
-                <div class="section-title">Detail Trip (${rekap.jumlahTrip} trip)</div>
-                <div>${rows}</div>
-                <div class="total-box">
-                    <div class="row"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
-                    ${rekap.potonganKasbon>0?`<div class="row" style="color:#dc2626"><span>Potongan Kasbon</span><span>- ${formatRupiah(safeMoney(rekap.potonganKasbon))}</span></div>`:''}
-                    <div class="row grand" style="${rekap.potonganKasbon>0?'border-top:1px dashed #000;padding-top:5px;margin-top:4px':''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima!=null?rekap.gajiDiterima:rekap.totalOngkir))}</span></div>
-                </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;text-align:center;font-size:9px;align-items:stretch">
-                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
-                        <div>Penerima,</div>
-                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">&nbsp;</div>
-                    </div>
-                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
-                        <div>Hormat Kami,</div>
-                        ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img src="${templates.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
-                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(templates?.companyName || 'Simpati Konveksi')}</div>
-                    </div>
-                </div>
-                <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
-                </div></body></html>`);
-                w.document.close();
-                const doPrintRekap = () => { const h = w.document.body.scrollHeight; const s = w.document.createElement('style'); s.textContent = `@page{size:80mm ${h+12}px !important;margin:4mm;}`; w.document.head.appendChild(s); w.print(); w.close(); };
-                if (w.document.readyState === 'complete') { setTimeout(doPrintRekap, 150); } else { w.onload = () => setTimeout(doPrintRekap, 100); }
+                const drv = (drivers || []).find(d => d && d.id === rekap.driverId);
+                const trips = visibleTrx.filter(t => (rekap.tripIds || []).includes(t.id));
+                if (!cetakStruk80(htmlStrukRekapGaji({ rekap, driver: drv, trips, tarifs: driverTarifs, tpl: templates, sisaSekarang: getTotalSisaKasbon(rekap.driverId) }))) showToast('Izinkan pop-up browser untuk mencetak', 'error');
             };
 
             const copyRekapGajiLink = async (rekap) => {
@@ -23718,7 +23720,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 const w = window.open('', '_blank');
                 if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
                 const rows = lapTerkirim;
-                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Laporan Keuangan Ekspedisi</title><style>
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtmlText(namaFileCetak('Laporan Ekspedisi', periodeLap.mode === 'bulan' ? new Date(`${rLap.dari}T00:00:00`).toLocaleDateString('id-ID', { month: 'short', year: 'numeric' }) : (rLap.dari || rLap.sampai ? labelRentangStruk(rLap.dari, rLap.sampai) : 'Semua')))}</title><style>
                     body{font-family:Arial,sans-serif;padding:24px;font-size:13px;}
                     h2{text-align:center;margin-bottom:4px;} .sub{text-align:center;color:#555;margin-bottom:16px;}
                     table{width:100%;border-collapse:collapse;margin-top:12px;} th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;}
@@ -24232,8 +24234,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                         <p className="text-xs text-gray-500 mt-0.5">{drv?.vehicle||''}{drv?.plateNumber?' · '+drv.plateNumber:''}</p>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <button onClick={()=>printKasbonDriver(showKasbonDriver)} className="text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg">📄 PDF</button>
-                                        <button onClick={()=>printKasbonDriverThermal(showKasbonDriver)} className="text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200 px-3 py-1.5 rounded-lg flex items-center gap-1"><IconPrinter /> Thermal</button>
+                                        <button onClick={()=>printKasbonDriver(showKasbonDriver)} className="text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg" data-eks-kasbon-cetak>🖨 Cetak / PDF</button>
                                         <button onClick={()=>setShowKasbonDriver(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                                     </div>
                                 </div>
@@ -24774,6 +24775,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
             const [driver, setDriver] = React.useState(null);
             const [tarifs, setTarifs] = React.useState([]);
             const [tpl, setTpl] = React.useState({});
+            const [kasbon, setKasbon] = React.useState([]);
             const [loading, setLoading] = React.useState(true);
 
             React.useEffect(() => {
@@ -24782,7 +24784,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     try {
                         const cached = sessionStorage.getItem(CACHE_KEY);
                         if (cached) {
-                            const { rekap: cR, trips: cT, driver: cD, tpl: cTpl, tarifs: cTrf } = JSON.parse(cached);
+                            const { rekap: cR, trips: cT, driver: cD, tpl: cTpl, tarifs: cTrf, kasbon: cKb } = JSON.parse(cached);
+                            setKasbon(Array.isArray(cKb) ? cKb : []);
                             setRekap(cR || null);
                             setTrips(cT || []);
                             setDriver(cD || null);
@@ -24791,12 +24794,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             setLoading(false);
                         }
                         if (supabaseClient) {
-                            const [rRes, tRes, dRes, tplRes, trfRes] = await Promise.all([
+                            const [rRes, tRes, dRes, tplRes, trfRes, kbRes] = await Promise.all([
                                 supabaseClient.from('app_data').select('data').eq('id','driverRekapGaji').single(),
                                 supabaseClient.from('app_data').select('data').eq('id','driverTransactions').single(),
                                 supabaseClient.from('app_data').select('data').eq('id','drivers').single(),
                                 supabaseClient.from('app_data').select('data').eq('id','templates').single(),
                                 supabaseClient.from('app_data').select('data').eq('id','driverTarifs').single(),
+                                supabaseClient.from('app_data').select('data').eq('id','driverKasbon').maybeSingle(),
                             ]);
                             const allRekap = rRes.data?.data || [];
                             const found = allRekap.find(r => r.id === rekapId && !r.isDeleted);
@@ -24809,7 +24813,10 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                             setDriver(foundDriver);
                             setTpl(tpl); applyPrintSettingsFromTemplates(tpl);
                             setTarifs(allTarifs);
-                            try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ rekap: found, trips: foundTrips, driver: foundDriver, tpl, tarifs: allTarifs })); } catch(e) {}
+                            // Kasbon driver ini saja (untuk "sisa kasbon per hari ini" pada rekap lama)
+                            const kasbonDriver = found ? safeArray(kbRes?.data?.data).filter(k => k && k.driverId === found.driverId) : [];
+                            setKasbon(kasbonDriver);
+                            try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ rekap: found, trips: foundTrips, driver: foundDriver, tpl, tarifs: allTarifs, kasbon: kasbonDriver })); } catch(e) {}
                         }
                     } catch(e) { console.error(e); }
                     setLoading(false);
@@ -24833,71 +24840,13 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 </div>
             );
 
-            const printRekap = () => {
-                const w = window.open('','_blank','width=420,height=700');
-                if (!w) return;
-                const rows = trips.map(t=>{const trf=tarifs.find(x=>x.id===t.tarifId);const rute=trf?trf.from+' → '+trf.to:'-';return `<div class="item-row"><span><b>${rute}</b><small>${t.date}${t.tripType==='pp'?' &bull; PP':''}${t.note?' &bull; '+t.note:''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`;}).join('');
-                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SD - ${driver?.name || 'Driver'}</title><style>
-                    @page{size:80mm auto;margin:4mm;}
-                    html,body{width:72mm;}
-                    body{font-family:Arial,sans-serif;font-size:11.5px;color:#000;line-height:1.28;margin:0 auto;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-                    .receipt{width:72mm;margin:0 auto;box-sizing:border-box;}
-                    .header{text-align:center;border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
-                    .header-logo{max-height:44px;max-width:70px;object-fit:contain;margin-bottom:3px;}
-                    .header h1{margin:0;font-size:14px;text-transform:uppercase;line-height:1.15;}
-                    .header p{margin:2px 0 0;font-size:10.5px;}
-                    .meta{border-bottom:1px dashed #000;padding-bottom:7px;margin-bottom:7px;}
-                    .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0;}
-                    .lbl{color:#444;}
-                    .val{font-weight:bold;text-align:right;}
-                    .section-title{margin-top:7px;padding:4px 0 3px;border-top:1px dashed #000;border-bottom:1px dashed #bbb;font-size:10px;font-weight:900;text-transform:uppercase;}
-                    .item-row{display:flex;justify-content:space-between;gap:6px;padding:4px 0;border-bottom:1px dashed #ddd;}
-                    .item-row span:first-child{max-width:44mm;overflow-wrap:anywhere;}
-                    .item-row span:last-child{text-align:right;font-weight:bold;white-space:nowrap;}
-                    .item-row small{display:block;color:#555;font-size:8.6px;font-weight:normal;}
-                    .total-box{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:6px 0;margin-top:6px;}
-                    .grand{font-size:13px;font-weight:900;}
-                    .footer{text-align:center;font-size:9px;margin-top:9px;color:#444;}
-                    @media screen{body{background:#f3f4f6;padding:12px 0;}.receipt{background:#fff;padding:4mm;box-shadow:0 10px 30px rgba(0,0,0,.12);}}
-                </style></head><body><div class="receipt">
-                <div class="header">
-                    ${tpl?.companyLogo?`<img src="${tpl.companyLogo}" class="header-logo"/>`:''}
-                    <h1>${tpl?.companyName||'SIMPATI KONVEKSI'}</h1>
-                    <p>REKAP GAJI DRIVER</p>
-                    ${tpl?.companySubtitle?`<p>${tpl.companySubtitle}</p>`:''}
-                </div>
-                <div class="meta">
-                    <div class="row"><span class="lbl">Driver</span><span class="val">${rekap.driverName}</span></div>
-                    <div class="row"><span class="lbl">Kendaraan</span><span class="val">${driver?.vehicle||'-'}${driver?.plateNumber?' ('+driver.plateNumber+')':''}</span></div>
-                    <div class="row"><span class="lbl">Tgl Rekap</span><span class="val">${rekap.tanggalRekap}</span></div>
-                    <div class="row"><span class="lbl">No Rekap</span><span style="font-size:9px;font-weight:bold">${rekap.id}</span></div>
-                    ${rekap.note?`<div class="row"><span class="lbl">Catatan</span><span class="val">${rekap.note}</span></div>`:''}
-                </div>
-                <div class="section-title">Detail Trip (${rekap.jumlahTrip} trip)</div>
-                <div>${rows}</div>
-                <div class="total-box">
-                    <div class="row"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
-                    ${rekap.potonganKasbon>0?`<div class="row" style="color:#dc2626"><span>Potongan Kasbon</span><span>- ${formatRupiah(safeMoney(rekap.potonganKasbon))}</span></div>`:''}
-                    <div class="row grand" style="${rekap.potonganKasbon>0?'border-top:1px dashed #000;padding-top:5px;margin-top:4px':''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima!=null?rekap.gajiDiterima:rekap.totalOngkir))}</span></div>
-                </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;text-align:center;font-size:9px;align-items:stretch">
-                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
-                        <div>Penerima,</div>
-                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">&nbsp;</div>
-                    </div>
-                    <div style="display:flex;flex-direction:column;align-items:center;min-height:70px">
-                        <div>Hormat Kami,</div>
-                        ${(tpl?.signatureImage && tpl?.showSignatureOnPrint !== false) ? `<img src="${tpl.signatureImage}" style="max-height:48px;max-width:90px;object-fit:contain;display:block;margin:6px auto 0;transform:scale(${(tpl?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
-                        <div style="margin-top:auto;border-top:1px solid #000;padding-top:3px;width:100%">${(tpl?.companyName || 'Simpati Konveksi')}</div>
-                    </div>
-                </div>
-                <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
-                </div></body></html>`);
-                w.document.close();
-                const doPrintRekap = () => { const h = w.document.body.scrollHeight; const s = w.document.createElement('style'); s.textContent = `@page{size:80mm ${h+12}px !important;margin:4mm;}`; w.document.head.appendChild(s); w.print(); w.close(); };
-                if (w.document.readyState === 'complete') { setTimeout(doPrintRekap, 150); } else { w.onload = () => setTimeout(doPrintRekap, 100); }
-            };
-
+            const sisaSekarang = hitungSisaKasbonDriver(kasbon, rekap.driverId);
+            const info = infoKasbonRekap(rekap, sisaSekarang);
+            const per = periodeRekapGaji(rekap, trips);
+            const pot = safeMoney(rekap.potonganKasbon);
+            const diterima = safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir);
+            // Cetak memakai nota yang sama persis dengan cetakan admin
+            const printRekap = () => { cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl, sisaSekarang })); };
             return (
                 <div className="min-h-screen bg-gray-50 py-8 px-4">
                     <div className="max-w-lg mx-auto">
@@ -24910,14 +24859,26 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                 <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
                                     <div className="flex justify-between"><span className="text-gray-500">Driver</span><span className="font-bold">{rekap.driverName}</span></div>
                                     {driver?.vehicle && <div className="flex justify-between"><span className="text-gray-500">Kendaraan</span><span className="font-medium">{driver.vehicle} {driver.plateNumber?`(${driver.plateNumber})`:''}</span></div>}
+                                    {per && <div className="flex justify-between"><span className="text-gray-500">Periode</span><span className="font-medium" data-rg-periode>{labelRentangStruk(per.dari, per.sampai)}</span></div>}
                                     <div className="flex justify-between"><span className="text-gray-500">Tanggal Rekap</span><span className="font-medium">{rekap.tanggalRekap}</span></div>
                                     <div className="flex justify-between"><span className="text-gray-500">No Rekap</span><span className="text-xs font-mono text-gray-600">{rekap.id}</span></div>
                                     {rekap.note && <div className="flex justify-between"><span className="text-gray-500">Catatan</span><span className="font-medium">{rekap.note}</span></div>}
                                 </div>
-                                <div className="bg-blue-50 rounded-lg p-4 flex items-center justify-between">
-                                    <div><div className="text-xs text-blue-500 font-semibold">TOTAL ONGKIR</div><div className="text-2xl font-bold text-blue-700">{formatRupiah(safeMoney(rekap.totalOngkir))}</div></div>
-                                    <div className="text-right"><div className="text-xs text-gray-500">Jumlah Trip</div><div className="text-2xl font-bold text-gray-700">{rekap.jumlahTrip}</div></div>
+                                <div className="border border-gray-200 rounded-xl p-4 space-y-1.5 text-sm" data-rg-uang>
+                                    <div className="flex justify-between"><span className="text-gray-600">Total ongkir ({rekap.jumlahTrip} trip)</span><b>{formatRupiah(safeMoney(rekap.totalOngkir))}</b></div>
+                                    {pot > 0 && <div className="flex justify-between text-red-600"><span>Potongan kasbon</span><b>- {formatRupiah(pot)}</b></div>}
                                 </div>
+                                <div className="bg-green-100 text-green-800 rounded-xl px-4 py-3 flex items-center justify-between" data-rg-diterima>
+                                    <span className="font-black text-sm">GAJI DITERIMA</span><span className="text-2xl font-black">{formatRupiah(diterima)}</span>
+                                </div>
+                                {info && (
+                                    <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm space-y-1" data-rg-kasbon>
+                                        <div className="font-bold text-red-800">💳 Info Kasbon</div>
+                                        {info.sebelum != null && <div className="flex justify-between"><span className="text-gray-700">Sisa kasbon sebelumnya</span><b>{formatRupiah(info.sebelum)}</b></div>}
+                                        {info.dipotong > 0 && <div className="flex justify-between text-red-600"><span>Dipotong rekap ini</span><b>- {formatRupiah(info.dipotong)}</b></div>}
+                                        <div className="flex justify-between font-black"><span>{info.perHariIni ? 'Sisa kasbon per hari ini' : 'Sisa kasbon sekarang'}</span><span className={info.sesudah > 0 ? 'text-red-600' : 'text-green-700'}>{info.sesudah > 0 ? formatRupiah(info.sesudah) : 'Lunas'}</span></div>
+                                    </div>
+                                )}
                                 <div>
                                     <div className="font-semibold text-sm text-gray-700 mb-2">Detail Trip:</div>
                                     <div className="overflow-x-auto">
