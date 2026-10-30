@@ -23630,13 +23630,39 @@ ${getRekapShareLink(rekap)}
             const pakaiTarif = {};
             visibleTrx.forEach(t => { if (t.tarifId && String(t.date || '') >= batas30) pakaiTarif[t.tarifId] = (pakaiTarif[t.tarifId] || 0) + 1; });
             const tarifUrut = [...visibleTarifs].sort((a, b) => (pakaiTarif[b.id] || 0) - (pakaiTarif[a.id] || 0));
-            const tarifTampil = (() => {
-                const q = qCari.trim();
-                if (q) return visibleTarifs.filter(t => matchesSearch([t.from || '', t.to || '', t.note || ''], q)).slice(0, 8);
-                const top = tarifUrut.slice(0, 6);
-                if (qTarif && !top.some(t => t.id === qTarif.id)) return [qTarif, ...top.slice(0, 5)];
-                return top;
-            })();
+            // Dropdown rute: "Sering dipakai" (30 hari) di atas, lalu semua rute A–Z; saat mengetik → hasil cari + Rute baru
+            const [ruteBuka, setRuteBuka] = React.useState(false);
+            const [ruteSorot, setRuteSorot] = React.useState(0);
+            const ruteRef = React.useRef(null);
+            const labelRute = (t) => `${t.from || ''} → ${t.to || ''}`;
+            const urutAZ = (a, b) => labelRute(a).localeCompare(labelRute(b), 'id', { sensitivity: 'base' });
+            const ruteSering = tarifUrut.filter(t => pakaiTarif[t.id] > 0).slice(0, 6);
+            const ruteAZ = visibleTarifs.filter(t => !ruteSering.includes(t)).sort(urutAZ);
+            const ruteHasilCari = qCari.trim() ? visibleTarifs.filter(t => matchesSearch([t.from || '', t.to || '', t.note || ''], qCari.trim())).sort(urutAZ) : null;
+            const opsiRute = ruteHasilCari || [...ruteSering, ...ruteAZ];
+            const pilihRute = (t) => { qUbah('tarifId', t.id, t); setQCari(''); setRuteBaru(null); setRuteBuka(false); };
+            const bukaDropdownRute = () => {
+                setQCari(''); setRuteBuka(true);
+                setRuteSorot(Math.max(0, [...ruteSering, ...ruteAZ].findIndex(t => t.id === qForm.tarifId)));
+            };
+            const ruteBaruDariDropdown = () => { bukaRuteBaru(); setRuteBuka(false); };
+            const tombolRute = (e) => {
+                if (e.key === 'ArrowDown') { e.preventDefault(); if (!ruteBuka) { bukaDropdownRute(); return; } setRuteSorot(i => Math.min(i + 1, opsiRute.length)); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setRuteSorot(i => Math.max(i - 1, 0)); }
+                else if (e.key === 'Enter') { if (!ruteBuka) return; e.preventDefault(); if (ruteSorot < opsiRute.length) pilihRute(opsiRute[ruteSorot]); else ruteBaruDariDropdown(); }
+                else if (e.key === 'Escape') { setRuteBuka(false); setQCari(''); }
+            };
+            React.useEffect(() => {
+                if (!ruteBuka) return;
+                const tutup = (ev) => { if (ruteRef.current && !ruteRef.current.contains(ev.target)) { setRuteBuka(false); setQCari(''); } };
+                document.addEventListener('mousedown', tutup); document.addEventListener('touchstart', tutup);
+                return () => { document.removeEventListener('mousedown', tutup); document.removeEventListener('touchstart', tutup); };
+            }, [ruteBuka]);
+            React.useEffect(() => {
+                if (!ruteBuka || !ruteRef.current) return;
+                const el = ruteRef.current.querySelector('[data-rute-sorot="1"]');
+                if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+            }, [ruteSorot, ruteBuka]);
             const infoTarif = (t) => t.pricingType === 'per_km'
                 ? `${formatRupiah(safeMoney(t.pricePerKm))}/km${t.jarak ? ` · ${t.jarak} km` : ''}`
                 : `${formatRupiah(safeMoney(t.pricePerKg))}/kg${safeMoney(t.minPrice) ? ` · min ${formatRupiah(safeMoney(t.minPrice))}` : ''}`;
@@ -23677,7 +23703,10 @@ ${getRekapShareLink(rekap)}
                 const trx = { id: genId('XPDC-'), date: qForm.date || hariIniStr, driverId: qForm.driverId, driverName: drv ? drv.name : '', tarifId: qTarif.id, tripType: qForm.tripType, distance: qTarif.pricingType === 'per_km' ? String(qForm.distance || '') : '', weight: qTarif.pricingType === 'per_kg' ? String(qForm.weight || '') : '', ongkir: safeMoney(qForm.ongkir), status: 'Menunggu', note: qForm.note || '', createdAt: now, _syncUpdatedAt: now };
                 setDriverTransactions(prev => [...(prev || []), trx]);
                 if (kirimWA) shareViaWA(trx, qTarif);
-                setQForm({ ...QFORM_KOSONG, date: qForm.date || hariIniStr }); setQCari(''); setRuteBaru(null);
+                // Driver & rute terakhir tetap terpilih untuk pengiriman berikutnya; jenis kembali Sekali, catatan kosong
+                const lanjut = { ...QFORM_KOSONG, date: qForm.date || hariIniStr, driverId: qForm.driverId, tarifId: qTarif.id, tripType: 'sekali', distance: qTarif.pricingType === 'per_km' && qTarif.jarak ? String(qTarif.jarak) : '' };
+                lanjut.ongkir = hitungOngkirTarif(qTarif, lanjut.weight, lanjut.distance, lanjut.tripType);
+                setQForm(lanjut); setQCari(''); setRuteBaru(null); setRuteBuka(false);
                 setBaruId(trx.id); setTimeout(() => setBaruId(''), 5000);
                 setFilterStatus(''); setTrxPage(1);
                 showToast(kirimWA ? `Tersimpan · WhatsApp ${drv ? drv.name : 'driver'} dibuka` : 'Pengiriman tersimpan', 'success');
@@ -23873,43 +23902,62 @@ ${getRekapShareLink(rekap)}
                             <div ref={qFormRef} className={`${formHpBuka ? 'block' : 'hidden'} md:block bg-white border-2 border-blue-500 rounded-2xl p-4 shadow-sm transition-shadow ${qSorot ? 'ring-4 ring-amber-200' : ''}`} data-eks-quick>
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
                                     <b className="text-base text-slate-800">➕ Pengiriman baru</b>
-                                    <label className="text-xs text-gray-500 flex items-center gap-1">Tanggal <input type="date" value={qForm.date} onChange={e=>setQForm(f=>({...f, date: e.target.value || hariIniStr}))} className="border rounded px-2 py-0.5 text-xs" data-eks-q-tgl /></label>
-                                    {qForm.dari && <span className="text-xs text-amber-700">terisi dari pengiriman {qForm.dari} · <button type="button" className="underline" onClick={()=>{setQForm({...QFORM_KOSONG});setQCari('');setRuteBaru(null);}} data-eks-q-kosongkan>kosongkan</button></span>}
+                                    {qForm.dari && <span className="text-xs text-amber-700">terisi dari pengiriman {qForm.dari}</span>}
+                                    {(qForm.driverId || qForm.tarifId || qForm.dari) && <button type="button" className="text-xs text-gray-500 underline" onClick={()=>{setQForm({...QFORM_KOSONG});setQCari('');setRuteBaru(null);setRuteBuka(false);}} data-eks-q-kosongkan>kosongkan</button>}
                                 </div>
                                 <div className="space-y-3">
-                                    <div>
-                                        <div className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wide mb-1.5">1 · Driver</div>
-                                        {driverAktif.length === 0 ? <p className="text-sm text-gray-500">Belum ada driver aktif — tambah di tab Driver &amp; Tarif.</p> : driverAktif.length > 8 ? (
-                                            <select value={qForm.driverId} onChange={e=>qUbah('driverId', e.target.value)} className="w-full sm:w-72 border rounded-lg px-3 py-2 text-sm" data-eks-q-driver-pilih>
-                                                <option value="">Pilih driver…</option>
-                                                {driverAktif.map(d=><option key={d.id} value={d.id}>{d.name} · {tugasHariIni(d.id)} tugas hari ini</option>)}
-                                            </select>
-                                        ) : (
-                                            <div className="flex flex-wrap gap-2">
-                                                {driverAktif.map(d => (
-                                                    <button key={d.id} type="button" onClick={()=>qUbah('driverId', d.id)} data-eks-q-driver={d.id}
-                                                        className={`text-left border-2 rounded-xl px-3 py-1.5 text-sm font-bold ${qForm.driverId===d.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}>
-                                                        {d.name}<span className="block text-[11px] font-medium text-gray-500">{d.vehicle ? d.vehicle + ' · ' : ''}{tugasHariIni(d.id)} tugas hari ini</span>
-                                                    </button>
-                                                ))}
+                                    {/* Baris 1: Tanggal · Driver · Rute · Jenis (HP: Tanggal & Jenis berdampingan, Driver & Rute penuh) */}
+                                    <div className="grid grid-cols-2 lg:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_auto] gap-3 items-start">
+                                        <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide order-1">Tanggal<input type="date" value={qForm.date} onChange={e=>setQForm(f=>({...f, date: e.target.value || hariIniStr}))} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal" data-eks-q-tgl /></label>
+                                        <div className="order-2 lg:order-4"><div className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide mb-1.5">Jenis</div><div className="flex border rounded-lg overflow-hidden" data-eks-q-jenis-grup>
+                                            {[['sekali','➡ Sekali'],['pp','🔁 PP ×2']].map(([v,l]) => <button key={v} type="button" onClick={()=>qUbah('tripType', v)} className={`flex-1 px-3 py-2 text-sm font-bold whitespace-nowrap ${qForm.tripType===v ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`} data-eks-q-jenis={v}>{l}</button>)}
+                                        </div></div>
+                                        <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide col-span-2 lg:col-span-1 order-3 lg:order-2 min-w-0">Driver
+                                            {driverAktif.length === 0
+                                                ? <span className="mt-1.5 block text-sm font-normal normal-case tracking-normal text-gray-500">Belum ada driver aktif — tambah di tab Driver &amp; Tarif.</span>
+                                                : <select value={qForm.driverId} onChange={e=>qUbah('driverId', e.target.value)} className={`mt-1.5 w-full border rounded-lg px-3 py-2 text-sm normal-case tracking-normal bg-white ${qForm.driverId ? 'font-bold text-gray-900' : 'font-normal text-gray-500'}`} data-eks-q-driver-pilih>
+                                                    <option value="">Pilih driver…</option>
+                                                    {driverAktif.map(d=><option key={d.id} value={d.id}>{d.name} · {tugasHariIni(d.id)} tugas hari ini</option>)}
+                                                </select>}
+                                        </label>
+                                        <div className="col-span-2 lg:col-span-1 order-4 lg:order-3 min-w-0 relative" ref={ruteRef} data-eks-q-rute-box>
+                                            <div className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide mb-1.5">Rute</div>
+                                            <div className="relative">
+                                                <input value={ruteBuka ? qCari : (qTarif ? labelRute(qTarif) : '')} onFocus={()=>{ if (!ruteBuka) bukaDropdownRute(); }} onClick={()=>{ if (!ruteBuka) bukaDropdownRute(); }}
+                                                    onChange={e=>{setQCari(e.target.value); setRuteBuka(true); setRuteSorot(0); setRuteBaru(null);}} onKeyDown={tombolRute}
+                                                    placeholder={ruteBuka && qTarif ? `🔍 ${labelRute(qTarif)}` : '🔍 Cari / ketik rute…'} autoComplete="off"
+                                                    className={`w-full border rounded-lg pl-3 pr-8 py-2 text-sm ${ruteBuka ? 'border-blue-500 ring-2 ring-blue-100 outline-none' : ''} ${!ruteBuka && qTarif ? 'font-bold text-gray-900' : ''}`} data-eks-q-cari />
+                                                <button type="button" tabIndex={-1} onMouseDown={e=>e.preventDefault()} onClick={()=>{ if (ruteBuka) { setRuteBuka(false); setQCari(''); } else bukaDropdownRute(); }} className="absolute right-1 top-1/2 -translate-y-1/2 px-2 py-1 text-xs text-gray-500" aria-label="Buka daftar rute" data-eks-q-rute-panah>{ruteBuka ? '▲' : '▼'}</button>
                                             </div>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <div className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wide mb-1.5">2 · Rute</div>
-                                        <div className="flex flex-col lg:flex-row gap-2 lg:items-start">
-                                            <input value={qCari} onChange={e=>{setQCari(e.target.value);setRuteBaru(null);}} placeholder="🔍 Cari / ketik rute…" className="border rounded-lg px-3 py-2 text-sm w-full lg:w-64 shrink-0" data-eks-q-cari />
-                                            <div className="flex flex-wrap gap-2">
-                                                {tarifTampil.map(t => (
-                                                    <button key={t.id} type="button" onClick={()=>{qUbah('tarifId', t.id); setQCari(''); setRuteBaru(null);}} data-eks-q-rute={t.id}
-                                                        className={`text-left border-2 rounded-xl px-3 py-1.5 text-sm font-bold ${qForm.tarifId===t.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}>
-                                                        {t.from} → {t.to}<span className="block text-[11px] font-medium text-gray-500">{infoTarif(t)}</span>
-                                                    </button>
-                                                ))}
-                                                {qCari.trim() && tarifTampil.length === 0 && <span className="text-sm text-gray-500 self-center">Tidak ada rute "{qCari.trim()}".</span>}
-                                                {!ruteBaru && <button type="button" onClick={bukaRuteBaru} className="border-2 border-dashed border-blue-300 text-blue-600 rounded-xl px-3 py-1.5 text-sm font-bold bg-white" data-eks-q-rute-baru>+ Rute baru{qCari.trim() ? ` "${qCari.trim()}"` : ''}</button>}
-                                            </div>
+                                            {ruteBuka && (
+                                                <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-xl p-1.5 max-h-80 overflow-y-auto" data-eks-q-rute-list>
+                                                    {(() => {
+                                                        const item = (t, idx) => (
+                                                            <button key={t.id} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>pilihRute(t)} onMouseEnter={()=>setRuteSorot(idx)} data-eks-q-rute={t.id} data-rute-sorot={ruteSorot===idx ? '1' : '0'}
+                                                                className={`w-full text-left flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-0.5 sm:gap-3 px-2.5 py-2 rounded-lg text-sm ${ruteSorot===idx ? 'bg-blue-50' : 'bg-white'}`}>
+                                                                <span className={`min-w-0 sm:truncate ${qForm.tarifId===t.id ? 'font-black text-blue-700' : 'font-semibold text-gray-800'}`}>{qForm.tarifId===t.id ? '✓ ' : ''}{labelRute(t)}</span>
+                                                                <span className="text-[11px] text-gray-500 whitespace-nowrap">{infoTarif(t)}</span>
+                                                            </button>
+                                                        );
+                                                        const grup = (judul) => <div className="px-2.5 pt-2 pb-1 text-[10.5px] font-extrabold text-gray-400 uppercase tracking-wide">{judul}</div>;
+                                                        return (<>
+                                                            {ruteHasilCari ? (
+                                                                ruteHasilCari.length ? ruteHasilCari.map((t, i) => item(t, i)) : <div className="px-2.5 py-2 text-sm text-gray-500">Tidak ada rute "{qCari.trim()}".</div>
+                                                            ) : (<>
+                                                                {ruteSering.length > 0 && grup('⭐ Sering dipakai')}
+                                                                {ruteSering.map((t, i) => item(t, i))}
+                                                                {ruteSering.length > 0 && ruteAZ.length > 0 && grup('Semua rute (A–Z)')}
+                                                                {ruteAZ.map((t, i) => item(t, ruteSering.length + i))}
+                                                                {visibleTarifs.length === 0 && <div className="px-2.5 py-2 text-sm text-gray-500">Belum ada rute.</div>}
+                                                            </>)}
+                                                            <button type="button" onMouseDown={e=>e.preventDefault()} onClick={ruteBaruDariDropdown} onMouseEnter={()=>setRuteSorot(opsiRute.length)} data-rute-sorot={ruteSorot===opsiRute.length ? '1' : '0'}
+                                                                className={`w-full text-left mt-1 border-t border-gray-100 px-2.5 py-2 rounded-lg text-sm font-bold text-blue-600 ${ruteSorot===opsiRute.length ? 'bg-blue-50' : 'bg-white'}`} data-eks-q-rute-baru>➕ Rute baru{qCari.trim() ? ` "${qCari.trim()}"` : ''}…</button>
+                                                        </>);
+                                                    })()}
+                                                </div>
+                                            )}
                                         </div>
+                                    </div>
                                         {ruteBaru && (
                                             <div className="mt-2 border-2 border-dashed border-blue-300 bg-blue-50/40 rounded-xl p-3 space-y-2" data-eks-rute-baru>
                                                 <div className="font-bold text-sm text-blue-700">+ Rute baru</div>
@@ -23931,24 +23979,21 @@ ${getRekapShareLink(rekap)}
                                                 <div className="flex justify-end gap-2"><button type="button" onClick={()=>setRuteBaru(null)} className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-700">Batal</button><button type="button" onClick={pakaiRuteBaru} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-bold" data-eks-rb-pakai>Pakai rute ini</button></div>
                                             </div>
                                         )}
-                                    </div>
-                                    <div className="grid grid-cols-2 lg:grid-cols-[auto_120px_1fr_220px_auto] gap-3 items-end">
-                                        <div className="col-span-2 lg:col-span-1"><div className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wide mb-1.5">3 · Jenis</div><div className="flex gap-2">
-                                            {[['sekali','➡ Sekali Jalan'],['pp','🔁 PP (×2)']].map(([v,l]) => <button key={v} type="button" onClick={()=>qUbah('tripType', v)} className={`flex-1 lg:flex-none border-2 rounded-xl px-3 py-1.5 text-sm font-bold whitespace-nowrap ${qForm.tripType===v ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700'}`} data-eks-q-jenis={v}>{l}</button>)}
-                                        </div></div>
+                                    {/* Baris 2: Jarak/Berat · Catatan · Ongkir · Kirim WA · Simpan */}
+                                    <div className="grid grid-cols-[110px_minmax(0,1fr)] lg:grid-cols-[110px_minmax(0,1fr)_220px_auto_auto] gap-3 items-end">
                                         <div>
                                             {qTarif?.pricingType==='per_kg'
-                                                ? <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Berat (kg)<input type="number" value={qForm.weight} onChange={e=>qUbah('weight', e.target.value)} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case" data-eks-q-berat /></label>
-                                                : <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Jarak (km)<input type="number" value={qForm.distance} onChange={e=>qUbah('distance', e.target.value)} disabled={!qTarif} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case disabled:bg-gray-50" data-eks-q-jarak /></label>}
+                                                ? <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Berat (kg)<input type="number" value={qForm.weight} onChange={e=>qUbah('weight', e.target.value)} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal" data-eks-q-berat /></label>
+                                                : <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Jarak (km)<input type="number" value={qForm.distance} onChange={e=>qUbah('distance', e.target.value)} disabled={!qTarif} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal disabled:bg-gray-50" data-eks-q-jarak /></label>}
                                         </div>
-                                        <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide col-span-2 lg:col-span-1">Catatan (opsional)<input value={qForm.note} onChange={e=>setQForm(f=>({...f, note:e.target.value}))} placeholder="mis. 3 karung, titip satpam" className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case" data-eks-q-catatan /></label>
-                                        <div className="col-span-2 lg:col-span-1 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-right" data-eks-q-ongkir-box>
-                                            <div className="text-[11px] text-blue-900 min-h-[14px]">{qTarif ? (qForm.ongkirManual ? 'diubah manual' : rincianOngkir(qTarif, qForm)) : 'pilih rute untuk menghitung'}</div>
-                                            <div className="flex items-center justify-end gap-1"><span className="text-blue-700 font-black text-lg">Rp</span><input type="text" inputMode="numeric" value={safeMoney(qForm.ongkir) ? Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID') : ''} onChange={e=>qUbah('ongkir', Number(e.target.value.replace(/\D/g, '')) || 0)} placeholder="0" style={{ width: `${Math.max(3, String(Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID')).length + 1)}ch` }} className="bg-transparent text-right text-2xl font-black text-blue-700 outline-none" title="Ongkir bisa diubah manual" data-eks-q-ongkir /></div>
+                                        <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide min-w-0">Catatan (opsional)<input value={qForm.note} onChange={e=>setQForm(f=>({...f, note:e.target.value}))} placeholder="mis. 3 karung, titip satpam" className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal" data-eks-q-catatan /></label>
+                                        <div className="col-span-2 lg:col-span-1 bg-blue-50 border border-blue-200 rounded-xl px-3 py-1 text-right" data-eks-q-ongkir-box>
+                                            <div className="text-[11px] text-blue-900 min-h-[14px] truncate">{qTarif ? (qForm.ongkirManual ? 'diubah manual' : rincianOngkir(qTarif, qForm)) : 'pilih rute untuk menghitung'}</div>
+                                            <div className="flex items-center justify-end gap-1"><span className="text-blue-700 font-black">Rp</span><input type="text" inputMode="numeric" value={safeMoney(qForm.ongkir) ? Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID') : ''} onChange={e=>qUbah('ongkir', Number(e.target.value.replace(/\D/g, '')) || 0)} placeholder="0" style={{ width: `${Math.max(3, String(Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID')).length + 1)}ch` }} className="bg-transparent text-right text-xl font-black text-blue-700 outline-none" title="Ongkir bisa diubah manual" data-eks-q-ongkir /></div>
                                         </div>
-                                        <div className="col-span-2 lg:col-span-1 flex lg:flex-col gap-2">
-                                            <button type="button" onClick={()=>simpanCepat(true)} className="flex-1 bg-green-500 hover:bg-green-600 text-white rounded-xl px-4 py-2.5 font-black text-sm whitespace-nowrap" data-eks-q-kirim>💬 Kirim WA</button>
-                                            <button type="button" onClick={()=>simpanCepat(false)} className="bg-white border border-gray-300 text-gray-700 rounded-xl px-3 py-2 font-bold text-xs whitespace-nowrap" data-eks-q-simpan>Simpan saja</button>
+                                        <div className="col-span-2 flex gap-2 lg:contents">
+                                            <button type="button" onClick={()=>simpanCepat(true)} className="flex-[1.4] bg-green-500 hover:bg-green-600 text-white rounded-xl px-4 py-2.5 font-black text-sm whitespace-nowrap" data-eks-q-kirim>💬 Kirim WA</button>
+                                            <button type="button" onClick={()=>simpanCepat(false)} className="flex-1 bg-white border border-gray-300 text-gray-700 rounded-xl px-3 py-2.5 font-bold text-sm whitespace-nowrap" data-eks-q-simpan>Simpan saja</button>
                                         </div>
                                     </div>
                                 </div>
