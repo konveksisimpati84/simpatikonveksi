@@ -1029,6 +1029,79 @@
             return { ...order, progress: newProgress, status: overallStatus };
         };
 
+        // ===== Rumus bersama tahap produksi (dipakai Proses Produksi, Edit Order & Laporan Per Order) =====
+        // Total per ukuran satu tahap: 'completed' = jumlah Setor; 'taken' = pcs yang sedang/sudah dikerjakan (Setor, atau Ambil bila belum setor)
+        const hitungTotalTahapPerUkuran = (stageData, mode = 'taken') => {
+            const totals = {};
+            if (stageData && stageData.workLogs) {
+                stageData.workLogs.forEach(log => {
+                    if (log.isDeleted) return;
+                    const shouldCount = mode === 'completed' ? log.checkAfter : (log.checkBefore || log.checkAfter);
+                    if (shouldCount) totals[log.size] = (totals[log.size] || 0) + (mode === 'completed' ? getWorkLogSubmittedQty(log) : getWorkLogEffectiveQty(log));
+                });
+            }
+            return totals;
+        };
+        // Tahap asal barang untuk tahap ini: tahap aktif sebelumnya yang sudah berjalan (tahap yang belum disentuh dilewati).
+        // null = tahap pertama (batasnya jumlah order); '' = tidak ada tahap asal yang berjalan
+        const tahapSumberAmbil = (order, stageId) => {
+            const stagesOrder = getActiveProductionStageIds(order);
+            const currentIndex = stagesOrder.indexOf(stageId);
+            if (currentIndex <= 0) return currentIndex === 0 ? null : '';
+            for (let i = currentIndex - 1; i >= 0; i--) {
+                const prevStageData = order.progress?.[stagesOrder[i]] || {};
+                const hasOutput = Object.values(hitungTotalTahapPerUkuran(prevStageData, 'completed')).some(v => parseInt(v) > 0);
+                if (prevStageData?.status !== 'Belum' || hasOutput) return stagesOrder[i];
+            }
+            return '';
+        };
+        // Batas Ambil satu ukuran di satu tahap (sama persis dengan aturan Ambil di Proses Produksi)
+        const batasAmbilTahap = (order, stageId, size) => {
+            if (!order) return 0;
+            const stagesOrder = getActiveProductionStageIds(order);
+            if (stagesOrder.indexOf(stageId) < 0) return 0;
+            const sumber = tahapSumberAmbil(order, stageId);
+            if (sumber === null) return order.sizes[size] || 0;
+            if (!sumber) return 0;
+            return hitungTotalTahapPerUkuran(order.progress?.[sumber] || {}, 'completed')[size] || 0;
+        };
+        // Batal Setor / batal Ambil / hapus kolom tidak boleh membuat tahap sesudahnya kehabisan barang yang sudah mereka ambil.
+        // Hanya menolak bila perubahan ini MENGURANGI batas tahap sesudahnya di bawah yang sudah diambil (data lama yang sudah selisih tidak ikut memblokir).
+        const cekPemakaianTahapBerikut = (orderSebelum, orderSesudah, stageId) => {
+            const sebelum = recalculateOrderStatuses(orderSebelum);
+            const sesudah = recalculateOrderStatuses(orderSesudah);
+            const ids = getActiveProductionStageIds(sesudah);
+            const idx = ids.indexOf(stageId);
+            if (idx < 0) return null;
+            for (let i = idx + 1; i < ids.length; i++) {
+                const diambil = hitungTotalTahapPerUkuran(sesudah.progress?.[ids[i]], 'taken');
+                // Tahap asal dinilai dari keadaan SEBELUM perubahan: bila semua setor tahap asal dibatalkan,
+                // tahap itu tidak boleh dianggap "dilewati" (barang tahap sesudahnya memang berasal dari sana)
+                const sumber = tahapSumberAmbil(sebelum, ids[i]);
+                for (const size of Object.keys(diambil)) {
+                    const ambil = diambil[size] || 0;
+                    if (ambil <= 0) continue;
+                    const batasSesudah = sumber === null ? (parseInt(safeObject(sesudah.sizes)[size]) || 0)
+                        : sumber ? (hitungTotalTahapPerUkuran(sesudah.progress?.[sumber], 'completed')[size] || 0) : 0;
+                    if (ambil > batasSesudah && batasSesudah < batasAmbilTahap(sebelum, ids[i], size)) {
+                        return { stageId: ids[i], label: productionStageOptions.find(st => st.id === ids[i])?.label || ids[i], size, ambil, batas: batasSesudah };
+                    }
+                }
+            }
+            return null;
+        };
+        // Persen progres order — rumus sama dengan halaman Tracking customer (rata-rata tiap tahap aktif + Terkirim)
+        const persenProgresOrder = (order) => {
+            if (!order) return 0;
+            if (order.status === 'Terkirim') return 100;
+            const total = parseInt(order.total) || 0;
+            const persen = (n) => total <= 0 ? 0 : Math.min(100, Math.round((n / total) * 100));
+            const ukuran = sortSizeKeys(Object.keys(order.sizes || {}));
+            const tahap = getActiveProductionStageIds(order).map(id => persen(ukuran.reduce((s, sz) => s + getCompletedPerStage(order, id, sz), 0)));
+            tahap.push(persen(Object.values(order.shipped || {}).reduce((s, q) => s + (parseInt(q) || 0), 0)));
+            return Math.min(100, Math.round(tahap.reduce((s, p) => s + p, 0) / tahap.length));
+        };
+
         // Setoran yang upahnya belum direkap — kriteria sama dengan daftar rekap di Laporan Kinerja
         const getUnreportedWorkLogs = (order, stageIds = null) => Object.entries(safeObject(order?.progress))
             .filter(([stageId]) => !stageIds || stageIds.includes(stageId))
@@ -4320,6 +4393,19 @@ ${blocks}
                 ]);
                 const removedWithData = [...sizesWithData].filter(sz => finalSizes[sz] === undefined && !sizeRenames[sz]);
                 if (removedWithData.length > 0) { showToast(`Ukuran ${removedWithData.join(', ')} sudah punya data produksi/pengiriman, tidak bisa dihapus. Ubah jumlahnya saja.`, "error"); return; }
+                // Jumlah per ukuran tidak boleh DIKURANGI di bawah yang sudah dikerjakan / dikirim (data lama yang sudah selisih tetap bisa diedit)
+                const terpakai = {};
+                Object.entries(safeObject(original?.progress)).forEach(([stId, st]) => {
+                    const namaTahap = productionStageOptions.find(x => x.id === stId)?.label || stId;
+                    Object.entries(hitungTotalTahapPerUkuran(st, 'taken')).forEach(([sz, q]) => { if (q > (terpakai[sz]?.qty || 0)) terpakai[sz] = { qty: q, ket: `sudah dikerjakan ${q} pcs di ${namaTahap}` }; });
+                });
+                Object.entries(safeObject(original?.shipped)).forEach(([sz, q]) => { const n = parseInt(q) || 0; if (n > (terpakai[sz]?.qty || 0)) terpakai[sz] = { qty: n, ket: `sudah dikirim ${n} pcs` }; });
+                const kurang = Object.entries(terpakai).filter(([sz, t]) => {
+                    const baru = finalSizes[sizeRenames[sz] || sz];
+                    const lama = parseInt(safeObject(original?.sizes)[sz]) || 0;
+                    return baru !== undefined && baru < t.qty && baru < lama;
+                }).map(([sz, t]) => `${sizeRenames[sz] || sz} minimal ${t.qty} (${t.ket})`);
+                if (kurang.length > 0) { showToast(`Jumlah ukuran tidak bisa dikurangi di bawah yang sudah berjalan: ${kurang.join('; ')}.`, "error"); return; }
                 // Mematikan tahap yang masih punya setoran belum direkap -> upahnya hilang dari daftar rekap
                 const nextFlow = { ...getDefaultOrderProcessFlow(), ...(editOrder.processFlow || {}) };
                 const disabledStages = productionStageOptions.filter(st => nextFlow[st.id] === false && getOrderProcessFlow(original)[st.id] !== false).map(st => st.id);
@@ -6836,35 +6922,9 @@ window.addEventListener('load',function(){
                 }
             }, [isKaryawanMode, myStageData, activeStage]);
 
-            const getStageSizeTotals = (stageData, mode = 'taken') => {
-                const totals = {};
-                if (stageData && stageData.workLogs) {
-                    stageData.workLogs.forEach(log => {
-                        if (log.isDeleted) return;
-                        const shouldCount = mode === 'completed' ? log.checkAfter : (log.checkBefore || log.checkAfter);
-                        if (shouldCount) totals[log.size] = (totals[log.size] || 0) + (mode === 'completed' ? getWorkLogSubmittedQty(log) : getWorkLogEffectiveQty(log));
-                    });
-                }
-                return totals;
-            };
-
-            const getMaxAllowed = (order, stageId, size) => {
-                if (!order) return 0;
-                const stagesOrder = getActiveProductionStageIds(order);
-                const currentIndex = stagesOrder.indexOf(stageId);
-                if (currentIndex < 0) return 0;
-                if (currentIndex === 0) return order.sizes[size] || 0;
-                for (let i = currentIndex - 1; i >= 0; i--) {
-                    const prevStageId = stagesOrder[i];
-                    const prevStageData = order.progress?.[prevStageId] || {};
-                    const prevStageTotals = getStageSizeTotals(prevStageData, 'completed');
-                    const hasOutput = Object.values(prevStageTotals).some(v => parseInt(v) > 0);
-                    if (prevStageData?.status !== 'Belum' || hasOutput) {
-                        return prevStageTotals[size] || 0;
-                    }
-                }
-                return 0;
-            };
+            // Rumus bersama (lihat hitungTotalTahapPerUkuran / batasAmbilTahap) — sama dengan Laporan Per Order
+            const getStageSizeTotals = hitungTotalTahapPerUkuran;
+            const getMaxAllowed = batasAmbilTahap;
 
 
             const handleUpdateLog = (orderId, stageId, logId, value) => {
@@ -6918,7 +6978,16 @@ window.addEventListener('load',function(){
                                 return { ...l, isDeleted: true, deletedAt: now, _syncUpdatedAt: now };
                             });
                         }
-                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, employees: newEmps, employeeLinks, removedEmployees, workLogs: newLogs } } });
+                        const hasil = recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, employees: newEmps, employeeLinks, removedEmployees, workLogs: newLogs } } });
+                        if (!isChecked) {
+                            const masalah = cekPemakaianTahapBerikut(o, hasil, stageId);
+                            if (masalah) {
+                                const nama = visibleEmployees.find(emp => String(emp.id) === String(empId))?.name || 'karyawan ini';
+                                showToast(`Tidak bisa melepas ${nama}: setorannya ukuran ${masalah.size} sudah diambil ${masalah.ambil} pcs di ${masalah.label} (bila dilepas, yang tersedia tinggal ${masalah.batas} pcs). Batalkan ambil di ${masalah.label} dulu.`, "error");
+                                return o;
+                            }
+                        }
+                        return hasil;
                     }
                     return o;
                 }));
@@ -7004,7 +7073,15 @@ window.addEventListener('load',function(){
                             }
                             return l;
                         });
-                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
+                        const hasil = recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
+                        if (!isChecked) {
+                            const masalah = cekPemakaianTahapBerikut(o, hasil, stageId);
+                            if (masalah) {
+                                showToast(`Tidak bisa ${checkType === 'checkAfter' ? 'batal setor' : 'batal ambil'}: ukuran ${masalah.size} sudah diambil ${masalah.ambil} pcs di ${masalah.label} (bila dibatalkan, yang tersedia tinggal ${masalah.batas} pcs). Batalkan ambil di ${masalah.label} dulu.`, "error");
+                                return o;
+                            }
+                        }
+                        return hasil;
                     }
                     return o;
                 }));
@@ -7018,7 +7095,13 @@ window.addEventListener('load',function(){
                         const stageData = o.progress[stageId];
                         const now = new Date().toISOString();
                         const newLogs = (stageData.workLogs || []).map(l => String(l.id) === String(logId) ? { ...l, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : l);
-                        return recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
+                        const hasil = recalculateOrderStatuses({ ...o, progress: { ...o.progress, [stageId]: { ...stageData, workLogs: newLogs } } });
+                        const masalah = cekPemakaianTahapBerikut(o, hasil, stageId);
+                        if (masalah) {
+                            showToast(`Tidak bisa hapus kolom: ukuran ${masalah.size} sudah diambil ${masalah.ambil} pcs di ${masalah.label} (bila dihapus, yang tersedia tinggal ${masalah.batas} pcs). Batalkan ambil di ${masalah.label} dulu.`, "error");
+                            return o;
+                        }
+                        return hasil;
                     }
                     return o;
                 }));
@@ -21336,203 +21419,479 @@ ${getRekapShareLink(rekap)}
             );
         };
 
+        // Ringkasan satu order dari catatan kerja: progres per tahap, rekap per karyawan, barang dibawa & kejanggalan.
+        // Rumus sama dengan Proses Produksi (hitungTotalTahapPerUkuran / batasAmbilTahap) dan Tracking customer (persenProgresOrder).
+        const ringkasOrderProduksi = (order, namaEmp, empAda, hariIni) => {
+            const stages = getActiveProductionStages(order);
+            const sizesOrder = safeObject(order.sizes);
+            const ukuranOrder = sortSizeKeys(Object.keys(sizesOrder));
+            const total = parseInt(order.total) || ukuranOrder.reduce((s, z) => s + (parseInt(sizesOrder[z]) || 0), 0);
+            const logs = [];
+            stages.forEach((st, idx) => safeArray(order.progress?.[st.id]?.workLogs).forEach(l => {
+                if (l && !l.isDeleted && (l.checkBefore || l.checkAfter) && getWorkLogTakenQty(l) > 0) logs.push({ st, idx, l });
+            }));
+            const tahap = stages.map((st, idx) => {
+                const data = order.progress?.[st.id];
+                const selesai = hitungTotalTahapPerUkuran(data, 'completed');
+                const dikerjakan = hitungTotalTahapPerUkuran(data, 'taken');
+                const totalSelesai = ukuranOrder.reduce((s, z) => s + (selesai[z] || 0), 0);
+                const dibawa = logs.filter(x => x.st.id === st.id && x.l.checkBefore && !x.l.checkAfter).reduce((s, x) => s + getWorkLogTakenQty(x.l), 0);
+                const lengkap = ukuranOrder.length > 0 && ukuranOrder.every(z => (selesai[z] || 0) >= (parseInt(sizesOrder[z]) || 0));
+                return { id: st.id, label: st.label, idx, selesai, dikerjakan, totalSelesai, dibawa, lengkap };
+            });
+            const adaKerja = (t) => Object.values(t.dikerjakan).some(v => v > 0);
+            tahap.forEach((t, i) => { t.dilewati = !adaKerja(t) && tahap.slice(i + 1).some(adaKerja); });
+            // Rekap per karyawan per tahap
+            const peta = new Map();
+            logs.forEach(({ st, idx, l }) => {
+                const key = `${l.empId}|${st.id}`;
+                const r = peta.get(key) || { key, empId: l.empId, nama: namaEmp(l.empId), stageId: st.id, stageLabel: st.label, idx, ambil: 0, setor: 0, dibawa: 0, terakhir: '', terakhirJenis: '', logs: [] };
+                const a = getWorkLogTakenQty(l);
+                r.ambil += a;
+                if (l.checkAfter) r.setor += getWorkLogSubmittedQty(l); else r.dibawa += a;
+                const tSetor = l.checkAfter ? (l.submittedAt || l.checkAfterChangedAt || '') : '';
+                const tAmbil = l.takenAt || '';
+                if (tSetor && tSetor > r.terakhir) { r.terakhir = tSetor; r.terakhirJenis = 'setor'; }
+                if (tAmbil && tAmbil > r.terakhir) { r.terakhir = tAmbil; r.terakhirJenis = 'ambil'; }
+                r.logs.push(l);
+                peta.set(key, r);
+            });
+            const rekap = [...peta.values()].sort((a, b) => a.idx - b.idx || a.nama.localeCompare(b.nama, 'id'));
+            const hari = (iso) => { const t = toLocalDateStr(iso || ''); return t ? Math.round((new Date(`${hariIni}T00:00:00`) - new Date(`${t}T00:00:00`)) / 864e5) : null; };
+            const dibawaList = logs.filter(x => x.l.checkBefore && !x.l.checkAfter)
+                .map(x => ({ nama: namaEmp(x.l.empId), stage: x.st.label, size: x.l.size, qty: getWorkLogTakenQty(x.l), takenAt: x.l.takenAt || '', hari: hari(x.l.takenAt) }))
+                .sort((a, b) => String(a.takenAt).localeCompare(String(b.takenAt)));
+            // Kejanggalan: hanya hal yang lolos dari pengaman input (data lama, perubahan sesudahnya, input bersamaan di 2 perangkat)
+            const cek = [];
+            const ukuranAsing = new Set();
+            tahap.forEach(t => {
+                const sumber = tahapSumberAmbil(order, t.id);
+                Object.entries(t.dikerjakan).forEach(([z, q]) => {
+                    if (q <= 0) return;
+                    if (sizesOrder[z] === undefined) { if (!ukuranAsing.has(z)) { ukuranAsing.add(z); cek.push(`Ukuran ${z} ada catatan kerja (${t.label} ${q} pcs) tapi tidak ada di daftar ukuran order`); } return; }
+                    const batas = batasAmbilTahap(order, t.id, z);
+                    if (q <= batas) return;
+                    const namaSumber = productionStageOptions.find(x => x.id === sumber)?.label || sumber;
+                    if (sumber === null) cek.push(`Ukuran ${z}: ${t.label} sudah ${q} pcs, melebihi jumlah order ${batas} pcs (jumlah order dikurangi?)`);
+                    else if (sumber) cek.push(`Ukuran ${z}: ${t.label} sudah ${q} pcs, lebih banyak dari setor ${namaSumber} yang baru ${batas} pcs (ada setor yang dibatalkan/dihapus?)`);
+                    else cek.push(`Ukuran ${z}: ${t.label} sudah ${q} pcs, padahal tahap sebelumnya belum ada setoran`);
+                });
+            });
+            logs.forEach(({ st, l }) => {
+                if (l.checkAfter && getWorkLogSubmittedQty(l) > getWorkLogTakenQty(l)) cek.push(`${namaEmp(l.empId)} — ${st.label} ${l.size}: setor ${getWorkLogSubmittedQty(l)} padahal ambil ${getWorkLogTakenQty(l)}`);
+            });
+            const hilang = [...new Set(logs.filter(x => !empAda(x.l.empId)).map(x => namaEmp(x.l.empId)))];
+            if (hilang.length) cek.push(`Catatan kerja milik karyawan yang sudah dihapus dari Data Master: ${hilang.join(', ')}`);
+            const deadline = String(order.deadline || '').slice(0, 10);
+            const sisaHari = deadline ? Math.round((new Date(`${deadline}T00:00:00`) - new Date(`${hariIni}T00:00:00`)) / 864e5) : null;
+            const terkirim = order.status === 'Terkirim';
+            return {
+                order, tahap, rekap, logs, dibawaList, cek, ukuranOrder, total,
+                totalDibawa: dibawaList.reduce((s, x) => s + x.qty, 0),
+                karyawanTerlibat: new Set(logs.map(x => String(x.l.empId))).size,
+                persen: persenProgresOrder(order),
+                deadline, sisaHari, terkirim,
+                terlambat: !!deadline && !terkirim && sisaHari !== null && sisaHari < 0,
+                selesaiProduksi: terkirim || order.status === 'Siap Kirim',
+                namaKaryawan: [...new Set(logs.map(x => namaEmp(x.l.empId)))],
+            };
+        };
+
         const LaporanOrderView = ({ orders, employees, templates, showToast }) => {
+            const [mode, setMode] = useState('order'); // 'order' | 'karyawan'
             const [selectedOrderId, setSelectedOrderId] = useState('');
             const [searchTerm, setSearchTerm] = useState('');
-            const [dateStart, setDateStart] = useState('');
-            const [dateEnd, setDateEnd] = useState('');
+            const [filterStatus, setFilterStatus] = useState('semua'); // semua | proses | selesai
+            const [filterTanda, setFilterTanda] = useState(''); // '' | dibawa | terlambat
+            const [periode, setPeriode] = useState({ mode: '3bulan', dari: '', sampai: '' });
+            const [batasDaftar, setBatasDaftar] = useState(60);
+            const [tahapBuka, setTahapBuka] = useState('');
+            const [rekapBuka, setRekapBuka] = useState('');
+            const [rincianBuka, setRincianBuka] = useState(false);
             const [empSearchTerm, setEmpSearchTerm] = useState('');
-            React.useEffect(() => { setEmpSearchTerm(''); }, [selectedOrderId]);
-            const safeOrders = (orders || []).filter(isVisibleOrder);
-            const safeEmployees = (employees || []).filter(isVisibleRecord);
-            const filteredOrders = safeOrders.filter(order => {
-                const orderDate = String(order.date || '').slice(0, 10);
-                if (dateStart && orderDate < dateStart) return false;
-                if (dateEnd && orderDate > dateEnd) return false;
-                const stages = getActiveProductionStages(order);
-                // Kumpulkan nama karyawan dari semua workLog agar bisa dicari lewat searchTerm
-                const empNamesInOrder = [...new Set(
-                    stages.flatMap(stage =>
-                        safeArray(order.progress?.[stage.id]?.workLogs)
-                            .filter(log => !log.isDeleted)
-                            .map(log => {
-                                const emp = safeEmployees.find(e => String(e.id) === String(log.empId));
-                                return emp ? emp.name : '';
-                            })
-                    )
-                )].filter(Boolean);
-                return matchesSearch([order.id, order.client, order.type, order.marketing, order.status, order.deadline, order.date, ...empNamesInOrder], searchTerm);
-            });
-            const order = safeOrders.find(o => String(o.id) === String(selectedOrderId));
-            const formatReportDate = (value) => value ? new Date(value).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+            const [cetakRincian, setCetakRincian] = useState(false);
+            const [selectedEmpId, setSelectedEmpId] = useState('');
+            const [cariKaryawan, setCariKaryawan] = useState('');
+            const [periodeK, setPeriodeK] = useState({ mode: 'bulan', dari: '', sampai: '' });
+            const [rincianKBuka, setRincianKBuka] = useState(false);
+            React.useEffect(() => { setEmpSearchTerm(''); setTahapBuka(''); setRekapBuka(''); setRincianBuka(false); }, [selectedOrderId]);
+            React.useEffect(() => { setBatasDaftar(60); }, [searchTerm, filterStatus, filterTanda, periode]);
+            React.useEffect(() => { setRincianKBuka(false); }, [selectedEmpId]);
 
-            const generateReportData = () => {
-                if (!order) return [];
-                let reportData = [];
-                const stagesInfo = getActiveProductionStages(order).map(stage => ({ id: stage.id, label: stage.label }));
-                
-                stagesInfo.forEach(stage => {
-                    const stageData = order.progress?.[stage.id];
-                    if (stageData && stageData.workLogs) {
-                        stageData.workLogs.forEach(log => {
-                            const displayQty = log.checkAfter ? getWorkLogSubmittedQty(log) : getWorkLogTakenQty(log);
-                            if (!log.isDeleted && displayQty > 0 && (log.checkBefore || log.checkAfter)) {
-                                const emp = safeEmployees.find(e => String(e.id) === String(log.empId));
-                                reportData.push({
-                                    stage: stage.label,
-                                    empName: emp ? emp.name : `Karyawan ID ${log.empId || '-'}`,
-                                    sizes: log.checkAfter ? `${log.size} (Ambil ${getWorkLogTakenQty(log)} / Setor ${getWorkLogSubmittedQty(log)})` : `${log.size} (Ambil ${getWorkLogTakenQty(log)})`,
-                                    total: displayQty,
-                                    takenAt: log.takenAt,
-                                    submittedAt: log.submittedAt,
-                                    status: log.checkAfter ? 'Sudah Setor' : 'Sudah Ambil'
-                                });
-                            }
-                        });
-                    }
-                });
-                return reportData;
-            };
+            const hariIni = toLocalDateStr();
+            const empMap = useMemo(() => { const m = new Map(); safeArray(employees).forEach(e => { if (e && e.id != null) m.set(String(e.id), e); }); return m; }, [employees]);
+            const namaEmp = (id) => { const e = empMap.get(String(id)); return e ? `${e.name || 'ID ' + id}${e.isDeleted ? ' (dihapus)' : ''}` : `Karyawan ID ${id || '-'}`; };
+            const empAda = (id) => { const e = empMap.get(String(id)); return !!e && !e.isDeleted; };
+            const ringkasanSemua = useMemo(() => (orders || []).filter(isVisibleOrder)
+                .map(o => ringkasOrderProduksi(o, namaEmp, empAda, hariIni))
+                .sort((a, b) => String(b.order.date || '').localeCompare(String(a.order.date || '')) || String(b.order.id).localeCompare(String(a.order.id), 'id', { numeric: true })), [orders, empMap, hariIni]);
 
-            const reportData = generateReportData();
-            const empKeyword = String(empSearchTerm || '').trim().toLowerCase();
-            const filteredReportData = empKeyword ? reportData.filter(item => matchesSearch([item.stage, item.empName, item.sizes, item.total, item.status, item.takenAt, item.submittedAt], empSearchTerm)) : reportData;
-
-            const handlePrint = () => {
-                const printContent = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Laporan Detail Order - ${order.id}</title>
-                    <style>
-                        body { font-family: 'Arial', sans-serif; padding: 20px; color: #000; line-height: 1.5; }
-                        .header { display: flex; align-items: center; justify-content: center; position: relative; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
-                        .header-logo { position: absolute; left: 0; top: 50%; transform: translateY(-50%); max-height: 60px; }
-                        .header-text { text-align: center; }
-                        .header h1 { margin: 0; font-size: 24px; text-transform: uppercase; color: #b91c1c; }
-                        .header p { margin: 5px 0 0 0; font-size: 14px; }
-                        .info { margin-bottom: 20px; font-size: 14px; }
-                        .info table td { padding: 2px 10px 2px 0; }
-                        .data-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 12px; }
-                        .data-table th, .data-table td { border: 1px solid #000; padding: 7px; text-align: left; }
-                        .data-table th { background-color: #f3f4f6; text-align: center; }
-                        .text-center { text-align: center; }
-                        .font-bold { font-weight: bold; }
-                        .footer { display: flex; justify-content: space-between; margin-top: 50px; font-size: 14px; text-align: center; padding: 0 40px; }
-                        .signature { margin-top: 80px; font-weight: bold; text-decoration: underline; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        ${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo" />` : ''}
-                        <div class="header-text">
-                            <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
-                            <p>Laporan Detail Pengerjaan Karyawan per Order</p>
-                        </div>
-                    </div>
-                    <div class="info">
-                        <table>
-                            <tr><td class="font-bold">ID Order</td><td>: ${order.id}</td></tr>
-                            <tr><td class="font-bold">Klien / Instansi</td><td>: ${order.client}</td></tr>
-                            <tr><td class="font-bold">Jenis Barang</td><td>: ${order.type}</td></tr>
-                            <tr><td class="font-bold">Total Order</td><td>: ${order.total} pcs</td></tr>
-                            <tr><td class="font-bold">Tanggal Cetak</td><td>: ${new Date().toLocaleDateString('id-ID')}</td></tr>
-                        </table>
-                    </div>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 40px;">No.</th><th>Tahap Produksi</th><th>Nama Karyawan</th><th>Rincian Ukuran</th><th style="width: 80px;">Total</th><th>Status</th><th>Tanggal Ambil</th><th>Tanggal Setor</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${reportData.length > 0 ? reportData.map((item, idx) => `<tr><td class="text-center">${idx + 1}</td><td class="font-bold text-blue-800">${item.stage}</td><td>${item.empName}</td><td>${item.sizes}</td><td class="text-center font-bold">${item.total}</td><td>${item.status}</td><td>${formatReportDate(item.takenAt)}</td><td>${formatReportDate(item.submittedAt)}</td></tr>`).join('') : '<tr><td colspan="8" class="text-center italic">Belum ada data pengerjaan.</td></tr>'}
-                        </tbody>
-                    </table>
-                    <div class="footer"><div><p>${templates.laporanSignatureLeft}</p><div class="signature">(...................................)</div></div></div>
-                </body>
-                </html>
-                `;
-
-                let printWindow = window.open('', '_blank');
-                if (printWindow) {
-                    printWindow.document.open();
-                    printWindow.document.write(printContent);
-                    printWindow.document.close();
-                    printWindow.focus();
-                    setTimeout(() => { printWindow.print(); }, 250);
-                } else {
-                    showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error");
+            // ----- Periode -----
+            const rentang = (p) => {
+                const now = new Date();
+                const awalBulan = hariIni.slice(0, 8) + '01';
+                if (p.mode === 'semua') return { dari: '', sampai: '', label: 'Semua tanggal' };
+                if (p.mode === 'minggu') {
+                    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+                    const akhirMinggu = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 6);
+                    const dari = toLocalDateStr(d), sampai = toLocalDateStr(akhirMinggu);
+                    return { dari, sampai, label: `Minggu ini (${labelRentangStruk(dari, sampai)})` };
                 }
+                if (p.mode === 'bulan') {
+                    const akhir = toLocalDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+                    return { dari: awalBulan, sampai: akhir, label: new Date(`${awalBulan}T00:00:00`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) };
+                }
+                if (p.mode === '3bulan') return { dari: toLocalDateStr(new Date(now.getFullYear(), now.getMonth() - 2, 1)), sampai: '', label: '3 bulan terakhir' };
+                return { dari: p.dari || '', sampai: p.sampai || '', label: (p.dari || p.sampai) ? labelRentangStruk(p.dari, p.sampai) : 'Pilih tanggal' };
             };
+            const dalam = (tgl, r) => { const x = String(tgl || '').slice(0, 10); return (!r.dari || x >= r.dari) && (!r.sampai || x <= r.sampai); };
+            const chipKelas = (aktif, warna = '') => `px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${aktif
+                ? (warna === 'amber' ? 'bg-amber-500 border-amber-500 text-white' : warna === 'red' ? 'bg-red-600 border-red-600 text-white' : 'bg-slate-800 border-slate-800 text-white')
+                : (warna === 'amber' ? 'bg-amber-50 border-amber-300 text-amber-800' : warna === 'red' ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50')}`;
+            const pilihPeriodeLpo = (p, setP, pilihan, nama) => (
+                <div className="space-y-2" data-lpo-periode={nama}>
+                    <div className="flex flex-wrap gap-1.5">
+                        {pilihan.map(([v, l]) => <button key={v} type="button" onClick={() => setP(x => ({ ...x, mode: v }))} className={chipKelas(p.mode === v)} data-lpo-periode-pilih={v}>{l}</button>)}
+                    </div>
+                    {p.mode === 'pilih' && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <input type="date" value={p.dari} onChange={e => setP(x => ({ ...x, dari: e.target.value }))} className="border rounded-lg px-2 py-1" data-lpo-periode-dari />
+                            <span className="text-gray-500">s/d</span>
+                            <input type="date" value={p.sampai} onChange={e => setP(x => ({ ...x, sampai: e.target.value }))} className="border rounded-lg px-2 py-1" data-lpo-periode-sampai />
+                        </div>
+                    )}
+                </div>
+            );
+
+            // ----- Daftar order -----
+            const rOrder = rentang(periode);
+            const cari = searchTerm.trim();
+            // Saat mencari, semua tanggal ikut dicari (order lama tetap bisa ditemukan)
+            const dasarDaftar = ringkasanSemua.filter(sm => cari
+                ? matchesSearch([...orderSearchFields(sm.order), ...sm.namaKaryawan], searchTerm)
+                : dalam(sm.order.date, rOrder));
+            const cocokStatus = (sm, f) => f === 'semua' || (f === 'proses' ? !sm.selesaiProduksi : sm.selesaiProduksi);
+            const cocokTanda = (sm, f) => !f || (f === 'dibawa' ? sm.totalDibawa > 0 : sm.terlambat);
+            const daftarOrder = dasarDaftar.filter(sm => cocokStatus(sm, filterStatus) && cocokTanda(sm, filterTanda));
+            const jumlahStatus = (f) => dasarDaftar.filter(sm => cocokStatus(sm, f)).length;
+            const jumlahTanda = (f) => dasarDaftar.filter(sm => cocokStatus(sm, filterStatus) && cocokTanda(sm, f)).length;
+            const sm = ringkasanSemua.find(x => String(x.order.id) === String(selectedOrderId)) || null;
+            const labelStatus = (s) => { const t = String(s || 'Pending'); return t.startsWith('Proses ') ? t.slice(7) : t; };
+            const warnaStatus = (s) => s === 'Terkirim' ? 'bg-green-100 text-green-800' : s === 'Siap Kirim' ? 'bg-emerald-100 text-emerald-800' : String(s || '').startsWith('Proses') ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-600';
+            const fmtTgl = (v) => { const d = new Date(String(v || '').length === 10 ? `${v}T00:00:00` : (v || '')); return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }); };
+            const fmtTglJam = (v) => { const d = new Date(v || ''); return isNaN(d.getTime()) ? '-' : d.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }); };
+            const barKelas = (t, total) => t.lengkap ? 'bg-green-500' : t.totalSelesai > 0 ? 'bg-blue-500' : 'bg-gray-300';
+
+            // Rincian lengkap (tabel lama): semua catatan ambil/setor
+            const rincian = !sm ? [] : sm.logs.map(({ st, l }) => ({
+                stage: st.label, empName: namaEmp(l.empId),
+                sizes: l.checkAfter ? `${l.size} (Ambil ${getWorkLogTakenQty(l)} / Setor ${getWorkLogSubmittedQty(l)})` : `${l.size} (Ambil ${getWorkLogTakenQty(l)})`,
+                total: l.checkAfter ? getWorkLogSubmittedQty(l) : getWorkLogTakenQty(l),
+                takenAt: l.takenAt, submittedAt: l.submittedAt, status: l.checkAfter ? 'Sudah Setor' : 'Sudah Ambil',
+            }));
+            const rincianTampil = empSearchTerm.trim() ? rincian.filter(item => matchesSearch([item.stage, item.empName, item.sizes, item.total, item.status], empSearchTerm)) : rincian;
+
+            // ----- Cetak -----
+            const bukaCetak = (html) => {
+                const w = window.open('', '_blank');
+                if (!w) { showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); return; }
+                w.document.open(); w.document.write(html); w.document.close(); w.focus();
+                setTimeout(() => { w.print(); }, 250);
+            };
+            const e = escapeHtmlText;
+            const CETAK_CSS = `@page{size:A4 portrait;margin:12mm}body{font-family:Arial,sans-serif;color:#000;font-size:11.5px;line-height:1.4;margin:0}
+                .header{position:relative;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px;text-align:center;min-height:40px}
+                .header-logo{position:absolute;left:0;top:50%;transform:translateY(-50%);max-height:52px;max-width:120px}
+                .header h1{margin:0;font-size:20px;text-transform:uppercase;color:#b91c1c}.header p{margin:3px 0 0;font-size:12px}
+                .info{display:grid;grid-template-columns:1fr 1fr;gap:2px 24px;margin-bottom:8px}
+                h4{margin:12px 0 5px;font-size:12px}table{width:100%;border-collapse:collapse}
+                th,td{border:1px solid #000;padding:4px 6px;text-align:center}th{background:#f3f4f6}.l{text-align:left}
+                .ttd{margin-top:30px;width:240px;text-align:center}.ttd .garis{margin-top:55px;font-weight:bold}`;
+            const kepalaCetak = (judul) => `<div class="header">${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo"/>` : ''}<h1>${e(templates?.companyName || 'SIMPATI KONVEKSI')}</h1><p>${e(judul)}</p></div>`;
+            const ttdCetak = () => `<div class="ttd"><div>${e(templates?.laporanSignatureLeft || 'Mengetahui,')}</div><div class="garis">(...................................)</div></div>`;
+            const cetakOrder = () => {
+                if (!sm) return;
+                const o = sm.order;
+                const judul = namaFileCetak('LPO', o.id, o.client);
+                const kolom = sm.ukuranOrder.map(z => `<th>${e(z)} (${parseInt(o.sizes[z]) || 0})</th>`).join('');
+                const baris = sm.tahap.map(t => `<tr><td class="l">${e(t.label)}${t.dilewati ? ' (dilewati)' : ''}</td>${sm.ukuranOrder.map(z => `<td>${t.selesai[z] || 0}</td>`).join('')}<td><b>${t.totalSelesai}/${sm.total}${t.lengkap ? ' ✓' : ''}</b></td></tr>`).join('');
+                const rekapHtml = sm.rekap.length ? sm.rekap.map((r, i) => `<tr><td>${i + 1}</td><td class="l">${e(r.nama)}</td><td class="l">${e(r.stageLabel)}</td><td>${r.ambil}</td><td>${r.setor}</td><td>${r.dibawa || '-'}</td></tr>`).join('') : '<tr><td colspan="6">Belum ada pengerjaan.</td></tr>';
+                const dibawaHtml = sm.dibawaList.length ? `<h4>Masih dibawa karyawan (${sm.totalDibawa} pcs)</h4><table><tr><th class="l">Karyawan</th><th class="l">Tahap</th><th>Ukuran</th><th>Pcs</th><th>Diambil</th></tr>${sm.dibawaList.map(x => `<tr><td class="l">${e(x.nama)}</td><td class="l">${e(x.stage)}</td><td>${e(x.size)}</td><td>${x.qty}</td><td>${e(fmtTglJam(x.takenAt))}</td></tr>`).join('')}</table>` : '';
+                const rincianHtml = cetakRincian && rincian.length ? `<h4>Rincian ambil / setor</h4><table><tr><th>No</th><th class="l">Tahap</th><th class="l">Karyawan</th><th class="l">Rincian ukuran</th><th>Jumlah</th><th>Status</th><th>Tgl Ambil</th><th>Tgl Setor</th></tr>${rincian.map((r, i) => `<tr><td>${i + 1}</td><td class="l">${e(r.stage)}</td><td class="l">${e(r.empName)}</td><td class="l">${e(r.sizes)}</td><td>${r.total}</td><td>${e(r.status)}</td><td>${e(fmtTglJam(r.takenAt))}</td><td>${e(fmtTglJam(r.submittedAt))}</td></tr>`).join('')}</table>` : '';
+                bukaCetak(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${e(judul)}</title><style>${CETAK_CSS}</style></head><body>
+                    ${kepalaCetak('Laporan Pengerjaan per Order')}
+                    <div class="info"><div><b>ID Order</b> : ${e(o.id)}</div><div><b>Tanggal masuk</b> : ${e(o.date ? fmtTglStruk(o.date) : '-')}</div>
+                    <div><b>Klien / Instansi</b> : ${e(o.client || '-')}</div><div><b>Deadline</b> : ${e(sm.deadline ? fmtTglStruk(sm.deadline) : '-')}</div>
+                    <div><b>Jenis</b> : ${e(o.type || '-')} · ${sm.total} pcs</div><div><b>Status</b> : ${e(o.status || 'Pending')} · progres ${sm.persen}%</div>
+                    <div><b>Dicetak</b> : ${e(fmtTglStruk(hariIni))}</div></div>
+                    <h4>Progres per tahap (jumlah setor)</h4><table><tr><th class="l">Tahap</th>${kolom}<th>Total</th></tr>${baris || `<tr><td colspan="${sm.ukuranOrder.length + 2}">Tidak ada tahap produksi aktif.</td></tr>`}</table>
+                    <h4>Rekap per karyawan</h4><table><tr><th>No</th><th class="l">Karyawan</th><th class="l">Tahap</th><th>Ambil</th><th>Setor</th><th>Masih dibawa</th></tr>${rekapHtml}</table>
+                    ${dibawaHtml}${rincianHtml}${ttdCetak()}</body></html>`);
+            };
+
+            // ----- Per Karyawan -----
+            const rK = rentang(periodeK);
+            const dataKaryawan = useMemo(() => {
+                const peta = new Map();
+                ringkasanSemua.forEach(s => s.logs.forEach(({ st, idx, l }) => {
+                    const dibawa = l.checkBefore && !l.checkAfter;
+                    const tglSetor = l.checkAfter ? toLocalDateStr(l.submittedAt || l.checkAfterChangedAt || '') : '';
+                    if (!dibawa && !(tglSetor && dalam(tglSetor, rK))) return; // setor di luar periode tidak dihitung; yang masih dibawa selalu tampil
+                    const id = String(l.empId);
+                    const k = peta.get(id) || { empId: id, nama: namaEmp(l.empId), emp: empMap.get(id) || null, baris: new Map(), ambil: 0, setor: 0, dibawa: 0, aneh: !empAda(l.empId) };
+                    const bk = `${s.order.id}|${st.id}`;
+                    const b = k.baris.get(bk) || { key: bk, orderId: s.order.id, client: s.order.client, orderDate: s.order.date, stageLabel: st.label, idx, ambil: 0, setor: 0, dibawa: 0, terakhir: '', terakhirJenis: '', logs: [] };
+                    const a = getWorkLogTakenQty(l);
+                    b.ambil += a; k.ambil += a;
+                    if (dibawa) { b.dibawa += a; k.dibawa += a; } else { const q = getWorkLogSubmittedQty(l); b.setor += q; k.setor += q; if (q > a) k.aneh = true; }
+                    const tS = l.checkAfter ? (l.submittedAt || l.checkAfterChangedAt || '') : '';
+                    if (tS && tS > b.terakhir) { b.terakhir = tS; b.terakhirJenis = 'setor'; }
+                    if (l.takenAt && l.takenAt > b.terakhir) { b.terakhir = l.takenAt; b.terakhirJenis = 'ambil'; }
+                    b.logs.push(l);
+                    k.baris.set(bk, b); peta.set(id, k);
+                }));
+                return [...peta.values()].map(k => ({ ...k, baris: [...k.baris.values()].sort((a, b) => String(b.orderDate || '').localeCompare(String(a.orderDate || '')) || a.idx - b.idx), divisi: k.emp ? getEmployeeDivisions(k.emp).join(', ') : '' }))
+                    .sort((a, b) => b.dibawa - a.dibawa || a.nama.localeCompare(b.nama, 'id'));
+            }, [ringkasanSemua, periodeK.mode, periodeK.dari, periodeK.sampai, empMap, hariIni]);
+            const daftarKaryawan = cariKaryawan.trim() ? dataKaryawan.filter(k => matchesSearch([k.nama, k.divisi], cariKaryawan)) : dataKaryawan;
+            const dk = dataKaryawan.find(k => k.empId === String(selectedEmpId)) || null;
+            const bukaOrderDariKaryawan = (orderId) => { setMode('order'); setSelectedOrderId(orderId); setSearchTerm(String(orderId)); };
+            const cetakKaryawan = () => {
+                if (!dk) return;
+                const judul = namaFileCetak('LPK', dk.nama, rK.label);
+                const baris = dk.baris.map((b, i) => `<tr><td>${i + 1}</td><td>${e(b.orderId)}</td><td class="l">${e(b.client || '-')}</td><td class="l">${e(b.stageLabel)}</td><td>${b.ambil}</td><td>${b.setor}</td><td>${b.dibawa || '-'}</td></tr>`).join('');
+                bukaCetak(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${e(judul)}</title><style>${CETAK_CSS}</style></head><body>
+                    ${kepalaCetak('Laporan Pengerjaan per Karyawan')}
+                    <div class="info"><div><b>Karyawan</b> : ${e(dk.nama)}</div><div><b>Periode setor</b> : ${e(rK.label)}</div><div><b>Divisi</b> : ${e(dk.divisi || '-')}</div><div><b>Dicetak</b> : ${e(fmtTglStruk(hariIni))}</div></div>
+                    <table><tr><th>No</th><th>Order</th><th class="l">Klien</th><th class="l">Tahap</th><th>Ambil</th><th>Setor</th><th>Masih dibawa</th></tr>${baris}
+                    <tr><td colspan="4" class="l"><b>Total</b></td><td><b>${dk.ambil}</b></td><td><b>${dk.setor}</b></td><td><b>${dk.dibawa || '-'}</b></td></tr></table>
+                    <p style="font-size:10px;color:#444">Setor dihitung menurut tanggal setor dalam periode. Barang yang masih dibawa selalu ditampilkan.</p>${ttdCetak()}</body></html>`);
+            };
+
+            const kotakKpi = (judul, isi, warna = 'text-gray-900', attr = {}) => (
+                <div className="border border-gray-200 rounded-xl px-3 py-2 bg-white" {...attr}><div className="text-[11px] font-bold text-gray-500">{judul}</div><div className={`text-lg font-black ${warna}`}>{isi}</div></div>
+            );
 
             return (
-                <div className="space-y-6">
-                    <h2 className="text-2xl font-bold text-gray-800">Laporan Detail Per Order</h2>
-                    <Card className="bg-blue-50 border-blue-100">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-                            <div className="md:col-span-2"><SearchField value={searchTerm} onChange={setSearchTerm} placeholder="Cari ID order, instansi, jenis, marketing, status, nama karyawan..." /></div>
-                            <div><label className="block text-xs font-bold text-blue-900 mb-1">Tanggal Awal</label><input type="date" className="w-full p-2 border border-blue-300 rounded-lg" value={dateStart} onChange={e => setDateStart(e.target.value)} /></div>
-                            <div><label className="block text-xs font-bold text-blue-900 mb-1">Tanggal Akhir</label><input type="date" className="w-full p-2 border border-blue-300 rounded-lg" value={dateEnd} onChange={e => setDateEnd(e.target.value)} /></div>
+                <div className="space-y-4" data-lpo>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <h2 className="text-2xl font-bold text-gray-800">Laporan Per Order</h2>
+                        <div className="inline-flex border border-gray-300 rounded-xl overflow-hidden">
+                            {[['order', '📦 Per Order'], ['karyawan', '👷 Per Karyawan']].map(([v, l]) => <button key={v} type="button" onClick={() => setMode(v)} className={`px-4 py-1.5 text-sm font-bold ${mode === v ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`} data-lpo-mode-btn={v}>{l}</button>)}
                         </div>
-                        <label className="block text-sm font-bold text-blue-900 mb-2">
-                            Pilih Order Produksi
-                            <span className="ml-2 text-xs font-normal text-blue-600">({filteredOrders.length} order ditemukan)</span>
-                        </label>
-                        <div className="border border-blue-300 rounded-lg overflow-hidden">
-                            {filteredOrders.length === 0 ? (
-                                <div className="p-4 text-center text-sm text-gray-500 italic bg-white">
-                                    {searchTerm || dateStart || dateEnd ? 'Tidak ada order yang cocok dengan pencarian.' : 'Belum ada data order.'}
+                    </div>
+
+                    {mode === 'order' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)] gap-4 items-start">
+                            <Card className="space-y-2.5">
+                                <div className="flex flex-wrap gap-1.5" data-lpo-status>
+                                    {[['semua', 'Semua'], ['proses', 'Proses'], ['selesai', 'Selesai']].map(([v, l]) => <button key={v} type="button" onClick={() => setFilterStatus(v)} className={chipKelas(filterStatus === v)} data-lpo-status-pilih={v}>{l} {jumlahStatus(v)}</button>)}
                                 </div>
+                                <div className="flex flex-wrap gap-1.5" data-lpo-tanda>
+                                    <button type="button" onClick={() => setFilterTanda(f => f === 'dibawa' ? '' : 'dibawa')} className={chipKelas(filterTanda === 'dibawa', 'amber')} data-lpo-tanda-pilih="dibawa">⚠ Ada barang dibawa {jumlahTanda('dibawa')}</button>
+                                    <button type="button" onClick={() => setFilterTanda(f => f === 'terlambat' ? '' : 'terlambat')} className={chipKelas(filterTanda === 'terlambat', 'red')} data-lpo-tanda-pilih="terlambat">⏰ Terlambat {jumlahTanda('terlambat')}</button>
+                                </div>
+                                {pilihPeriodeLpo(periode, setPeriode, [['bulan', 'Bulan ini'], ['3bulan', '3 bulan'], ['semua', 'Semua'], ['pilih', 'Pilih tanggal…']], 'order')}
+                                <input value={searchTerm} onChange={ev => setSearchTerm(ev.target.value)} placeholder="🔍 Cari ID, instansi, jenis, nama karyawan…" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" data-lpo-cari />
+                                {cari && <div className="text-[11px] text-gray-500">Pencarian mencakup semua tanggal · {daftarOrder.length} order</div>}
+                                <div className="space-y-1.5 max-h-[70vh] overflow-y-auto pr-0.5" data-lpo-daftar>
+                                    {daftarOrder.length === 0 && <div className="text-sm text-gray-500 italic text-center py-6">{ringkasanSemua.length === 0 ? 'Belum ada data order.' : 'Tidak ada order yang cocok.'}</div>}
+                                    {daftarOrder.slice(0, batasDaftar).map(x => {
+                                        const pilih = String(x.order.id) === String(selectedOrderId);
+                                        return (
+                                            <button key={x.order.id} type="button" onClick={() => setSelectedOrderId(pilih ? '' : x.order.id)} data-lpo-order={x.order.id}
+                                                className={`w-full text-left border rounded-xl px-3 py-2 ${pilih ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <span className="font-mono text-[11px] font-bold bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 shrink-0">{x.order.id}</span>
+                                                    <b className="text-sm text-gray-900 truncate flex-1 min-w-0">{x.order.client || '-'}{x.totalDibawa > 0 ? ' ⚠' : ''}{x.terlambat ? ' ⏰' : ''}{x.cek.length ? ' 🔍' : ''}</b>
+                                                    <span className={`text-[10.5px] font-bold rounded px-1.5 py-0.5 shrink-0 ${warnaStatus(x.order.status)}`}>{labelStatus(x.order.status)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2 mt-1.5 text-[11.5px] text-gray-500">
+                                                    <span className="truncate">{x.order.type || '-'} · {x.total} pcs · {fmtTgl(x.order.date)}</span>
+                                                    <div className="flex-1 min-w-[60px] h-1.5 bg-gray-200 rounded-full overflow-hidden"><div className={`h-full rounded-full ${x.persen >= 100 ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${x.persen}%` }} /></div>
+                                                    <span className="font-bold text-slate-700 w-9 text-right">{x.persen}%</span>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                    {daftarOrder.length > batasDaftar && <button type="button" onClick={() => setBatasDaftar(n => n + 60)} className="w-full text-sm font-bold text-blue-600 py-2" data-lpo-lebih>Tampilkan lebih banyak ({daftarOrder.length - batasDaftar} lagi)</button>}
+                                </div>
+                            </Card>
+
+                            {!sm ? (
+                                <Card><div className="text-center text-gray-500 py-16 text-sm">Pilih order di daftar untuk melihat laporan pengerjaannya.</div></Card>
                             ) : (
-                                <ul className="max-h-52 overflow-y-auto divide-y divide-blue-100">
-                                    {filteredOrders.map(o => (
-                                        <li
-                                            key={o.id}
-                                            onClick={() => setSelectedOrderId(String(o.id) === String(selectedOrderId) ? '' : o.id)}
-                                            className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer text-sm transition-colors ${String(o.id) === String(selectedOrderId) ? 'bg-blue-600 text-white font-semibold' : 'bg-white hover:bg-blue-50 text-gray-800'}`}
-                                        >
-                                            <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${String(o.id) === String(selectedOrderId) ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'}`}>{o.id}</span>
-                                            <span className="flex-1">{o.client}</span>
-                                            <span className={`text-xs ${String(o.id) === String(selectedOrderId) ? 'text-blue-100' : 'text-gray-400'}`}>{o.type}</span>
-                                        </li>
-                                    ))}
-                                </ul>
+                                <Card><div className="space-y-4" data-lpo-detail>
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <h3 className="text-xl font-black text-gray-900">{sm.order.id} · {sm.order.client || '-'}</h3>
+                                            <p className="text-sm text-gray-600">{sm.order.type || '-'} · {sm.total} pcs ({sm.ukuranOrder.map(z => `${z} ${parseInt(sm.order.sizes[z]) || 0}`).join(' · ') || '-'}) · masuk {fmtTgl(sm.order.date)}</p>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <label className="flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" checked={cetakRincian} onChange={ev => setCetakRincian(ev.target.checked)} data-lpo-cetak-rincian /> ikut cetak rincian</label>
+                                            <button type="button" onClick={cetakOrder} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2" data-lpo-cetak><IconPrinter /> Cetak / PDF</button>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                                        {kotakKpi('Deadline', sm.terkirim ? 'Terkirim ✓' : !sm.deadline ? '-' : <>{fmtTgl(sm.deadline)} <span className="text-xs font-bold">· {sm.sisaHari < 0 ? `terlambat ${-sm.sisaHari} hari` : sm.sisaHari === 0 ? 'hari ini' : `sisa ${sm.sisaHari} hari`}</span></>, sm.terkirim ? 'text-green-700' : sm.terlambat ? 'text-red-600' : 'text-amber-700', { 'data-lpo-kpi-deadline': '' })}
+                                        {kotakKpi('Progres total', `${sm.persen}%`, 'text-gray-900', { 'data-lpo-kpi-persen': '' })}
+                                        {kotakKpi('Karyawan terlibat', `${sm.karyawanTerlibat} orang`, 'text-gray-900', { 'data-lpo-kpi-karyawan': '' })}
+                                        {kotakKpi('Masih dibawa karyawan', `${sm.totalDibawa} pcs`, sm.totalDibawa > 0 ? 'text-amber-700' : 'text-gray-900', { 'data-lpo-kpi-dibawa': '' })}
+                                    </div>
+                                    {sm.cek.length > 0 && (
+                                        <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-[13px] text-red-800" data-lpo-cek>
+                                            <b>🔍 Perlu dicek ({sm.cek.length})</b>
+                                            <ul className="list-disc ml-5 mt-1 space-y-0.5">{sm.cek.map((c, i) => <li key={i}>{c}</li>)}</ul>
+                                        </div>
+                                    )}
+                                    {sm.dibawaList.length > 0 && (
+                                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[13px] text-amber-900" data-lpo-dibawa>
+                                            {sm.dibawaList.slice(0, 5).map((x, i) => <div key={i}>⚠ <b>{x.nama}</b> masih membawa <b>{x.qty} pcs</b> ({x.stage} · {x.size}) — diambil {fmtTgl(x.takenAt)}{x.hari > 0 ? `, ${x.hari} hari lalu` : x.hari === 0 ? ', hari ini' : ''}</div>)}
+                                            {sm.dibawaList.length > 5 && <div className="text-xs mt-0.5">… dan {sm.dibawaList.length - 5} lainnya (lihat rekap per karyawan)</div>}
+                                        </div>
+                                    )}
+                                    <div>
+                                        <div className="text-xs font-black text-slate-700 uppercase tracking-wide mb-2">Progres per tahap</div>
+                                        {sm.tahap.length === 0 && <p className="text-sm text-gray-500">Order ini tidak memakai tahap produksi.</p>}
+                                        <div className="space-y-1">
+                                            {sm.tahap.map(t => (
+                                                <div key={t.id} data-lpo-tahap={t.id}>
+                                                    <button type="button" onClick={() => setTahapBuka(v => v === t.id ? '' : t.id)} className={`w-full grid grid-cols-[120px_minmax(0,1fr)_86px] sm:grid-cols-[140px_minmax(0,1fr)_96px] items-center gap-3 px-2 py-1.5 rounded-lg text-sm ${tahapBuka === t.id ? 'bg-gray-50' : 'bg-white hover:bg-gray-50'}`}>
+                                                        <span className="text-left font-bold text-gray-800 truncate">{t.label} {tahapBuka === t.id ? '▴' : '▾'}</span>
+                                                        <span className="h-2.5 bg-gray-200 rounded-full overflow-hidden"><span className={`block h-full rounded-full ${barKelas(t)}`} style={{ width: `${sm.total > 0 ? Math.min(100, Math.round(t.totalSelesai / sm.total * 100)) : 0}%` }} /></span>
+                                                        <span className="text-right font-black tabular-nums text-gray-800" data-lpo-tahap-angka>{t.totalSelesai}/{sm.total}{t.lengkap ? ' ✓' : ''}</span>
+                                                    </button>
+                                                    {(t.dilewati || t.dibawa > 0) && <div className="pl-2 sm:pl-[152px] text-[11px] text-gray-500 -mt-0.5 mb-0.5">{t.dilewati ? 'dilewati (tahap sesudahnya sudah berjalan)' : ''}{t.dibawa > 0 ? `${t.dilewati ? ' · ' : ''}${t.dibawa} pcs masih dibawa karyawan` : ''}</div>}
+                                                    {tahapBuka === t.id && (
+                                                        <div className="flex flex-wrap gap-1.5 pl-2 sm:pl-[152px] pb-1.5" data-lpo-tahap-ukuran>
+                                                            {sm.ukuranOrder.map(z => { const n = t.selesai[z] || 0; const target = parseInt(sm.order.sizes[z]) || 0; return <span key={z} className={`text-[11.5px] rounded-md px-2 py-0.5 ${n >= target && target > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>{z} {n}/{target}{n >= target && target > 0 ? ' ✓' : ''}</span>; })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-black text-slate-700 uppercase tracking-wide mb-2">Rekap per karyawan</div>
+                                        {sm.rekap.length === 0 ? <p className="text-sm text-gray-500 italic">Belum ada pengerjaan untuk order ini.</p> : (
+                                            <div className="overflow-x-auto border border-gray-100 rounded-xl">
+                                                <table className="w-full text-sm min-w-[560px]">
+                                                    <thead><tr className="bg-gray-50 text-left text-[11px] text-gray-500"><th className="px-3 py-2">Karyawan</th><th className="px-3 py-2">Tahap</th><th className="px-3 py-2 text-right">Ambil</th><th className="px-3 py-2 text-right">Setor</th><th className="px-3 py-2 text-right">Masih dibawa</th><th className="px-3 py-2">Terakhir</th></tr></thead>
+                                                    <tbody>
+                                                        {sm.rekap.map(r => (
+                                                            <React.Fragment key={r.key}>
+                                                                <tr className="border-t border-gray-100 cursor-pointer hover:bg-gray-50" onClick={() => setRekapBuka(v => v === r.key ? '' : r.key)} data-lpo-rekap-row={r.key}>
+                                                                    <td className="px-3 py-2 font-bold text-gray-900">{r.nama} <span className="text-gray-400 font-normal">{rekapBuka === r.key ? '▴' : '▾'}</span></td>
+                                                                    <td className="px-3 py-2"><span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 rounded px-1.5 py-0.5">{r.stageLabel}</span></td>
+                                                                    <td className="px-3 py-2 text-right tabular-nums">{r.ambil}</td>
+                                                                    <td className="px-3 py-2 text-right tabular-nums font-black">{r.setor}</td>
+                                                                    <td className={`px-3 py-2 text-right tabular-nums ${r.dibawa > 0 ? 'font-black text-amber-700' : 'text-gray-400'}`}>{r.dibawa || '—'}</td>
+                                                                    <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{r.terakhir ? `${r.terakhirJenis} ${fmtTgl(r.terakhir)}` : '-'}{r.dibawa === 0 && r.setor > 0 ? ' ✓' : ''}</td>
+                                                                </tr>
+                                                                {rekapBuka === r.key && (
+                                                                    <tr data-lpo-rekap-det={r.key}><td colSpan="6" className="px-3 py-2 bg-gray-50 text-xs text-gray-600">
+                                                                        <div className="flex flex-wrap gap-x-4 gap-y-1">{r.logs.map(l => <span key={l.id}>{l.size} · ambil {getWorkLogTakenQty(l)}{l.checkAfter ? ` / setor ${getWorkLogSubmittedQty(l)}${getWorkLogSubmittedQty(l) < getWorkLogTakenQty(l) ? ` (dari ${getWorkLogTakenQty(l)})` : ''} · ${fmtTgl(l.takenAt)}→${fmtTgl(l.submittedAt || l.checkAfterChangedAt)}` : <> · <b className="text-amber-700">belum setor</b> ({fmtTgl(l.takenAt)})</>}{l.isReported ? ' · sudah direkap' : ''}</span>)}</div>
+                                                                    </td></tr>
+                                                                )}
+                                                            </React.Fragment>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <button type="button" onClick={() => setRincianBuka(v => !v)} className="text-sm font-bold text-blue-600" data-lpo-rincian-btn>📄 Rincian lengkap (semua catatan ambil/setor) {rincianBuka ? '▴' : '▾'}</button>
+                                        {rincianBuka && (
+                                            <div className="mt-2 space-y-2" data-lpo-rincian>
+                                                <input type="text" className="w-full md:w-72 p-2 border border-gray-300 rounded-lg text-sm" placeholder="Cari nama, tahap, ukuran, status..." value={empSearchTerm} onChange={ev => setEmpSearchTerm(ev.target.value)} />
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-left border-collapse min-w-[720px]">
+                                                        <thead><tr className="bg-gray-50 border-b text-[12px]"><th className="p-2">Tahap</th><th className="p-2">Karyawan</th><th className="p-2">Rincian Ukuran</th><th className="p-2 text-center">Jumlah</th><th className="p-2">Status</th><th className="p-2">Tgl Ambil</th><th className="p-2">Tgl Setor</th></tr></thead>
+                                                        <tbody>
+                                                            {rincianTampil.length > 0 ? rincianTampil.map((item, idx) => (
+                                                                <tr key={idx} className="border-b text-[13px]"><td className="p-2 font-bold text-blue-800">{item.stage}</td><td className="p-2">{item.empName}</td><td className="p-2">{item.sizes}</td><td className="p-2 text-center font-bold">{item.total} pcs</td><td className="p-2">{item.status}</td><td className="p-2">{fmtTglJam(item.takenAt)}</td><td className="p-2">{fmtTglJam(item.submittedAt)}</td></tr>
+                                                            )) : <tr><td colSpan="7" className="p-4 text-center text-sm text-gray-500 italic">{empSearchTerm.trim() ? `Tidak ada data untuk "${empSearchTerm}".` : 'Belum ada data pengerjaan.'}</td></tr>}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div></Card>
                             )}
                         </div>
-                    </Card>
+                    )}
 
-                    {order && (
-                        <Card>
-                            <div className="flex justify-between items-center mb-4 border-b pb-4">
-                                <div><h3 className="text-xl font-bold text-gray-800">{order.id}</h3><p className="text-sm text-gray-600">{order.client} | {order.type} ({order.total} pcs)</p></div>
-                                {reportData.length > 0 && <button onClick={handlePrint} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-medium flex gap-2"><IconPrinter /> Cetak</button>}
-                            </div>
-                            <div className="mb-4">
-                                <input
-                                    type="text"
-                                    className="w-full md:w-72 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                    placeholder="Cari nama, tahap, ukuran, status..."
-                                    value={empSearchTerm}
-                                    onChange={e => setEmpSearchTerm(e.target.value)}
-                                />
-                                {empKeyword && <span className="ml-3 text-xs text-gray-500">{filteredReportData.length} baris ditemukan</span>}
-                            </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
-                                    <thead><tr className="bg-gray-50 border-b">
-                                        <th className="p-3 text-sm">Tahap Produksi</th><th className="p-3 text-sm">Nama Karyawan</th><th className="p-3 text-sm">Rincian Ukuran</th><th className="p-3 text-sm text-center">Jumlah</th><th className="p-3 text-sm">Status</th><th className="p-3 text-sm">Tanggal Ambil</th><th className="p-3 text-sm">Tanggal Setor</th>
-                                    </tr></thead>
-                                    <tbody>
-                                        {filteredReportData.length > 0 ? filteredReportData.map((item, idx) => (
-                                            <tr key={idx} className="border-b"><td className="p-3 text-sm font-bold text-blue-800">{item.stage}</td><td className="p-3 text-sm font-medium">{item.empName}</td><td className="p-3 text-sm">{item.sizes}</td><td className="p-3 text-sm font-bold text-center">{item.total} pcs</td><td className="p-3 text-sm">{item.status}</td><td className="p-3 text-sm">{formatReportDate(item.takenAt)}</td><td className="p-3 text-sm">{formatReportDate(item.submittedAt)}</td></tr>
-                                        )) : (
-                                            <tr><td colSpan="7" className="p-6 text-center text-sm text-gray-500 italic">{empKeyword ? `Tidak ada data untuk karyawan "${empSearchTerm}".` : 'Belum ada data pengerjaan.'}</td></tr>
+                    {mode === 'karyawan' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)] gap-4 items-start">
+                            <Card className="space-y-2.5">
+                                {pilihPeriodeLpo(periodeK, setPeriodeK, [['minggu', 'Minggu ini'], ['bulan', 'Bulan ini'], ['pilih', 'Pilih tanggal…']], 'karyawan')}
+                                <input value={cariKaryawan} onChange={ev => setCariKaryawan(ev.target.value)} placeholder="🔍 Cari nama karyawan / divisi…" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" data-lpk-cari />
+                                <div className="text-[11px] text-gray-500">Setor dihitung menurut tanggal setor ({rK.label}). Barang yang masih dibawa selalu tampil.</div>
+                                <div className="space-y-1.5 max-h-[70vh] overflow-y-auto pr-0.5" data-lpk-daftar>
+                                    {daftarKaryawan.length === 0 && <div className="text-sm text-gray-500 italic text-center py-6">Tidak ada pengerjaan pada periode ini.</div>}
+                                    {daftarKaryawan.map(k => {
+                                        const pilih = k.empId === String(selectedEmpId);
+                                        return (
+                                            <button key={k.empId} type="button" onClick={() => setSelectedEmpId(pilih ? '' : k.empId)} data-lpk-emp={k.empId}
+                                                className={`w-full text-left border rounded-xl px-3 py-2 ${pilih ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+                                                <div className="flex items-center gap-2"><b className="text-sm text-gray-900 truncate flex-1 min-w-0">{k.nama}{k.aneh ? ' 🔍' : ''}</b>{k.dibawa > 0 && <span className="text-[10.5px] font-bold rounded px-1.5 py-0.5 bg-amber-100 text-amber-800 shrink-0">dibawa {k.dibawa}</span>}</div>
+                                                <div className="text-[11.5px] text-gray-500 mt-0.5 truncate">{k.divisi || '-'} · {new Set(k.baris.map(b => b.orderId)).size} order · setor {k.setor} pcs</div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </Card>
+                            {!dk ? (
+                                <Card><div className="text-center text-gray-500 py-16 text-sm">Pilih karyawan untuk melihat semua order yang dikerjakan.</div></Card>
+                            ) : (
+                                <Card><div className="space-y-4" data-lpk-detail>
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div><h3 className="text-xl font-black text-gray-900">{dk.nama}</h3><p className="text-sm text-gray-600">{dk.divisi ? `Divisi ${dk.divisi} · ` : ''}periode setor {rK.label}</p></div>
+                                        <button type="button" onClick={cetakKaryawan} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2" data-lpk-cetak><IconPrinter /> Cetak / PDF</button>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2.5">
+                                        {kotakKpi('Order dikerjakan', `${new Set(dk.baris.map(b => b.orderId)).size} order`, 'text-gray-900', { 'data-lpk-kpi-order': '' })}
+                                        {kotakKpi('Total setor', `${dk.setor} pcs`, 'text-green-700', { 'data-lpk-kpi-setor': '' })}
+                                        {kotakKpi('Masih dibawa', `${dk.dibawa} pcs`, dk.dibawa > 0 ? 'text-amber-700' : 'text-gray-900', { 'data-lpk-kpi-dibawa': '' })}
+                                    </div>
+                                    {dk.dibawa > 0 && (
+                                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[13px] text-amber-900" data-lpk-dibawa>
+                                            {dk.baris.filter(b => b.dibawa > 0).map(b => { const tAmbil = b.logs.filter(l => l.checkBefore && !l.checkAfter).map(l => l.takenAt || '').sort()[0]; const t = toLocalDateStr(tAmbil || ''); const hr = t ? Math.round((new Date(`${hariIni}T00:00:00`) - new Date(`${t}T00:00:00`)) / 864e5) : null; return <div key={b.key}>⚠ Masih membawa <b>{b.dibawa} pcs</b> dari <b>{b.orderId}</b> ({b.stageLabel}) sejak {fmtTgl(tAmbil)}{hr > 0 ? ` — ${hr} hari` : ''}</div>; })}
+                                        </div>
+                                    )}
+                                    {dk.aneh && <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-[13px] text-red-800" data-lpk-cek>🔍 Ada data yang perlu dicek{!empAda(dk.empId) ? ' — karyawan ini sudah dihapus dari Data Master' : ' — ada setor yang lebih banyak dari ambil'}. Buka order terkait untuk rinciannya.</div>}
+                                    <div className="overflow-x-auto border border-gray-100 rounded-xl">
+                                        <table className="w-full text-sm min-w-[620px]">
+                                            <thead><tr className="bg-gray-50 text-left text-[11px] text-gray-500"><th className="px-3 py-2">Order</th><th className="px-3 py-2">Klien</th><th className="px-3 py-2">Tahap</th><th className="px-3 py-2 text-right">Ambil</th><th className="px-3 py-2 text-right">Setor</th><th className="px-3 py-2 text-right">Masih dibawa</th><th className="px-3 py-2">Terakhir</th></tr></thead>
+                                            <tbody>
+                                                {dk.baris.map(b => (
+                                                    <tr key={b.key} className="border-t border-gray-100" data-lpk-row={b.key}>
+                                                        <td className="px-3 py-2"><button type="button" onClick={() => bukaOrderDariKaryawan(b.orderId)} className="font-mono text-[11px] font-bold bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 hover:bg-blue-200" data-lpk-order-link={b.orderId}>{b.orderId}</button></td>
+                                                        <td className="px-3 py-2 truncate max-w-[200px]">{b.client || '-'}</td>
+                                                        <td className="px-3 py-2"><span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 rounded px-1.5 py-0.5">{b.stageLabel}</span></td>
+                                                        <td className="px-3 py-2 text-right tabular-nums">{b.ambil}</td>
+                                                        <td className="px-3 py-2 text-right tabular-nums font-black">{b.setor}</td>
+                                                        <td className={`px-3 py-2 text-right tabular-nums ${b.dibawa > 0 ? 'font-black text-amber-700' : 'text-gray-400'}`}>{b.dibawa || '—'}</td>
+                                                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{b.terakhir ? `${b.terakhirJenis} ${fmtTgl(b.terakhir)}` : '-'}</td>
+                                                    </tr>
+                                                ))}
+                                                <tr className="border-t border-gray-200 bg-gray-50 font-black" data-lpk-total><td className="px-3 py-2" colSpan="3">Total</td><td className="px-3 py-2 text-right tabular-nums">{dk.ambil}</td><td className="px-3 py-2 text-right tabular-nums">{dk.setor}</td><td className="px-3 py-2 text-right tabular-nums text-amber-700">{dk.dibawa || '—'}</td><td></td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div>
+                                        <button type="button" onClick={() => setRincianKBuka(v => !v)} className="text-sm font-bold text-blue-600" data-lpk-rincian-btn>📄 Rincian ambil/setor per ukuran {rincianKBuka ? '▴' : '▾'}</button>
+                                        {rincianKBuka && (
+                                            <div className="mt-2 space-y-1 text-xs text-gray-700" data-lpk-rincian>
+                                                {dk.baris.map(b => <div key={b.key}><b>{b.orderId}</b> · {b.stageLabel}: {b.logs.map(l => `${l.size} ambil ${getWorkLogTakenQty(l)}${l.checkAfter ? ` / setor ${getWorkLogSubmittedQty(l)} (${fmtTgl(l.submittedAt || l.checkAfterChangedAt)})` : ' / belum setor'}`).join(' · ')}</div>)}
+                                            </div>
                                         )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </Card>
+                                    </div>
+                                </div></Card>
+                            )}
+                        </div>
                     )}
                 </div>
             );
@@ -31806,7 +32165,7 @@ ${getRekapShareLink(rekap)}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
                                     onLihatNotaVendor={canOpen('pembelian_bahan') ? (vendor) => { setNotaVendorReq({ vendor, t: Date.now() }); setActiveTab('pembelian_bahan'); } : null} /></div>}
                                 {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></MenuBeku></div>}
-                                {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></div>}
+                                {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} /></MenuBeku></div>}
                                 {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={orders} templates={templates} showToast={showToast} /></div>}
