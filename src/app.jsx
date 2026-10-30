@@ -22913,8 +22913,7 @@ ${getRekapShareLink(rekap)}
         };
 
         const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates }) => {
-            const [activeSubTab, setActiveSubTab] = React.useState('driver');
-            const [activeRekapTab, setActiveRekapTab] = React.useState('rekap_pengiriman');
+            const [activeSubTab, setActiveSubTab] = React.useState('kirim');
             const [search, setSearch] = React.useState('');
             const [showDriverForm, setShowDriverForm] = React.useState(false);
             const [showTarifForm, setShowTarifForm] = React.useState(false);
@@ -22924,8 +22923,6 @@ ${getRekapShareLink(rekap)}
             const [editTrx, setEditTrx] = React.useState(null);
             const [filterDriver, setFilterDriver] = React.useState('');
             const [filterStatus, setFilterStatus] = React.useState('');
-            const [dateFrom, setDateFrom] = React.useState('');
-            const [dateTo, setDateTo] = React.useState('');
             const [fotoTrx, setFotoTrx] = React.useState(null); // transaksi yang fotonya sedang dilihat
             // Saat menu dibuka: ambil catatan perjalanan terbaru dari link driver
             React.useEffect(() => { try { window.dispatchEvent(new Event('simpati-driver-remote')); } catch (e) {} }, [activeSubTab]);
@@ -22968,10 +22965,10 @@ ${getRekapShareLink(rekap)}
                 }
             };
 
-            const shareViaWA = (trx) => {
+            const shareViaWA = (trx, tarifObj) => {
                 const drv = visibleDrivers.find(d => d.id === trx.driverId);
                 const link = generateShareLink(trx);
-                const tarif = visibleTarifs.find(t => t.id === trx.tarifId);
+                const tarif = tarifObj || (driverTarifs || []).find(t => t && t.id === trx.tarifId);
                 const msg = `Halo ${drv ? drv.name : 'Driver'},\n\nAda order pengiriman baru:\n- Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n- Ongkir: ${formatRupiah(safeMoney(trx.ongkir))}\n- Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n${trx.note?'- Catatan: '+trx.note+'\n':''}\nKlik link untuk konfirmasi:\n${link}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g,'').replace(/^0/,'62') : '';
                 const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
@@ -23294,19 +23291,11 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return visibleTrx.filter(t => t.driverId===driverId && t.status==='Terkirim' && !usedIds.has(t.id));
             };
 
-            const openRekapModal = () => {
-                setRekapDriverId('');
-                setRekapNote('');
-                setSelectedTripIds([]);
-                setRekapPotonganKasbon(0);
-                setShowRekapModal(true);
-            };
-
             const toggleTripSelect = (id) => {
                 setSelectedTripIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev,id]);
             };
 
-            const buatRekap = () => {
+            const buatRekap = (kirimSlip) => {
                 if (!rekapDriverId) { showToast('Pilih driver terlebih dahulu', 'error'); return; }
                 if (selectedTripIds.length===0) { showToast('Pilih minimal 1 trip', 'error'); return; }
                 const sisaKasbonDriver = getTotalSisaKasbon(rekapDriverId);
@@ -23330,6 +23319,9 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     jumlahTrip: selectedTripIds.length,
                     note: rekapNote,
                     tanggalRekap: toLocalDateStr(),
+                    // Rentang tanggal trip yang direkap (untuk riwayat & slip)
+                    periodeDari: trips.map(t => t.date || '').filter(Boolean).sort()[0] || '',
+                    periodeSampai: trips.map(t => t.date || '').filter(Boolean).sort().slice(-1)[0] || '',
                     _syncUpdatedAt: new Date().toISOString()
                 };
                 // Hitung kasbonDeductions (FIFO) sebelum simpan rekap
@@ -23357,7 +23349,8 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     }));
                 }
                 setShowRekapModal(false);
-                showToast('Rekap gaji berhasil dibuat', 'success');
+                if (kirimSlip) kirimSlipWA(newRekap);
+                showToast(kirimSlip ? 'Rekap gaji dibuat · WhatsApp driver dibuka' : 'Rekap gaji berhasil dibuat', 'success');
             };
 
             const deleteRekap = (id) => {
@@ -23455,56 +23448,12 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 }
             };
 
-            // ----- FILTER TRX -----
-            const filteredTrx = visibleTrx.filter(t => {
-                if (filterDriver && t.driverId !== filterDriver) return false;
-                if (filterStatus && t.status !== filterStatus) return false;
-                if (dateFrom && t.date < dateFrom) return false;
-                if (dateTo && t.date > dateTo) return false;
-                if (search && !matchesSearch([t.driverName||'', t.note||'', t.id||''], search)) return false;
-                return true;
-            }).sort((a,b)=>((b.date||'')>(a.date||'')?1:-1));
-
             const filteredDrivers = visibleDrivers.filter(d => !search || matchesSearch([d.name||'',d.phone||'',d.vehicle||'',d.plateNumber||''], search));
             const filteredTarifs = visibleTarifs.filter(t => !search || matchesSearch([t.from||'',t.to||'',t.note||''], search));
 
             // Pagination
             const [trxPage, setTrxPage] = React.useState(1);
             const TRX_PER_PAGE = 20;
-            const trxTotalPages = Math.max(1, Math.ceil(filteredTrx.length / TRX_PER_PAGE));
-            const pagedTrx = filteredTrx.slice((trxPage-1)*TRX_PER_PAGE, trxPage*TRX_PER_PAGE);
-
-            // ----- REKAP -----
-            const rekapByDriver = visibleDrivers.map(drv => {
-                const trxList = visibleTrx.filter(t=>t.driverId===drv.id && t.status==='Terkirim');
-                const totalOngkir = trxList.reduce((s,t)=>s+safeMoney(t.ongkir),0);
-                return { ...drv, jumlahTrx: trxList.length, totalOngkir };
-            });
-
-            const filteredRekapTrx = visibleTrx.filter(t => {
-                if (filterDriver && t.driverId !== filterDriver) return false;
-                if (dateFrom && t.date < dateFrom) return false;
-                if (dateTo && t.date > dateTo) return false;
-                return true;
-            });
-
-            const totalPenghasilan = filteredRekapTrx.filter(t=>t.status==='Terkirim').reduce((s,t)=>s+safeMoney(t.ongkir),0);
-            const totalTrx = filteredRekapTrx.length;
-            const totalTerkirim = filteredRekapTrx.filter(t=>t.status==='Terkirim').length;
-            const totalMenunggu = filteredRekapTrx.filter(t=>t.status==='Menunggu').length;
-
-            // Tombol 📷 per langkah yang punya foto
-            const fotoTombol = (t) => {
-                const foto = safeArray(t.drvLangkah).filter(l => l && l.foto);
-                if (!foto.length) return <span className="text-xs text-gray-300">—</span>;
-                return (
-                    <div className="flex gap-1 flex-wrap">
-                        {foto.map((l, i) => (
-                            <button key={i} onClick={() => setFotoTrx(t)} className="text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded hover:bg-blue-100" data-drv-foto-btn={l.k}>📷 {l.kosong ? 'Tanpa Barang' : (DRV_LANGKAH_INFO[l.k]?.ikon || l.k)}</button>
-                        ))}
-                    </div>
-                );
-            };
 
             const statusColor = (s) => {
                 if (s==='Terkirim') return 'bg-green-100 text-green-700';
@@ -23514,504 +23463,697 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                 return 'bg-yellow-100 text-yellow-700';
             };
 
+            // ===== Tampilan ringkas: Pengiriman · Gaji & Kasbon · Laporan · Driver & Tarif =====
+            const hariIniStr = toLocalDateStr();
+            const fmtTglPendek = (s) => { const d = new Date(`${s}T00:00:00`); return isNaN(d.getTime()) ? (s || '-') : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }); };
+            const fmtTglPanjang = (s) => { const d = new Date(`${s}T00:00:00`); return isNaN(d.getTime()) ? (s || '-') : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); };
+            // Periode: { mode: 'hari' | 'minggu' (Senin–Minggu) | 'bulan' | 'pilih', dari, sampai }
+            const rentangPeriode = (p) => {
+                const now = new Date();
+                if (p.mode === 'hari') return { dari: hariIniStr, sampai: hariIniStr, label: `Hari ini · ${fmtTglPanjang(hariIniStr)}` };
+                if (p.mode === 'minggu') {
+                    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+                    const dari = toLocalDateStr(d); d.setDate(d.getDate() + 6); const sampai = toLocalDateStr(d);
+                    return { dari, sampai, label: `${fmtTglPendek(dari)} – ${fmtTglPanjang(sampai)}` };
+                }
+                if (p.mode === 'bulan') {
+                    const dari = toLocalDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+                    const sampai = toLocalDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+                    return { dari, sampai, label: `${fmtTglPendek(dari)} – ${fmtTglPanjang(sampai)}` };
+                }
+                const dari = p.dari || '', sampai = p.sampai || '';
+                return { dari, sampai, label: dari || sampai ? `${dari ? fmtTglPanjang(dari) : '…'} – ${sampai ? fmtTglPanjang(sampai) : '…'}` : 'Semua tanggal' };
+            };
+            const dalamRentang = (tgl, r) => (!r.dari || String(tgl || '') >= r.dari) && (!r.sampai || String(tgl || '') <= r.sampai);
+            // Fungsi biasa (bukan komponen) agar kolom tanggal tidak kehilangan fokus saat diketik
+            const pilihPeriode = (nilai, ubah, nama) => {
+                const r = rentangPeriode(nilai);
+                return (
+                    <div className="flex flex-wrap items-center gap-2" data-eks-periode={nama}>
+                        <span className="text-sm font-bold text-slate-600">Periode:</span>
+                        {[['hari', 'Hari ini'], ['minggu', 'Minggu ini'], ['bulan', 'Bulan ini'], ['pilih', 'Pilih tanggal…']].map(([m, l]) => (
+                            <button key={m} type="button" onClick={() => ubah(p => ({ ...p, mode: m }))} data-eks-periode-pilih={m}
+                                className={`px-3 py-1.5 rounded-full text-sm font-bold border ${nilai.mode === m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>{l}</button>
+                        ))}
+                        {nilai.mode === 'pilih' && (<>
+                            <input type="date" value={nilai.dari || ''} onChange={e => ubah(p => ({ ...p, dari: e.target.value }))} className="border rounded-lg px-2 py-1.5 text-sm" data-eks-periode-dari />
+                            <span className="text-gray-400">–</span>
+                            <input type="date" value={nilai.sampai || ''} onChange={e => ubah(p => ({ ...p, sampai: e.target.value }))} className="border rounded-lg px-2 py-1.5 text-sm" data-eks-periode-sampai />
+                        </>)}
+                        <span className="text-sm text-slate-700 bg-slate-100 rounded-lg px-3 py-1.5" data-eks-periode-label>{r.label}</span>
+                    </div>
+                );
+            };
+            // Tarif juga dicari di yang sudah dihapus, agar rute di riwayat tetap tampil
+            const cariTarif = (id) => (driverTarifs || []).find(t => t && t.id === id) || null;
+            const namaRute = (t) => { const trf = cariTarif(t.tarifId); return trf ? `${trf.from} → ${trf.to}` : '-'; };
+            const aktifStatus = (s) => s === 'Menunggu' || s === 'Menuju Lokasi' || s === 'Dalam Perjalanan' || !s;
+
+            // ----- Input cepat pengiriman -----
+            const QFORM_KOSONG = { date: hariIniStr, driverId: '', tarifId: '', tripType: 'sekali', distance: '', weight: '', note: '', ongkir: 0, ongkirManual: false, dari: '' };
+            const [qForm, setQForm] = React.useState(QFORM_KOSONG);
+            const [qCari, setQCari] = React.useState('');
+            const [ruteBaru, setRuteBaru] = React.useState(null); // { from, to, pricingType, pricePerKm, pricePerKg, minPrice, jarak }
+            const [qSorot, setQSorot] = React.useState(false);
+            const [baruId, setBaruId] = React.useState('');
+            const [formHpBuka, setFormHpBuka] = React.useState(false);
+            const qFormRef = React.useRef(null);
+            const hitungOngkirTarif = (t, weight, distance, tripType) => {
+                if (!t) return 0;
+                const base = t.pricingType === 'per_km'
+                    ? Math.max(safeMoney(distance) * safeMoney(t.pricePerKm), safeMoney(t.minPrice))
+                    : Math.max(safeMoney(weight) * safeMoney(t.pricePerKg), safeMoney(t.minPrice));
+                return tripType === 'pp' ? base * 2 : base;
+            };
+            const qTarif = visibleTarifs.find(t => t.id === qForm.tarifId) || null;
+            const qUbah = (field, val, tarifObj) => setQForm(prev => {
+                const next = { ...prev, [field]: val };
+                if (field === 'tarifId') {
+                    const t = tarifObj || visibleTarifs.find(x => x.id === val);
+                    next.distance = t && t.pricingType === 'per_km' && t.jarak ? String(t.jarak) : '';
+                    next.weight = '';
+                }
+                if (field === 'ongkir') { next.ongkirManual = true; return next; }
+                if (['tarifId', 'tripType', 'distance', 'weight'].includes(field)) {
+                    const t = tarifObj || visibleTarifs.find(x => x.id === next.tarifId);
+                    next.ongkir = hitungOngkirTarif(t, next.weight, next.distance, next.tripType);
+                    next.ongkirManual = false;
+                }
+                return next;
+            });
+            const rincianOngkir = (t, f) => {
+                if (!t) return '';
+                const pp = f.tripType === 'pp' ? ' × 2 (PP)' : '';
+                const min = safeMoney(t.minPrice) > 0 ? ` · min ${formatRupiah(safeMoney(t.minPrice))}` : '';
+                return t.pricingType === 'per_km'
+                    ? `${f.distance || 0} km × ${formatRupiah(safeMoney(t.pricePerKm))}${min}${pp}`
+                    : `${f.weight || 0} kg × ${formatRupiah(safeMoney(t.pricePerKg))}${min}${pp}`;
+            };
+            const driverAktif = visibleDrivers.filter(d => d.isActive !== false);
+            const tugasHariIni = (driverId) => visibleTrx.filter(t => t.driverId === driverId && t.date === hariIniStr && t.status !== 'Gagal').length;
+            const batas30 = toLocalDateStr(new Date(Date.now() - 30 * 864e5));
+            const pakaiTarif = {};
+            visibleTrx.forEach(t => { if (t.tarifId && String(t.date || '') >= batas30) pakaiTarif[t.tarifId] = (pakaiTarif[t.tarifId] || 0) + 1; });
+            const tarifUrut = [...visibleTarifs].sort((a, b) => (pakaiTarif[b.id] || 0) - (pakaiTarif[a.id] || 0));
+            const tarifTampil = (() => {
+                const q = qCari.trim();
+                if (q) return visibleTarifs.filter(t => matchesSearch([t.from || '', t.to || '', t.note || ''], q)).slice(0, 8);
+                const top = tarifUrut.slice(0, 6);
+                if (qTarif && !top.some(t => t.id === qTarif.id)) return [qTarif, ...top.slice(0, 5)];
+                return top;
+            })();
+            const infoTarif = (t) => t.pricingType === 'per_km'
+                ? `${formatRupiah(safeMoney(t.pricePerKm))}/km${t.jarak ? ` · ${t.jarak} km` : ''}`
+                : `${formatRupiah(safeMoney(t.pricePerKg))}/kg${safeMoney(t.minPrice) ? ` · min ${formatRupiah(safeMoney(t.minPrice))}` : ''}`;
+            const bukaRuteBaru = () => {
+                const dasar = tarifUrut[0] || null;
+                const asal = (() => { const n = {}; visibleTarifs.forEach(t => { if (t.from) n[t.from] = (n[t.from] || 0) + 1; }); return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || templates?.companyName || ''; })();
+                setRuteBaru({ from: asal, to: qCari.trim(), pricingType: dasar?.pricingType || 'per_km', pricePerKm: dasar?.pricePerKm || '', pricePerKg: dasar?.pricePerKg || '', minPrice: dasar?.minPrice || '', jarak: '' });
+            };
+            const pakaiRuteBaru = () => {
+                const r = ruteBaru;
+                if (!r.from.trim() || !r.to.trim()) { showToast('Isi asal dan tujuan rute', 'error'); return; }
+                if (r.pricingType === 'per_km' ? !safeMoney(r.pricePerKm) : !safeMoney(r.pricePerKg)) { showToast(r.pricingType === 'per_km' ? 'Isi tarif per km' : 'Isi tarif per kg', 'error'); return; }
+                const sama = visibleTarifs.find(t => String(t.from || '').trim().toLowerCase() === r.from.trim().toLowerCase() && String(t.to || '').trim().toLowerCase() === r.to.trim().toLowerCase());
+                if (sama) { qUbah('tarifId', sama.id, sama); setRuteBaru(null); setQCari(''); showToast('Rute ini sudah ada — dipakai rute yang ada', 'success'); return; }
+                const t = { id: genId('TRF-'), from: r.from.trim(), to: r.to.trim(), pricingType: r.pricingType, pricePerKm: r.pricingType === 'per_km' ? r.pricePerKm : '', pricePerKg: r.pricingType === 'per_kg' ? r.pricePerKg : '', minPrice: r.minPrice, jarak: r.pricingType === 'per_km' ? r.jarak : '', note: '', _syncUpdatedAt: new Date().toISOString() };
+                setDriverTarifs(prev => [...(prev || []), t]);
+                qUbah('tarifId', t.id, t);
+                setRuteBaru(null); setQCari('');
+                showToast('Rute baru disimpan ke daftar tarif', 'success');
+            };
+            const ulangiPengiriman = (t) => {
+                const trf = visibleTarifs.find(x => x.id === t.tarifId);
+                const drvOk = driverAktif.some(d => d.id === t.driverId);
+                const f = { ...QFORM_KOSONG, date: hariIniStr, driverId: drvOk ? t.driverId : '', tarifId: trf ? trf.id : '', tripType: t.tripType === 'pp' ? 'pp' : 'sekali', distance: t.distance || '', weight: t.weight || '', dari: `${fmtTglPendek(t.date)}${t.createdAt ? ' ' + drvJam(t.createdAt) : ''}` };
+                f.ongkir = trf ? hitungOngkirTarif(trf, f.weight, f.distance, f.tripType) : safeMoney(t.ongkir);
+                f.ongkirManual = !trf;
+                setQForm(f); setQCari(''); setRuteBaru(null); setFormHpBuka(true);
+                setQSorot(true); setTimeout(() => setQSorot(false), 1600);
+                setTimeout(() => { try { qFormRef.current && qFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 50);
+                if (!trf) showToast('Tarif rute ini sudah dihapus — pilih rute lagi', 'error');
+            };
+            const simpanCepat = (kirimWA) => {
+                if (!qForm.driverId) { showToast('Pilih driver', 'error'); return; }
+                if (!qTarif) { showToast('Pilih rute', 'error'); return; }
+                if (!(safeMoney(qForm.ongkir) > 0)) { showToast(qTarif.pricingType === 'per_km' ? 'Ongkir masih Rp 0 — isi jarak (km)' : 'Ongkir masih Rp 0 — isi berat (kg)', 'error'); return; }
+                const drv = visibleDrivers.find(d => d.id === qForm.driverId);
+                const now = new Date().toISOString();
+                const trx = { id: genId('XPDC-'), date: qForm.date || hariIniStr, driverId: qForm.driverId, driverName: drv ? drv.name : '', tarifId: qTarif.id, tripType: qForm.tripType, distance: qTarif.pricingType === 'per_km' ? String(qForm.distance || '') : '', weight: qTarif.pricingType === 'per_kg' ? String(qForm.weight || '') : '', ongkir: safeMoney(qForm.ongkir), status: 'Menunggu', note: qForm.note || '', createdAt: now, _syncUpdatedAt: now };
+                setDriverTransactions(prev => [...(prev || []), trx]);
+                if (kirimWA) shareViaWA(trx, qTarif);
+                setQForm({ ...QFORM_KOSONG, date: qForm.date || hariIniStr }); setQCari(''); setRuteBaru(null);
+                setBaruId(trx.id); setTimeout(() => setBaruId(''), 5000);
+                setFilterStatus(''); setTrxPage(1);
+                showToast(kirimWA ? `Tersimpan · WhatsApp ${drv ? drv.name : 'driver'} dibuka` : 'Pengiriman tersimpan', 'success');
+            };
+
+            // ----- Menu ⋯, ubah status, alihkan driver, konfirmasi hapus -----
+            const [menu, setMenu] = React.useState(null); // { jenis, data, x, y }
+            const [ubahStatusTrx, setUbahStatusTrx] = React.useState(null);
+            const [alihkan, setAlihkan] = React.useState(null); // { trx, driverId }
+            const [hapus, setHapus] = React.useState(null); // { judul, detail, peringatan, blokir, aksi }
+            const bukaMenu = (e, jenis, data, jumlahItem) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                const lebar = 210, tinggi = jumlahItem * 38 + 12;
+                const x = Math.max(8, Math.min(r.right - lebar, window.innerWidth - lebar - 8));
+                const y = r.bottom + 4 + tinggi > window.innerHeight ? Math.max(8, r.top - tinggi - 4) : r.bottom + 4;
+                setMenu(m => (m && m.jenis === jenis && m.data?.id === data?.id) ? null : { jenis, data, x, y, at: Date.now() });
+            };
+            React.useEffect(() => {
+                if (!menu) return;
+                const tutup = (ev) => { if (ev.target && ev.target.closest && ev.target.closest('[data-eks-menu-panel]')) return; setMenu(null); };
+                // Gulir sesaat setelah dibuka (mis. halaman menyesuaikan posisi) tidak menutup menu
+                const tutupGulir = () => { if (Date.now() - (menu.at || 0) > 400) setMenu(null); };
+                document.addEventListener('mousedown', tutup); document.addEventListener('touchstart', tutup);
+                window.addEventListener('resize', tutupGulir); window.addEventListener('scroll', tutupGulir, true);
+                return () => { document.removeEventListener('mousedown', tutup); document.removeEventListener('touchstart', tutup); window.removeEventListener('resize', tutupGulir); window.removeEventListener('scroll', tutupGulir, true); };
+            }, [menu]);
+            const rekapDariTrip = (tripId) => visibleRekap.find(r => (r.tripIds || []).includes(tripId));
+            const mintaHapusTrx = (t) => {
+                const rk = rekapDariTrip(t.id);
+                setHapus({ judul: 'Hapus pengiriman?', detail: `${t.driverName || '-'} · ${fmtTglPanjang(t.date)} · ${namaRute(t)} · ${formatRupiah(safeMoney(t.ongkir))}`,
+                    blokir: rk ? `Pengiriman ini sudah masuk rekap gaji ${rk.driverName || ''} (${rk.tanggalRekap || '-'}). Hapus rekapnya dulu bila memang perlu.` : '',
+                    aksi: () => deleteTrx(t.id) });
+            };
+            const mintaHapusDriver = (d) => {
+                const aktif = visibleTrx.filter(t => t.driverId === d.id && aktifStatus(t.status)).length;
+                setHapus({ judul: 'Hapus driver?', detail: `${d.name}${d.phone ? ' · ' + d.phone : ''}`, peringatan: aktif ? `Driver ini masih punya ${aktif} pengiriman yang belum selesai.` : 'Riwayat pengiriman & rekap gaji driver ini tetap tersimpan.', aksi: () => deleteDriver(d.id) });
+            };
+            const mintaHapusTarif = (t) => {
+                const n = visibleTrx.filter(x => x.tarifId === t.id).length;
+                setHapus({ judul: 'Hapus tarif / rute?', detail: `${t.from} → ${t.to} · ${infoTarif(t)}`, peringatan: n ? `Dipakai di ${n} pengiriman — riwayatnya tetap menampilkan rute ini.` : '', aksi: () => deleteTarif(t.id) });
+            };
+            const mintaHapusKasbon = (k) => {
+                setHapus({ judul: 'Hapus kasbon?', detail: `${k.driverName || ''} · ${k.tanggal || '-'} · ${formatRupiah(safeMoney(k.jumlah))}${k.keterangan ? ' · ' + k.keterangan : ''}`, peringatan: safeMoney(k.sudahDipotong) > 0 ? `Kasbon ini sudah dipotong ${formatRupiah(safeMoney(k.sudahDipotong))} lewat rekap gaji.` : '', aksi: () => hapusKasbon(k.id) });
+            };
+            const mintaHapusRekap = (r) => {
+                setHapus({ judul: 'Hapus rekap gaji?', detail: `${r.driverName || ''} · ${r.tanggalRekap || '-'} · ${r.jumlahTrip || 0} trip · ${formatRupiah(safeMoney(r.gajiDiterima != null ? r.gajiDiterima : r.totalOngkir))}`, peringatan: `Trip di rekap ini kembali "belum direkap"${safeMoney(r.potonganKasbon) > 0 ? ' dan potongan kasbon dipulihkan' : ''}.`, aksi: () => deleteRekap(r.id) });
+            };
+            const simpanAlihkan = (kirimWA) => {
+                const { trx: t, driverId } = alihkan || {};
+                if (!t || !driverId) { showToast('Pilih driver', 'error'); return; }
+                const drv = visibleDrivers.find(d => d.id === driverId);
+                const baru = { driverId, driverName: drv ? drv.name : '', status: 'Menunggu', statusManualAt: isoSetelah(t.drvAt, t.statusManualAt), drvTahap: 0, drvSelesai: false, drvKosong: false, drvLangkah: [] };
+                setDriverTransactions(prev => prev.map(x => x.id === t.id ? { ...x, ...baru } : x));
+                if (kirimWA) shareViaWA({ ...t, ...baru });
+                setAlihkan(null);
+                showToast(`Dialihkan ke ${drv ? drv.name : 'driver'}${kirimWA ? ' · WhatsApp dibuka' : ''}`, 'success');
+            };
+
+            // ----- Gaji & Kasbon (per periode) -----
+            const [periodeGaji, setPeriodeGaji] = React.useState({ mode: 'minggu', dari: '', sampai: '' });
+            const [rekapPeriode, setRekapPeriode] = React.useState(null);
+            const [rekapLuar, setRekapLuar] = React.useState(false);
+            const [rekapPotonganManual, setRekapPotonganManual] = React.useState(false);
+            const [riwayatDriver, setRiwayatDriver] = React.useState('');
+            const rGaji = rentangPeriode(periodeGaji);
+            const kartuGaji = visibleDrivers.map(d => {
+                const avail = getAvailableTrips(d.id);
+                const dalam = avail.filter(t => dalamRentang(t.date, rGaji));
+                const terakhir = visibleRekap.filter(r => r.driverId === d.id).sort((a, b) => String(b.tanggalRekap || '').localeCompare(String(a.tanggalRekap || '')))[0];
+                return { d, dalam, luar: avail.length - dalam.length, ongkir: dalam.reduce((s, t) => s + safeMoney(t.ongkir), 0), kasbon: getTotalSisaKasbon(d.id), terakhir };
+            }).filter(k => k.d.isActive !== false || k.dalam.length || k.luar || k.kasbon > 0);
+            const bukaRekapUntuk = (driverId) => {
+                const trips = getAvailableTrips(driverId).filter(t => dalamRentang(t.date, rGaji));
+                const tot = trips.reduce((s, t) => s + safeMoney(t.ongkir), 0);
+                setRekapDriverId(driverId); setSelectedTripIds(trips.map(t => t.id));
+                setRekapPotonganKasbon(Math.min(getTotalSisaKasbon(driverId), tot)); setRekapPotonganManual(false);
+                setRekapNote(''); setRekapLuar(false); setRekapPeriode(rGaji); setShowRekapModal(true);
+            };
+            // Potongan kasbon yang disarankan mengikuti trip yang dicentang (selama belum diubah manual)
+            React.useEffect(() => {
+                if (!showRekapModal || rekapPotonganManual || !rekapDriverId) return;
+                const tot = visibleTrx.filter(t => selectedTripIds.includes(t.id)).reduce((s, t) => s + safeMoney(t.ongkir), 0);
+                setRekapPotonganKasbon(Math.min(getTotalSisaKasbon(rekapDriverId), tot));
+            }, [selectedTripIds, showRekapModal]);
+            const linkSlip = (rekap) => `${window.location.origin + window.location.pathname}#driver-rekap-gaji=${encodeURIComponent(rekap.id)}`;
+            const labelPeriodeRekap = (r) => r.periodeDari ? (r.periodeDari === r.periodeSampai ? fmtTglPendek(r.periodeDari) : `${fmtTglPendek(r.periodeDari)} – ${fmtTglPendek(r.periodeSampai)}`) : '–';
+            const kirimSlipWA = (rekap) => {
+                const drv = visibleDrivers.find(d => d.id === rekap.driverId);
+                const pot = safeMoney(rekap.potonganKasbon);
+                const msg = `Halo ${drv ? drv.name : (rekap.driverName || 'Driver')},\n\nBerikut slip gaji pengiriman${rekap.periodeDari ? ' periode ' + labelPeriodeRekap(rekap) : ''}:\n- Jumlah trip: ${rekap.jumlahTrip || 0}\n- Total ongkir: ${formatRupiah(safeMoney(rekap.totalOngkir))}\n${pot > 0 ? `- Potong kasbon: ${formatRupiah(pot)}\n` : ''}- Gaji diterima: ${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}\n\nRincian:\n${linkSlip(rekap)}`;
+                const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
+                window.open(phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+            };
+
+            // ----- Laporan (per periode) -----
+            const [periodeLap, setPeriodeLap] = React.useState({ mode: 'bulan', dari: '', sampai: '' });
+            const [lapDriver, setLapDriver] = React.useState('');
+            const [lapPage, setLapPage] = React.useState(1);
+            const rLap = rentangPeriode(periodeLap);
+            const trxLap = visibleTrx.filter(t => dalamRentang(t.date, rLap) && (!lapDriver || t.driverId === lapDriver));
+            const lapTerkirim = trxLap.filter(t => t.status === 'Terkirim').sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+            const lapPendapatan = lapTerkirim.reduce((s, t) => s + safeMoney(t.ongkir), 0);
+            const lapPerDriver = (() => {
+                const m = new Map();
+                lapTerkirim.forEach(t => { const k = t.driverId || t.driverName || '-'; const x = m.get(k) || { nama: t.driverName || '-', n: 0, ongkir: 0 }; x.n += 1; x.ongkir += safeMoney(t.ongkir); m.set(k, x); });
+                return [...m.values()].sort((a, b) => b.ongkir - a.ongkir);
+            })();
+            const LAP_PER_PAGE = 25;
+            const lapTotalPages = Math.max(1, Math.ceil(lapTerkirim.length / LAP_PER_PAGE));
+            React.useEffect(() => { setLapPage(1); }, [periodeLap, lapDriver]);
+            const cetakLaporan = () => {
+                const w = window.open('', '_blank');
+                if (!w) { showToast('Izinkan pop-up browser untuk mencetak', 'error'); return; }
+                const rows = lapTerkirim;
+                w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Laporan Keuangan Ekspedisi</title><style>
+                    body{font-family:Arial,sans-serif;padding:24px;font-size:13px;}
+                    h2{text-align:center;margin-bottom:4px;} .sub{text-align:center;color:#555;margin-bottom:16px;}
+                    table{width:100%;border-collapse:collapse;margin-top:12px;} th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;}
+                    th{background:#f3f4f6;font-weight:bold;} tfoot td{font-weight:bold;background:#f9fafb;}
+                    .footer{margin-top:16px;text-align:right;font-size:11px;color:#888;}
+                </style></head><body>
+                <h2>${templates?.companyName||'SIMPATI KONVEKSI'}</h2>
+                <div class="sub">LAPORAN KEUANGAN EKSPEDISI</div>
+                <div>Periode: ${rLap.label} | Driver: ${lapDriver ? (visibleDrivers.find(d => d.id === lapDriver)?.name || '-') : 'Semua'}</div>
+                <div>Total pengiriman: ${trxLap.length} | Terkirim: ${rows.length} | Gagal: ${trxLap.filter(t => t.status === 'Gagal').length}</div>
+                <table><thead><tr><th>No</th><th>Tanggal</th><th>Driver</th><th>Rute</th><th>Berat/KM</th><th>Ongkir</th></tr></thead>
+                <tbody>${rows.map((t, i) => { const trf = cariTarif(t.tarifId); return `<tr><td>${i + 1}</td><td>${t.date}</td><td>${t.driverName || '-'}</td><td>${trf ? trf.from + ' → ' + trf.to : '-'}${t.tripType === 'pp' ? ' (PP)' : ''}</td><td>${trf?.pricingType === 'per_km' ? (t.distance ? t.distance + ' km' : '-') : (t.weight ? t.weight + ' kg' : '-')}</td><td>${formatRupiah(safeMoney(t.ongkir))}</td></tr>`; }).join('')}</tbody>
+                <tfoot><tr><td colspan="5">TOTAL PENDAPATAN</td><td>${formatRupiah(lapPendapatan)}</td></tr></tfoot></table>
+                <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+                </body></html>`);
+                w.document.close(); setTimeout(() => { w.print(); w.close(); }, 500);
+            };
+
+            // ----- Daftar pengiriman -----
+            const [periodeKirim, setPeriodeKirim] = React.useState({ mode: 'hari', dari: '', sampai: '' });
+            const rKirim = rentangPeriode(periodeKirim);
+            // "Hari ini" juga menampilkan pengiriman hari sebelumnya yang belum selesai, agar tidak terlewat
+            const trxPeriode = visibleTrx.filter(t => {
+                if (filterDriver && t.driverId !== filterDriver) return false;
+                if (search && !matchesSearch([t.driverName || '', t.note || '', t.id || '', namaRute(t)], search)) return false;
+                return dalamRentang(t.date, rKirim) || (periodeKirim.mode === 'hari' && aktifStatus(t.status) && String(t.date || '') < hariIniStr);
+            });
+            const cocokStatus = (t, f) => !f || (f === 'jalan' ? (t.status === 'Menuju Lokasi' || t.status === 'Dalam Perjalanan') : f === 'Menunggu' ? (t.status || 'Menunggu') === 'Menunggu' : t.status === f);
+            const jumlahStatus = (f) => trxPeriode.filter(t => cocokStatus(t, f)).length;
+            const daftarKirim = trxPeriode.filter(t => cocokStatus(t, filterStatus))
+                .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+            const kirimTotalPages = Math.max(1, Math.ceil(daftarKirim.length / TRX_PER_PAGE));
+            const kirimHalaman = daftarKirim.slice((Math.min(trxPage, kirimTotalPages) - 1) * TRX_PER_PAGE, Math.min(trxPage, kirimTotalPages) * TRX_PER_PAGE);
+            const kpiMenunggu = visibleTrx.filter(t => (t.status || 'Menunggu') === 'Menunggu').length;
+            const kpiJalan = visibleTrx.filter(t => t.status === 'Menuju Lokasi' || t.status === 'Dalam Perjalanan').length;
+            const kpiTerkirimHariIni = visibleTrx.filter(t => t.status === 'Terkirim' && t.date === hariIniStr).length;
+            const bulanIni = hariIniStr.slice(0, 7);
+            const kpiOngkirBulan = visibleTrx.filter(t => t.status === 'Terkirim' && String(t.date || '').slice(0, 7) === bulanIni).reduce((s, t) => s + safeMoney(t.ongkir), 0);
+            const jumlahFoto = (t) => safeArray(t.drvLangkah).filter(l => l && l.foto).length;
+
             const subTabs = [
-                { id:'driver', label:'Data Driver', icon:'👤', activeClass:'bg-blue-600 text-white shadow-blue-200', inactiveClass:'bg-blue-50 text-blue-700 hover:bg-blue-100' },
-                { id:'tarif', label:'Tarif Pengiriman', icon:'💰', activeClass:'bg-emerald-600 text-white shadow-emerald-200', inactiveClass:'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
-                { id:'transaksi', label:'Transaksi', icon:'🚚', activeClass:'bg-orange-500 text-white shadow-orange-200', inactiveClass:'bg-orange-50 text-orange-700 hover:bg-orange-100' },
-                { id:'rekap', label:'Rekap & Laporan', icon:'📊', activeClass:'bg-purple-600 text-white shadow-purple-200', inactiveClass:'bg-purple-50 text-purple-700 hover:bg-purple-100' },
+                { id:'kirim', label:'Pengiriman', icon:'🚚', on:'bg-orange-500 text-white border-orange-500 shadow-md' },
+                { id:'gaji', label:'Gaji & Kasbon', icon:'💵', on:'bg-emerald-600 text-white border-emerald-600 shadow-md' },
+                { id:'laporan', label:'Laporan', icon:'📊', on:'bg-violet-600 text-white border-violet-600 shadow-md' },
+                { id:'pengaturan', label:'Driver & Tarif', icon:'⚙️', on:'bg-slate-600 text-white border-slate-600 shadow-md' },
             ];
 
             const selectedTarifInForm = visibleTarifs.find(t=>t.id===xForm.tarifId);
 
             return (
                 <div>
-                    <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <h2 className="text-2xl font-bold text-slate-800">🚛 Driver / Ekspedisi</h2>
-                            <p className="text-sm text-gray-500 mt-0.5">Kelola driver, tarif, transaksi pengiriman &amp; rekap gaji</p>
-                        </div>
+                    <div className="mb-3">
+                        <h2 className="text-2xl font-bold text-slate-800">🚛 Driver / Ekspedisi</h2>
+                        <p className="text-sm text-gray-500 mt-0.5">Buat pengiriman, pantau driver, gaji &amp; kasbon</p>
                     </div>
-                    <div className="flex flex-wrap gap-2 mb-5">
+                    <div className="flex flex-wrap gap-2 mb-4">
                         {subTabs.map(st => (
-                            <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);}}
-                                className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 ${activeSubTab===st.id ? st.activeClass+' shadow-md' : st.inactiveClass+' shadow-sm'}`}>
+                            <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);setMenu(null);}} data-eks-tab={st.id}
+                                className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 border ${activeSubTab===st.id ? st.on : 'bg-white text-slate-600 border-gray-200 hover:bg-gray-50 shadow-sm'}`}>
                                 <span>{st.icon}</span>{st.label}
+                                {st.id==='kirim' && (kpiMenunggu + kpiJalan) > 0 && <span className={`ml-1 text-[11px] rounded-full px-1.5 ${activeSubTab===st.id ? 'bg-white/25' : 'bg-orange-100 text-orange-700'}`}>{kpiMenunggu + kpiJalan}</span>}
                             </button>
                         ))}
                     </div>
 
-                    {/* DATA DRIVER */}
-                    {activeSubTab==='driver' && (
-                        <Card>
-                            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari driver..." className="border rounded px-3 py-2 text-sm w-56" />
-                                <button onClick={()=>openDriverForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">+ Tambah Driver</button>
+                    {/* ===== PENGIRIMAN ===== */}
+                    {activeSubTab==='kirim' && (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-eks-kpi>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Menunggu</div><div className="text-2xl font-black text-yellow-700">{kpiMenunggu}</div></div>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Di jalan</div><div className="text-2xl font-black text-blue-700">{kpiJalan}</div></div>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Terkirim hari ini</div><div className="text-2xl font-black text-green-700">{kpiTerkirimHariIni}</div></div>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Ongkir bulan ini (terkirim)</div><div className="text-xl sm:text-2xl font-black text-slate-800 whitespace-nowrap">{formatRupiah(kpiOngkirBulan)}</div></div>
                             </div>
-                            <div className="overflow-x-auto hidden md:block">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="bg-gray-50 text-left">
-                                            <th className="px-3 py-2 font-semibold">No</th>
-                                            <th className="px-3 py-2 font-semibold">Nama</th>
-                                            <th className="px-3 py-2 font-semibold">No HP</th>
-                                            <th className="px-3 py-2 font-semibold">Kendaraan</th>
-                                            <th className="px-3 py-2 font-semibold">Plat Nomor</th>
-                                            <th className="px-3 py-2 font-semibold">Alamat</th>
-                                            <th className="px-3 py-2 font-semibold">Status</th>
-                                            <th className="px-3 py-2 font-semibold">Aksi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredDrivers.length===0 && <tr><td colSpan="9" className="text-center py-8 text-gray-400">Belum ada data driver</td></tr>}
-                                        {filteredDrivers.map((drv,i)=>{
-                                            const sisaKasbon = getTotalSisaKasbon(drv.id);
-                                            return (
-                                            <tr key={drv.id} className="border-t hover:bg-gray-50">
-                                                <td className="px-3 py-2 text-gray-500">{i+1}</td>
-                                                <td className="px-3 py-2 font-medium">{drv.name}</td>
-                                                <td className="px-3 py-2">{drv.phone||'-'}</td>
-                                                <td className="px-3 py-2">{drv.vehicle||'-'}</td>
-                                                <td className="px-3 py-2">{drv.plateNumber||'-'}</td>
-                                                <td className="px-3 py-2 text-xs text-gray-500">{drv.address||'-'}</td>
-                                                <td className="px-3 py-2">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${drv.isActive!==false?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}`}>
-                                                        {drv.isActive!==false?'Aktif':'Nonaktif'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <button onClick={()=>{setShowKasbonDriver(drv.id);setKasbonForm({driverId:drv.id,jumlah:'',keterangan:'',tanggal:toLocalDateStr()});setShowKasbonAddForm(false);}} className={`text-xs font-bold px-2 py-1 rounded ${sisaKasbon>0?'bg-red-100 text-red-700 hover:bg-red-200':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                                                        💳 {sisaKasbon>0?formatRupiah(sisaKasbon):'Kasbon'}
-                                                    </button>
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <div className="flex gap-1">
-                                                        <button onClick={()=>openDriverForm(drv)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
-                                                        <button onClick={()=>deleteDriver(drv.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                {filteredDrivers.length===0 && <div className="py-8 text-center text-gray-400 text-sm">Belum ada data driver</div>}
-                                {filteredDrivers.map((drv)=>{
-                                    const sisaKasbon = getTotalSisaKasbon(drv.id);
-                                    return (
-                                    <div key={drv.id} className="px-4 py-3 flex items-start gap-3">
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                                                <span className="font-bold text-gray-900 text-sm">{drv.name}</span>
-                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${drv.isActive!==false?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}`}>{drv.isActive!==false?'Aktif':'Nonaktif'}</span>
-                                            </div>
-                                            <div className="text-xs text-gray-500">{drv.phone||'-'} · {drv.vehicle||'-'}{drv.plateNumber ? ` (${drv.plateNumber})` : ''}</div>
-                                            {drv.address && <div className="text-xs text-gray-400 mt-0.5 truncate">{drv.address}</div>}
-                                        </div>
-                                        <div className="flex flex-col gap-1 items-end shrink-0">
-                                            <button onClick={()=>{setShowKasbonDriver(drv.id);setKasbonForm({driverId:drv.id,jumlah:'',keterangan:'',tanggal:toLocalDateStr()});setShowKasbonAddForm(false);}} className={`text-xs font-bold px-2 py-1 rounded ${sisaKasbon>0?'bg-red-100 text-red-700':'bg-gray-100 text-gray-500'}`}>
-                                                💳 {sisaKasbon>0?formatRupiah(sisaKasbon):'Kasbon'}
-                                            </button>
-                                            <div className="flex gap-1">
-                                                <button onClick={()=>openDriverForm(drv)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
-                                                <button onClick={()=>deleteDriver(drv.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    );
-                                })}
-                            </div>
-                        </Card>
-                    )}
 
-                    {/* TARIF PENGIRIMAN */}
-                    {activeSubTab==='tarif' && (
-                        <Card>
-                            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari tarif..." className="border rounded px-3 py-2 text-sm w-56" />
-                                <button onClick={()=>openTarifForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">+ Tambah Tarif</button>
-                            </div>
-                            <div className="overflow-x-auto hidden md:block">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="bg-gray-50 text-left">
-                                            <th className="px-3 py-2 font-semibold">No</th>
-                                            <th className="px-3 py-2 font-semibold">Dari</th>
-                                            <th className="px-3 py-2 font-semibold">Tujuan</th>
-                                            <th className="px-3 py-2 font-semibold">Metode</th>
-                                            <th className="px-3 py-2 font-semibold">Tarif</th>
-                                            <th className="px-3 py-2 font-semibold">Jarak</th>
-                                            <th className="px-3 py-2 font-semibold">Minimal</th>
-                                            <th className="px-3 py-2 font-semibold">Catatan</th>
-                                            <th className="px-3 py-2 font-semibold">Aksi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredTarifs.length===0 && <tr><td colSpan="9" className="text-center py-8 text-gray-400">Belum ada data tarif</td></tr>}
-                                        {filteredTarifs.map((t,i)=>(
-                                            <tr key={t.id} className="border-t hover:bg-gray-50">
-                                                <td className="px-3 py-2 text-gray-500">{i+1}</td>
-                                                <td className="px-3 py-2 font-medium">{t.from}</td>
-                                                <td className="px-3 py-2 font-medium">{t.to}</td>
-                                                <td className="px-3 py-2">
-                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${t.pricingType==='per_km'?'bg-purple-100 text-purple-700':'bg-blue-100 text-blue-700'}`}>
-                                                        {t.pricingType==='per_km'?'Per KM':'Per KG'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    {t.pricingType==='per_km'
-                                                        ? `${formatRupiah(safeMoney(t.pricePerKm))}/km`
-                                                        : `${formatRupiah(safeMoney(t.pricePerKg))}/kg`}
-                                                </td>
-                                                <td className="px-3 py-2">{t.jarak ? `${t.jarak} km` : <span className="text-gray-300">-</span>}</td>
-                                                <td className="px-3 py-2">{formatRupiah(safeMoney(t.minPrice))}</td>
-                                                <td className="px-3 py-2 text-xs text-gray-500">{t.note||'-'}</td>
-                                                <td className="px-3 py-2">
-                                                    <div className="flex gap-1">
-                                                        <button onClick={()=>openTarifForm(t)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
-                                                        <button onClick={()=>deleteTarif(t.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                {filteredTarifs.length===0 && <div className="py-8 text-center text-gray-400 text-sm">Belum ada data tarif</div>}
-                                {filteredTarifs.map((t)=>(
-                                    <div key={t.id} className="px-4 py-3 flex items-start gap-3">
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                                                <span className="font-bold text-gray-900 text-sm">{t.from} → {t.to}</span>
-                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${t.pricingType==='per_km'?'bg-purple-100 text-purple-700':'bg-blue-100 text-blue-700'}`}>{t.pricingType==='per_km'?'Per KM':'Per KG'}</span>
-                                            </div>
-                                            <div className="text-xs text-gray-700 mt-0.5">
-                                                <span className="font-bold">{t.pricingType==='per_km' ? `${formatRupiah(safeMoney(t.pricePerKm))}/km` : `${formatRupiah(safeMoney(t.pricePerKg))}/kg`}</span>
-                                                {t.jarak ? ` · ${t.jarak} km` : ''}
-                                                {` · Min: ${formatRupiah(safeMoney(t.minPrice))}`}
-                                            </div>
-                                            {t.note && <div className="text-xs text-gray-400 mt-0.5 truncate">{t.note}</div>}
-                                        </div>
-                                        <div className="flex gap-1 shrink-0">
-                                            <button onClick={()=>openTarifForm(t)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
-                                            <button onClick={()=>deleteTarif(t.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </Card>
-                    )}
-
-                    {/* TRANSAKSI PENGIRIMAN */}
-                    {activeSubTab==='transaksi' && (
-                        <Card>
-                            <div className="flex flex-wrap items-center gap-2 mb-4">
-                                <input value={search} onChange={e=>{setSearch(e.target.value);setTrxPage(1);}} placeholder="Cari driver/catatan..." className="border rounded px-3 py-2 text-sm w-48" />
-                                <select value={filterDriver} onChange={e=>{setFilterDriver(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm">
-                                    <option value="">Semua Driver</option>
-                                    {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
-                                </select>
-                                <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm">
-                                    <option value="">Semua Status</option>
-                                    {DRV_STATUS.map(s=><option key={s} value={s}>{s}</option>)}
-                                </select>
-                                <input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm" />
-                                <input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value);setTrxPage(1);}} className="border rounded px-3 py-2 text-sm" />
-                                <button onClick={()=>openTrxForm()} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold ml-auto">+ Transaksi Baru</button>
-                            </div>
-                            <div className="overflow-x-auto hidden md:block">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="bg-gray-50 text-left">
-                                            <th className="px-3 py-2 font-semibold">Tgl</th>
-                                            <th className="px-3 py-2 font-semibold">Driver</th>
-                                            <th className="px-3 py-2 font-semibold">Rute</th>
-                                            <th className="px-3 py-2 font-semibold">Berat/KM</th>
-                                            <th className="px-3 py-2 font-semibold">Ongkir</th>
-                                            <th className="px-3 py-2 font-semibold">Status</th>
-                                            <th className="px-3 py-2 font-semibold">Foto</th>
-                                            <th className="px-3 py-2 font-semibold">Aksi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {pagedTrx.length===0 && <tr><td colSpan="8" className="text-center py-8 text-gray-400">Tidak ada transaksi ditemukan</td></tr>}
-                                        {pagedTrx.map((t)=>{
-                                            const trf = visibleTarifs.find(x=>x.id===t.tarifId);
-                                            return (
-                                            <tr key={t.id} className="border-t hover:bg-gray-50">
-                                                <td className="px-3 py-2 text-xs text-gray-500">{t.date}</td>
-                                                <td className="px-3 py-2 font-medium">{t.driverName||'-'}</td>
-                                                <td className="px-3 py-2 text-xs">
-                                                    {trf ? `${trf.from} → ${trf.to}` : '-'}
-                                                    {t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-xs px-1.5 py-0.5 rounded font-bold">PP</span>}
-                                                </td>
-                                                <td className="px-3 py-2 text-xs">
-                                                    {trf?.pricingType==='per_km'
-                                                        ? (t.distance ? `${t.distance} km` : '-')
-                                                        : (t.weight ? `${t.weight} kg` : '-')}
-                                                </td>
-                                                <td className="px-3 py-2 font-medium text-blue-700">{formatRupiah(safeMoney(t.ongkir))}</td>
-                                                <td className="px-3 py-2">
-                                                    <select value={t.status||'Menunggu'} onChange={e=>updateStatus(t.id,e.target.value)}
-                                                        className={`text-xs font-bold px-2 py-1 rounded border-0 cursor-pointer ${statusColor(t.status||'Menunggu')}`}>
-                                                        {DRV_STATUS.map(s=><option key={s} value={s}>{s}</option>)}
-                                                    </select>
-                                                    {drvKeterangan(t) && <div className="text-[11px] text-gray-500 mt-1" data-drv-ket>{drvKeterangan(t)}</div>}
-                                                </td>
-                                                <td className="px-3 py-2">{fotoTombol(t)}</td>
-                                                <td className="px-3 py-2">
-                                                    <div className="flex gap-1 flex-wrap">
-                                                        <button onClick={()=>printStruk(t)} title="Cetak Struk" className="text-slate-600 bg-gray-50 p-1 rounded hover:bg-gray-100"><IconPrinter /></button>
-                                                        <button onClick={()=>shareViaWA(t)} title="Kirim ke WhatsApp Driver" className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded font-bold hover:bg-green-100">WA</button>
-                                                        <button onClick={()=>copyShareLink(t)} title="Salin Link Konfirmasi" className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-100">Link</button>
-                                                        <button onClick={()=>openTrxForm(t)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
-                                                        <button onClick={()=>deleteTrx(t.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                {pagedTrx.length===0 && <div className="py-8 text-center text-gray-400 text-sm">Tidak ada transaksi ditemukan</div>}
-                                {pagedTrx.map((t)=>{
-                                    const trf = visibleTarifs.find(x=>x.id===t.tarifId);
-                                    return (
-                                    <div key={t.id} className="px-4 py-3">
-                                        <div className="flex items-start gap-3">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                                                    <span className="font-bold text-gray-900 text-sm">{t.driverName||'-'}</span>
-                                                    <select value={t.status||'Menunggu'} onChange={e=>updateStatus(t.id,e.target.value)}
-                                                        className={`text-xs font-bold px-2 py-0.5 rounded border-0 cursor-pointer ${statusColor(t.status||'Menunggu')}`}>
-                                                        {DRV_STATUS.map(s=><option key={s} value={s}>{s}</option>)}
-                                                    </select>
-                                                </div>
-                                                {drvKeterangan(t) && <div className="text-[11px] text-gray-500 mb-0.5" data-drv-ket>{drvKeterangan(t)}</div>}
-                                                <div className="text-xs text-gray-500">{t.date} · {trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' ? ' (PP)' : ''}</div>
-                                                <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className="text-xs text-gray-400">{trf?.pricingType==='per_km' ? (t.distance ? `${t.distance} km` : '-') : (t.weight ? `${t.weight} kg` : '-')}</span>
-                                                    <span className="font-bold text-blue-700 text-sm">{formatRupiah(safeMoney(t.ongkir))}</span>
-                                                </div>
-                                                {safeArray(t.drvLangkah).some(l => l && l.foto) && <div className="mt-1">{fotoTombol(t)}</div>}
-                                            </div>
-                                            <div className="flex flex-col gap-1 items-end shrink-0">
-                                                <div className="flex gap-1">
-                                                    <button onClick={()=>printStruk(t)} title="Cetak" className="text-slate-600 bg-gray-50 p-1.5 rounded hover:bg-gray-100"><IconPrinter /></button>
-                                                    <button onClick={()=>shareViaWA(t)} title="WA" className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded font-bold">WA</button>
-                                                    <button onClick={()=>copyShareLink(t)} title="Link" className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold">Link</button>
-                                                </div>
-                                                <div className="flex gap-1">
-                                                    <button onClick={()=>openTrxForm(t)} title="Edit" className="text-blue-600 bg-blue-50 p-1 rounded hover:bg-blue-100"><IconEdit /></button>
-                                                    <button onClick={()=>deleteTrx(t.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    );
-                                })}
-                            </div>
-                            {trxTotalPages>1 && (
-                                <div className="flex justify-center gap-2 mt-4">
-                                    <button disabled={trxPage===1} onClick={()=>setTrxPage(p=>p-1)} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Prev</button>
-                                    <span className="px-3 py-1 text-sm">{trxPage} / {trxTotalPages}</span>
-                                    <button disabled={trxPage===trxTotalPages} onClick={()=>setTrxPage(p=>p+1)} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Next</button>
+                            {/* Input cepat */}
+                            <button type="button" onClick={()=>setFormHpBuka(v=>!v)} className="md:hidden w-full bg-blue-600 text-white rounded-xl py-3 font-bold text-sm" data-eks-q-toggle>{formHpBuka ? '▲ Tutup form pengiriman' : '➕ Pengiriman baru'}</button>
+                            <div ref={qFormRef} className={`${formHpBuka ? 'block' : 'hidden'} md:block bg-white border-2 border-blue-500 rounded-2xl p-4 shadow-sm transition-shadow ${qSorot ? 'ring-4 ring-amber-200' : ''}`} data-eks-quick>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
+                                    <b className="text-base text-slate-800">➕ Pengiriman baru</b>
+                                    <label className="text-xs text-gray-500 flex items-center gap-1">Tanggal <input type="date" value={qForm.date} onChange={e=>setQForm(f=>({...f, date: e.target.value || hariIniStr}))} className="border rounded px-2 py-0.5 text-xs" data-eks-q-tgl /></label>
+                                    {qForm.dari && <span className="text-xs text-amber-700">terisi dari pengiriman {qForm.dari} · <button type="button" className="underline" onClick={()=>{setQForm({...QFORM_KOSONG});setQCari('');setRuteBaru(null);}} data-eks-q-kosongkan>kosongkan</button></span>}
                                 </div>
-                            )}
-                        </Card>
-                    )}
-
-                    {/* REKAP & LAPORAN */}
-                    {activeSubTab==='rekap' && (
-                        <div>
-                            <div className="flex flex-wrap gap-2 mb-4">
-                                {[{id:'rekap_pengiriman',label:'Rekap Pengiriman'},{id:'rekap_gaji',label:'Rekap Gaji Driver'},{id:'laporan_keuangan',label:'Laporan Keuangan'}].map(rt=>(
-                                    <button key={rt.id} onClick={()=>setActiveRekapTab(rt.id)}
-                                        className={`px-3 py-2 rounded text-sm font-semibold ${activeRekapTab===rt.id?'bg-slate-700 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                        {rt.label}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="flex flex-wrap gap-2 mb-4">
-                                <select value={filterDriver} onChange={e=>setFilterDriver(e.target.value)} className="border rounded px-3 py-2 text-sm">
-                                    <option value="">Semua Driver</option>
-                                    {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
-                                </select>
-                                <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} className="border rounded px-3 py-2 text-sm" />
-                                <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} className="border rounded px-3 py-2 text-sm" />
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                                <div className="bg-blue-50 rounded-lg p-3 text-center"><div className="text-xs text-blue-500 font-semibold">Total Transaksi</div><div className="text-2xl font-bold text-blue-700">{totalTrx}</div></div>
-                                <div className="bg-green-50 rounded-lg p-3 text-center"><div className="text-xs text-green-500 font-semibold">Terkirim</div><div className="text-2xl font-bold text-green-700">{totalTerkirim}</div></div>
-                                <div className="bg-yellow-50 rounded-lg p-3 text-center"><div className="text-xs text-yellow-600 font-semibold">Menunggu</div><div className="text-2xl font-bold text-yellow-700">{totalMenunggu}</div></div>
-                                <div className="bg-purple-50 rounded-lg p-3 text-center"><div className="text-xs text-purple-500 font-semibold">Total Ongkir</div><div className="text-lg font-bold text-purple-700">{formatRupiah(totalPenghasilan)}</div></div>
-                            </div>
-                            {activeRekapTab==='rekap_pengiriman' && (
-                                <Card>
-                                    <div className="overflow-x-auto hidden md:block">
-                                        <table className="w-full text-sm">
-                                            <thead><tr className="bg-gray-50 text-left">
-                                                <th className="px-3 py-2">Tanggal</th><th className="px-3 py-2">Driver</th><th className="px-3 py-2">Rute</th><th className="px-3 py-2">Berat/KM</th><th className="px-3 py-2">Ongkir</th><th className="px-3 py-2">Status</th>
-                                            </tr></thead>
-                                            <tbody>
-                                                {filteredRekapTrx.length===0 && <tr><td colSpan="6" className="text-center py-8 text-gray-400">Tidak ada data</td></tr>}
-                                                {filteredRekapTrx.map(t=>{
-                                                    const trf = visibleTarifs.find(x=>x.id===t.tarifId);
-                                                    return (<tr key={t.id} className="border-t hover:bg-gray-50">
-                                                        <td className="px-3 py-2 text-xs">{t.date}</td>
-                                                        <td className="px-3 py-2 font-medium">{t.driverName||'-'}</td>
-                                                        <td className="px-3 py-2 text-xs">{trf?`${trf.from} → ${trf.to}`:'-'}{t.tripType==='pp'&&<span className="ml-1 bg-purple-100 text-purple-600 text-xs px-1 rounded">PP</span>}</td>
-                                                        <td className="px-3 py-2 text-xs">{trf?.pricingType==='per_km'?(t.distance?`${t.distance} km`:'-'):(t.weight?`${t.weight} kg`:'-')}</td>
-                                                        <td className="px-3 py-2 font-medium">{formatRupiah(safeMoney(t.ongkir))}</td>
-                                                        <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${statusColor(t.status||'Menunggu')}`}>{t.status||'Menunggu'}</span></td>
-                                                    </tr>);
-                                                })}
-                                            </tbody>
-                                        </table>
+                                <div className="space-y-3">
+                                    <div>
+                                        <div className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wide mb-1.5">1 · Driver</div>
+                                        {driverAktif.length === 0 ? <p className="text-sm text-gray-500">Belum ada driver aktif — tambah di tab Driver &amp; Tarif.</p> : driverAktif.length > 8 ? (
+                                            <select value={qForm.driverId} onChange={e=>qUbah('driverId', e.target.value)} className="w-full sm:w-72 border rounded-lg px-3 py-2 text-sm" data-eks-q-driver-pilih>
+                                                <option value="">Pilih driver…</option>
+                                                {driverAktif.map(d=><option key={d.id} value={d.id}>{d.name} · {tugasHariIni(d.id)} tugas hari ini</option>)}
+                                            </select>
+                                        ) : (
+                                            <div className="flex flex-wrap gap-2">
+                                                {driverAktif.map(d => (
+                                                    <button key={d.id} type="button" onClick={()=>qUbah('driverId', d.id)} data-eks-q-driver={d.id}
+                                                        className={`text-left border-2 rounded-xl px-3 py-1.5 text-sm font-bold ${qForm.driverId===d.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}>
+                                                        {d.name}<span className="block text-[11px] font-medium text-gray-500">{d.vehicle ? d.vehicle + ' · ' : ''}{tugasHariIni(d.id)} tugas hari ini</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                        {filteredRekapTrx.length===0 && <div className="py-8 text-center text-gray-400 text-sm">Tidak ada data</div>}
-                                        {filteredRekapTrx.map(t=>{
-                                            const trf = visibleTarifs.find(x=>x.id===t.tarifId);
-                                            const rute = trf ? `${trf.from} → ${trf.to}` : '-';
-                                            const beratKm = trf?.pricingType==='per_km' ? (t.distance?`${t.distance} km`:'-') : (t.weight?`${t.weight} kg`:'-');
-                                            return (
-                                                <div key={t.id} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50">
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="font-bold text-gray-800 text-sm">{t.driverName||'-'}</div>
-                                                        <div className="text-xs text-gray-500 mt-0.5">{rute}{t.tripType==='pp'&&<span className="ml-1 bg-purple-100 text-purple-600 px-1 rounded">PP</span>}</div>
-                                                        <div className="text-xs text-gray-400 mt-0.5">{t.date} · {beratKm}</div>
-                                                        <div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(safeMoney(t.ongkir))}</div>
-                                                    </div>
-                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold shrink-0 ${statusColor(t.status||'Menunggu')}`}>{t.status||'Menunggu'}</span>
+                                    <div>
+                                        <div className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wide mb-1.5">2 · Rute</div>
+                                        <div className="flex flex-col lg:flex-row gap-2 lg:items-start">
+                                            <input value={qCari} onChange={e=>{setQCari(e.target.value);setRuteBaru(null);}} placeholder="🔍 Cari / ketik rute…" className="border rounded-lg px-3 py-2 text-sm w-full lg:w-64 shrink-0" data-eks-q-cari />
+                                            <div className="flex flex-wrap gap-2">
+                                                {tarifTampil.map(t => (
+                                                    <button key={t.id} type="button" onClick={()=>{qUbah('tarifId', t.id); setQCari(''); setRuteBaru(null);}} data-eks-q-rute={t.id}
+                                                        className={`text-left border-2 rounded-xl px-3 py-1.5 text-sm font-bold ${qForm.tarifId===t.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}>
+                                                        {t.from} → {t.to}<span className="block text-[11px] font-medium text-gray-500">{infoTarif(t)}</span>
+                                                    </button>
+                                                ))}
+                                                {qCari.trim() && tarifTampil.length === 0 && <span className="text-sm text-gray-500 self-center">Tidak ada rute "{qCari.trim()}".</span>}
+                                                {!ruteBaru && <button type="button" onClick={bukaRuteBaru} className="border-2 border-dashed border-blue-300 text-blue-600 rounded-xl px-3 py-1.5 text-sm font-bold bg-white" data-eks-q-rute-baru>+ Rute baru{qCari.trim() ? ` "${qCari.trim()}"` : ''}</button>}
+                                            </div>
+                                        </div>
+                                        {ruteBaru && (
+                                            <div className="mt-2 border-2 border-dashed border-blue-300 bg-blue-50/40 rounded-xl p-3 space-y-2" data-eks-rute-baru>
+                                                <div className="font-bold text-sm text-blue-700">+ Rute baru</div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    <label className="text-xs font-bold text-gray-600">Dari<input value={ruteBaru.from} onChange={e=>setRuteBaru(r=>({...r, from:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-dari /></label>
+                                                    <label className="text-xs font-bold text-gray-600">Ke<input value={ruteBaru.to} onChange={e=>setRuteBaru(r=>({...r, to:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" placeholder="mis. Bu Rina Gedangan" data-eks-rb-ke /></label>
                                                 </div>
-                                            );
-                                        })}
+                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
+                                                    <div className="col-span-2 sm:col-span-1"><div className="text-xs font-bold text-gray-600 mb-1">Hitung</div><div className="flex gap-1">
+                                                        {[['per_km','per km'],['per_kg','per kg']].map(([v,l]) => <button key={v} type="button" onClick={()=>setRuteBaru(r=>({...r, pricingType:v}))} className={`flex-1 border-2 rounded-lg px-2 py-1 text-xs font-bold ${ruteBaru.pricingType===v ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`} data-eks-rb-jenis={v}>{l}</button>)}
+                                                    </div></div>
+                                                    {ruteBaru.pricingType==='per_km'
+                                                        ? <label className="text-xs font-bold text-gray-600">Rp / km<input type="number" value={ruteBaru.pricePerKm} onChange={e=>setRuteBaru(r=>({...r, pricePerKm:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-harga /></label>
+                                                        : <label className="text-xs font-bold text-gray-600">Rp / kg<input type="number" value={ruteBaru.pricePerKg} onChange={e=>setRuteBaru(r=>({...r, pricePerKg:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-harga /></label>}
+                                                    {ruteBaru.pricingType==='per_km' && <label className="text-xs font-bold text-gray-600">Jarak (km)<input type="number" value={ruteBaru.jarak} onChange={e=>setRuteBaru(r=>({...r, jarak:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-jarak /></label>}
+                                                    <label className="text-xs font-bold text-gray-600">Minimum (Rp)<input type="number" value={ruteBaru.minPrice} onChange={e=>setRuteBaru(r=>({...r, minPrice:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-min /></label>
+                                                </div>
+                                                <p className="text-[11px] text-slate-600">Tarif & minimum terisi dari tarif yang paling sering dipakai — tinggal isi tujuan{ruteBaru.pricingType==='per_km' ? ' & jarak' : ''}. Rute disimpan ke daftar tarif.</p>
+                                                <div className="flex justify-end gap-2"><button type="button" onClick={()=>setRuteBaru(null)} className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-700">Batal</button><button type="button" onClick={pakaiRuteBaru} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-bold" data-eks-rb-pakai>Pakai rute ini</button></div>
+                                            </div>
+                                        )}
                                     </div>
-                                </Card>
-                            )}
-                            {activeRekapTab==='rekap_gaji' && (
-                                <Card>
-                                    <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                                        <h3 className="font-bold text-slate-700">Rekap Gaji Driver</h3>
-                                        <button onClick={openRekapModal} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">+ Buat Rekap</button>
+                                    <div className="grid grid-cols-2 lg:grid-cols-[auto_120px_1fr_220px_auto] gap-3 items-end">
+                                        <div className="col-span-2 lg:col-span-1"><div className="text-[11px] font-extrabold text-gray-600 uppercase tracking-wide mb-1.5">3 · Jenis</div><div className="flex gap-2">
+                                            {[['sekali','➡ Sekali Jalan'],['pp','🔁 PP (×2)']].map(([v,l]) => <button key={v} type="button" onClick={()=>qUbah('tripType', v)} className={`flex-1 lg:flex-none border-2 rounded-xl px-3 py-1.5 text-sm font-bold whitespace-nowrap ${qForm.tripType===v ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700'}`} data-eks-q-jenis={v}>{l}</button>)}
+                                        </div></div>
+                                        <div>
+                                            {qTarif?.pricingType==='per_kg'
+                                                ? <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Berat (kg)<input type="number" value={qForm.weight} onChange={e=>qUbah('weight', e.target.value)} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case" data-eks-q-berat /></label>
+                                                : <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Jarak (km)<input type="number" value={qForm.distance} onChange={e=>qUbah('distance', e.target.value)} disabled={!qTarif} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case disabled:bg-gray-50" data-eks-q-jarak /></label>}
+                                        </div>
+                                        <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide col-span-2 lg:col-span-1">Catatan (opsional)<input value={qForm.note} onChange={e=>setQForm(f=>({...f, note:e.target.value}))} placeholder="mis. 3 karung, titip satpam" className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case" data-eks-q-catatan /></label>
+                                        <div className="col-span-2 lg:col-span-1 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-right" data-eks-q-ongkir-box>
+                                            <div className="text-[11px] text-blue-900 min-h-[14px]">{qTarif ? (qForm.ongkirManual ? 'diubah manual' : rincianOngkir(qTarif, qForm)) : 'pilih rute untuk menghitung'}</div>
+                                            <div className="flex items-center justify-end gap-1"><span className="text-blue-700 font-black text-lg">Rp</span><input type="text" inputMode="numeric" value={safeMoney(qForm.ongkir) ? Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID') : ''} onChange={e=>qUbah('ongkir', Number(e.target.value.replace(/\D/g, '')) || 0)} placeholder="0" style={{ width: `${Math.max(3, String(Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID')).length + 1)}ch` }} className="bg-transparent text-right text-2xl font-black text-blue-700 outline-none" title="Ongkir bisa diubah manual" data-eks-q-ongkir /></div>
+                                        </div>
+                                        <div className="col-span-2 lg:col-span-1 flex lg:flex-col gap-2">
+                                            <button type="button" onClick={()=>simpanCepat(true)} className="flex-1 bg-green-500 hover:bg-green-600 text-white rounded-xl px-4 py-2.5 font-black text-sm whitespace-nowrap" data-eks-q-kirim>💬 Kirim WA</button>
+                                            <button type="button" onClick={()=>simpanCepat(false)} className="bg-white border border-gray-300 text-gray-700 rounded-xl px-3 py-2 font-bold text-xs whitespace-nowrap" data-eks-q-simpan>Simpan saja</button>
+                                        </div>
                                     </div>
-                                    <div className="overflow-x-auto hidden md:block">
-                                        <table className="w-full text-sm">
-                                            <thead><tr className="bg-gray-50 text-left">
-                                                <th className="px-3 py-2">Tgl Rekap</th>
-                                                <th className="px-3 py-2">Driver</th>
-                                                <th className="px-3 py-2 text-center">Jml Trip</th>
-                                                <th className="px-3 py-2">Total Ongkir</th>
-                                                <th className="px-3 py-2">Catatan</th>
-                                                <th className="px-3 py-2">Aksi</th>
-                                            </tr></thead>
-                                            <tbody>
-                                                {visibleRekap.filter(r=>!filterDriver||r.driverId===filterDriver).length===0 && <tr><td colSpan="6" className="text-center py-8 text-gray-400">Belum ada rekap gaji. Klik "+ Buat Rekap" untuk memulai.</td></tr>}
-                                                {visibleRekap.filter(r=>!filterDriver||r.driverId===filterDriver).sort((a,b)=>((b.tanggalRekap||'')>(a.tanggalRekap||'')?1:-1)).map(rekap=>(
-                                                    <tr key={rekap.id} className="border-t hover:bg-gray-50">
-                                                        <td className="px-3 py-2 text-xs text-gray-500">{rekap.tanggalRekap}</td>
-                                                        <td className="px-3 py-2 font-medium">{rekap.driverName}</td>
-                                                        <td className="px-3 py-2 text-center font-bold text-green-700">{rekap.jumlahTrip}</td>
-                                                        <td className="px-3 py-2 font-bold text-blue-700">{formatRupiah(safeMoney(rekap.totalOngkir))}</td>
-                                                        <td className="px-3 py-2 text-xs text-gray-500">{rekap.note||'-'}</td>
-                                                        <td className="px-3 py-2">
-                                                            <div className="flex gap-1">
-                                                                <button onClick={()=>printRekapGaji(rekap)} title="Cetak Rekap" className="text-slate-600 bg-gray-50 p-1 rounded hover:bg-gray-100"><IconPrinter /></button>
-                                                                <button onClick={()=>copyRekapGajiLink(rekap)} title="Salin Link Rekap" className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-100">Link</button>
-                                                                <button onClick={()=>deleteRekap(rekap.id)} title="Hapus" className="text-red-600 bg-red-50 p-1 rounded hover:bg-red-100"><IconTrash /></button>
+                                </div>
+                            </div>
+
+                            {/* Daftar */}
+                            <Card>
+                                <div className="flex flex-col gap-2 mb-3">
+                                    {pilihPeriode(periodeKirim, (u)=>{setPeriodeKirim(u);setTrxPage(1);}, 'kirim')}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {[['','Semua'],['Menunggu','Menunggu'],['jalan','Di Jalan'],['Terkirim','Terkirim'],['Gagal','Gagal']].map(([v,l]) => (
+                                            <button key={v||'semua'} type="button" onClick={()=>{setFilterStatus(v);setTrxPage(1);}} data-eks-status-chip={v||'semua'}
+                                                className={`px-3 py-1.5 rounded-full text-sm font-bold border ${filterStatus===v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>{l} <span className="opacity-75">{jumlahStatus(v)}</span></button>
+                                        ))}
+                                        <select value={filterDriver} onChange={e=>{setFilterDriver(e.target.value);setTrxPage(1);}} className="border rounded-lg px-2 py-1.5 text-sm" data-eks-filter-driver>
+                                            <option value="">Semua driver</option>
+                                            {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                                        </select>
+                                        <input value={search} onChange={e=>{setSearch(e.target.value);setTrxPage(1);}} placeholder="🔍 Cari driver / rute / catatan" className="border rounded-lg px-3 py-1.5 text-sm w-full sm:w-56 sm:ml-auto" data-eks-cari />
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto hidden md:block">
+                                    <table className="w-full text-sm">
+                                        <thead><tr className="bg-gray-50 text-left text-xs text-gray-500">
+                                            <th className="px-3 py-2 font-semibold">Tanggal</th><th className="px-3 py-2 font-semibold">Driver</th><th className="px-3 py-2 font-semibold">Rute</th><th className="px-3 py-2 font-semibold text-right">Ongkir</th><th className="px-3 py-2 font-semibold">Status</th><th className="px-3 py-2 font-semibold text-right">Aksi</th>
+                                        </tr></thead>
+                                        <tbody>
+                                            {kirimHalaman.length===0 && <tr><td colSpan="6" className="text-center py-8 text-gray-400">Belum ada pengiriman pada periode ini</td></tr>}
+                                            {kirimHalaman.map(t => {
+                                                const trf = cariTarif(t.tarifId); const st = t.status || 'Menunggu'; const nf = jumlahFoto(t);
+                                                return (
+                                                    <tr key={t.id} className={`border-t ${baruId===t.id ? 'bg-green-50' : 'hover:bg-gray-50'}`} data-eks-row={t.id}>
+                                                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{t.date===hariIniStr ? 'Hari ini' : fmtTglPendek(t.date)}{t.createdAt && <span className="block text-gray-400">{drvJam(t.createdAt)}</span>}</td>
+                                                        <td className="px-3 py-2 font-bold text-gray-800">{t.driverName||'-'}</td>
+                                                        <td className="px-3 py-2 text-xs">{trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded font-bold">PP</span>}<span className="block text-gray-400">{trf?.pricingType==='per_km' ? (t.distance ? `${t.distance} km` : '') : (t.weight ? `${t.weight} kg` : '')}{t.note ? `${(trf?.pricingType==='per_km' ? t.distance : t.weight) ? ' · ' : ''}${t.note}` : ''}</span></td>
+                                                        <td className="px-3 py-2 text-right font-black text-blue-700 whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</td>
+                                                        <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${statusColor(st)}`} data-eks-status>{st}</span>
+                                                            {(drvKeterangan(t) || nf > 0) && <div className="text-[11px] text-gray-500 mt-1" data-drv-ket>{drvKeterangan(t)}{nf > 0 && <button type="button" onClick={()=>setFotoTrx(t)} className="ml-1 text-blue-700 font-bold hover:underline" data-drv-foto-btn>📷 {nf}</button>}</div>}</td>
+                                                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                                                            <div className="inline-flex gap-1 items-center">
+                                                                <button type="button" onClick={()=>ulangiPengiriman(t)} className="text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1.5 rounded-lg hover:bg-blue-100" data-eks-ulangi>↻ Ulangi</button>
+                                                                {st==='Menunggu' && <button type="button" onClick={()=>shareViaWA(t)} className="text-xs font-black bg-green-500 text-white px-2.5 py-1.5 rounded-lg hover:bg-green-600" data-eks-wa>💬 Kirim WA</button>}
+                                                                {(st==='Menuju Lokasi' || st==='Dalam Perjalanan') && <button type="button" onClick={()=>shareViaWA(t)} className="text-xs font-bold bg-white text-gray-700 border border-gray-300 px-2.5 py-1.5 rounded-lg hover:bg-gray-50" data-eks-wa>💬 WA</button>}
+                                                                {st==='Gagal' && <button type="button" onClick={()=>setAlihkan({ trx: t, driverId: '' })} className="text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200 px-2.5 py-1.5 rounded-lg hover:bg-orange-100" data-eks-alihkan>↪ Alihkan</button>}
+                                                                <button type="button" onClick={(e)=>bukaMenu(e, 'trx', t, 5)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black text-gray-700 hover:bg-gray-50" data-eks-menu-btn>⋯</button>
                                                             </div>
                                                         </td>
                                                     </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                        {visibleRekap.filter(r=>!filterDriver||r.driverId===filterDriver).length===0 && <div className="py-8 text-center text-gray-400 text-sm">Belum ada rekap gaji. Klik "+ Buat Rekap" untuk memulai.</div>}
-                                        {visibleRekap.filter(r=>!filterDriver||r.driverId===filterDriver).sort((a,b)=>((b.tanggalRekap||'')>(a.tanggalRekap||'')?1:-1)).map(rekap=>(
-                                            <div key={rekap.id} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50">
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="font-bold text-gray-800 text-sm">{rekap.driverName}</div>
-                                                    <div className="text-xs text-gray-500 mt-0.5">{rekap.tanggalRekap} · <span className="font-bold text-green-700">{rekap.jumlahTrip} trip</span></div>
-                                                    {rekap.note && <div className="text-xs text-gray-400 mt-0.5 truncate">{rekap.note}</div>}
-                                                    <div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(safeMoney(rekap.totalOngkir))}</div>
-                                                </div>
-                                                <div className="flex gap-1 shrink-0">
-                                                    <button onClick={()=>printRekapGaji(rekap)} title="Cetak" className="text-slate-600 bg-gray-50 p-1.5 rounded hover:bg-gray-100"><IconPrinter /></button>
-                                                    <button onClick={()=>copyRekapGajiLink(rekap)} title="Link" className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-100">Link</button>
-                                                    <button onClick={()=>deleteRekap(rekap.id)} title="Hapus" className="text-red-600 bg-red-50 p-1.5 rounded hover:bg-red-100"><IconTrash /></button>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="md:hidden space-y-2">
+                                    {kirimHalaman.length===0 && <div className="py-8 text-center text-gray-400 text-sm">Belum ada pengiriman pada periode ini</div>}
+                                    {kirimHalaman.map(t => {
+                                        const trf = cariTarif(t.tarifId); const st = t.status || 'Menunggu'; const nf = jumlahFoto(t);
+                                        return (
+                                            <div key={t.id} className={`border rounded-xl px-3 py-2.5 ${baruId===t.id ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`} data-eks-row={t.id}>
+                                                <div className="flex justify-between items-start gap-2"><b className="text-sm text-gray-900">{t.driverName||'-'}</b><span className={`px-2 py-0.5 rounded text-xs font-bold shrink-0 ${statusColor(st)}`}>{st}</span></div>
+                                                <div className="text-xs text-gray-500 mt-0.5">{t.date===hariIniStr ? (t.createdAt ? drvJam(t.createdAt) : 'Hari ini') : fmtTglPendek(t.date)} · {trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1 rounded font-bold">PP</span>}</div>
+                                                {(drvKeterangan(t) || nf > 0) && <div className="text-[11px] text-gray-500 mt-0.5" data-drv-ket>{drvKeterangan(t)}{nf > 0 && <button type="button" onClick={()=>setFotoTrx(t)} className="ml-1 text-blue-700 font-bold" data-drv-foto-btn>📷 {nf}</button>}</div>}
+                                                <div className="flex justify-between items-center mt-1.5 gap-2">
+                                                    <b className="text-blue-700 text-sm whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</b>
+                                                    <div className="flex gap-1 items-center">
+                                                        <button type="button" onClick={()=>ulangiPengiriman(t)} className="text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1.5 rounded-lg" data-eks-ulangi>↻ Ulangi</button>
+                                                        {st==='Menunggu' && <button type="button" onClick={()=>shareViaWA(t)} className="text-xs font-black bg-green-500 text-white px-2 py-1.5 rounded-lg" data-eks-wa>💬 Kirim WA</button>}
+                                                        {(st==='Menuju Lokasi' || st==='Dalam Perjalanan') && <button type="button" onClick={()=>shareViaWA(t)} className="text-xs font-bold bg-white text-gray-700 border border-gray-300 px-2 py-1.5 rounded-lg" data-eks-wa>💬</button>}
+                                                        {st==='Gagal' && <button type="button" onClick={()=>setAlihkan({ trx: t, driverId: '' })} className="text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200 px-2 py-1.5 rounded-lg" data-eks-alihkan>↪ Alihkan</button>}
+                                                        <button type="button" onClick={(e)=>bukaMenu(e, 'trx', t, 5)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black text-gray-700" data-eks-menu-btn>⋯</button>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        ))}
+                                        );
+                                    })}
+                                </div>
+                                {kirimTotalPages>1 && (
+                                    <div className="flex justify-center gap-2 mt-4">
+                                        <button disabled={trxPage<=1} onClick={()=>setTrxPage(p=>Math.max(1,p-1))} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Prev</button>
+                                        <span className="px-3 py-1 text-sm">{Math.min(trxPage, kirimTotalPages)} / {kirimTotalPages}</span>
+                                        <button disabled={trxPage>=kirimTotalPages} onClick={()=>setTrxPage(p=>Math.min(kirimTotalPages,p+1))} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Next</button>
                                     </div>
+                                )}
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* ===== GAJI & KASBON ===== */}
+                    {activeSubTab==='gaji' && (
+                        <div className="space-y-4">
+                            {pilihPeriode(periodeGaji, setPeriodeGaji, 'gaji')}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                                {kartuGaji.length===0 && <div className="text-sm text-gray-500">Belum ada driver.</div>}
+                                {kartuGaji.map(k => (
+                                    <div key={k.d.id} className="bg-white border border-gray-200 rounded-2xl p-3.5" data-eks-gaji-card={k.d.id}>
+                                        <div className="font-extrabold text-gray-900">{k.d.name}<span className="ml-1.5 text-xs font-medium text-gray-500">{k.d.vehicle||''}{k.d.isActive===false ? ' · nonaktif' : ''}</span></div>
+                                        <div className="grid grid-cols-3 gap-1.5 my-2.5">
+                                            <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-[11px] text-gray-500">Belum direkap<b className="block text-sm text-gray-900" data-eks-gaji-trip>{k.dalam.length} trip</b></div>
+                                            <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-[11px] text-gray-500">Ongkir<b className="block text-sm text-gray-900 whitespace-nowrap" data-eks-gaji-ongkir>{k.ongkir ? formatRupiah(k.ongkir) : '—'}</b></div>
+                                            <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-[11px] text-gray-500">Sisa kasbon<b className={`block text-sm whitespace-nowrap ${k.kasbon > 0 ? 'text-red-700' : 'text-gray-900'}`} data-eks-gaji-kasbon>{k.kasbon > 0 ? formatRupiah(k.kasbon) : '—'}</b></div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button type="button" disabled={!k.dalam.length} onClick={()=>bukaRekapUntuk(k.d.id)} className={`flex-1 rounded-xl px-3 py-2 text-sm font-bold ${k.dalam.length ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-400'}`} data-eks-rekap-buka>📋 Buat Rekap</button>
+                                            <button type="button" onClick={()=>{setShowKasbonDriver(k.d.id);setKasbonForm({driverId:k.d.id,jumlah:'',keterangan:'',tanggal:toLocalDateStr()});setShowKasbonAddForm(false);}} className="rounded-xl px-3 py-2 text-sm font-bold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50" data-eks-kasbon-buka>💳 Kasbon</button>
+                                        </div>
+                                        {k.luar > 0 && <div className="text-[11px] text-amber-700 mt-1.5" data-eks-gaji-luar>⚠ {k.luar} trip di luar periode belum direkap</div>}
+                                        {!k.dalam.length && !k.luar && k.terakhir && <div className="text-[11px] text-gray-500 mt-1.5">✓ Terakhir direkap {k.terakhir.tanggalRekap}</div>}
+                                    </div>
+                                ))}
+                            </div>
+                            <Card>
+                                <div className="flex flex-wrap items-center gap-2 mb-3"><b className="text-slate-700">Riwayat rekap gaji</b>
+                                    <select value={riwayatDriver} onChange={e=>setRiwayatDriver(e.target.value)} className="ml-auto border rounded-lg px-2 py-1.5 text-sm"><option value="">Semua driver</option>{visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>
+                                </div>
+                                {(() => {
+                                    const list = visibleRekap.filter(r=>!riwayatDriver||r.driverId===riwayatDriver).sort((a,b)=>String(b.tanggalRekap||'').localeCompare(String(a.tanggalRekap||'')) || String(b._syncUpdatedAt||'').localeCompare(String(a._syncUpdatedAt||'')));
+                                    if (!list.length) return <div className="text-center py-6 text-gray-400 text-sm">Belum ada rekap gaji.</div>;
+                                    return (<>
+                                        <div className="overflow-x-auto hidden md:block"><table className="w-full text-sm">
+                                            <thead><tr className="bg-gray-50 text-left text-xs text-gray-500"><th className="px-3 py-2">Tanggal</th><th className="px-3 py-2">Driver</th><th className="px-3 py-2">Periode</th><th className="px-3 py-2 text-center">Trip</th><th className="px-3 py-2 text-right">Ongkir</th><th className="px-3 py-2 text-right">Potong kasbon</th><th className="px-3 py-2 text-right">Diterima</th><th className="px-3 py-2 text-right">Aksi</th></tr></thead>
+                                            <tbody>{list.map(r => (
+                                                <tr key={r.id} className="border-t" data-eks-rekap-row={r.id}>
+                                                    <td className="px-3 py-2 text-xs text-gray-500">{r.tanggalRekap}</td><td className="px-3 py-2 font-medium">{r.driverName}</td><td className="px-3 py-2 text-xs">{labelPeriodeRekap(r)}</td><td className="px-3 py-2 text-center">{r.jumlahTrip}</td>
+                                                    <td className="px-3 py-2 text-right whitespace-nowrap">{formatRupiah(safeMoney(r.totalOngkir))}</td>
+                                                    <td className="px-3 py-2 text-right text-red-600 whitespace-nowrap">{safeMoney(r.potonganKasbon) > 0 ? `- ${formatRupiah(safeMoney(r.potonganKasbon))}` : '—'}</td>
+                                                    <td className="px-3 py-2 text-right font-black text-green-700 whitespace-nowrap">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</td>
+                                                    <td className="px-3 py-2 text-right whitespace-nowrap"><div className="inline-flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2.5 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 3)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></td>
+                                                </tr>
+                                            ))}</tbody>
+                                        </table></div>
+                                        <div className="md:hidden space-y-2">{list.map(r => (
+                                            <div key={r.id} className="border border-gray-200 rounded-xl px-3 py-2.5" data-eks-rekap-row={r.id}>
+                                                <div className="flex justify-between"><b className="text-sm">{r.driverName}</b><span className="text-xs text-gray-500">{r.tanggalRekap}</span></div>
+                                                <div className="text-xs text-gray-500">{labelPeriodeRekap(r)} · {r.jumlahTrip} trip · ongkir {formatRupiah(safeMoney(r.totalOngkir))}{safeMoney(r.potonganKasbon) > 0 ? ` · kasbon -${formatRupiah(safeMoney(r.potonganKasbon))}` : ''}</div>
+                                                <div className="flex justify-between items-center mt-1.5"><b className="text-green-700 text-sm">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</b><div className="flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 3)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></div>
+                                            </div>
+                                        ))}</div>
+                                    </>);
+                                })()}
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* ===== LAPORAN ===== */}
+                    {activeSubTab==='laporan' && (
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {pilihPeriode(periodeLap, setPeriodeLap, 'laporan')}
+                                <select value={lapDriver} onChange={e=>setLapDriver(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" data-eks-lap-driver><option value="">Semua driver</option>{visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>
+                                <button type="button" onClick={cetakLaporan} className="sm:ml-auto bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-eks-lap-cetak>🖨 Cetak Laporan</button>
+                            </div>
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-eks-lap-kpi>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Total pengiriman</div><div className="text-2xl font-black">{trxLap.length}</div></div>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Terkirim</div><div className="text-2xl font-black text-green-700">{lapTerkirim.length}</div></div>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Gagal / ditolak</div><div className="text-2xl font-black text-red-700">{trxLap.filter(t=>t.status==='Gagal').length}</div></div>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Pendapatan ongkir (terkirim)</div><div className="text-xl sm:text-2xl font-black whitespace-nowrap" data-eks-lap-pendapatan>{formatRupiah(lapPendapatan)}</div></div>
+                            </div>
+                            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-4">
+                                <Card><b className="text-slate-700">Per driver</b>
+                                    <table className="w-full text-sm mt-2"><thead><tr className="bg-gray-50 text-left text-xs text-gray-500"><th className="px-3 py-2">Driver</th><th className="px-3 py-2 text-right">Terkirim</th><th className="px-3 py-2 text-right">Ongkir</th></tr></thead>
+                                        <tbody>{lapPerDriver.length===0 && <tr><td colSpan="3" className="text-center py-6 text-gray-400">Tidak ada data</td></tr>}{lapPerDriver.map(x => <tr key={x.nama} className="border-t"><td className="px-3 py-2">{x.nama}</td><td className="px-3 py-2 text-right">{x.n}</td><td className="px-3 py-2 text-right whitespace-nowrap">{formatRupiah(x.ongkir)}</td></tr>)}</tbody>
+                                    </table>
                                 </Card>
-                            )}
-                            {activeRekapTab==='laporan_keuangan' && (
-                                <Card>
-                                    <div className="flex justify-between items-center mb-3">
-                                        <h3 className="font-bold text-slate-700">Laporan Keuangan Ekspedisi</h3>
-                                        <button onClick={()=>{
-                                            const w=window.open('','_blank');
-                                            const rows = filteredRekapTrx.filter(t=>t.status==='Terkirim');
-                                            const total = rows.reduce((s,t)=>s+safeMoney(t.ongkir),0);
-                                            w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Laporan Keuangan Ekspedisi</title><style>
-                                                body{font-family:Arial,sans-serif;padding:24px;font-size:13px;}
-                                                h2{text-align:center;margin-bottom:4px;} .sub{text-align:center;color:#555;margin-bottom:16px;}
-                                                table{width:100%;border-collapse:collapse;margin-top:12px;} th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;}
-                                                th{background:#f3f4f6;font-weight:bold;} tfoot td{font-weight:bold;background:#f9fafb;}
-                                                .footer{margin-top:16px;text-align:right;font-size:11px;color:#888;}
-                                            </style></head><body>
-                                            <h2>${templates?.companyName||'SIMPATI KONVEKSI'}</h2>
-                                            <div class="sub">LAPORAN KEUANGAN EKSPEDISI</div>
-                                            <div>Periode: ${dateFrom||'Semua'} s/d ${dateTo||'Semua'} | Driver: ${filterDriver?visibleDrivers.find(d=>d.id===filterDriver)?.name||'-':'Semua'}</div>
-                                            <table><thead><tr><th>No</th><th>Tanggal</th><th>Driver</th><th>Rute</th><th>Berat/KM</th><th>Ongkir</th></tr></thead>
-                                            <tbody>${rows.map((t,i)=>{const trf=visibleTarifs.find(x=>x.id===t.tarifId);return `<tr><td>${i+1}</td><td>${t.date}</td><td>${t.driverName||'-'}</td><td>${trf?trf.from+' → '+trf.to:'-'}${t.tripType==='pp'?' (PP)':''}</td><td>${trf?.pricingType==='per_km'?(t.distance?t.distance+' km':'-'):(t.weight?t.weight+' kg':'-')}</td><td>${formatRupiah(safeMoney(t.ongkir))}</td></tr>`;}).join('')}</tbody>
-                                            <tfoot><tr><td colspan="6">TOTAL PENDAPATAN</td><td>${formatRupiah(total)}</td></tr></tfoot></table>
-                                            <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
-                                            </body></html>`);
-                                            w.document.close(); setTimeout(()=>{w.print();w.close();},500);
-                                        }} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-bold">Cetak Laporan</button>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3 mb-4">
-                                        <div className="bg-green-50 p-3 rounded"><div className="text-xs text-green-600 font-semibold">Pendapatan Ongkir (Terkirim)</div><div className="text-xl font-bold text-green-700">{formatRupiah(totalPenghasilan)}</div></div>
-                                        <div className="bg-blue-50 p-3 rounded"><div className="text-xs text-blue-600 font-semibold">Jumlah Pengiriman Sukses</div><div className="text-xl font-bold text-blue-700">{totalTerkirim}</div></div>
-                                    </div>
-                                    <div className="overflow-x-auto hidden md:block">
-                                        <table className="w-full text-sm">
-                                            <thead><tr className="bg-gray-50"><th className="px-3 py-2 text-left">Tanggal</th><th className="px-3 py-2 text-left">Rute</th><th className="px-3 py-2 text-left">Driver</th><th className="px-3 py-2 text-right">Ongkir</th></tr></thead>
-                                            <tbody>
-                                                {filteredRekapTrx.filter(t=>t.status==='Terkirim').length===0 && <tr><td colSpan="4" className="text-center py-6 text-gray-400">Tidak ada data</td></tr>}
-                                                {filteredRekapTrx.filter(t=>t.status==='Terkirim').map(t=>{
-                                                    const trf2=visibleTarifs.find(x=>x.id===t.tarifId);
-                                                    return (<tr key={t.id} className="border-t"><td className="px-3 py-2 text-xs">{t.date}</td><td className="px-3 py-2 text-xs">{trf2?trf2.from+' → '+trf2.to:'-'}{t.tripType==='pp'&&<span className="ml-1 bg-purple-100 text-purple-600 text-xs px-1 rounded">PP</span>}</td><td className="px-3 py-2">{t.driverName||'-'}</td><td className="px-3 py-2 text-right font-medium">{formatRupiah(safeMoney(t.ongkir))}</td></tr>);
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                        {filteredRekapTrx.filter(t=>t.status==='Terkirim').length===0 && <div className="py-6 text-center text-gray-400 text-sm">Tidak ada data</div>}
-                                        {filteredRekapTrx.filter(t=>t.status==='Terkirim').map(t=>{
-                                            const trf2=visibleTarifs.find(x=>x.id===t.tarifId);
-                                            const rute2 = trf2 ? `${trf2.from} → ${trf2.to}` : '-';
-                                            return (
-                                                <div key={t.id} className="px-4 py-3 flex items-start justify-between gap-3 hover:bg-gray-50">
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="font-bold text-gray-800 text-sm">{t.driverName||'-'}</div>
-                                                        <div className="text-xs text-gray-500 mt-0.5">{rute2}{t.tripType==='pp'&&<span className="ml-1 bg-purple-100 text-purple-600 px-1 rounded">PP</span>}</div>
-                                                        <div className="text-xs text-gray-400 mt-0.5">{t.date}</div>
-                                                    </div>
-                                                    <div className="text-sm font-black text-blue-700 shrink-0">{formatRupiah(safeMoney(t.ongkir))}</div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
+                                <Card><b className="text-slate-700">Rincian pengiriman terkirim</b>
+                                    <div className="overflow-x-auto"><table className="w-full text-sm mt-2"><thead><tr className="bg-gray-50 text-left text-xs text-gray-500"><th className="px-3 py-2">Tanggal</th><th className="px-3 py-2">Driver</th><th className="px-3 py-2">Rute</th><th className="px-3 py-2 text-right">Ongkir</th></tr></thead>
+                                        <tbody>{lapTerkirim.length===0 && <tr><td colSpan="4" className="text-center py-6 text-gray-400">Tidak ada data</td></tr>}
+                                            {lapTerkirim.slice((lapPage-1)*LAP_PER_PAGE, lapPage*LAP_PER_PAGE).map(t => <tr key={t.id} className="border-t"><td className="px-3 py-2 text-xs whitespace-nowrap">{fmtTglPendek(t.date)}</td><td className="px-3 py-2">{t.driverName||'-'}</td><td className="px-3 py-2 text-xs">{namaRute(t)}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1 rounded font-bold">PP</span>}</td><td className="px-3 py-2 text-right whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</td></tr>)}
+                                        </tbody></table></div>
+                                    {lapTotalPages>1 && <div className="flex justify-center gap-2 mt-3"><button disabled={lapPage<=1} onClick={()=>setLapPage(p=>p-1)} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Prev</button><span className="px-3 py-1 text-sm">{lapPage} / {lapTotalPages}</span><button disabled={lapPage>=lapTotalPages} onClick={()=>setLapPage(p=>p+1)} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Next</button></div>}
                                 </Card>
-                            )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ===== DRIVER & TARIF ===== */}
+                    {activeSubTab==='pengaturan' && (
+                        <div className="space-y-4">
+                            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Cari driver / rute…" className="border rounded-lg px-3 py-2 text-sm w-full sm:w-72" data-eks-atur-cari />
+                            <Card>
+                                <div className="flex items-center gap-2 mb-2"><b className="text-slate-700">👤 Driver ({visibleDrivers.length})</b><button onClick={()=>openDriverForm()} className="ml-auto bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-eks-driver-tambah>+ Tambah Driver</button></div>
+                                <div className="divide-y divide-gray-100">
+                                    {filteredDrivers.length===0 && <div className="py-6 text-center text-gray-400 text-sm">Belum ada data driver</div>}
+                                    {filteredDrivers.map(d => { const sisa = getTotalSisaKasbon(d.id); return (
+                                        <div key={d.id} className="flex items-center gap-3 py-2.5" data-eks-driver-row={d.id}>
+                                            <div className="flex-1 min-w-0"><div className="font-bold text-sm text-gray-900">{d.name}</div><div className="text-xs text-gray-500 truncate">{[d.phone, d.vehicle, d.plateNumber, d.address].filter(Boolean).join(' · ') || '-'}</div></div>
+                                            {sisa > 0 && <span className="text-xs font-bold text-red-700 bg-red-50 rounded px-2 py-0.5 whitespace-nowrap">💳 {formatRupiah(sisa)}</span>}
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${d.isActive!==false?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'}`}>{d.isActive!==false?'Aktif':'Nonaktif'}</span>
+                                            <button type="button" onClick={(e)=>bukaMenu(e, 'driver', d, 3)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black text-gray-700 shrink-0" data-eks-menu-btn>⋯</button>
+                                        </div>
+                                    ); })}
+                                </div>
+                            </Card>
+                            <Card>
+                                <div className="flex items-center gap-2 mb-2"><b className="text-slate-700">💰 Tarif / rute ({visibleTarifs.length})</b><button onClick={()=>openTarifForm()} className="ml-auto bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-eks-tarif-tambah>+ Tambah Tarif</button></div>
+                                <div className="divide-y divide-gray-100">
+                                    {filteredTarifs.length===0 && <div className="py-6 text-center text-gray-400 text-sm">Belum ada data tarif</div>}
+                                    {filteredTarifs.map(t => (
+                                        <div key={t.id} className="flex items-center gap-3 py-2.5" data-eks-tarif-row={t.id}>
+                                            <div className="flex-1 min-w-0"><div className="font-bold text-sm text-gray-900">{t.from} → {t.to}</div><div className="text-xs text-gray-500">{t.pricingType==='per_km' ? `${formatRupiah(safeMoney(t.pricePerKm))}/km` : `${formatRupiah(safeMoney(t.pricePerKg))}/kg`}{t.jarak ? ` · ${t.jarak} km` : ''} · min {formatRupiah(safeMoney(t.minPrice))}{t.note ? ` · ${t.note}` : ''}{pakaiTarif[t.id] ? ` · dipakai ${pakaiTarif[t.id]}× (30 hari)` : ''}</div></div>
+                                            <button type="button" onClick={(e)=>bukaMenu(e, 'tarif', t, 2)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black text-gray-700 shrink-0" data-eks-menu-btn>⋯</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Menu ⋯ */}
+                    {menu && (() => {
+                        const d = menu.data;
+                        const tutup = (fn) => () => { setMenu(null); fn(); };
+                        const items = menu.jenis === 'trx' ? [
+                            ['🔗 Salin link driver', tutup(()=>copyShareLink(d)), 'link'],
+                            ['🖨 Cetak struk', tutup(()=>printStruk(d)), 'struk'],
+                            ['✏️ Edit', tutup(()=>openTrxForm(d)), 'edit'],
+                            ['🔄 Ubah status…', tutup(()=>setUbahStatusTrx(d)), 'status'],
+                            ['🗑 Hapus', tutup(()=>mintaHapusTrx(d)), 'hapus'],
+                        ] : menu.jenis === 'rekap' ? [
+                            ['🖨 Cetak rekap', tutup(()=>printRekapGaji(d)), 'cetak'],
+                            ['🔗 Salin link slip', tutup(()=>copyRekapGajiLink(d)), 'link'],
+                            ['🗑 Hapus', tutup(()=>mintaHapusRekap(d)), 'hapus'],
+                        ] : menu.jenis === 'driver' ? [
+                            ['✏️ Edit', tutup(()=>openDriverForm(d)), 'edit'],
+                            ['💳 Kasbon', tutup(()=>{setShowKasbonDriver(d.id);setKasbonForm({driverId:d.id,jumlah:'',keterangan:'',tanggal:toLocalDateStr()});setShowKasbonAddForm(false);}), 'kasbon'],
+                            ['🗑 Hapus', tutup(()=>mintaHapusDriver(d)), 'hapus'],
+                        ] : [
+                            ['✏️ Edit', tutup(()=>openTarifForm(d)), 'edit'],
+                            ['🗑 Hapus', tutup(()=>mintaHapusTarif(d)), 'hapus'],
+                        ];
+                        return (
+                            <div className="fixed z-[55] w-[210px] bg-white border border-gray-200 rounded-xl shadow-xl p-1.5" style={{ left: menu.x, top: menu.y }} data-eks-menu-panel>
+                                {items.map(([l, fn, k]) => <button key={k} type="button" onClick={fn} className={`block w-full text-left px-3 py-2 rounded-lg text-sm font-semibold hover:bg-gray-100 ${k==='hapus' ? 'text-red-600 border-t border-gray-100 mt-1' : 'text-gray-700'}`} data-eks-menu-item={k}>{l}</button>)}
+                            </div>
+                        );
+                    })()}
+
+                    {/* Ubah status manual */}
+                    {ubahStatusTrx && (
+                        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" data-eks-status-modal>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+                                <div className="p-4 border-b"><h3 className="font-bold text-lg">Ubah status</h3><p className="text-xs text-gray-500 mt-0.5">{ubahStatusTrx.driverName || '-'} · {namaRute(ubahStatusTrx)}</p></div>
+                                <div className="p-4 grid grid-cols-1 gap-2">
+                                    {DRV_STATUS.map(s => <button key={s} type="button" onClick={()=>{updateStatus(ubahStatusTrx.id, s); setUbahStatusTrx(null);}} disabled={(ubahStatusTrx.status||'Menunggu')===s} className={`text-left px-3 py-2.5 rounded-xl text-sm font-bold border ${(ubahStatusTrx.status||'Menunggu')===s ? 'border-gray-200 bg-gray-50 text-gray-400' : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-800'}`} data-eks-status-pilih={s}><span className={`px-2 py-0.5 rounded text-xs ${statusColor(s)}`}>{s}</span>{(ubahStatusTrx.status||'Menunggu')===s && <span className="ml-2 text-xs">(sekarang)</span>}</button>)}
+                                    <p className="text-[11px] text-gray-500">Biasanya status berubah otomatis dari link driver. Ubah manual hanya bila perlu.</p>
+                                </div>
+                                <div className="flex justify-end p-4 border-t"><button type="button" onClick={()=>setUbahStatusTrx(null)} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-bold" data-eks-status-batal>Batal</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Alihkan ke driver lain */}
+                    {alihkan && (
+                        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" data-eks-alihkan-modal>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                                <div className="p-4 border-b"><h3 className="font-bold text-lg">↪ Alihkan ke driver lain</h3><p className="text-xs text-gray-500 mt-0.5">{namaRute(alihkan.trx)} · {formatRupiah(safeMoney(alihkan.trx.ongkir))} · sebelumnya {alihkan.trx.driverName || '-'}</p></div>
+                                <div className="p-4 flex flex-wrap gap-2">
+                                    {driverAktif.filter(d=>d.id!==alihkan.trx.driverId).map(d => <button key={d.id} type="button" onClick={()=>setAlihkan(a=>({...a, driverId:d.id}))} className={`border-2 rounded-xl px-3 py-1.5 text-sm font-bold text-left ${alihkan.driverId===d.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700'}`} data-eks-alihkan-driver={d.id}>{d.name}<span className="block text-[11px] font-medium text-gray-500">{tugasHariIni(d.id)} tugas hari ini</span></button>)}
+                                    {driverAktif.filter(d=>d.id!==alihkan.trx.driverId).length===0 && <p className="text-sm text-gray-500">Tidak ada driver aktif lain.</p>}
+                                </div>
+                                <div className="flex justify-end gap-2 p-4 border-t"><button type="button" onClick={()=>setAlihkan(null)} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-bold">Batal</button><button type="button" onClick={()=>simpanAlihkan(false)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold" data-eks-alihkan-simpan>Simpan</button><button type="button" onClick={()=>simpanAlihkan(true)} className="px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-black" data-eks-alihkan-wa>💬 Simpan &amp; Kirim WA</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Konfirmasi hapus */}
+                    {hapus && (
+                        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4" data-eks-hapus-modal>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+                                <div className="p-4 border-b"><h3 className="font-bold text-lg">{hapus.blokir ? 'Tidak bisa dihapus' : hapus.judul}</h3></div>
+                                <div className="p-4 space-y-2 text-sm text-gray-700">
+                                    <div>{hapus.detail}</div>
+                                    {hapus.blokir && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2" data-eks-hapus-blokir>{hapus.blokir}</div>}
+                                    {!hapus.blokir && hapus.peringatan && <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{hapus.peringatan}</div>}
+                                </div>
+                                <div className="flex justify-end gap-2 p-4 border-t">
+                                    <button type="button" onClick={()=>setHapus(null)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold" data-eks-hapus-batal>{hapus.blokir ? 'Tutup' : 'Batal'}</button>
+                                    {!hapus.blokir && <button type="button" onClick={()=>{const f = hapus.aksi; setHapus(null); f();}} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold" data-eks-hapus-ya>Ya, hapus</button>}
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -24117,7 +24259,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                                                     <td className="py-2 px-2 text-right text-green-700">{safeMoney(k.sudahDipotong)>0?formatRupiah(safeMoney(k.sudahDipotong)):'-'}</td>
                                                     <td className="py-2 px-2 text-right font-bold">{sisa>0?<span className="text-red-600">{formatRupiah(sisa)}</span>:<span className="text-green-600">Lunas</span>}</td>
                                                     <td className="py-2 px-2 text-gray-400">{k.keterangan||'-'}</td>
-                                                    <td className="py-2 px-2"><button onClick={()=>hapusKasbon(k.id)} className="text-red-300 hover:text-red-600 font-bold">✕</button></td>
+                                                    <td className="py-2 px-2"><button onClick={()=>mintaHapusKasbon(k)} className="text-red-300 hover:text-red-600 font-bold" title="Hapus kasbon" data-eks-kasbon-hapus>✕</button></td>
                                                 </tr>);
                                             })}</tbody>
                                         </table>
@@ -24145,72 +24287,64 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                     })()}
 
                     {/* MODAL REKAP GAJI */}
-                    {showRekapModal && (
-                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+                    {showRekapModal && (() => {
+                        const drv = visibleDrivers.find(d => d.id === rekapDriverId);
+                        const r = rekapPeriode || rGaji;
+                        const semua = getAvailableTrips(rekapDriverId).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+                        const dalam = semua.filter(t => dalamRentang(t.date, r));
+                        const luar = semua.filter(t => !dalamRentang(t.date, r));
+                        const tampil = rekapLuar ? semua : dalam;
+                        const terpilih = visibleTrx.filter(t => selectedTripIds.includes(t.id));
+                        const tot = terpilih.reduce((s, t) => s + safeMoney(t.ongkir), 0);
+                        const sisaKb = getTotalSisaKasbon(rekapDriverId);
+                        const pot = Math.min(safeMoney(rekapPotonganKasbon) || 0, tot);
+                        const semuaTercentang = tampil.length > 0 && tampil.every(t => selectedTripIds.includes(t.id));
+                        return (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" data-eks-rekap-modal>
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
                                 <div className="flex justify-between items-center p-4 border-b">
-                                    <h3 className="font-bold text-lg">Buat Rekap Gaji Driver</h3>
-                                    <button onClick={()=>setShowRekapModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                                    <h3 className="font-bold text-lg">📋 Rekap Gaji — {drv?.name || '-'}</h3>
+                                    <button onClick={()=>setShowRekapModal(false)} className="text-gray-500 hover:text-gray-700 text-sm font-bold">Batal</button>
                                 </div>
-                                <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
-                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Driver *</label>
-                                        <select value={rekapDriverId} onChange={e=>{setRekapDriverId(e.target.value);setSelectedTripIds([]);}} className="w-full border rounded px-3 py-2 text-sm">
-                                            <option value="">Pilih Driver</option>
-                                            {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
-                                        </select>
+                                <div className="p-4 space-y-3 overflow-y-auto">
+                                    <div className="text-sm text-slate-700 bg-slate-100 rounded-lg px-3 py-2">Periode: <b>{r.label}</b></div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-gray-700">{tampil.length} trip terkirim belum direkap</span>
+                                        {tampil.length > 0 && <button type="button" onClick={()=>setSelectedTripIds(semuaTercentang ? selectedTripIds.filter(id => !tampil.some(t => t.id === id)) : [...new Set([...selectedTripIds, ...tampil.map(t => t.id)])])} className="text-xs font-bold text-blue-600" data-eks-rekap-semua>{semuaTercentang ? 'Batalkan semua' : 'Pilih semua ✓'}</button>}
                                     </div>
-                                    {rekapDriverId && (
-                                        <div>
-                                            <div className="flex items-center justify-between mb-2">
-                                                <label className="text-xs font-semibold text-gray-600">Pilih Trip (Status Terkirim, belum direkap) *</label>
-                                                <button onClick={()=>{const ids=getAvailableTrips(rekapDriverId).map(t=>t.id);setSelectedTripIds(ids);}} className="text-xs text-blue-600 hover:underline">Pilih Semua</button>
-                                            </div>
-                                            {getAvailableTrips(rekapDriverId).length===0 && <div className="text-sm text-gray-400 py-4 text-center">Tidak ada trip tersedia (sudah direkap atau belum Terkirim)</div>}
-                                            <div className="space-y-1 max-h-52 overflow-y-auto border rounded p-2">
-                                                {getAvailableTrips(rekapDriverId).map(t=>(
-                                                    <label key={t.id} className="flex items-center gap-2 text-sm p-1.5 hover:bg-gray-50 rounded cursor-pointer">
-                                                        <input type="checkbox" checked={selectedTripIds.includes(t.id)} onChange={()=>toggleTripSelect(t.id)} />
-                                                        <span className="flex-1">
-                                                            <span className="font-medium">{t.driverName||'-'}</span>
-                                                            <span className="text-gray-400 text-xs ml-2">{t.date}</span>
-                                                            {t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-600 text-xs px-1 rounded">PP</span>}
-                                                        </span>
-                                                        <span className="font-bold text-blue-600">{formatRupiah(safeMoney(t.ongkir))}</span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                            {selectedTripIds.length>0 && (
-                                                <div className="mt-2 bg-blue-50 rounded p-2 text-sm font-semibold text-blue-700 text-right">
-                                                    Total {selectedTripIds.length} trip: {formatRupiah(visibleTrx.filter(t=>selectedTripIds.includes(t.id)).reduce((s,t)=>s+safeMoney(t.ongkir),0))}
-                                                </div>
-                                            )}
+                                    <div className="space-y-1 max-h-60 overflow-y-auto border rounded-lg p-1.5">
+                                        {tampil.length === 0 && <div className="text-sm text-gray-400 py-4 text-center">Tidak ada trip pada periode ini</div>}
+                                        {tampil.map(t => (
+                                            <label key={t.id} className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer" data-eks-rekap-trip={t.id}>
+                                                <input type="checkbox" checked={selectedTripIds.includes(t.id)} onChange={()=>toggleTripSelect(t.id)} />
+                                                <span className="flex-1">{fmtTglPendek(t.date)} · {namaRute(t)}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1 rounded font-bold">PP</span>}{!dalamRentang(t.date, r) && <span className="ml-1 text-[10px] text-amber-700 font-bold">di luar periode</span>}</span>
+                                                <span className="font-bold text-blue-700 whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    {luar.length > 0 && <button type="button" onClick={()=>setRekapLuar(v=>!v)} className="text-xs font-bold text-amber-700 underline" data-eks-rekap-luar>{rekapLuar ? 'Sembunyikan trip di luar periode' : `Tampilkan ${luar.length} trip di luar periode`}</button>}
+                                    {sisaKb > 0 && (
+                                        <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                                            <p className="text-xs font-bold text-red-700 mb-1.5">Sisa kasbon {formatRupiah(sisaKb)}</p>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">Potong kasbon (Rp)</label>
+                                            <input type="number" min="0" max={sisaKb} value={rekapPotonganKasbon} onChange={e=>{setRekapPotonganKasbon(Number(e.target.value)); setRekapPotonganManual(true);}} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0 = tidak potong" data-eks-rekap-potong />
                                         </div>
                                     )}
-                                    {rekapDriverId && getTotalSisaKasbon(rekapDriverId) > 0 && (
-                                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                                            <p className="text-xs font-bold text-red-600 mb-2">Kasbon Aktif: <span className="text-red-700">{formatRupiah(getTotalSisaKasbon(rekapDriverId))}</span></p>
-                                            <label className="block text-xs font-semibold text-gray-600 mb-1">Potong Kasbon (Rp)</label>
-                                            <input type="number" min="0" max={getTotalSisaKasbon(rekapDriverId)} value={rekapPotonganKasbon} onChange={e=>setRekapPotonganKasbon(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" placeholder="0 = tidak potong" />
-                                            {rekapPotonganKasbon > 0 && selectedTripIds.length > 0 && (
-                                                <div className="mt-2 text-xs space-y-0.5 border-t pt-2">
-                                                    {(() => { const tot = visibleTrx.filter(t=>selectedTripIds.includes(t.id)).reduce((s,t)=>s+safeMoney(t.ongkir),0); return (<>
-                                                        <div className="flex justify-between text-gray-600"><span>Total Ongkir</span><span className="font-bold">{formatRupiah(tot)}</span></div>
-                                                        <div className="flex justify-between text-red-600"><span>Potongan Kasbon</span><span className="font-bold">- {formatRupiah(rekapPotonganKasbon)}</span></div>
-                                                        <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji Diterima</span><span>{formatRupiah(Math.max(0, tot - rekapPotonganKasbon))}</span></div>
-                                                    </>); })()}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Catatan</label><input value={rekapNote} onChange={e=>setRekapNote(e.target.value)} className="w-full border rounded px-3 py-2 text-sm" placeholder="Opsional (misal: gaji minggu ke-1 Juni)" /></div>
+                                    <div className="text-sm space-y-1" data-eks-rekap-ringkas>
+                                        <div className="flex justify-between"><span>Ongkir {terpilih.length} trip</span><b>{formatRupiah(tot)}</b></div>
+                                        {pot > 0 && <div className="flex justify-between text-red-600"><span>Potong kasbon</span><b>- {formatRupiah(pot)}</b></div>}
+                                        <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji diterima</span><span data-eks-rekap-diterima>{formatRupiah(Math.max(0, tot - pot))}</span></div>
+                                    </div>
+                                    <div><label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label><input value={rekapNote} onChange={e=>setRekapNote(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opsional (misal: gaji minggu ke-1)" /></div>
                                 </div>
                                 <div className="flex justify-end gap-2 p-4 border-t">
-                                    <button onClick={()=>setShowRekapModal(false)} className="px-4 py-2 bg-gray-100 rounded text-sm">Batal</button>
-                                    <button onClick={buatRekap} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold">Buat Rekap</button>
+                                    <button onClick={()=>buatRekap(false)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold" data-eks-rekap-simpan>Simpan</button>
+                                    <button onClick={()=>buatRekap(true)} className="px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-black" data-eks-rekap-slip>💬 Simpan &amp; Kirim slip</button>
                                 </div>
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {fotoTrx && <DrvFotoModal trx={fotoTrx} onClose={() => setFotoTrx(null)} />}
 
@@ -24219,7 +24353,7 @@ ${rows||'<div class="item-row"><span>Belum ada kasbon</span><span>-</span></div>
                         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
                                 <div className="flex justify-between items-center p-4 border-b">
-                                    <h3 className="font-bold text-lg">{editTrx?'Edit Transaksi':'Transaksi Baru'}</h3>
+                                    <h3 className="font-bold text-lg">{editTrx?'Edit Pengiriman':'Pengiriman Baru'}</h3>
                                     <button onClick={()=>setShowTrxForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                                 </div>
                                 <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
