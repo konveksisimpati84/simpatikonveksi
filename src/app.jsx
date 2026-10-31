@@ -1791,6 +1791,65 @@
             const a = Math.abs(Math.round(mnt)), h = Math.floor(a / 60), m = a % 60;
             return `${mnt > 0 ? '+' : '−'}${h > 0 && m > 0 ? `${h}j ${m}m` : h > 0 ? `${h}j` : `${m}m`}`;
         };
+        // "2026-10" → "Okt 2026" (panjang: "Oktober 2026")
+        const formatBulanPendek = (ym, panjang = false) => {
+            const [y, m] = String(ym || '').split('-');
+            const i = parseInt(m, 10);
+            if (!y || !(i >= 1 && i <= 12)) return String(ym || '');
+            const nama = panjang
+                ? ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
+                : ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+            return `${nama[i - 1]} ${y}`;
+        };
+        // Susunan "Gaji Harian" untuk nota thermal & slip gaji (link):
+        // - hari tanpa penyesuaian jam dikelompokkan per TARIF ASLI (bukan rata-rata), urut tanggal pertama
+        // - hari yang dipotong / lebih jam tampil sendiri: nilai lama dicoret → nilai baru + alasannya
+        //   (potongan tanpa rincian jam dari data lama tetap dihitung)
+        // Jumlah semua baris = total gaji harian rekap (sama dengan getDailySalaryLogTotal().daily).
+        const susunGajiHarianNota = (dailyLogs) => {
+            const NAMA_BLN = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+            const logs = safeArray(dailyLogs).filter(l => l && getDailySalaryLogTotal(l).daily > 0);
+            const hariDari = (log) => { const wd = parseFloat(log.workDays); return Number.isFinite(wd) ? wd : 1; };
+            const rapikanHari = (n) => Number.isInteger(n) ? n : parseFloat(n.toFixed(1));
+            const kelompok = new Map();
+            const khusus = [];
+            let totalHari = 0, total = 0, potonganJam = 0, tambahanJam = 0;
+            logs.forEach(log => {
+                const t = getDailySalaryLogTotal(log);
+                totalHari += hariDari(log);
+                total += t.daily;
+                const selisih = t.daily - t.base;
+                if (selisih < 0) potonganJam += selisih; else if (selisih > 0) tambahanJam += selisih;
+                if (selisih !== 0 || t.overtime > 0) {
+                    const rincian = safeArray(log.hourAdjDetails).filter(d => d && safeMoney(d.amount) !== 0).map(d => {
+                        const amt = safeMoney(d.amount);
+                        const label = String(formatSelisihJamLabel(d)).replace(/^[+\-−]\s*/, '');
+                        return { date: d.date || '', amount: amt, text: `${amt < 0 ? 'Kurang' : 'Lebih'} ${label}` };
+                    });
+                    khusus.push({ log, date: log.date || '-', note: log.note || '', hari: log.workDays || 0, rate: safeMoney(log.dailySalary), base: t.base, daily: t.daily, selisih, rincian });
+                    return;
+                }
+                const rate = safeMoney(log.dailySalary);
+                const key = String(rate);
+                if (!kelompok.has(key)) kelompok.set(key, { rate, hari: 0, total: 0, tanggal: [] });
+                const g = kelompok.get(key);
+                g.hari += hariDari(log);
+                g.total += t.base;
+                if (log.date) g.tanggal.push(String(log.date));
+            });
+            const grup = [...kelompok.values()].map(g => {
+                const perBulan = {};
+                g.tanggal.forEach(tgl => {
+                    const [y, m, d] = tgl.split('-');
+                    const k = `${y}-${String(parseInt(m, 10)).padStart(2, '0')}`;
+                    if (!perBulan[k]) perBulan[k] = { y, m: parseInt(m, 10), hari: [] };
+                    perBulan[k].hari.push(parseInt(d, 10));
+                });
+                const barisTanggal = Object.keys(perBulan).sort().map(k => { const b = perBulan[k]; return `${[...b.hari].sort((a, c) => a - c).join(', ')} ${NAMA_BLN[b.m - 1] || ''} ${b.y}`; });
+                return { ...g, hari: rapikanHari(g.hari), barisTanggal, mulai: [...g.tanggal].sort()[0] || '9999' };
+            }).sort((a, b) => a.mulai < b.mulai ? -1 : a.mulai > b.mulai ? 1 : b.rate - a.rate);
+            return { grup, khusus, total, totalHari: rapikanHari(totalHari), potonganJam, tambahanJam, jumlahBaris: grup.length + khusus.length };
+        };
 
         const getInvoiceCommissionTotal = (invoice) => {
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
@@ -17810,37 +17869,320 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return false;
             };
 
-            const empIdsWithPendingSalary = React.useMemo(() => {
-                const ids = new Set();
-                const visibleRekapIds = new Set(visibleRekapsBase.map(rk => String(rk.id)));
-                const currentBHMonth = toLocalMonthStr();
-                visibleEmployees.forEach(emp => {
-                    let hasProd = false;
-                    visibleOrdersForPending.forEach(order => {
-                        if (hasProd || !order.progress) return;
-                        Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
-                            if (hasProd || !getActiveProductionStageIds(order).includes(stage)) return;
-                            const logs = safeArray(data?.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
-                            if (logs.length > 0) hasProd = true;
+            // "Daftar isi" scan mesin: dikelompokkan sekali per PIN lalu per tanggal (urutan asli dipertahankan),
+            // supaya hitung gaji harian tidak membaca ulang semua scan untuk tiap hari & tiap karyawan.
+            // Isi tiap kelompok sama persis dengan filter lama (tanggal sama, tidak dihapus, PIN sama).
+            const rawLogsByPinDate = React.useMemo(() => {
+                const byPin = new Map();
+                safeArray(absensiRawLogs).forEach(l => {
+                    if (!l || l.isDeleted) return;
+                    const pinKey = String(l.pin).trim();
+                    let byDate = byPin.get(pinKey);
+                    if (!byDate) { byDate = new Map(); byPin.set(pinKey, byDate); }
+                    const list = byDate.get(l.tanggal);
+                    if (list) list.push(l); else byDate.set(l.tanggal, [l]);
+                });
+                return byPin;
+            }, [absensiRawLogs]);
+            // Koreksi jam per "tanggal_pin": ambil koreksi aktif pertama (sama dengan .filter(isVisibleRecord).find(...))
+            const absensiEditByKey = React.useMemo(() => {
+                const map = new Map();
+                safeArray(absensiEdits).filter(isVisibleRecord).forEach(e => { if (!map.has(e.editKey)) map.set(e.editKey, e); });
+                return map;
+            }, [absensiEdits]);
+
+            const computeAutoAbsensiForEmp = (emp, { includeGaps = false } = {}) => {
+                const ttm = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+                const pin = String(emp?.fingerPin || '').trim();
+                if (!pin || !getEmployeeSalaryTypes(emp).includes('Harian')) return { previewLogs: [], warnings: [] };
+                const empAssignment = safeArray(templates?.absensiShiftAssignments).find(a => String(a.pin) === pin);
+                const empPrimaryId = empAssignment ? safeArray(empAssignment.shifts).find(id => id !== 'shift3') : null;
+                const empHasShift3 = empAssignment ? safeArray(empAssignment.shifts).includes('shift3') : false;
+                const empPrimaryShift = empPrimaryId ? safeArray(templates?.absensiShifts).find(s => s.id === empPrimaryId) : null;
+                const empShift3obj = empHasShift3 ? safeArray(templates?.absensiShifts).find(s => s.id === 'shift3') : null;
+                const hasEmpShiftAssignment = !!(empAssignment && safeArray(empAssignment.shifts).length > 0);
+                const jmCfg = empPrimaryShift?.jamMasuk || templates?.absensiJamMasuk || '07:00';
+                const jpCfg = empPrimaryShift?.jamPulang || templates?.absensiJamPulang || '16:30';
+                const lmCfg = templates?.absensiLemburMulai || '18:00';
+                const lsCfg = templates?.absensiLemburSelesai || '21:00';
+                const ttLCfg = templates?.absensiTitikTengahLembur || '';
+                const toleransiMenit = getAbsensiToleransiMenit(templates);
+                const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
+                const mLM = ttm(lmCfg), mLS = ttm(lsCfg);
+                // Titik tengah per shift (sama dengan menu Absensi Finger)
+                const mMid = getTitikTengahMenit(empPrimaryShift, templates?.absensiTitikTengah, jmCfg, jpCfg);
+                const standardMenit = (mMasukCfg != null && mPulangCfg != null) ? mPulangCfg - mMasukCfg : 0;
+                const rateKurang = safeMoney(emp.rateKurang) || 0;
+                const rateLebih = safeMoney(emp.rateLebih) || 0;
+                const existingAbsensiLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '');
+                const cutoffDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateTo).sort().reverse()[0] : null;
+                const today = toLocalDateStr();
+                // Hari sebelum cutoff yang belum pernah direkap (mis. tidak dicentang saat rekap) = "terlewat".
+                // Hanya disertakan bila diminta (modal rekap), tidak dicentang otomatis, dan dilewati jika tanggal itu sudah punya log gaji harian/lembur yang direkap.
+                const rekapedSalaryLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.rekapId && String(l.rekapId).trim() !== '');
+                const coveredDayDates = new Set(rekapedSalaryLogs.filter(l => getDailySalaryLogTotal(l).daily > 0 || safeMoney(l.workDays) > 0).map(l => String(l.date)));
+                const coveredOtDates = new Set(rekapedSalaryLogs.filter(l => getDailySalaryLogTotal(l).overtime > 0 || safeMoney(l.overtimeCount) > 0).map(l => String(l.date)));
+                const firstAbsensiRekapDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateFrom || l.date).filter(Boolean).sort()[0] : null;
+                let startDate;
+                if (cutoffDate && includeGaps && firstAbsensiRekapDate) {
+                    startDate = firstAbsensiRekapDate;
+                } else if (cutoffDate) {
+                    const d = new Date(cutoffDate); d.setDate(d.getDate() + 1);
+                    startDate = toLocalDateStr(d);
+                } else {
+                    const allPinDates = [...(rawLogsByPinDate.get(pin) || new Map()).keys()].filter(Boolean).sort();
+                    startDate = allPinDates[0] || null;
+                }
+                if (!startDate || startDate > today) return { previewLogs: [], warnings: [] };
+                const dates = [];
+                const cur = new Date(startDate); const end = new Date(today);
+                while (cur <= end) { dates.push(toLocalDateStr(cur)); cur.setDate(cur.getDate() + 1); }
+                const warnings = [];
+                const previewLogs = [];
+                const nowTs = new Date().toISOString();
+                dates.forEach(date => {
+                    const isGap = !!(cutoffDate && date <= cutoffDate);
+                    const skipDay = isGap && coveredDayDates.has(date);
+                    const skipOt = isGap && coveredOtDates.has(date);
+                    if (skipDay && skipOt) return;
+                    const pinLogsByDate = rawLogsByPinDate.get(pin);
+                    const dayLogs = (pinLogsByDate && pinLogsByDate.get(date)) || [];
+                    // Untuk shift malam yang melewati tengah malam, ambil scan dari tanggal berikutnya sebagai kandidat pulang
+                    const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return toLocalDateStr(d); })();
+                    // Hanya scan dari tanggal berikutnya yang terjadi SEBELUM jam masuk normal (cegah scan pagi hari kerja dihitung sebagai jam pulang lembur)
+                    const nextDayLogs = ((pinLogsByDate && pinLogsByDate.get(nextDate)) || []).filter(l => (ttm(l.jam) == null || mMasukCfg == null || ttm(l.jam) < mMasukCfg));
+                    const override = absensiEditByKey.get(`${date}_${pin}`);
+                    // Untuk shift malam: konversi jam dari tanggal berikutnya ke menit > 1440 agar bisa dibandingkan
+                    const nextDayLogsShifted = nextDayLogs.map(l => ({ ...l, _shiftedJam: l.jam, _shiftedMinutes: (ttm(l.jam) ?? 0) + 1440 }));
+                    const sorted = [...dayLogs].sort((a, b) => a.jam > b.jam ? 1 : -1);
+                    const mShift3Masuk = empShift3obj ? ttm(empShift3obj.jamMasuk) : null;
+                    const mPrimPulang = ttm(jpCfg);
+                    const lembFloorBase = mShift3Masuk !== null ? mShift3Masuk : mLM;
+                    // Shift 2 (jamPulang > lemburMulai, mis. 22:30 > 18:00) & tidak ada Shift 3:
+                    // zona pulang diperluas sampai tengah malam agar scan lewat jadwal tetap tercatat
+                    // Shift 1 (jamPulang ≤ lemburMulai, mis. 16:30 ≤ 18:00): gunakan lemburMulai sebagai batas
+                    // Karyawan ber-shift tanpa Shift 3 tidak dihitung lembur: semua scan hari itu = scan kerja
+                    // (pulang lewat jam mulai lembur tetap tercatat pulang, lalu mengikuti Akhir Scan shift)
+                    const tanpaLembur = hasEmpShiftAssignment && !empHasShift3;
+                    const mAktifBoundary = tanpaLembur ? 1440 : (mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase);
+                    const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mAktifBoundary);
+                    let masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
+                    let pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
+                    // Konsisten dengan computeDayMetrics: scan tunggal di pulangZone diperlakukan sebagai masuk
+                    if (masukZone.length === 0 && pulangZone.length > 0) {
+                        masukZone = [pulangZone[0]];
+                        pulangZone = pulangZone.slice(1);
+                    }
+                    // Hanya 1 scan sesudah jam lembur & belum ada scan pulang: itu scan pulang (1 scan tidak bisa jadi sesi lembur)
+                    const lembAll = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mAktifBoundary);
+                    const shift3LewatMalam = empShift3obj != null && ttm(empShift3obj.jamPulang) != null && ttm(empShift3obj.jamPulang) < mAktifBoundary;
+                    const lateAsPulang = (masukZone.length > 0 && pulangZone.length === 0 && lembAll.length === 1 && !shift3LewatMalam && !override?.jamLemburMasuk) ? lembAll[0] : null;
+                    const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
+                    const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : (lateAsPulang ? lateAsPulang.jam : null);
+                    // Ikuti Batas Scan shift (sama dengan menu Absensi Finger); jam yang diedit manual tidak diubah
+                    const jamMasuk = override?.jamMasuk || clampJamKeBatasScan(rawMasuk, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
+                    const jamPulang = override?.jamPulang || clampJamKeBatasScan(rawPulang, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
+                    if (!isGap && jamMasuk && !jamPulang) warnings.push({ date, type: 'masuk_tanpa_pulang', jam: jamMasuk });
+                    else if (!isGap && !jamMasuk && jamPulang) warnings.push({ date, type: 'pulang_tanpa_masuk', jam: jamPulang });
+                    if (jamMasuk && jamPulang && !skipDay) {
+                        let dayAdjAmt = 0; let dayAdjDetails = [];
+                        if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
+                            // Selisih bersih dari jam kerja standar shift: datang awal & pulang lebih lama = lebih jam.
+                            // Selisih di bawah toleransi (menu Absensi Finger) tidak dihitung; di atasnya dihitung per menit.
+                            const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
+                            const selisihMenit = hitungLebihKurangMenit(actualMenit - standardMenit, toleransiMenit);
+                            if (selisihMenit !== 0) {
+                                const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
+                                const amount = selisihMenit > 0 ? Math.round((selisihMenit / 60) * rateLebih) : -Math.round((Math.abs(selisihMenit) / 60) * rateKurang);
+                                if (amount !== 0) { dayAdjAmt = amount; dayAdjDetails = [{ date, selisihMenit, selisihJam, amount }]; }
+                            }
+                        }
+                        const dayAdjFields = {};
+                        if (dayAdjAmt !== 0) dayAdjFields.hourAdjustment = dayAdjAmt;
+                        if (dayAdjDetails.length > 0) dayAdjFields.hourAdjDetails = dayAdjDetails;
+                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-DAY-${emp.id}-${date}`, date, note: isGap ? `Hadir ${date} (terlewat)` : `Hadir ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 1, dailySalary: safeMoney(emp.dailySalary) || 0, overtimeCount: 0, overtimeRate: 0, ...dayAdjFields });
+                    }
+                    const shouldCalcLembur = empShift3obj != null ? true : !hasEmpShiftAssignment;
+                    const mShift3Pulang = empShift3obj ? ttm(empShift3obj.jamPulang) : null;
+                    const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : mLS;
+                    const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (mAktifBoundary != null && mLemburSelesaiRef != null ? (mAktifBoundary + mLemburSelesaiRef) / 2 : null);
+                    const lembForLembur = shouldCalcLembur ? lembAll.filter(e => e !== lateAsPulang) : [];
+                    const lMasukZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= effectiveMidLembur) : lembForLembur;
+                    const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
+                    const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
+                    const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length - 1].jam : null;
+                    // Cross-midnight hanya untuk shift3 yang BENAR-BENAR melewati tengah malam
+                    // (jamPulang secara menit < jamMasuk, artinya pulang di hari berikutnya)
+                    const isShift3CrossMidnight = empShift3obj != null && mShift3Pulang != null && mShift3Pulang < mAktifBoundary;
+                    const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0 && isShift3CrossMidnight)
+                        ? [...nextDayLogsShifted].sort((a, b) => b._shiftedMinutes - a._shiftedMinutes)[0]
+                        : null;
+                    const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
+                    const jlPulang = override?.jamLemburPulang || rawLPulang;
+                    const mLMasuk = ttm(jlMasuk);
+                    // Cap lembur: shift3 sama-hari → max jam 00:00 tengah malam (1440 menit)
+                    // shift3 cross-midnight → max jam pulang shift (misal 06:00 = 360+1440)
+                    let mLPulang = jlPulang ? ttm(jlPulang) : (crossMidnightPulang ? crossMidnightPulang._shiftedMinutes : null);
+                    if (mLPulang != null && empShift3obj != null) {
+                        const cappedPulang = isShift3CrossMidnight ? (mShift3Pulang != null ? mShift3Pulang + 1440 : 1440) : 1440;
+                        mLPulang = Math.min(mLPulang, cappedPulang);
+                    }
+                    const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
+                    if (shouldCalcLembur && lemburMenit >= 60 && !skipOt) {
+                        const lemburJam = Math.round(lemburMenit / 60 * 10) / 10;
+                        const lemburRate = safeMoney(emp.overtimeRate) || 0;
+                        if (lemburRate === 0 && !isGap) warnings.push({ date, type: 'lembur_rate_kosong', jam: jlMasuk });
+                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: isGap ? `Lembur ${date} (terlewat)` : `Lembur ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
+                    }
+                });
+                if (previewLogs.length === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
+                return { previewLogs, warnings, startDate, endDate: today };
+            };
+
+            // Hitungan "belum direkap" per karyawan dikerjakan SEKALI di sini, lalu dipakai bersama oleh
+            // tombol Siap Direkap, kartu ringkasan, banner sematan, dan daftar karyawan (dulu tiap bagian
+            // menghitung ulang semua order × tahap × karyawan sehingga menu terasa berat saat dibuka).
+            // Isi & urutan tiap daftar sama persis dengan perhitungan lama.
+            const lkTodayStr = toLocalDateStr();
+            const lkMonthStr = toLocalMonthStr();
+            // Bagi hasil direksi: bulan yang sudah direkap dibaca dari bulan bagi hasil yang TERSIMPAN di rekap
+            // (bukan tanggal rekap dibuat), sama dengan modal rekap. Yang dihitung otomatis hanya bulan berjalan;
+            // bulan lama yang belum direkap hanya ditampilkan (dicentang manual di modal bila memang belum dibayar).
+            const hitungBagiHasilDireksi = (emp, bulanIni = toLocalMonthStr()) => {
+                const kosong = { amount: 0, perBulan: {}, invBulanIni: [], bulanLama: [] };
+                const isDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+                const nilai = safeMoney(emp?.bagiHasilNilai);
+                if (!isDireksi || !(nilai > 0)) return kosong;
+                const direkap = new Set(visibleRekapsBase
+                    .filter(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0)
+                    .flatMap(rk => rk.bagiHasilDireksiMonths || (rk.bagiHasilDireksiMonth ? [rk.bagiHasilDireksiMonth] : [(rk.dateProcessed || '').slice(0, 7)].filter(Boolean))));
+                const perBulan = {};
+                safeInvoicesForReport.forEach(inv => {
+                    if (!inv || inv.isDeleted || !inv.date) return;
+                    const m = String(inv.date).slice(0, 7);
+                    if (!m || direkap.has(m)) return;
+                    if (!perBulan[m]) perBulan[m] = [];
+                    perBulan[m].push(inv);
+                });
+                const invBulanIni = perBulan[bulanIni] || [];
+                const isPersen = emp?.bagiHasilTipe !== 'Nominal';
+                const amount = invBulanIni.length === 0 ? 0
+                    : isPersen ? invBulanIni.reduce((sum, inv) => sum + Math.round(getInvoiceTotals(inv).productionTotal * nilai / 100), 0)
+                    : nilai;
+                const bulanLama = Object.keys(perBulan).filter(m => m < bulanIni).sort();
+                return { amount, perBulan, invBulanIni, bulanLama };
+            };
+            const pendingPerEmp = React.useMemo(() => {
+                const visibleRekapIdSet = new Set(visibleRekapsBase.map(rk => String(rk.id)));
+                const belumDirekap = (log) => !log.rekapId || !visibleRekapIdSet.has(String(log.rekapId));
+                // Log produksi tersetor & belum direkap, dikelompokkan per karyawan (urutan order → tahap → log)
+                const prodByEmp = new Map();
+                visibleOrdersForPending.forEach(order => {
+                    if (!order.progress) return;
+                    const aktif = getActiveProductionStageIds(order);
+                    Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
+                        if (!aktif.includes(stage)) return;
+                        if (!(data && data.workLogs)) return;
+                        const perEmp = new Map();
+                        safeArray(data.workLogs).forEach(l => {
+                            if (!l || l.isDeleted || l.isReported || !(getWorkLogSubmittedQty(l) > 0) || !l.checkAfter) return;
+                            const k = String(l.empId);
+                            const list = perEmp.get(k);
+                            if (list) list.push(l); else perEmp.set(k, [l]);
+                        });
+                        perEmp.forEach((logs, k) => {
+                            const list = prodByEmp.get(k);
+                            const entry = { order, stage, logs };
+                            if (list) list.push(entry); else prodByEmp.set(k, [entry]);
                         });
                     });
-                    const hasDailyOvertime = safeArray(getEmployeeDailySalaryLogs(emp)).some(log => (!log.rekapId || !visibleRekapIds.has(String(log.rekapId))) && (getDailySalaryLogTotal(log).daily > 0 || getDailySalaryLogTotal(log).overtime > 0));
+                });
+                const result = new Map();
+                visibleEmployees.forEach(emp => {
+                    const empKey = String(emp.id);
+                    const unsettledItems = [];
+                    let totalUnsettled = 0;
+                    let totalUnsettledWage = 0;
+                    let prodWage = 0;
+                    safeArray(prodByEmp.get(empKey)).forEach(({ order, stage, logs: empLogs }) => {
+                        const sizeMap = {};
+                        empLogs.forEach(l => { sizeMap[l.size] = (sizeMap[l.size] || 0) + getWorkLogSubmittedQty(l); });
+                        const sizesInfo = sortSizeKeys(Object.keys(sizeMap)).map(sz => `${sz} (${sizeMap[sz]})`).join(', ');
+                        const stageTotalQty = empLogs.reduce((sum, l) => sum + getWorkLogSubmittedQty(l), 0);
+                        const unitPrice = getProductionUnitPrice(order, stage);
+                        const wageTotal = stageTotalQty * unitPrice;
+                        const stageLabel = productionStageOptions.find(opt => opt.id === stage)?.label || stage;
+                        unsettledItems.push({
+                            orderId: order.id, client: order.client, type: order.type,
+                            stage: stage, stageLabel, sizes: sizesInfo, qty: stageTotalQty, unitPrice, wageTotal,
+                            logIds: empLogs.map(l => ({ stageId: stage, logId: l.id }))
+                        });
+                        totalUnsettled += stageTotalQty;
+                        totalUnsettledWage += wageTotal;
+                        prodWage += wageTotal;
+                    });
+                    // Produksi manual (permak, ganti label, dll)
+                    const manualRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(belumDirekap);
+                    const manualProdWage = manualRows.reduce((sum, l) => sum + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
+                    manualRows.forEach(log => {
+                        const unitPrice = safeMoney(log.unitPrice);
+                        const qty = safeMoney(log.qty);
+                        const wageTotal = qty * unitPrice;
+                        if (wageTotal <= 0) return;
+                        unsettledItems.push({
+                            orderId: `manual-${log.id}`, client: '-', type: 'Manual',
+                            stage: 'manual', stageLabel: log.description || 'Pekerjaan Manual',
+                            sizes: `${qty} pcs`, qty, unitPrice, wageTotal,
+                            isManual: true, manualLogId: log.id, manualDate: log.date,
+                            logIds: []
+                        });
+                        totalUnsettled += qty;
+                        totalUnsettledWage += wageTotal;
+                    });
+                    const dailyLogs = safeArray(getEmployeeDailySalaryLogs(emp)).filter(belumDirekap);
+                    const dailyRows = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
+                    const overtimeRows = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
+                    const harian = dailyRows.reduce((sum, l) => sum + safeNumber(getDailySalaryLogTotal(l).daily), 0);
+                    const lembur = overtimeRows.reduce((sum, l) => sum + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                     const isDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                    const hasMarketing = !isDireksi && visibleInvoicesForPending.some(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
-                    const hasManualProd = safeArray(getEmployeeManualProductionLogs(emp)).some(log => (!log.rekapId || !visibleRekapIds.has(String(log.rekapId))) && safeMoney(log.qty) * safeMoney(log.unitPrice) > 0);
+                    const mktRows = isDireksi ? [] : visibleInvoicesForPending.filter(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
+                    const komisi = mktRows.reduce((sum, inv) => sum + safeNumber(getInvoiceCommissionTotal(inv)), 0);
+                    // Scan absensi yang belum direkap (karyawan harian dengan PIN finger)
                     const fpPin = String(emp.fingerPin || '').trim();
                     const fpIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
-                    let hasFingerPending = false;
+                    let hasAbsensiPending = false;
+                    let previewHarian = 0, previewLembur = 0;
                     if (fpPin && fpIsHarian) {
                         const fpCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                        const fpToday = toLocalDateStr();
-                        hasFingerPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= fpToday);
+                        hasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === fpPin && l.tanggal > (fpCutoff || '0000-00-00') && l.tanggal <= lkTodayStr);
+                        if (hasAbsensiPending) {
+                            const preview = computeAutoAbsensiForEmp(emp);
+                            previewHarian = safeArray(preview.previewLogs).filter(l => getDailySalaryLogTotal(l).daily > 0).reduce((sum, l) => sum + safeNumber(getDailySalaryLogTotal(l).daily), 0);
+                            previewLembur = safeArray(preview.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((sum, l) => sum + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
+                        }
                     }
-                    const hasBagiHasil = isDireksi && safeMoney(emp.bagiHasilNilai) > 0 && !visibleRekapsBase.some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed || '').slice(0,7) === currentBHMonth);
-                    if (hasProd || hasDailyOvertime || hasMarketing || hasManualProd || hasFingerPending || hasBagiHasil) ids.add(String(emp.id));
+                    const bhInfo = hitungBagiHasilDireksi(emp, lkMonthStr);
+                    const bagiHasil = bhInfo.amount;
+                    const bhBulanLama = bhInfo.bulanLama;
+                    const totalProdWage = prodWage + manualProdWage;
+                    const total = totalProdWage + harian + lembur + komisi + previewHarian + previewLembur + bagiHasil;
+                    // Siap direkap hanya bila memang ada gaji yang bisa direkap (scan absensi saja tanpa gaji tidak dihitung)
+                    const isPending = unsettledItems.length > 0 || dailyRows.length > 0 || overtimeRows.length > 0 || mktRows.length > 0 || (previewHarian + previewLembur) > 0 || bagiHasil > 0;
+                    result.set(empKey, {
+                        unsettledItems, totalUnsettled, totalUnsettledWage, prodWage, manualProdWage, totalProdWage,
+                        dailyRows, overtimeRows, harian, lembur, isDireksi, mktRows, komisi,
+                        hasAbsensiPending, previewHarian, previewLembur, bagiHasil, bhBulanLama, total, isPending
+                    });
                 });
+                return result;
+            }, [visibleEmployees, visibleOrdersForPending, visibleInvoicesForPending, visibleRekapsBase, absensiRawLogs, absensiEdits, templates, invoices, lkTodayStr, lkMonthStr]);
+            const EMPTY_PENDING = { unsettledItems: [], totalUnsettled: 0, totalUnsettledWage: 0, prodWage: 0, manualProdWage: 0, totalProdWage: 0, dailyRows: [], overtimeRows: [], harian: 0, lembur: 0, isDireksi: false, mktRows: [], komisi: 0, hasAbsensiPending: false, previewHarian: 0, previewLembur: 0, bagiHasil: 0, bhBulanLama: [], total: 0, isPending: false };
+            const getPendingOf = (emp) => pendingPerEmp.get(String(emp?.id)) || EMPTY_PENDING;
+            const empIdsWithPendingSalary = React.useMemo(() => {
+                const ids = new Set();
+                pendingPerEmp.forEach((p, k) => { if (p.isPending) ids.add(k); });
                 return ids;
-            }, [visibleEmployees, visibleOrdersForPending, visibleInvoicesForPending, visibleRekapsBase, absensiRawLogs]);
+            }, [pendingPerEmp]);
 
             const [searchInput, setSearchInput] = React.useState('');
             React.useEffect(() => {
@@ -17959,57 +18301,36 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <span>${formatReceiptMoney(item.wageTotal || 0)}</span>
                     </div>
                 `);
-                const _mnNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
-                const plainDailyLogs = dailyOnlyLogs.filter(log => {
-                    const t = getDailySalaryLogTotal(log);
-                    return t.overtime === 0 && (!log.hourAdjDetails?.length || t.adj === 0);
-                });
-                const specialDailyLogs = dailyOnlyLogs.filter(log => {
-                    const t = getDailySalaryLogTotal(log);
-                    return t.overtime > 0 || (log.hourAdjDetails?.length > 0 && t.adj !== 0);
-                });
-                const plainTotal = plainDailyLogs.reduce((s, log) => s + getDailySalaryLogTotal(log).base, 0);
-                const plainWorkDaysRaw = plainDailyLogs.reduce((s, log) => { const wd = parseFloat(log.workDays); return s + (Number.isFinite(wd) ? wd : 1); }, 0);
-                const plainWorkDays = Number.isInteger(plainWorkDaysRaw) ? plainWorkDaysRaw : parseFloat(plainWorkDaysRaw.toFixed(1));
-                const _plainByMonth = {};
-                plainDailyLogs.forEach(log => {
-                    if (!log.date) return;
-                    const parts = String(log.date).split('-');
-                    const y = parts[0], m = parseInt(parts[1], 10), d = parseInt(parts[2], 10);
-                    const key = `${y}-${String(m).padStart(2,'0')}`;
-                    if (!_plainByMonth[key]) _plainByMonth[key] = { year: y, month: m, days: [] };
-                    _plainByMonth[key].days.push(d);
-                });
-                const plainDateLines = Object.keys(_plainByMonth).sort().map(key => {
-                    const { year, month, days } = _plainByMonth[key];
-                    days.sort((a, b) => a - b);
-                    return `${days.join(', ')} ${_mnNames[month - 1]} ${year}`;
-                });
-                const plainRatePerHari = plainWorkDaysRaw > 0 ? Math.round(plainTotal / plainWorkDaysRaw) : 0;
-                const groupedPlainRow = plainDailyLogs.length > 0 ? `
+                const susunanHarian = susunGajiHarianNota(dailyLogs);
+                const escNota = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+                const uangBertanda = (n) => `${n > 0 ? '+' : '−'}${formatReceiptMoney(Math.abs(n))}`;
+                const dailyRows = [
+                    ...susunanHarian.grup.map(g => `
                     <div class="item-row" style="border-left:2px solid #86efac;padding-left:6px;background:#f0fdf4">
                         <span>
-                            <b>Gaji Harian (${plainWorkDays} hari)</b>
-                            <small style="color:#555">${plainWorkDays} hari × ${formatReceiptMoney(plainRatePerHari)}/hari</small>
-                            ${plainDateLines.map((line, i) => `<small style="color:#374151">${i === 0 ? 'Tgl: ' : '       '}${line}</small>`).join('')}
+                            <b>Gaji Harian (${g.hari} hari)</b>
+                            <small style="color:#555">${g.hari} hari × ${formatReceiptMoney(g.rate)}/hari</small>
+                            ${g.barisTanggal.map((line, i) => `<small style="color:#374151">${i === 0 ? 'Tgl: ' : '       '}${line}</small>`).join('')}
                         </span>
-                        <span>${formatReceiptMoney(plainTotal)}</span>
-                    </div>` : '';
-                const dailyRows = [
-                    ...(groupedPlainRow ? [groupedPlainRow] : []),
-                    ...specialDailyLogs.map(log => {
-                        const t = getDailySalaryLogTotal(log);
-                        const hasAdj = log.hourAdjDetails?.length > 0 && t.adj !== 0;
-                        const adjRows = hasAdj
-                            ? log.hourAdjDetails.map(d => `<div class="item-row" style="font-size:9.5px;background:#fafafa;padding-left:8px"><span style="color:#6b7280">↳ <b style="color:#374151">${d.date}</b> | ${formatSelisihJamLabel(d)}</span><span style="color:${d.amount > 0 ? '#15803d' : '#dc2626'};font-weight:700">${d.amount > 0 ? '+' : ''}${formatReceiptMoney(d.amount)}</span></div>`).join('') +
-                              (log.hourAdjDetails.length > 1 ? `<div class="item-row" style="font-size:9.5px;background:#f0fdf4;padding-left:8px"><span style="font-weight:700;color:#374151">Subtotal Penyesuaian</span><span style="color:${t.adj > 0 ? '#15803d' : '#dc2626'};font-weight:700">${t.adj > 0 ? '+' : ''}${formatReceiptMoney(t.adj)}</span></div>` : '')
-                            : '';
+                        <span>${formatReceiptMoney(g.total)}</span>
+                    </div>`),
+                    ...susunanHarian.khusus.map(k => {
+                        const alasan = k.selisih === 0 ? '' : (k.rincian.length > 0
+                            ? k.rincian.map(d => `<small style="color:${d.amount > 0 ? '#15803d' : '#dc2626'}">${k.rincian.length > 1 && d.date ? `${escNota(d.date)} ` : ''}${escNota(d.text)}: ${uangBertanda(d.amount)}</small>`).join('')
+                            : `<small style="color:${k.selisih > 0 ? '#15803d' : '#dc2626'}">Penyesuaian jam kerja: ${uangBertanda(k.selisih)}</small>`);
+                        const nilai = k.selisih === 0 ? formatReceiptMoney(k.daily)
+                            : `<s style="color:#9ca3af;font-weight:normal;font-size:10px">${formatReceiptMoney(k.base)}</s><br>${formatReceiptMoney(k.daily)}`;
                         return `
                         <div class="item-row" style="border-left:2px solid #fcd34d;padding-left:6px;background:#fffbeb">
-                            <span><b>${log.date || '-'}</b><small>${log.note || 'Gaji harian'} | ${log.workDays || 0} hari</small></span>
-                            <span>${formatReceiptMoney(t.base)}</span>
-                        </div>${adjRows}`;
-                    })
+                            <span><b>${escNota(k.date)}</b><small>${k.note ? `${escNota(k.note)} · ` : ''}${k.hari} hari × ${formatReceiptMoney(k.rate)}</small>${alasan}</span>
+                            <span>${nilai}</span>
+                        </div>`;
+                    }),
+                    ...((susunanHarian.jumlahBaris > 1 || susunanHarian.potonganJam !== 0 || susunanHarian.tambahanJam !== 0) ? [`
+                    <div class="item-row" style="background:#f1f5f9;padding:5px 6px">
+                        <span><b>Total Gaji Harian (${susunanHarian.totalHari} hari)</b>${susunanHarian.potonganJam !== 0 ? `<small>termasuk potongan jam ${uangBertanda(susunanHarian.potonganJam)}</small>` : ''}${susunanHarian.tambahanJam !== 0 ? `<small>termasuk tambahan jam ${uangBertanda(susunanHarian.tambahanJam)}</small>` : ''}</span>
+                        <span>${formatReceiptMoney(susunanHarian.total)}</span>
+                    </div>`] : [])
                 ];
                 const overtimeRows = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => `
                     <div class="item-row">
@@ -18091,7 +18412,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <div class="total-box">
                             <div class="total-row"><span>Total Pendapatan</span><span class="font-bold">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
                             ${safeMoney(data.bonusSalary) > 0 ? `<div class="total-sub">★ termasuk apresiasi kinerja ${formatReceiptMoney(data.bonusSalary || 0)}</div>` : ''}
-                            <div class="total-row"><span>Total Potongan</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
+                            ${susunanHarian.potonganJam !== 0 ? `<div class="total-sub" style="display:flex;justify-content:space-between"><span>· potongan jam sudah dikurangkan</span><span>${uangBertanda(susunanHarian.potonganJam)}</span></div>` : ''}
+                            <div class="total-row"><span>Potongan Kasbon</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
                             <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction)))}</span></div>
                         </div>
                         ${(() => {
@@ -18366,176 +18688,6 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 showToast('Entri dihapus.', 'success');
             };
 
-            // "Daftar isi" scan mesin: dikelompokkan sekali per PIN lalu per tanggal (urutan asli dipertahankan),
-            // supaya hitung gaji harian tidak membaca ulang semua scan untuk tiap hari & tiap karyawan.
-            // Isi tiap kelompok sama persis dengan filter lama (tanggal sama, tidak dihapus, PIN sama).
-            const rawLogsByPinDate = React.useMemo(() => {
-                const byPin = new Map();
-                safeArray(absensiRawLogs).forEach(l => {
-                    if (!l || l.isDeleted) return;
-                    const pinKey = String(l.pin).trim();
-                    let byDate = byPin.get(pinKey);
-                    if (!byDate) { byDate = new Map(); byPin.set(pinKey, byDate); }
-                    const list = byDate.get(l.tanggal);
-                    if (list) list.push(l); else byDate.set(l.tanggal, [l]);
-                });
-                return byPin;
-            }, [absensiRawLogs]);
-            // Koreksi jam per "tanggal_pin": ambil koreksi aktif pertama (sama dengan .filter(isVisibleRecord).find(...))
-            const absensiEditByKey = React.useMemo(() => {
-                const map = new Map();
-                safeArray(absensiEdits).filter(isVisibleRecord).forEach(e => { if (!map.has(e.editKey)) map.set(e.editKey, e); });
-                return map;
-            }, [absensiEdits]);
-
-            const computeAutoAbsensiForEmp = (emp, { includeGaps = false } = {}) => {
-                const ttm = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-                const pin = String(emp?.fingerPin || '').trim();
-                if (!pin || !getEmployeeSalaryTypes(emp).includes('Harian')) return { previewLogs: [], warnings: [] };
-                const empAssignment = safeArray(templates?.absensiShiftAssignments).find(a => String(a.pin) === pin);
-                const empPrimaryId = empAssignment ? safeArray(empAssignment.shifts).find(id => id !== 'shift3') : null;
-                const empHasShift3 = empAssignment ? safeArray(empAssignment.shifts).includes('shift3') : false;
-                const empPrimaryShift = empPrimaryId ? safeArray(templates?.absensiShifts).find(s => s.id === empPrimaryId) : null;
-                const empShift3obj = empHasShift3 ? safeArray(templates?.absensiShifts).find(s => s.id === 'shift3') : null;
-                const hasEmpShiftAssignment = !!(empAssignment && safeArray(empAssignment.shifts).length > 0);
-                const jmCfg = empPrimaryShift?.jamMasuk || templates?.absensiJamMasuk || '07:00';
-                const jpCfg = empPrimaryShift?.jamPulang || templates?.absensiJamPulang || '16:30';
-                const lmCfg = templates?.absensiLemburMulai || '18:00';
-                const lsCfg = templates?.absensiLemburSelesai || '21:00';
-                const ttLCfg = templates?.absensiTitikTengahLembur || '';
-                const toleransiMenit = getAbsensiToleransiMenit(templates);
-                const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
-                const mLM = ttm(lmCfg), mLS = ttm(lsCfg);
-                // Titik tengah per shift (sama dengan menu Absensi Finger)
-                const mMid = getTitikTengahMenit(empPrimaryShift, templates?.absensiTitikTengah, jmCfg, jpCfg);
-                const standardMenit = (mMasukCfg != null && mPulangCfg != null) ? mPulangCfg - mMasukCfg : 0;
-                const rateKurang = safeMoney(emp.rateKurang) || 0;
-                const rateLebih = safeMoney(emp.rateLebih) || 0;
-                const existingAbsensiLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '');
-                const cutoffDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateTo).sort().reverse()[0] : null;
-                const today = toLocalDateStr();
-                // Hari sebelum cutoff yang belum pernah direkap (mis. tidak dicentang saat rekap) = "terlewat".
-                // Hanya disertakan bila diminta (modal rekap), tidak dicentang otomatis, dan dilewati jika tanggal itu sudah punya log gaji harian/lembur yang direkap.
-                const rekapedSalaryLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.rekapId && String(l.rekapId).trim() !== '');
-                const coveredDayDates = new Set(rekapedSalaryLogs.filter(l => getDailySalaryLogTotal(l).daily > 0 || safeMoney(l.workDays) > 0).map(l => String(l.date)));
-                const coveredOtDates = new Set(rekapedSalaryLogs.filter(l => getDailySalaryLogTotal(l).overtime > 0 || safeMoney(l.overtimeCount) > 0).map(l => String(l.date)));
-                const firstAbsensiRekapDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateFrom || l.date).filter(Boolean).sort()[0] : null;
-                let startDate;
-                if (cutoffDate && includeGaps && firstAbsensiRekapDate) {
-                    startDate = firstAbsensiRekapDate;
-                } else if (cutoffDate) {
-                    const d = new Date(cutoffDate); d.setDate(d.getDate() + 1);
-                    startDate = toLocalDateStr(d);
-                } else {
-                    const allPinDates = [...(rawLogsByPinDate.get(pin) || new Map()).keys()].filter(Boolean).sort();
-                    startDate = allPinDates[0] || null;
-                }
-                if (!startDate || startDate > today) return { previewLogs: [], warnings: [] };
-                const dates = [];
-                const cur = new Date(startDate); const end = new Date(today);
-                while (cur <= end) { dates.push(toLocalDateStr(cur)); cur.setDate(cur.getDate() + 1); }
-                const warnings = [];
-                const previewLogs = [];
-                const nowTs = new Date().toISOString();
-                dates.forEach(date => {
-                    const isGap = !!(cutoffDate && date <= cutoffDate);
-                    const skipDay = isGap && coveredDayDates.has(date);
-                    const skipOt = isGap && coveredOtDates.has(date);
-                    if (skipDay && skipOt) return;
-                    const pinLogsByDate = rawLogsByPinDate.get(pin);
-                    const dayLogs = (pinLogsByDate && pinLogsByDate.get(date)) || [];
-                    // Untuk shift malam yang melewati tengah malam, ambil scan dari tanggal berikutnya sebagai kandidat pulang
-                    const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return toLocalDateStr(d); })();
-                    // Hanya scan dari tanggal berikutnya yang terjadi SEBELUM jam masuk normal (cegah scan pagi hari kerja dihitung sebagai jam pulang lembur)
-                    const nextDayLogs = ((pinLogsByDate && pinLogsByDate.get(nextDate)) || []).filter(l => (ttm(l.jam) == null || mMasukCfg == null || ttm(l.jam) < mMasukCfg));
-                    const override = absensiEditByKey.get(`${date}_${pin}`);
-                    // Untuk shift malam: konversi jam dari tanggal berikutnya ke menit > 1440 agar bisa dibandingkan
-                    const nextDayLogsShifted = nextDayLogs.map(l => ({ ...l, _shiftedJam: l.jam, _shiftedMinutes: (ttm(l.jam) ?? 0) + 1440 }));
-                    const sorted = [...dayLogs].sort((a, b) => a.jam > b.jam ? 1 : -1);
-                    const mShift3Masuk = empShift3obj ? ttm(empShift3obj.jamMasuk) : null;
-                    const mPrimPulang = ttm(jpCfg);
-                    const lembFloorBase = mShift3Masuk !== null ? mShift3Masuk : mLM;
-                    // Shift 2 (jamPulang > lemburMulai, mis. 22:30 > 18:00) & tidak ada Shift 3:
-                    // zona pulang diperluas sampai tengah malam agar scan lewat jadwal tetap tercatat
-                    // Shift 1 (jamPulang ≤ lemburMulai, mis. 16:30 ≤ 18:00): gunakan lemburMulai sebagai batas
-                    // Karyawan ber-shift tanpa Shift 3 tidak dihitung lembur: semua scan hari itu = scan kerja
-                    // (pulang lewat jam mulai lembur tetap tercatat pulang, lalu mengikuti Akhir Scan shift)
-                    const tanpaLembur = hasEmpShiftAssignment && !empHasShift3;
-                    const mAktifBoundary = tanpaLembur ? 1440 : (mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase);
-                    const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mAktifBoundary);
-                    let masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
-                    let pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
-                    // Konsisten dengan computeDayMetrics: scan tunggal di pulangZone diperlakukan sebagai masuk
-                    if (masukZone.length === 0 && pulangZone.length > 0) {
-                        masukZone = [pulangZone[0]];
-                        pulangZone = pulangZone.slice(1);
-                    }
-                    // Hanya 1 scan sesudah jam lembur & belum ada scan pulang: itu scan pulang (1 scan tidak bisa jadi sesi lembur)
-                    const lembAll = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mAktifBoundary);
-                    const shift3LewatMalam = empShift3obj != null && ttm(empShift3obj.jamPulang) != null && ttm(empShift3obj.jamPulang) < mAktifBoundary;
-                    const lateAsPulang = (masukZone.length > 0 && pulangZone.length === 0 && lembAll.length === 1 && !shift3LewatMalam && !override?.jamLemburMasuk) ? lembAll[0] : null;
-                    const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
-                    const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : (lateAsPulang ? lateAsPulang.jam : null);
-                    // Ikuti Batas Scan shift (sama dengan menu Absensi Finger); jam yang diedit manual tidak diubah
-                    const jamMasuk = override?.jamMasuk || clampJamKeBatasScan(rawMasuk, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
-                    const jamPulang = override?.jamPulang || clampJamKeBatasScan(rawPulang, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
-                    if (!isGap && jamMasuk && !jamPulang) warnings.push({ date, type: 'masuk_tanpa_pulang', jam: jamMasuk });
-                    else if (!isGap && !jamMasuk && jamPulang) warnings.push({ date, type: 'pulang_tanpa_masuk', jam: jamPulang });
-                    if (jamMasuk && jamPulang && !skipDay) {
-                        let dayAdjAmt = 0; let dayAdjDetails = [];
-                        if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
-                            // Selisih bersih dari jam kerja standar shift: datang awal & pulang lebih lama = lebih jam.
-                            // Selisih di bawah toleransi (menu Absensi Finger) tidak dihitung; di atasnya dihitung per menit.
-                            const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
-                            const selisihMenit = hitungLebihKurangMenit(actualMenit - standardMenit, toleransiMenit);
-                            if (selisihMenit !== 0) {
-                                const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
-                                const amount = selisihMenit > 0 ? Math.round((selisihMenit / 60) * rateLebih) : -Math.round((Math.abs(selisihMenit) / 60) * rateKurang);
-                                if (amount !== 0) { dayAdjAmt = amount; dayAdjDetails = [{ date, selisihMenit, selisihJam, amount }]; }
-                            }
-                        }
-                        const dayAdjFields = {};
-                        if (dayAdjAmt !== 0) dayAdjFields.hourAdjustment = dayAdjAmt;
-                        if (dayAdjDetails.length > 0) dayAdjFields.hourAdjDetails = dayAdjDetails;
-                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-DAY-${emp.id}-${date}`, date, note: isGap ? `Hadir ${date} (terlewat)` : `Hadir ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 1, dailySalary: safeMoney(emp.dailySalary) || 0, overtimeCount: 0, overtimeRate: 0, ...dayAdjFields });
-                    }
-                    const shouldCalcLembur = empShift3obj != null ? true : !hasEmpShiftAssignment;
-                    const mShift3Pulang = empShift3obj ? ttm(empShift3obj.jamPulang) : null;
-                    const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : mLS;
-                    const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (mAktifBoundary != null && mLemburSelesaiRef != null ? (mAktifBoundary + mLemburSelesaiRef) / 2 : null);
-                    const lembForLembur = shouldCalcLembur ? lembAll.filter(e => e !== lateAsPulang) : [];
-                    const lMasukZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= effectiveMidLembur) : lembForLembur;
-                    const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
-                    const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
-                    const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length - 1].jam : null;
-                    // Cross-midnight hanya untuk shift3 yang BENAR-BENAR melewati tengah malam
-                    // (jamPulang secara menit < jamMasuk, artinya pulang di hari berikutnya)
-                    const isShift3CrossMidnight = empShift3obj != null && mShift3Pulang != null && mShift3Pulang < mAktifBoundary;
-                    const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0 && isShift3CrossMidnight)
-                        ? [...nextDayLogsShifted].sort((a, b) => b._shiftedMinutes - a._shiftedMinutes)[0]
-                        : null;
-                    const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
-                    const jlPulang = override?.jamLemburPulang || rawLPulang;
-                    const mLMasuk = ttm(jlMasuk);
-                    // Cap lembur: shift3 sama-hari → max jam 00:00 tengah malam (1440 menit)
-                    // shift3 cross-midnight → max jam pulang shift (misal 06:00 = 360+1440)
-                    let mLPulang = jlPulang ? ttm(jlPulang) : (crossMidnightPulang ? crossMidnightPulang._shiftedMinutes : null);
-                    if (mLPulang != null && empShift3obj != null) {
-                        const cappedPulang = isShift3CrossMidnight ? (mShift3Pulang != null ? mShift3Pulang + 1440 : 1440) : 1440;
-                        mLPulang = Math.min(mLPulang, cappedPulang);
-                    }
-                    const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
-                    if (shouldCalcLembur && lemburMenit >= 60 && !skipOt) {
-                        const lemburJam = Math.round(lemburMenit / 60 * 10) / 10;
-                        const lemburRate = safeMoney(emp.overtimeRate) || 0;
-                        if (lemburRate === 0 && !isGap) warnings.push({ date, type: 'lembur_rate_kosong', jam: jlMasuk });
-                        previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: isGap ? `Lembur ${date} (terlewat)` : `Lembur ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
-                    }
-                });
-                if (previewLogs.length === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
-                return { previewLogs, warnings, startDate, endDate: today };
-            };
-
             const handleOpenRekapModal = (empId, items) => {
                 const emp = visibleEmployees.find(e => String(e.id) === String(empId));
                 if (tolakEditSensitif(emp)) return;
@@ -18561,23 +18713,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 let bhInvoicesByMonth = {};
                 let bagiHasilDireksiSelectedKeys = new Set();
                 if (isDireksiEmp && safeMoney(emp?.bagiHasilNilai) > 0) {
-                    const rekapedBHMonths = new Set(
-                        safeRekapForReport.filter(isVisibleRecord)
-                            .filter(rk => String(rk.empId) === String(empId) && safeMoney(rk.bagiHasilDireksiAmount) > 0)
-                            .flatMap(rk => rk.bagiHasilDireksiMonths || (rk.bagiHasilDireksiMonth ? [rk.bagiHasilDireksiMonth] : [(rk.dateProcessed || '').slice(0, 7)].filter(Boolean)))
-                    );
-                    const unprocessedBHInvoices = safeInvoicesForReport.filter(inv => !inv.isDeleted && inv.date && !rekapedBHMonths.has((inv.date || '').slice(0, 7)));
-                    unprocessedBHInvoices.forEach(inv => {
-                        const m = (inv.date || '').slice(0, 7);
-                        if (!m) return;
-                        if (!bhInvoicesByMonth[m]) bhInvoicesByMonth[m] = [];
-                        bhInvoicesByMonth[m].push(inv);
-                    });
-                    bagiHasilDireksiSelectedKeys = new Set(unprocessedBHInvoices.map(inv => String(inv.id)));
+                    // Semua bulan yang belum direkap ditampilkan, tapi yang dicentang otomatis HANYA bulan berjalan
+                    // (bulan lama dicentang manual agar tidak ikut terbayar tanpa sengaja)
+                    const bhInfo = hitungBagiHasilDireksi(emp, toLocalMonthStr());
+                    bhInvoicesByMonth = bhInfo.perBulan;
+                    bagiHasilDireksiSelectedKeys = new Set(bhInfo.invBulanIni.map(inv => String(inv.id)));
                 }
                 const flatBHInvoices = Object.values(bhInvoicesByMonth).flat();
                 const hasBHData = flatBHInvoices.length > 0;
-                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount: 0, bagiHasilDireksiSelected: hasBHData, bagiHasilDireksiSelectedKeys, bagiHasilDireksiMonth: '', bagiHasilDireksiMonths: [], bagiHasilDireksiInvoicesByMonth: bhInvoicesByMonth, bagiHasilDireksiInvoices: flatBHInvoices, totalInvoiceBulan: flatBHInvoices.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0) });
+                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount: 0, bagiHasilDireksiSelected: hasBHData && bagiHasilDireksiSelectedKeys.size > 0, bagiHasilDireksiSelectedKeys, bagiHasilDireksiMonth: '', bagiHasilDireksiMonths: [], bagiHasilDireksiInvoicesByMonth: bhInvoicesByMonth, bagiHasilDireksiInvoices: flatBHInvoices, totalInvoiceBulan: flatBHInvoices.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0) });
                 setSelectedItemKeys(new Set());
                 setCashAdvanceDeduction('');
                 setCashAdvanceDeductionNote('');
@@ -18985,6 +19129,7 @@ ${getRekapShareLink(rekap)}
                 const rekap = (rekapKinerja || []).find(r => String(r.id) === String(rekapId));
                 if (!rekap || rekap.isDeleted) return;
                 if (tolakEditSensitif(rekap.empId)) return;
+                if (getRekapPaidTotal(rekap) === null) { showToast('Rekap lama ini tercatat lunas tanpa rincian pembayaran, jadi tidak bisa dibayar lagi.', 'error'); return; }
                 const net = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
                 const alreadyPaid = (rekap.payments || []).reduce((s, p) => s + safeMoney(p.amount), 0);
                 if (amount > net - alreadyPaid + 0.01) { showToast('Jumlah melebihi sisa yang harus dibayar.', 'error'); return; }
@@ -19034,6 +19179,8 @@ ${getRekapShareLink(rekap)}
                 const grossSalary = safeMoney(rekap.grossSalary ?? rekap.totalWage);
                 const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                 if (tolakEditSensitif(emp)) return;
+                const sudahDibayar = getRekapPaidTotal(rekap);
+                if (sudahDibayar === null) { showToast("Rekap lama ini tercatat lunas tanpa rincian pembayaran, jadi potongan kasbonnya tidak bisa diubah agar Buku Kas tetap benar.", "error"); return; }
                 const currentSummary = getEmployeeCashAdvanceSummary(emp);
                 const currentDeduction = safeMoney(rekap.cashAdvanceDeduction);
                 const maxDeduction = Math.min(grossSalary, currentSummary.remaining + currentDeduction);
@@ -19046,6 +19193,10 @@ ${getRekapShareLink(rekap)}
                 }
                 if (nextDeduction > maxDeduction) {
                     showToast("Potongan kasbon tidak boleh melebihi sisa kasbon.", "error");
+                    return;
+                }
+                if (sudahDibayar > Math.max(0, grossSalary - nextDeduction) + 0.01) {
+                    showToast(`Potongan kasbon tidak bisa dijadikan ${formatRupiah(nextDeduction)}: gaji bersih menjadi ${formatRupiah(Math.max(0, grossSalary - nextDeduction))}, lebih kecil dari yang sudah dibayar (${formatRupiah(sudahDibayar)}). Hapus dulu pembayaran yang berlebih.`, "error");
                     return;
                 }
                 const noteInput = window.prompt('Catatan potongan kasbon', rekap.cashAdvanceDeductionNote || '');
@@ -19087,7 +19238,7 @@ ${getRekapShareLink(rekap)}
                 setRekapKinerja(prev => (prev || []).map(item => {
                     if (String(item.id) !== String(rekap.id)) return item;
                     const newNetSalary = Math.max(0, grossSalary - nextDeduction);
-                    const alreadyPaid = safeArray(item.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
+                    const alreadyPaid = safeArray(item.payments).filter(p => safeMoney(p.amount) > 0).reduce((s, p) => s + safeMoney(p.amount), 0);
                     const newPaymentStatus = alreadyPaid <= 0 ? 'belum' : alreadyPaid >= newNetSalary - 1 ? 'lunas' : 'sebagian';
                     return { ...item, cashAdvanceDeduction: nextDeduction, cashAdvanceDeductionNote: noteInput || '', netSalary: newNetSalary, paymentStatus: newPaymentStatus, _syncUpdatedAt: now };
                 }));
@@ -19101,6 +19252,22 @@ ${getRekapShareLink(rekap)}
                 if (pays.length > 0) return pays.reduce((s, p) => s + safeMoney(p.amount), 0);
                 if (!Array.isArray(rekap?.payments) || rekap?.paymentStatus === 'lunas') return null;
                 return 0;
+            };
+            const getRekapNet = (r) => {
+                if (r.netSalary != null) return safeMoney(r.netSalary);
+                return Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
+            };
+            // Status bayar rekap. Rekap lama yang di Buku Kas dihitung lunas (tanpa rincian pembayaran) = 'Sudah Dibayar'.
+            const getRekapPayBadge = (r) => {
+                const paid = getRekapPaidTotal(r);
+                if (paid === null) return 'Sudah Dibayar';
+                if (paid <= 0) return 'Belum Dibayar';
+                return paid >= getRekapNet(r) - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian';
+            };
+            // Sisa yang belum dibayar (rekap lama yang dihitung lunas = 0)
+            const getRekapSisa = (r) => {
+                const paid = getRekapPaidTotal(r);
+                return paid === null ? 0 : Math.max(0, getRekapNet(r) - paid);
             };
             const canEditRekapBonus = authUser?.role !== 'Karyawan';
 
@@ -19248,7 +19415,7 @@ ${getRekapShareLink(rekap)}
                     const emp = visibleEmployees.find(e => String(e.id) === String(rekap.empId));
                     if (!canViewSens && emp && isSensitiveEmp(emp)) return false;
                     const itemText = (rekap.items || []).map(item => `${item.orderId} ${item.client} ${item.type} ${item.stageLabel || item.stage} ${item.sizes} ${item.qty} ${item.wageTotal}`).join(' ');
-                    const statusText = rekap.paymentStatus === 'lunas' ? 'Sudah Dibayar' : rekap.paymentStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
+                    const statusText = `${getRekapPayBadge(rekap)}${getRekapPaidTotal(rekap) === null ? ' data lama' : ''}`;
                     return matchesSearch([
                         rekap.id, rekap.empName, emp?.name, rekap.division || emp?.division, rekap.dateProcessed,
                         rekap.total, rekap.totalWage, rekap.grossSalary, rekap.cashAdvanceDeduction,
@@ -19279,10 +19446,6 @@ ${getRekapShareLink(rekap)}
             const cancelledPaidDismissedSet = new Set(String(cancelledPaidDismissed || '').split('|').filter(Boolean));
             const cancelledPaidHasNew = cancelledPaidKeys.some(k => !cancelledPaidDismissedSet.has(k));
             const cancelledPaidTotal = cancelledPaidRekaps.reduce((s, { pays }) => s + pays.reduce((ps, p) => ps + safeMoney(p.amount), 0), 0);
-            const getRekapNet = (r) => {
-                if (r.netSalary != null) return safeMoney(r.netSalary);
-                return Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
-            };
             // Hitung selisih komisi: bandingkan snapshot tersimpan vs hitungan live saat ini
             const getRekapKomisiSelisih = (rekap) => {
                 const invoiceIds = safeArray(rekap.marketingInvoiceIds);
@@ -19309,13 +19472,6 @@ ${getRekapShareLink(rekap)}
                     return Math.round(Math.max(0, liveTotal - storedTotal));
                 }
             };
-            const getRekapPayBadge = (r) => {
-                const net = r.netSalary != null ? safeMoney(r.netSalary) : Math.max(0, safeMoney(r.grossSalary ?? r.totalWage) - safeMoney(r.cashAdvanceDeduction));
-                if (!Array.isArray(r.payments) || r.payments.length === 0) return 'Belum Dibayar';
-                const paid = r.payments.reduce((s, p) => s + safeMoney(p.amount), 0);
-                if (paid <= 0) return 'Belum Dibayar';
-                return paid >= net - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian';
-            };
             const filteredRekaps = rekapStatusFilter === 'semua' ? visibleRekaps
                 : rekapStatusFilter === 'selisih' ? visibleRekaps.filter(r => getRekapKomisiSelisih(r) > 0)
                 : rekapStatusFilter === 'belum' ? visibleRekaps.filter(r => getRekapPayBadge(r) === 'Belum Dibayar')
@@ -19337,9 +19493,20 @@ ${getRekapShareLink(rekap)}
             const sebagianCount = visibleRekaps.filter(r => getRekapPayBadge(r) === 'Dibayar Sebagian').length;
             const lunasCount = visibleRekaps.filter(r => getRekapPayBadge(r) === 'Sudah Dibayar').length;
             const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
-            const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, count: 0 } : visibleRekaps
+            const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, paid: 0, sisa: 0, count: 0 } : visibleRekaps
                 .filter(r => pinnedRekapIds.has(r.id))
-                .reduce((acc, r) => ({ net: acc.net + getRekapNet(r), count: acc.count + 1 }), { net: 0, count: 0 });
+                .reduce((acc, r) => {
+                    const net = getRekapNet(r);
+                    const sisa = getRekapSisa(r);
+                    return { net: acc.net + net, paid: acc.paid + (net - sisa), sisa: acc.sisa + sisa, count: acc.count + 1 };
+                }, { net: 0, paid: 0, sisa: 0, count: 0 });
+            // Kotak "Belum dibayar": jumlah sisa semua rekap yang tampil (rekap lama yang dihitung lunas tidak ikut)
+            const rekapBelumDibayar = visibleRekaps.reduce((acc, r) => {
+                const sisa = getRekapSisa(r);
+                if (sisa <= 0) return acc;
+                const sebagian = getRekapPayBadge(r) === 'Dibayar Sebagian';
+                return { total: acc.total + sisa, belum: acc.belum + (sebagian ? 0 : 1), sebagian: acc.sebagian + (sebagian ? 1 : 0) };
+            }, { total: 0, belum: 0, sebagian: 0 });
             const rekapSummary = {
                 employees: new Set(visibleRekaps.map(r => String(r.empId || r.empName))).size,
                 pcs: visibleRekaps.reduce((sum, r) => sum + safeMoney(r.total), 0),
@@ -19441,7 +19608,8 @@ ${getRekapShareLink(rekap)}
                 // 8. Rekap belum dibayar lebih dari 30 hari
                 const today = new Date();
                 const unpaidOldRekaps = allRekaps.filter(r => {
-                    if ((r.paymentStatus || 'belum') === 'lunas') return false;
+                    // Rekap lunas / rekap lama yang di Buku Kas dihitung lunas / tanpa sisa tidak dianggap belum dibayar
+                    if (getRekapSisa(r) <= 0) return false;
                     const tgl = r.dateProcessed || (r.createdAt ? toLocalDateStr(r.createdAt) : '');
                     if (!tgl) return false;
                     return Math.floor((today - new Date(tgl)) / 86400000) > 30;
@@ -19456,122 +19624,64 @@ ${getRekapShareLink(rekap)}
             // === END AUDIT ===
 
             const readyToRekapSummary = React.useMemo(() => filteredReportEmployees.reduce((acc, emp) => {
-                let prodWage = 0;
-                safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
-                    if (!order.progress) return;
-                    Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
-                        if (!getActiveProductionStageIds(order).includes(stage)) return;
-                        const empLogs = safeArray(data?.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
-                        if (empLogs.length > 0) {
-                            const qty = empLogs.reduce((s, l) => s + getWorkLogSubmittedQty(l), 0);
-                            prodWage += qty * getProductionUnitPrice(order, stage);
-                        }
-                    });
-                });
-                const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
-                const manualProdWage = manualProdRows.reduce((s, l) => s + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
-                const totalProdWage = prodWage + manualProdWage;
-                const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
-                const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
-                const rIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                const mktRows = rIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
-                const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
-                const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
-                const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
-                const rEmpPin = String(emp.fingerPin || '').trim();
-                const rEmpIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
-                let rPreviewHarian = 0, rPreviewLembur = 0;
-                if (rEmpPin && rEmpIsHarian) {
-                    const rCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                    const rTodayStr = toLocalDateStr();
-                    const rHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === rEmpPin && l.tanggal > (rCutoff || '0000-00-00') && l.tanggal <= rTodayStr);
-                    if (rHasPending) {
-                        const rResult = computeAutoAbsensiForEmp(emp);
-                        rPreviewHarian = safeArray(rResult.previewLogs).filter(l => getDailySalaryLogTotal(l).daily > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
-                        rPreviewLembur = safeArray(rResult.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
-                    }
-                }
-                const rBHMonth = toLocalMonthStr();
-                const rBHAlreadyRekaped = rIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === rBHMonth);
-                const rBagiHasil = (rIsDireksi && !rBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, rBHMonth) : 0;
-                const total = totalProdWage + harian + lembur + komisi + rPreviewHarian + rPreviewLembur + rBagiHasil;
-                return { produksi: acc.produksi + totalProdWage, harian: acc.harian + harian + rPreviewHarian, lembur: acc.lembur + lembur + rPreviewLembur, komisi: acc.komisi + komisi, bagiHasil: acc.bagiHasil + rBagiHasil, total: acc.total + total, karyawan: acc.karyawan + (total > 0 ? 1 : 0) };
-            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, bagiHasil: 0, total: 0, karyawan: 0 }), [filteredReportEmployees, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs, absensiEdits]);
+                const p = getPendingOf(emp);
+                return { produksi: acc.produksi + p.totalProdWage, harian: acc.harian + p.harian + p.previewHarian, lembur: acc.lembur + p.lembur + p.previewLembur, komisi: acc.komisi + p.komisi, bagiHasil: acc.bagiHasil + p.bagiHasil, total: acc.total + p.total, karyawan: acc.karyawan + (p.total > 0 ? 1 : 0) };
+            }, { produksi: 0, harian: 0, lembur: 0, komisi: 0, bagiHasil: 0, total: 0, karyawan: 0 }), [filteredReportEmployees, pendingPerEmp]);
 
-            const pinnedSummary = React.useMemo(() => pinnedEmpIds.size === 0 ? { net: 0, count: 0 } : filteredReportEmployees
+            const pinnedSummary = React.useMemo(() => pinnedEmpIds.size === 0 ? { net: 0, kasbon: 0, count: 0 } : filteredReportEmployees
                 .filter(emp => pinnedEmpIds.has(emp.id))
                 .reduce((acc, emp) => {
-                    let prodWage = 0;
-                    safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
-                        if(order.progress) {
-                            Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
-                                if (!getActiveProductionStageIds(order).includes(stage)) return;
-                                if (data && data.workLogs) {
-                                    const empLogs = safeArray(data.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
-                                    const qty = empLogs.reduce((s, l) => s + getWorkLogSubmittedQty(l), 0);
-                                    prodWage += qty * getProductionUnitPrice(order, stage);
-                                }
-                            });
-                        }
-                    });
-                    const manualProdRows = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
-                    const manualProdWage = manualProdRows.reduce((s, l) => s + safeMoney(l.qty) * safeMoney(l.unitPrice), 0);
-                    const totalProdWage = prodWage + manualProdWage;
-                    const dailyRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
-                    const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
-                    const pIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                    const mktRows = pIsDireksi ? [] : safeArray(safeInvoicesForReport).filter(isVisibleRecord).filter(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0);
-                    const harian = dailyRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
-                    const lembur = overtimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
-                    const komisi = mktRows.reduce((s, inv) => s + safeNumber(getInvoiceCommissionTotal(inv)), 0);
-                    const pEmpPin = String(emp.fingerPin || '').trim();
-                    const pEmpIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
-                    let pPreviewHarian = 0, pPreviewLembur = 0;
-                    if (pEmpPin && pEmpIsHarian) {
-                        const pCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                        const pTodayStr = toLocalDateStr();
-                        const pHasPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === pEmpPin && l.tanggal > (pCutoff || '0000-00-00') && l.tanggal <= pTodayStr);
-                        if (pHasPending) {
-                            const pResult = computeAutoAbsensiForEmp(emp);
-                            pPreviewHarian = safeArray(pResult.previewLogs).filter(l => getDailySalaryLogTotal(l).daily > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
-                            pPreviewLembur = safeArray(pResult.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
-                        }
-                    }
-                    const pBHMonth = toLocalMonthStr();
-                    const pBHAlreadyRekaped = pIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === pBHMonth);
-                    const pBagiHasil = (pIsDireksi && !pBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, pBHMonth) : 0;
-                    const total = totalProdWage + harian + lembur + komisi + pPreviewHarian + pPreviewLembur + pBagiHasil;
+                    const total = getPendingOf(emp).total;
                     const kasbon = getEmployeeCashAdvanceSummary(emp).remaining;
-                    const net = Math.max(0, total - Math.min(kasbon, total));
-                    return { net: acc.net + net, count: acc.count + 1 };
-                }, { net: 0, count: 0 }), [filteredReportEmployees, pinnedEmpIds, safeOrdersForReport, rekapKinerja, safeInvoicesForReport, absensiRawLogs, absensiEdits]);
+                    const potong = Math.min(kasbon, total);
+                    const net = Math.max(0, total - potong);
+                    return { net: acc.net + net, kasbon: acc.kasbon + potong, count: acc.count + 1 };
+                }, { net: 0, kasbon: 0, count: 0 }), [filteredReportEmployees, pinnedEmpIds, pendingPerEmp]);
 
 
             const rankingData = React.useMemo(() => {
                 const empMap = {};
-                // Dari rekapKinerja (sudah direkap) — filter per bulan dateProcessed
-                safeRekapForReport.filter(isVisibleRecord).forEach(r => {
+                const empById = new Map(visibleEmployees.map(e => [String(e.id), e]));
+                const visibleRekapIdSet = new Set(visibleRekapsBase.map(r => String(r.id)));
+                const ensure = (id, emp, fallback = {}) => {
+                    if (!empMap[id]) empMap[id] = { id, name: fallback.name || emp?.name || '', division: fallback.division || (emp ? getEmployeeDivisions(emp).join(', ') : ''), direkap: 0, pending: 0, gajiDirekap: 0 };
+                    return empMap[id];
+                };
+                const bolehLihat = (emp) => canViewSens || !(emp && isSensitiveEmp(emp));
+                // Gaji direkap: menurut tanggal rekap (uang keluar di bulan itu)
+                visibleRekapsBase.forEach(r => {
                     if (rankMonth && !(r.dateProcessed || '').startsWith(rankMonth)) return;
                     const id = String(r.empId);
-                    const emp = visibleEmployees.find(e => String(e.id) === id);
-                    if (!canViewSens && emp && isSensitiveEmp(emp)) return;
-                    if (!empMap[id]) empMap[id] = { id, name: r.empName || emp?.name || '', division: r.division || (emp ? getEmployeeDivisions(emp).join(', ') : ''), direkap: 0, pending: 0, gajiDirekap: 0 };
-                    empMap[id].direkap += safeMoney(r.total);
-                    empMap[id].gajiDirekap += safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage);
+                    const emp = empById.get(id);
+                    if (!bolehLihat(emp)) return;
+                    ensure(id, emp, { name: r.empName, division: r.division }).gajiDirekap += safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage);
                 });
-                // Dari workLogs pending (belum direkap, sudah checkAfter)
-                safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
+                // Pcs: menurut BULAN KERJA (tanggal setor), baik yang sudah direkap maupun belum
+                visibleOrdersForPending.forEach(order => {
                     if (!order.progress) return;
+                    const aktif = getActiveProductionStageIds(order);
                     Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
-                        if (!getActiveProductionStageIds(order).includes(stage)) return;
-                        safeArray(data?.workLogs).filter(l => !l.isDeleted && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter && (!rankMonth || (l.submittedAt || l.checkAfterChangedAt || '').startsWith(rankMonth))).forEach(l => {
-                            const emp = visibleEmployees.find(e => String(e.id) === String(l.empId));
-                            if (!emp) return;
-                            if (!canViewSens && isSensitiveEmp(emp)) return;
-                            const id = String(l.empId);
-                            if (!empMap[id]) empMap[id] = { id, name: emp.name || '', division: getEmployeeDivisions(emp).join(', '), direkap: 0, pending: 0, gajiDirekap: 0 };
-                            empMap[id].pending += getWorkLogSubmittedQty(l);
+                        if (!aktif.includes(stage)) return;
+                        safeArray(data?.workLogs).forEach(l => {
+                            if (!l || l.isDeleted || !(getWorkLogSubmittedQty(l) > 0)) return;
+                            if (!l.isReported && !l.checkAfter) return;
+                            if (rankMonth && !(l.submittedAt || l.checkAfterChangedAt || l.createdAt || '').startsWith(rankMonth)) return;
+                            const emp = empById.get(String(l.empId));
+                            if (!emp || !bolehLihat(emp)) return;
+                            const row = ensure(String(l.empId), emp);
+                            if (l.isReported) row.direkap += getWorkLogSubmittedQty(l); else row.pending += getWorkLogSubmittedQty(l);
                         });
+                    });
+                });
+                // Produksi manual (permak, ganti label, dll): menurut tanggal pekerjaan
+                visibleEmployees.forEach(emp => {
+                    if (!bolehLihat(emp)) return;
+                    getEmployeeManualProductionLogs(emp).forEach(log => {
+                        const qty = safeMoney(log.qty);
+                        if (!(qty > 0)) return;
+                        if (rankMonth && !String(log.date || '').startsWith(rankMonth)) return;
+                        const row = ensure(String(emp.id), emp);
+                        if (log.rekapId && visibleRekapIdSet.has(String(log.rekapId))) row.direkap += qty; else row.pending += qty;
                     });
                 });
                 return Object.values(empMap)
@@ -19589,7 +19699,7 @@ ${getRekapShareLink(rekap)}
                         if (rankSortBy === 'gaji_asc') return a.gajiDirekap - b.gajiDirekap;
                         return b[rankSortBy] - a[rankSortBy];
                     });
-            }, [rekapKinerja, safeOrdersForReport, rankMonth, rankDivFilter, rankSortBy, employees]);
+            }, [visibleRekapsBase, visibleOrdersForPending, visibleEmployees, rankMonth, rankDivFilter, rankSortBy, canViewSens]);
 
             return (
                 <div className="space-y-6">
@@ -19673,7 +19783,7 @@ ${getRekapShareLink(rekap)}
                             <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-3 rounded-xl flex items-center justify-between gap-4">
                                 <div className="flex items-center gap-3 flex-wrap">
                                     <span className="font-black text-sm">📌 {pinnedEmpIds.size} Karyawan Disematkan</span>
-                                    <span className="text-sm text-amber-100">Proyeksi Gaji Bersih: <strong className="text-white">{formatRupiah(pinnedSummary.net)}</strong></span>
+                                    <span data-pin-emp-proyeksi className="text-sm text-amber-100">Proyeksi gaji bersih <strong className="text-white">{formatRupiah(pinnedSummary.net)}</strong>{pinnedSummary.kasbon > 0 ? <> (setelah potong kasbon <strong className="text-white">{formatRupiah(pinnedSummary.kasbon)}</strong>)</> : null}</span>
                                 </div>
                                 <button onClick={() => setPinnedEmpIds(new Set())} className="flex-shrink-0 text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold transition-colors">✕ Hapus Sematan</button>
                             </div>
@@ -19696,96 +19806,36 @@ ${getRekapShareLink(rekap)}
                                 <span className="w-20 text-center">Aksi</span>
                             </div>
                             {pagedReportEmployees.map(emp => {
-                                const unsettledItems = [];
-                                let totalUnsettled = 0;
-                                let totalUnsettledWage = 0;
-
-                                safeArray(safeOrdersForReport).filter(isVisibleOrder).forEach(order => {
-                                    if(order.progress) {
-                                        Object.entries(safeObject(order.progress)).forEach(([stage, data]) => {
-                                            if (!getActiveProductionStageIds(order).includes(stage)) return;
-                                            if (data && data.workLogs) {
-                                                const empLogs = safeArray(data.workLogs).filter(l => !l.isDeleted && String(l.empId) === String(emp.id) && !l.isReported && getWorkLogSubmittedQty(l) > 0 && l.checkAfter);
-                                                if (empLogs.length > 0) {
-                                                    const sizeMap = {};
-                                                    empLogs.forEach(l => { sizeMap[l.size] = (sizeMap[l.size] || 0) + getWorkLogSubmittedQty(l); });
-                                                    const sizesInfo = sortSizeKeys(Object.keys(sizeMap)).map(s => `${s} (${sizeMap[s]})`).join(', ');
-                                                    const stageTotalQty = empLogs.reduce((sum, l) => sum + getWorkLogSubmittedQty(l), 0);
-                                                    const unitPrice = getProductionUnitPrice(order, stage);
-                                                    const wageTotal = stageTotalQty * unitPrice;
-                                                    const stageLabel = productionStageOptions.find(opt => opt.id === stage)?.label || stage;
-                                                    
-                                                    unsettledItems.push({
-                                                        orderId: order.id, client: order.client, type: order.type,
-                                                        stage: stage, stageLabel, sizes: sizesInfo, qty: stageTotalQty, unitPrice, wageTotal,
-                                                        logIds: empLogs.map(l => ({ stageId: stage, logId: l.id }))
-                                                    });
-                                                    totalUnsettled += stageTotalQty;
-                                                    totalUnsettledWage += wageTotal;
-                                                }
-                                            }
-                                        });
-                                    }
-                                });
-
-                                // Manual production logs (permak, ganti label, dll)
-                                const unrekapedManualLogs = safeArray(getEmployeeManualProductionLogs(emp)).filter(log => !log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId)));
-                                unrekapedManualLogs.forEach(log => {
-                                    const unitPrice = safeMoney(log.unitPrice);
-                                    const qty = safeMoney(log.qty);
-                                    const wageTotal = qty * unitPrice;
-                                    if (wageTotal <= 0) return;
-                                    unsettledItems.push({
-                                        orderId: `manual-${log.id}`, client: '-', type: 'Manual',
-                                        stage: 'manual', stageLabel: log.description || 'Pekerjaan Manual',
-                                        sizes: `${qty} pcs`, qty, unitPrice, wageTotal,
-                                        isManual: true, manualLogId: log.id, manualDate: log.date,
-                                        logIds: []
-                                    });
-                                    totalUnsettled += qty;
-                                    totalUnsettledWage += wageTotal;
-                                });
+                                const empPending = getPendingOf(emp);
+                                const { unsettledItems, totalUnsettled, totalUnsettledWage } = empPending;
 
                                 const myHistory = safeArray(rekapKinerja).filter(r => !r.isDeleted && String(r.empId) === String(emp.id)).reverse();
-                                const dailySalaryRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).daily > 0);
-                                const overtimeRows = safeArray(getEmployeeDailySalaryLogs(emp)).filter(log => (!log.rekapId || !safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.id) === String(log.rekapId))) && getDailySalaryLogTotal(log).overtime > 0);
+                                const dailySalaryRows = empPending.dailyRows;
+                                const overtimeRows = empPending.overtimeRows;
                                 const cashAdvanceRows = safeArray(getEmployeeCashAdvances(emp));
-                                const cardEmpIsDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
-                                const mainMktRows = cardEmpIsDireksi ? [] : safeArray(safeInvoicesForReport)
-                                    .filter(isVisibleRecord)
-                                    .filter(inv => isInvoiceOfMarketing(inv, emp) && !inv?.commissionRekapId && getInvoiceCommissionTotal(inv) > 0)
+                                const cardEmpIsDireksi = empPending.isDireksi;
+                                const mainMktRows = empPending.mktRows
                                     .map(inv => ({ ...inv, totalInvoice: safeNumber(getInvoiceTotals(inv).total), paidTotal: safeNumber(getInvoicePaidTotal(inv)), commissionTotal: safeNumber(getInvoiceCommissionTotal(inv)), status: getInvoicePaymentStatus(inv) }));
                                 const marketingRows = mainMktRows;
-                                const totalDailySalary = dailySalaryRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).daily), 0);
-                                const totalOvertimeSalary = overtimeRows.reduce((sum, log) => sum + safeNumber(getDailySalaryLogTotal(log).overtime), 0);
+                                const totalDailySalary = empPending.harian;
+                                const totalOvertimeSalary = empPending.lembur;
                                 const totalMarketingCommission = marketingRows.reduce((sum, inv) => sum + safeNumber(inv.commissionTotal), 0);
                                 const cashAdvanceSummary = getEmployeeCashAdvanceSummary(emp);
-                                const cardBHMonth = toLocalMonthStr();
-                                const cardBHAlreadyRekaped = cardEmpIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === cardBHMonth);
-                                const cardBagiHasil = (cardEmpIsDireksi && !cardBHAlreadyRekaped) ? getBagiHasilDireksi(emp, safeInvoicesForReport, cardBHMonth) : 0;
+                                const cardBagiHasil = empPending.bagiHasil;
                                 const totalIncome = safeNumber(totalUnsettledWage) + safeNumber(totalMarketingCommission) + safeNumber(totalDailySalary) + safeNumber(totalOvertimeSalary) + safeNumber(cardBagiHasil);
                                 const empSelectedItems = unsettledItems.filter(item => selectedItemKeys.has(`${item.orderId}-${item.stage}`));
                                 const empSelectedTotal = empSelectedItems.reduce((sum, item) => sum + item.qty, 0);
                                 const empSelectedWage = empSelectedItems.reduce((sum, item) => sum + (Math.round(item.wageTotal) || 0), 0);
 
-                                const empPin = String(emp.fingerPin || '').trim();
-                                const empIsHarian = getEmployeeSalaryTypes(emp).includes('Harian');
-                                let hasAbsensiPending = false;
-                                if (empPin && empIsHarian) {
-                                    const absCutoff = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '').map(l => l.absensiDateTo).sort().reverse()[0] || null;
-                                    const absTodayStr = toLocalDateStr();
-                                    hasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === empPin && l.tanggal > (absCutoff || '0000-00-00') && l.tanggal <= absTodayStr);
-                                }
-                                let listPreviewDailyTotal = 0, listPreviewOvertimeTotal = 0;
-                                if (empPin && empIsHarian && hasAbsensiPending) {
-                                    const lpResult = computeAutoAbsensiForEmp(emp);
-                                    listPreviewDailyTotal = safeArray(lpResult.previewLogs).filter(l => getDailySalaryLogTotal(l).daily > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).daily), 0);
-                                    listPreviewOvertimeTotal = safeArray(lpResult.previewLogs).filter(l => getDailySalaryLogTotal(l).overtime > 0).reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
-                                }
+                                const hasAbsensiPending = empPending.hasAbsensiPending;
+                                const listPreviewDailyTotal = empPending.previewHarian, listPreviewOvertimeTotal = empPending.previewLembur;
                                 const effectiveTotalIncome = totalIncome + listPreviewDailyTotal + listPreviewOvertimeTotal;
                                 const effectiveCashAdvDeduction = Math.min(safeNumber(cashAdvanceSummary.remaining), effectiveTotalIncome);
                                 const effectiveNetSalary = Math.max(0, effectiveTotalIncome - effectiveCashAdvDeduction);
-                                const hasUnsettled = unsettledItems.length > 0 || dailySalaryRows.length > 0 || overtimeRows.length > 0 || marketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || hasAbsensiPending || cardBagiHasil > 0;
+                                // Kuning/"Siap" hanya bila ada gaji yang bisa direkap; tombol rekap tetap muncul bila ada scan absensi
+                                // (agar peringatan scan tidak lengkap tetap bisa dilihat di modal)
+                                const hasUnsettled = empPending.isPending;
+                                const canOpenRekap = hasUnsettled || hasAbsensiPending;
                                 const isPinned = pinnedEmpIds.has(emp.id);
                                 return (
                                     <div key={emp.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 transition-colors border-l-4 ${isPinned ? 'bg-orange-100/60 border-l-orange-400 hover:bg-orange-100/80' : hasUnsettled ? 'bg-yellow-50/70 border-l-yellow-400 hover:bg-yellow-100/60' : 'bg-green-50/50 border-l-green-300 hover:bg-green-50/80'}`}>
@@ -19793,6 +19843,8 @@ ${getRekapShareLink(rekap)}
                                         <div className="flex-1 min-w-0">
                                             <div className="font-bold text-gray-900 text-sm truncate">{emp.name}</div>
                                             <div className="text-xs text-gray-500">{getEmployeeDivisions(emp).join(', ')}</div>
+                                            {cardBagiHasil > 0 && <div data-bh-bulan-ini-info className="text-[11px] text-amber-700">Bagi hasil {formatBulanPendek(lkMonthStr, true)}: <b>{formatRupiah(cardBagiHasil)}</b></div>}
+                                            {empPending.bhBulanLama.length > 0 && <div data-bh-lama-warn className="text-[11px] font-semibold text-amber-700">⚠ {empPending.bhBulanLama.length} bulan lama bagi hasil belum direkap ({empPending.bhBulanLama.length <= 4 ? empPending.bhBulanLama.map(m => formatBulanPendek(m)).join(', ') : `${formatBulanPendek(empPending.bhBulanLama[0])} – ${formatBulanPendek(empPending.bhBulanLama[empPending.bhBulanLama.length - 1])}`}) — tidak dicentang otomatis</div>}
                                         </div>
                                         <div className="text-right w-36 hidden sm:block flex-shrink-0">
                                             <div className="font-black text-blue-700 text-sm">{formatRupiah(effectiveNetSalary)}</div>
@@ -19807,7 +19859,7 @@ ${getRekapShareLink(rekap)}
                                         </div>
                                         <div className="flex gap-1.5 items-center w-20 justify-center flex-shrink-0">
                                             <button onClick={() => setInputDetailEmpId(emp.id)} title="Rincian" className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-100 transition-colors"><IconEye /></button>
-                                            {hasUnsettled && <button onClick={() => handleOpenRekapModal(emp.id, unsettledItems)} title="Rekap Gabungan" className="p-2 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 border border-green-100 transition-colors"><IconCheckCircle /></button>}
+                                            {canOpenRekap && <button onClick={() => handleOpenRekapModal(emp.id, unsettledItems)} title="Rekap Gabungan" className="p-2 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 border border-green-100 transition-colors"><IconCheckCircle /></button>}
                                         </div>
                                     </div>
                                 )
@@ -19866,6 +19918,12 @@ ${getRekapShareLink(rekap)}
                             {rekapSummary.bagiHasil > 0 && <Card><h3 className="text-xs font-bold text-gray-500">Bagi Hasil</h3><p className="text-xl font-black text-amber-700">{formatRupiah(rekapSummary.bagiHasil)}</p></Card>}
                             <Card><h3 className="text-xs font-bold text-gray-500">Kasbon Dipotong</h3><p className="text-xl font-black text-orange-700">{formatRupiah(rekapSummary.kasbon)}</p></Card>
                             <Card><h3 className="text-xs font-bold text-gray-500">Gaji Bersih</h3><p className="text-xl font-black text-blue-700">{formatRupiah(rekapSummary.net)}</p></Card>
+                            <div data-rk-belum className="md:col-span-4 rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-sm font-bold text-red-800">💸 Belum dibayar
+                                    <span className="font-semibold text-gray-500"> · {rekapBelumDibayar.belum + rekapBelumDibayar.sebagian === 0 ? 'semua rekap sudah dibayar' : [rekapBelumDibayar.belum > 0 ? `${rekapBelumDibayar.belum} rekap belum dibayar` : '', rekapBelumDibayar.sebagian > 0 ? `${rekapBelumDibayar.sebagian} rekap dibayar sebagian` : ''].filter(Boolean).join(' · ')}</span>
+                                </span>
+                                <span data-rk-belum-total className="text-xl font-black text-red-600">{formatRupiah(rekapBelumDibayar.total)}</span>
+                            </div>
                         </div>
                         <div className="flex items-center gap-3 flex-wrap">
                             <div className="flex items-center gap-2">
@@ -20020,7 +20078,9 @@ ${getRekapShareLink(rekap)}
                             <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-3 rounded-xl flex items-center justify-between gap-4">
                                 <div className="flex items-center gap-3 flex-wrap">
                                     <span className="font-black text-sm">📌 {pinnedRekapIds.size} Rekap Disematkan</span>
-                                    <span className="text-sm text-amber-100">Total Gaji Bersih: <strong className="text-white">{formatRupiah(pinnedRekapSummary.net)}</strong></span>
+                                    <span data-rk-pin-net className="text-sm bg-white/20 rounded-lg px-2.5 py-0.5">Total bersih <strong className="text-white">{formatRupiah(pinnedRekapSummary.net)}</strong></span>
+                                    <span data-rk-pin-paid className="text-sm bg-white/20 rounded-lg px-2.5 py-0.5">Sudah dibayar <strong className="text-white">{formatRupiah(pinnedRekapSummary.paid)}</strong></span>
+                                    <span data-rk-pin-sisa className="text-sm font-bold bg-white text-orange-700 rounded-lg px-2.5 py-0.5">Sisa belum dibayar <strong>{formatRupiah(pinnedRekapSummary.sisa)}</strong></span>
                                 </div>
                                 <button onClick={() => setPinnedRekapIds(new Set())} className="flex-shrink-0 text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg font-bold transition-colors">✕ Hapus Sematan</button>
                             </div>
@@ -20046,9 +20106,9 @@ ${getRekapShareLink(rekap)}
                                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                         const netSalary = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, grossSalary - deduction);
                                         const isPinned = pinnedRekapIds.has(rekap.id);
-                                        const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
-                                        const totalPaidDesktop = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
-                                        const sisaGajiDesktop = Math.max(0, netSalary - totalPaidDesktop);
+                                        const payBadge = getRekapPayBadge(rekap);
+                                        const isLegacyPaid = getRekapPaidTotal(rekap) === null;
+                                        const sisaGajiDesktop = getRekapSisa(rekap);
                                         const komisiSelisih = getRekapKomisiSelisih(rekap);
                                         const hasSelisih = komisiSelisih > 0;
                                         return (
@@ -20067,7 +20127,7 @@ ${getRekapShareLink(rekap)}
                                                 <td className="p-3 text-center">
                                                     {hasSelisih
                                                         ? <span className="px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-700 border border-amber-300">⚠ Ada Selisih</span>
-                                                        : <Badge status={payBadge} />}
+                                                        : <><Badge status={payBadge} />{isLegacyPaid && <div data-rk-legacy className="text-[10px] text-gray-500 mt-0.5">data lama</div>}</>}
                                                 </td>
                                                 <td className="p-3">
                                                     <div className="flex justify-center gap-1.5">
@@ -20092,9 +20152,9 @@ ${getRekapShareLink(rekap)}
                                     const deduction = safeMoney(rekap.cashAdvanceDeduction);
                                     const netSalary = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, grossSalary - deduction);
                                     const isPinned = pinnedRekapIds.has(rekap.id);
-                                    const payBadge = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'Belum Dibayar' : (() => { const paid = rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0); return paid <= 0 ? 'Belum Dibayar' : paid >= netSalary - 1 ? 'Sudah Dibayar' : 'Dibayar Sebagian'; })();
-                                    const totalPaidMobile = Array.isArray(rekap.payments) ? rekap.payments.reduce((s, p) => s + safeMoney(p.amount), 0) : 0;
-                                    const sisaGajiMobile = Math.max(0, netSalary - totalPaidMobile);
+                                    const payBadge = getRekapPayBadge(rekap);
+                                    const isLegacyPaid = getRekapPaidTotal(rekap) === null;
+                                    const sisaGajiMobile = getRekapSisa(rekap);
                                     const komisiSelisihMobile = getRekapKomisiSelisih(rekap);
                                     const hasSelisihMobile = komisiSelisihMobile > 0;
                                     return (
@@ -20112,7 +20172,7 @@ ${getRekapShareLink(rekap)}
                                                         </div>
                                                         {hasSelisihMobile
                                                             ? <span className="px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-700 border border-amber-300 whitespace-nowrap">⚠ Ada Selisih</span>
-                                                            : <Badge status={payBadge} />}
+                                                            : <><Badge status={payBadge} />{isLegacyPaid && <span data-rk-legacy className="text-[10px] text-gray-500">data lama</span>}</>}
                                                     </div>
                                                 </div>
                                             </div>
@@ -20440,6 +20500,9 @@ ${getRekapShareLink(rekap)}
                                                                         <input type="checkbox" className="w-4 h-4 cursor-pointer" checked={allMonthSel} onChange={() => toggleBagiHasilDireksiMonth(month)}/>
                                                                         <span className={isSel && someMonthSel ? 'text-amber-900' : 'text-gray-600'}>{monthLabel}</span>
                                                                         <span className="text-xs font-normal text-gray-400">{monthInvs.length} invoice</span>
+                                                                        {month === toLocalMonthStr()
+                                                                            ? <span data-bh-bulan-ini className="text-[10px] font-black text-green-700 bg-green-100 rounded-full px-1.5 py-0.5">bulan berjalan</span>
+                                                                            : month < toLocalMonthStr() ? <span data-bh-bulan-lama className="text-[10px] font-bold text-amber-700 bg-amber-100 rounded-full px-1.5 py-0.5">belum direkap · centang manual bila belum dibayar</span> : null}
                                                                     </label>
                                                                     <span className={`text-sm font-bold ${someMonthSel && isSel ? 'text-amber-700' : 'text-gray-400 line-through'}`}>{formatRupiah(monthBH)}</span>
                                                                 </div>
@@ -20659,9 +20722,8 @@ ${getRekapShareLink(rekap)}
                         const dTotalOvertimeSalary = dOvertimeRows.reduce((s, l) => s + safeNumber(getDailySalaryLogTotal(l).overtime), 0);
                         const dTotalMarketingCommission = dMarketingRows.reduce((s, inv) => s + safeNumber(inv.commissionTotal), 0);
                         const dCashAdvanceSummary = getEmployeeCashAdvanceSummary(dEmp);
-                        const dBHMonth = toLocalMonthStr();
-                        const dBHAlreadyRekaped = dEmpIsDireksi && safeArray(rekapKinerja).filter(isVisibleRecord).some(rk => String(rk.empId) === String(dEmp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0 && (rk.dateProcessed||'').slice(0,7) === dBHMonth);
-                        const dBagiHasil = (dEmpIsDireksi && !dBHAlreadyRekaped) ? getBagiHasilDireksi(dEmp, safeInvoicesForReport, dBHMonth) : 0;
+                        // Bagi hasil: sama dengan kartu & modal rekap (bulan berjalan, dicek dari bulan bagi hasil tersimpan)
+                        const dBagiHasil = getPendingOf(dEmp).bagiHasil;
                         const dTotalIncome = dTotalUnsettledWage + dTotalMarketingCommission + dTotalDailySalary + dTotalOvertimeSalary + dBagiHasil;
                         const dEmpPin = String(dEmp.fingerPin || '').trim();
                         const dEmpIsHarian = getEmployeeSalaryTypes(dEmp).includes('Harian');
@@ -20671,7 +20733,9 @@ ${getRekapShareLink(rekap)}
                             const dAbsTodayStr = toLocalDateStr();
                             dHasAbsensiPending = safeArray(absensiRawLogs).some(l => !l.isDeleted && String(l.pin).trim() === dEmpPin && l.tanggal > (dAbsCutoff || '0000-00-00') && l.tanggal <= dAbsTodayStr);
                         }
-                        const dHasUnsettled = dUnsettledItems.length > 0 || dDailySalaryRows.length > 0 || dOvertimeRows.length > 0 || dMarketingRows.filter(inv => inv.commissionTotal > 0).length > 0 || dHasAbsensiPending || dBagiHasil > 0;
+                        // "Siap direkap" sama dengan daftar karyawan; tombol rekap tetap bisa dibuka bila ada scan absensi
+                        const dHasUnsettled = getPendingOf(dEmp).isPending;
+                        const dCanOpenRekap = dHasUnsettled || dHasAbsensiPending;
                         const dPreviewResult = (dEmpPin && dEmpIsHarian) ? computeAutoAbsensiForEmp(dEmp) : { previewLogs: [] };
                         const dPreviewDailyRows = safeArray(dPreviewResult.previewLogs).filter(log => getDailySalaryLogTotal(log).daily > 0);
                         const dPreviewOvertimeRows = safeArray(dPreviewResult.previewLogs).filter(log => getDailySalaryLogTotal(log).overtime > 0);
@@ -20789,7 +20853,7 @@ ${getRekapShareLink(rekap)}
                                     <div className="px-5 py-3 border-t border-gray-100 flex justify-between items-center gap-2 bg-gray-50 flex-shrink-0">
                                         <div className="text-xs text-gray-500">{dHasUnsettled ? <span className="text-yellow-700 font-bold">⚡ Ada penghasilan siap direkap</span> : <span className="text-green-600 font-bold">✓ Tidak ada yang perlu direkap</span>}</div>
                                         <div className="flex gap-2">
-                                            {dHasUnsettled && <button onClick={() => { setInputDetailEmpId(null); handleOpenRekapModal(dEmp.id, dUnsettledItems); }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconCheckCircle /> Rekap Gabungan</button>}
+                                            {dCanOpenRekap && <button onClick={() => { setInputDetailEmpId(null); handleOpenRekapModal(dEmp.id, dUnsettledItems); }} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-sm flex items-center gap-2"><IconCheckCircle /> Rekap Gabungan</button>}
                                             <button onClick={() => setInputDetailEmpId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold text-sm">Tutup</button>
                                         </div>
                                     </div>
@@ -20805,10 +20869,12 @@ ${getRekapShareLink(rekap)}
                         const deduction = safeMoney(rekap.cashAdvanceDeduction);
                         const netSalary = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, grossSalary - deduction);
                         const payments = Array.isArray(rekap.payments) ? rekap.payments : [];
-                        const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
-                        const sisaBayar = Math.max(0, netSalary - totalPaid);
-                        const payStatus = (!Array.isArray(rekap.payments) || rekap.payments.length === 0) ? 'belum' : totalPaid <= 0 ? 'belum' : totalPaid >= netSalary - 1 ? 'lunas' : 'sebagian';
-                        const payStatusLabel = payStatus === 'lunas' ? 'Sudah Dibayar' : payStatus === 'sebagian' ? 'Dibayar Sebagian' : 'Belum Dibayar';
+                        // Rekap lama yang di Buku Kas dihitung lunas tanpa rincian: dianggap sudah dibayar penuh & tidak bisa dibayar lagi
+                        const isLegacyPaid = getRekapPaidTotal(rekap) === null;
+                        const totalPaid = isLegacyPaid ? netSalary : payments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                        const sisaBayar = isLegacyPaid ? 0 : Math.max(0, netSalary - totalPaid);
+                        const payStatusLabel = getRekapPayBadge(rekap);
+                        const payStatus = payStatusLabel === 'Sudah Dibayar' ? 'lunas' : payStatusLabel === 'Dibayar Sebagian' ? 'sebagian' : 'belum';
                         const closeModal = () => { setDetailRekapId(null); setDetailRekapTab('rincian'); setPayFormAmount(''); setPayFormMethod('Transfer'); setPayFormDate(toLocalDateStr()); setPayFormNote(''); setPayFormOperasionalKaryawanId(''); setShowSelisihDetail(false); };
                         const detailKomisiSelisih = getRekapKomisiSelisih(rekap);
                         const snap = rekap.marketingInvoiceAmounts;
@@ -20967,14 +21033,27 @@ ${getRekapShareLink(rekap)}
                                                                 <table className="w-full text-xs text-left">
                                                                     <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold">Keterangan</th><th className="p-2.5 font-semibold text-right">Hari</th><th className="p-2.5 font-semibold text-right">Subtotal</th></tr></thead>
                                                                     <tbody>
-                                                                        {dailyOnlyLogs.map((log, idx) => (
+                                                                        {dailyOnlyLogs.map((log, idx) => {
+                                                                            const t = getDailySalaryLogTotal(log);
+                                                                            const selisih = t.daily - t.base;
+                                                                            const rincianJam = safeArray(log.hourAdjDetails).filter(d => d && safeMoney(d.amount) !== 0);
+                                                                            return (
                                                                             <tr key={idx} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
                                                                                 <td className="p-2.5 text-gray-700">{log.date || '-'}</td>
-                                                                                <td className="p-2.5 text-gray-600">{log.note || 'Masuk kerja'}</td>
+                                                                                <td className="p-2.5 text-gray-600">
+                                                                                    <div>{log.note || 'Masuk kerja'}</div>
+                                                                                    {selisih !== 0 && (rincianJam.length > 0
+                                                                                        ? rincianJam.map((d, di) => <div key={di} data-rinc-adj className={`text-[11px] font-semibold ${safeMoney(d.amount) > 0 ? 'text-green-700' : 'text-red-600'}`}>{rincianJam.length > 1 && d.date ? `${d.date} ` : ''}{safeMoney(d.amount) > 0 ? 'Lebih' : 'Kurang'} {String(formatSelisihJamLabel(d)).replace(/^[+\-−]\s*/, '')}: {safeMoney(d.amount) > 0 ? '+' : '−'}{formatRupiah(Math.abs(safeMoney(d.amount)))}</div>)
+                                                                                        : <div data-rinc-adj className={`text-[11px] font-semibold ${selisih > 0 ? 'text-green-700' : 'text-red-600'}`}>Penyesuaian jam kerja: {selisih > 0 ? '+' : '−'}{formatRupiah(Math.abs(selisih))}</div>)}
+                                                                                </td>
                                                                                 <td className="p-2.5 text-right font-bold">{log.workDays || 0}</td>
-                                                                                <td className="p-2.5 text-right font-black text-indigo-700">{formatRupiah(getDailySalaryLogTotal(log).daily)}</td>
+                                                                                <td className="p-2.5 text-right font-black text-indigo-700">
+                                                                                    {selisih !== 0 && <div className="text-[10px] font-normal text-gray-400 line-through">{formatRupiah(t.base)}</div>}
+                                                                                    {formatRupiah(t.daily)}
+                                                                                </td>
                                                                             </tr>
-                                                                        ))}
+                                                                            );
+                                                                        })}
                                                                     </tbody>
                                                                 </table>
                                                             </div>
@@ -21024,7 +21103,7 @@ ${getRekapShareLink(rekap)}
                                             })()}
                                         </>)}
                                         {detailRekapTab === 'pembayaran' && (<>
-                                            <div className={`rounded-xl p-3 text-center font-black text-sm border ${payStatus === 'lunas' ? 'bg-green-50 border-green-200 text-green-700' : payStatus === 'sebagian' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-red-50 border-red-200 text-red-700'}`}>{payStatusLabel}</div>
+                                            <div className={`rounded-xl p-3 text-center font-black text-sm border ${payStatus === 'lunas' ? 'bg-green-50 border-green-200 text-green-700' : payStatus === 'sebagian' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-red-50 border-red-200 text-red-700'}`}>{payStatusLabel}{isLegacyPaid ? ' (data lama)' : ''}</div>
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                 <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 text-center">
                                                     <div className="text-xs text-gray-400 mb-1">Gaji Bersih</div>
@@ -21048,7 +21127,7 @@ ${getRekapShareLink(rekap)}
                                                     </div>
                                                 </div>
                                                 {payments.length === 0 ? (
-                                                    <div className="text-center text-gray-400 italic text-sm py-4 border border-dashed border-gray-200 rounded-xl">Belum ada pembayaran</div>
+                                                    <div className="text-center text-gray-400 italic text-sm py-4 border border-dashed border-gray-200 rounded-xl">{isLegacyPaid ? 'Rekap lama: tercatat lunas tanpa rincian pembayaran (di Buku Kas dihitung sudah dibayar).' : 'Belum ada pembayaran'}</div>
                                                 ) : (
                                                     <div className="border border-gray-200 rounded-xl overflow-hidden">
                                                         <table className="w-full text-xs text-left">
@@ -22311,6 +22390,8 @@ ${getRekapShareLink(rekap)}
             const dailyLogs = Array.isArray(rekap.dailySalaryLogs) ? rekap.dailySalaryLogs : [];
             const dailyOnlyLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
             const overtimeLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
+            const susunanHarian = susunGajiHarianNota(dailyLogs);
+            const uangBertandaSlip = (n) => `${n > 0 ? '+' : '−'}${formatReceiptMoney(Math.abs(n))}`;
 
             const SectionTitle = ({ title }) => (
                 <div className="mt-2 pt-1 pb-0.5 border-t border-b border-dashed border-black text-[10px] font-black uppercase">{title}</div>
@@ -22366,7 +22447,7 @@ ${getRekapShareLink(rekap)}
                                 <>
                                     <SectionTitle title="Komisi Marketing" />
                                     {relatedInvoices.map((inv, idx) => (
-                                        <ItemRow key={idx} label={inv.id || '-'} sub={`${inv.customer || '-'} | ${inv.date || rekap.dateProcessed || '-'}`} value={formatReceiptMoney(getInvoiceCommissionTotal(inv))} />
+                                        <ItemRow key={idx} label={inv.id || '-'} sub={`${inv.customer || '-'} | ${inv.date || rekap.dateProcessed || '-'}`} value={formatReceiptMoney(rekap.marketingInvoiceAmounts?.[String(inv.id)] != null ? rekap.marketingInvoiceAmounts[String(inv.id)] : getInvoiceCommissionTotal(inv))} />
                                     ))}
                                 </>
                             )}
@@ -22380,30 +22461,44 @@ ${getRekapShareLink(rekap)}
                                 </>
                             )}
 
-                            {dailyOnlyLogs.length > 0 && (
+                            {susunanHarian.jumlahBaris > 0 && (
                                 <>
                                     <SectionTitle title="Gaji Harian" />
-                                    {dailyOnlyLogs.map((log, idx) => {
-                                        const t = getDailySalaryLogTotal(log);
-                                        const hasAdj = log.hourAdjDetails?.length > 0 && t.adj !== 0;
-                                        return (
-                                            <React.Fragment key={idx}>
-                                                <ItemRow label={log.date || '-'} sub={`${log.note || 'Gaji harian'} | ${log.workDays || 0} hari`} value={formatReceiptMoney(t.base)} />
-                                                {hasAdj && log.hourAdjDetails.map((d, di) => (
-                                                    <div key={di} className="flex justify-between gap-2 py-0.5 border-b border-dashed border-gray-200 pl-2" style={{background:'#fafafa'}}>
-                                                        <span className="text-[9px] text-gray-500">↳ <b className="text-gray-700">{d.date}</b> | {formatSelisihJamLabel(d)}</span>
-                                                        <span className="text-[9px] font-bold whitespace-nowrap" style={{color: d.amount > 0 ? '#15803d' : '#dc2626'}}>{d.amount > 0 ? '+' : ''}{formatReceiptMoney(d.amount)}</span>
-                                                    </div>
-                                                ))}
-                                                {hasAdj && log.hourAdjDetails.length > 1 && (
-                                                    <div className="flex justify-between gap-2 py-0.5 border-b border-dashed border-gray-300 pl-2" style={{background:'#f0fdf4'}}>
-                                                        <span className="text-[9px] font-bold text-gray-700">Subtotal Penyesuaian</span>
-                                                        <span className="text-[9px] font-bold whitespace-nowrap" style={{color: t.adj > 0 ? '#15803d' : '#dc2626'}}>{t.adj > 0 ? '+' : ''}{formatReceiptMoney(t.adj)}</span>
-                                                    </div>
-                                                )}
-                                            </React.Fragment>
-                                        );
-                                    })}
+                                    {susunanHarian.grup.map((g, idx) => (
+                                        <div key={`g${idx}`} data-rg-harian-grup className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300 pl-1.5" style={{ background: '#f0fdf4', borderLeft: '2px solid #86efac' }}>
+                                            <span className="text-[9.4px]">
+                                                <span className="font-bold">Gaji Harian ({g.hari} hari)</span>
+                                                <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{g.hari} hari × {formatReceiptMoney(g.rate)}/hari</small>
+                                                {g.barisTanggal.map((line, i) => <small key={i} className="block text-gray-600 text-[8.6px] font-normal">{i === 0 ? 'Tgl: ' : ''}{line}</small>)}
+                                            </span>
+                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px]">{formatReceiptMoney(g.total)}</span>
+                                        </div>
+                                    ))}
+                                    {susunanHarian.khusus.map((k, idx) => (
+                                        <div key={`k${idx}`} data-rg-harian-khusus className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300 pl-1.5" style={{ background: '#fffbeb', borderLeft: '2px solid #fcd34d' }}>
+                                            <span className="text-[9.4px]">
+                                                <span className="font-bold">{k.date}</span>
+                                                <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{k.note ? `${k.note} · ` : ''}{k.hari} hari × {formatReceiptMoney(k.rate)}</small>
+                                                {k.selisih !== 0 && (k.rincian.length > 0
+                                                    ? k.rincian.map((d, di) => <small key={di} className="block text-[8.6px] font-normal" style={{ color: d.amount > 0 ? '#15803d' : '#dc2626' }}>{k.rincian.length > 1 && d.date ? `${d.date} ` : ''}{d.text}: {uangBertandaSlip(d.amount)}</small>)
+                                                    : <small className="block text-[8.6px] font-normal" style={{ color: k.selisih > 0 ? '#15803d' : '#dc2626' }}>Penyesuaian jam kerja: {uangBertandaSlip(k.selisih)}</small>)}
+                                            </span>
+                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px]">
+                                                {k.selisih !== 0 && <><s className="text-gray-400 font-normal text-[8.6px]">{formatReceiptMoney(k.base)}</s><br /></>}
+                                                {formatReceiptMoney(k.daily)}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    {(susunanHarian.jumlahBaris > 1 || susunanHarian.potonganJam !== 0 || susunanHarian.tambahanJam !== 0) && (
+                                        <div data-rg-harian-total className="flex justify-between gap-2 py-1 px-1.5 border-b border-dashed border-gray-300" style={{ background: '#f1f5f9' }}>
+                                            <span className="text-[9.4px]">
+                                                <span className="font-bold">Total Gaji Harian ({susunanHarian.totalHari} hari)</span>
+                                                {susunanHarian.potonganJam !== 0 && <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">termasuk potongan jam {uangBertandaSlip(susunanHarian.potonganJam)}</small>}
+                                                {susunanHarian.tambahanJam !== 0 && <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">termasuk tambahan jam {uangBertandaSlip(susunanHarian.tambahanJam)}</small>}
+                                            </span>
+                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px]">{formatReceiptMoney(susunanHarian.total)}</span>
+                                        </div>
+                                    )}
                                 </>
                             )}
 
@@ -22435,7 +22530,8 @@ ${getRekapShareLink(rekap)}
                             <div className="border-t border-b border-dashed border-black py-2 mt-2 text-[11px]">
                                 <div className="flex justify-between gap-2 mt-0.5"><span>Total Pendapatan</span><span className="font-bold">{formatReceiptMoney(rekap.grossSalary || rekap.totalWage || 0)}</span></div>
                                 {safeMoney(rekap.bonusSalary) > 0 && <div className="text-[9px] text-gray-500 -mt-0.5 mb-0.5">★ termasuk apresiasi kinerja {formatReceiptMoney(rekap.bonusSalary || 0)}</div>}
-                                <div className="flex justify-between gap-2 mt-0.5"><span>Total Potongan</span><span className="font-bold">{formatReceiptMoney(rekap.cashAdvanceDeduction || 0)}</span></div>
+                                {susunanHarian.potonganJam !== 0 && <div data-rg-potjam className="flex justify-between gap-2 text-[9px] text-gray-500"><span>· potongan jam sudah dikurangkan</span><span>{uangBertandaSlip(susunanHarian.potonganJam)}</span></div>}
+                                <div className="flex justify-between gap-2 mt-0.5"><span>Potongan Kasbon</span><span className="font-bold">{formatReceiptMoney(rekap.cashAdvanceDeduction || 0)}</span></div>
                                 <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Total Diterima</span><span>{formatReceiptMoney(rekap.netSalary ?? Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)))}</span></div>
                             </div>
 
