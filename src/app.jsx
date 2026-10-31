@@ -23225,7 +23225,12 @@ ${getRekapShareLink(rekap)}
             return `${teks} ${drvJam(akhir.at)}`;
         };
         // Foto dari HP dikecilkan dulu (sisi terpanjang 1280 px, JPEG) agar cepat terkirim walau sinyal lemah
-        const kompresFotoDriver = (file) => new Promise((resolve, reject) => {
+        // Foto driver harus baru dipotret: foto lama di galeri / screenshot / kiriman WA ditolak
+        const DRV_FOTO_MAKS_UMUR = 5 * 60 * 1000;
+        const umurFotoTeks = (ms) => { const m = Math.max(1, Math.round(ms / 60000)); if (m < 60) return `${m} menit lalu`; const j = Math.round(m / 60); return j < 24 ? `${j} jam lalu` : `${Math.round(j / 24)} hari lalu`; };
+        const fmtCapWaktu = (d) => { const p2 = (n) => String(n).padStart(2, '0'); return `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+        // cap: [baris1, baris2] → ditulis permanen di bawah foto (tanggal, jam, driver, order, tahap)
+        const kompresFotoDriver = (file, cap) => new Promise((resolve, reject) => {
             if (!file || !/^image\//.test(file.type || 'image/')) { reject(new Error('Berkas bukan foto')); return; }
             const url = URL.createObjectURL(file);
             const img = new Image();
@@ -23235,7 +23240,30 @@ ${getRekapShareLink(rekap)}
                         const skala = Math.min(1, maks / Math.max(img.width, img.height));
                         const c = document.createElement('canvas');
                         c.width = Math.max(1, Math.round(img.width * skala)); c.height = Math.max(1, Math.round(img.height * skala));
-                        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                        const g2 = c.getContext('2d');
+                        g2.drawImage(img, 0, 0, c.width, c.height);
+                        const baris = (cap || []).filter(Boolean);
+                        if (baris.length) {
+                            const fs1 = Math.max(12, Math.round(Math.min(c.width, c.height) * 0.034));
+                            const fs2 = Math.max(10, Math.round(fs1 * 0.82));
+                            const tepi = Math.round(fs1 * 0.6);
+                            const tinggi = Math.round(tepi * 2 + fs1 * 1.9 + (baris.length > 1 ? fs2 * 1.3 : 0));
+                            const grad = g2.createLinearGradient(0, c.height - tinggi, 0, c.height);
+                            grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(0,0,0,0.72)');
+                            g2.fillStyle = grad; g2.fillRect(0, c.height - tinggi, c.width, tinggi);
+                            g2.fillStyle = '#ffffff'; g2.shadowColor = 'rgba(0,0,0,0.85)'; g2.shadowBlur = 3; g2.textBaseline = 'alphabetic';
+                            const lebarMaks = c.width - tepi * 2;
+                            const yAkhir = c.height - tepi;
+                            if (baris.length > 1) {
+                                g2.font = `bold ${fs1}px system-ui, -apple-system, Arial, sans-serif`;
+                                g2.fillText(baris[0], tepi, yAkhir - fs2 * 1.3, lebarMaks);
+                                g2.font = `600 ${fs2}px system-ui, -apple-system, Arial, sans-serif`;
+                                g2.fillText(baris[1], tepi, yAkhir, lebarMaks);
+                            } else {
+                                g2.font = `bold ${fs1}px system-ui, -apple-system, Arial, sans-serif`;
+                                g2.fillText(baris[0], tepi, yAkhir, lebarMaks);
+                            }
+                        }
                         return c.toDataURL('image/jpeg', mutu);
                     };
                     let hasil = buat(1280, 0.7);
@@ -25322,6 +25350,7 @@ ${getRekapShareLink(rekap)}
             const [prosesFoto, setProsesFoto] = React.useState(false);
             const [pesan, setPesan] = React.useState(null); // { jenis: 'error' | 'info', teks }
             const [konfirmasi, setKonfirmasi] = React.useState(''); // '' | 'tolak'
+            const [fotoTolak, setFotoTolak] = React.useState(null); // { umur, dibuat } foto lama yang ditolak
             const [tanpaBarang, setTanpaBarang] = React.useState(false); // PP langkah Ambil Lagi: pulang tanpa barang (tetap wajib foto)
             const [lihatFoto, setLihatFoto] = React.useState('');
             const sinyalRef = React.useRef(null);
@@ -25382,7 +25411,7 @@ ${getRekapShareLink(rekap)}
                         cloudHealth.ok();
                         if (savingRef.current) return;
                         const lama = tampilRef.current;
-                        if (lama.trx && d.trx && drvKeadaan(lama.trx, lama.prog).tahap !== drvKeadaan(d.trx, d.prog).tahap) { setFoto(''); setTanpaBarang(false); }
+                        if (lama.trx && d.trx && drvKeadaan(lama.trx, lama.prog).tahap !== drvKeadaan(d.trx, d.prog).tahap) { setFoto(''); setTanpaBarang(false); setFotoTolak(null); }
                         setTrx(d.trx); setProg(d.prog);
                     } catch (e) {}
                 };
@@ -25407,8 +25436,22 @@ ${getRekapShareLink(rekap)}
                 const file = e.target.files && e.target.files[0];
                 e.target.value = '';
                 if (!file) return;
+                // Foto dari kamera selalu bertanggal "sekarang"; foto lama di galeri ditolak
+                const umur = file.lastModified ? Date.now() - file.lastModified : 0;
+                if (umur > DRV_FOTO_MAKS_UMUR) {
+                    const dibuat = new Date(file.lastModified);
+                    setFotoTolak({ umur: umurFotoTeks(umur), dibuat: `${dibuat.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}, ${drvJam(dibuat)}` });
+                    return;
+                }
+                setFotoTolak(null);
                 setProsesFoto(true); setPesan(null);
-                try { setFoto(await kompresFotoDriver(file)); }
+                const kd = drvUrutan(trx)[drvKeadaan(trx, prog).tahap];
+                const tahapCap = kd === 'ambil2' && tanpaBarang ? 'Tanpa barang' : (DRV_LABEL_SINGKAT[kd] || '');
+                const cap = [
+                    `${fmtCapWaktu(new Date())} · ${trx?.driverName || 'Driver'}`,
+                    [trx?.id, tahapCap, tarif ? `${tarif.from} → ${tarif.to}` : ''].filter(Boolean).join(' · '),
+                ];
+                try { setFoto(await kompresFotoDriver(file, cap)); }
                 catch (err) { setPesan({ jenis: 'error', teks: 'Foto tidak bisa dibaca. Coba ambil ulang.' }); }
                 setProsesFoto(false);
             };
@@ -25431,7 +25474,7 @@ ${getRekapShareLink(rekap)}
                     const dialihkan = !!driverLink && String(tNow.driverId || '') !== driverLink;
                     const berubah = k.gagal || k.selesai || k.tahap !== tahapDilihat || (jenis === 'tolak' && k.tahap !== 0) || (jenis === 'kosong' && kode !== 'ambil2');
                     if (dialihkan || berubah) {
-                        setTrx(tNow); setProg(pNow); setFoto(''); setTanpaBarang(false);
+                        setTrx(tNow); setProg(pNow); setFoto(''); setTanpaBarang(false); setFotoTolak(null);
                         if (!dialihkan) setPesan({ jenis: 'info', teks: 'Status order sudah berubah. Tampilan sudah diperbarui.' });
                         return;
                     }
@@ -25455,7 +25498,7 @@ ${getRekapShareLink(rekap)}
                     // Pastikan benar-benar tersimpan sebelum tampilan maju
                     const cek = await supabaseClient.from('app_data').select('data').eq('id', `drvp:${trxId}`).maybeSingle();
                     if (cek.error || String(cek.data?.data?.at || '') !== at) throw new Error('Belum tersimpan');
-                    setTrx(tNow); setProg(baru); setFoto(''); setPesan(null); setTanpaBarang(false);
+                    setTrx(tNow); setProg(baru); setFoto(''); setPesan(null); setTanpaBarang(false); setFotoTolak(null);
                     simpanCache(tNow, baru, tarif, namaUsaha);
                     cloudHealth.ok();
                     kirimSinyal();
@@ -25529,7 +25572,7 @@ ${getRekapShareLink(rekap)}
                 : kode === 'selesai' && pp ? (k.kosong ? 'Foto bukti sudah kembali di konveksi' : 'Foto bukti barang sampai kembali')
                 : info.label;
             const tombolLangkah = modeKosong ? '↩ Lanjut Tanpa Barang' : info.tombol;
-            const gantiMode = (v) => { setTanpaBarang(v); setFoto(''); setPesan(null); };
+            const gantiMode = (v) => { setTanpaBarang(v); setFoto(''); setPesan(null); setFotoTolak(null); };
 
             return (
                 <div className="min-h-screen bg-gray-50 flex items-start justify-center py-8 px-4">
@@ -25589,15 +25632,21 @@ ${getRekapShareLink(rekap)}
                                                 <img src={foto} alt="foto" className="w-16 h-16 object-cover rounded-lg cursor-pointer" onClick={() => setLihatFoto(foto)} />
                                                 <div className="text-xs">
                                                     <div className="font-bold text-green-700">✓ Foto terpasang</div>
-                                                    <label className={`inline-block mt-1 text-blue-600 underline ${sibuk ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>Ganti foto<input type="file" accept="image/*" className="hidden" onChange={pilihFoto} disabled={sibuk} data-dc-foto-input /></label>
+                                                    <label className={`inline-block mt-1 text-blue-600 underline ${sibuk ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>Ganti foto<input type="file" accept="image/*" capture="environment" className="hidden" onChange={pilihFoto} disabled={sibuk} data-dc-foto-input /></label>
                                                 </div>
                                             </div>
                                         ) : (
                                             <label className={`block border-2 border-dashed border-blue-300 bg-blue-50 rounded-xl p-4 text-center text-blue-700 text-sm font-bold ${sibuk ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`} data-dc-foto-kotak>
-                                                {prosesFoto ? 'Memproses foto…' : '📷 Ambil foto / pilih dari galeri'}
-                                                <span className="block text-xs font-medium text-gray-500 mt-0.5">Wajib sebelum menekan {modeKosong ? 'Lanjut Tanpa Barang' : DRV_LABEL_SINGKAT[kode]}</span>
-                                                <input type="file" accept="image/*" className="hidden" onChange={pilihFoto} disabled={sibuk} data-dc-foto-input />
+                                                {prosesFoto ? 'Memproses foto…' : '📷 Ambil foto (kamera)'}
+                                                <span className="block text-xs font-medium text-gray-500 mt-0.5">Foto langsung dari kamera — galeri tidak bisa dipakai</span>
+                                                <span className="block text-xs font-medium text-gray-500">Wajib sebelum menekan {modeKosong ? 'Lanjut Tanpa Barang' : DRV_LABEL_SINGKAT[kode]}</span>
+                                                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={pilihFoto} disabled={sibuk} data-dc-foto-input />
                                             </label>
+                                        )}
+                                        {fotoTolak && (
+                                            <div className="text-sm rounded-xl px-3 py-2 bg-red-50 text-red-700 border border-red-200" data-dc-foto-tolak>
+                                                ⚠ <b>Foto harus diambil langsung dari kamera saat ini.</b> Foto ini dibuat <b>{fotoTolak.umur}</b> ({fotoTolak.dibuat}). Tekan "📷 {foto ? 'Ganti foto' : 'Ambil foto (kamera)'}" lalu potret barangnya sekarang.
+                                            </div>
                                         )}
                                     </>)}
                                     <button disabled={sibuk || (perluFoto && !foto)} onClick={() => kirim(modeKosong ? 'kosong' : 'langkah')}
