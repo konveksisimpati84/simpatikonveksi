@@ -23584,7 +23584,7 @@ ${getRekapShareLink(rekap)}
                         <input value={teks} placeholder={placeholder} autoComplete="off"
                             onChange={e => { setTeks(e.target.value); setBuka(true); onUbah({ nama: e.target.value, lat: null, lng: null }); }}
                             onFocus={() => { if (!titikValid(nilai)) setBuka(true); }}
-                            onKeyDown={e => { if (e.key === 'Escape' || e.key === 'Tab') setBuka(false); }}
+                            onKeyDown={e => { if (e.key === 'Escape' || e.key === 'Tab' || e.key === 'Enter') setBuka(false); }}
                             className="w-full min-w-0 border rounded-lg px-2 py-1.5 text-sm font-normal" {...(dataAttr ? { [dataAttr]: '' } : {})} />
                         <button type="button" onClick={() => { setBuka(false); onBukaPeta(teks); }} className="shrink-0 border border-gray-300 bg-white rounded-lg px-2 text-sm" title="Pilih lokasi di peta" data-lokasi-peta>📍</button>
                     </div>
@@ -24311,12 +24311,14 @@ ${getRekapShareLink(rekap)}
                 const asal = (() => { const n = {}; visibleTarifs.forEach(t => { if (t.from) n[t.from] = (n[t.from] || 0) + 1; }); return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || templates?.companyName || ''; })();
                 const dari = titikAwal ? { nama: titikAwal.nama, ...titikDikenal(titikAwal.nama) } : { nama: asal, ...(titikDikenal(asal) || {}) };
                 const ke = { nama: qCari.trim(), ...(titikDikenal(qCari.trim()) || {}) };
-                setRuteBaru({ from: dari.nama, fromLat: dari.lat ?? null, fromLng: dari.lng ?? null, to: ke.nama, toLat: ke.lat ?? null, toLng: ke.lng ?? null, pricingType: dasar?.pricingType || 'per_km', pricePerKm: dasar?.pricePerKm || '', pricePerKg: dasar?.pricePerKg || '', minPrice: dasar?.minPrice || '', jarak: '' });
+                setRuteBaru({ from: dari.nama, fromLat: dari.lat ?? null, fromLng: dari.lng ?? null, to: ke.nama, toLat: ke.lat ?? null, toLng: ke.lng ?? null, pricingType: dasar?.pricingType || 'per_km', pricePerKm: dasar?.pricePerKm || '', pricePerKg: dasar?.pricePerKg || '', minPrice: dasar?.minPrice || '', jarak: '',
+                    // Tampilan ringkas: kolom asal & tarif disembunyikan bila sudah terisi otomatis
+                    dariBuka: !titikValid(dari), tarifBuka: (dasar?.pricingType || 'per_km') === 'per_km' ? !safeMoney(dasar?.pricePerKm) : !safeMoney(dasar?.pricePerKg) });
             };
             const pakaiRuteBaru = () => {
                 const r = ruteBaru;
-                if (!r.from.trim() || !r.to.trim()) { showToast('Isi asal dan tujuan rute', 'error'); return; }
-                if (r.pricingType === 'per_km' ? !safeMoney(r.pricePerKm) : !safeMoney(r.pricePerKg)) { showToast(r.pricingType === 'per_km' ? 'Isi tarif per km' : 'Isi tarif per kg', 'error'); return; }
+                if (!r.from.trim() || !r.to.trim()) { if (!r.from.trim()) setRuteBaru(x => x ? { ...x, dariBuka: true } : x); showToast('Isi asal dan tujuan rute', 'error'); return; }
+                if (r.pricingType === 'per_km' ? !safeMoney(r.pricePerKm) : !safeMoney(r.pricePerKg)) { setRuteBaru(x => x ? { ...x, tarifBuka: true } : x); showToast(r.pricingType === 'per_km' ? 'Isi tarif per km' : 'Isi tarif per kg', 'error'); return; }
                 const sama = visibleTarifs.find(t => String(t.from || '').trim().toLowerCase() === r.from.trim().toLowerCase() && String(t.to || '').trim().toLowerCase() === r.to.trim().toLowerCase());
                 if (sama) { qUbah('tarifId', sama.id, sama); setRuteBaru(null); setQCari(''); showToast('Rute ini sudah ada — dipakai rute yang ada', 'success'); return; }
                 const ok1 = titikValid({ lat: r.fromLat, lng: r.fromLng }), ok2 = titikValid({ lat: r.toLat, lng: r.toLng });
@@ -24604,36 +24606,71 @@ ${getRekapShareLink(rekap)}
                                     </div>
                                         {ruteBaru && (
                                             <div className="mt-2 border-2 border-dashed border-blue-300 bg-blue-50/40 rounded-xl p-3 space-y-2" data-eks-rute-baru>
-                                                <div className="font-bold text-sm text-blue-700">+ Rute baru</div>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                    <KolomLokasi label="Dari" nilai={{ nama: ruteBaru.from, lat: ruteBaru.fromLat, lng: ruteBaru.fromLng }} onUbah={v=>setRuteBaru(r=>r ? ({...r, from:v.nama, fromLat:v.lat, fromLng:v.lng}) : r)} dekat={titikAwal} onBukaPeta={teks=>bukaPetaRB('from', teks)} dataAttr="data-eks-rb-dari" />
-                                                    <KolomLokasi label="Ke" nilai={{ nama: ruteBaru.to, lat: ruteBaru.toLat, lng: ruteBaru.toLng }} onUbah={v=>setRuteBaru(r=>r ? ({...r, to:v.nama, toLat:v.lat, toLng:v.lng}) : r)} dekat={titikAwal || { lat: ruteBaru.fromLat, lng: ruteBaru.fromLng }} onBukaPeta={teks=>bukaPetaRB('to', teks)} placeholder="ketik alamat / nama tempat…" dataAttr="data-eks-rb-ke" />
-                                                </div>
-                                                {ruteBaru.pricingType==='per_km' && jarakRB.status==='hitung' && <div className="text-xs text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-2" data-eks-rb-km="hitung">🛣️ Menghitung jarak jalan…</div>}
-                                                {ruteBaru.pricingType==='per_km' && jarakRB.status==='ok' && (
-                                                    <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2" data-eks-rb-km="ok">
-                                                        <span className="text-xl">🛣️</span>
-                                                        <div className="min-w-0"><div><b className="text-emerald-800" data-eks-rb-km-nilai>{fmtKmId(jarakRB.km)} km</b> <span className="text-xs text-emerald-700">· ±{jarakRB.menit} menit</span></div><div className="text-[11px] text-emerald-800">Jarak jalan (OpenStreetMap) — otomatis masuk ke Jarak (km), tetap bisa diubah</div></div>
-                                                    </div>
-                                                )}
-                                                {ruteBaru.pricingType==='per_km' && jarakRB.status==='gagal' && (
-                                                    <div className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800" data-eks-rb-km="gagal">
-                                                        <span className="flex-1 min-w-0">⚠ Server peta gratis sedang sibuk / tidak terjangkau. Coba lagi sebentar, atau isi <b>Jarak (km)</b> secara manual — rute tetap bisa disimpan.</span>
-                                                        <button type="button" onClick={()=>setJarakRBUlang(n=>n+1)} className="px-2.5 py-1 rounded-lg border border-amber-300 bg-white font-bold" data-eks-rb-km-ulang>Coba lagi</button>
-                                                    </div>
-                                                )}
-                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
-                                                    <div className="col-span-2 sm:col-span-1"><div className="text-xs font-bold text-gray-600 mb-1">Hitung</div><div className="flex gap-1">
-                                                        {[['per_km','per km'],['per_kg','per kg']].map(([v,l]) => <button key={v} type="button" onClick={()=>setRuteBaru(r=>({...r, pricingType:v}))} className={`flex-1 border-2 rounded-lg px-2 py-1 text-xs font-bold ${ruteBaru.pricingType===v ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`} data-eks-rb-jenis={v}>{l}</button>)}
-                                                    </div></div>
-                                                    {ruteBaru.pricingType==='per_km'
-                                                        ? <label className="text-xs font-bold text-gray-600">Rp / km<input type="number" value={ruteBaru.pricePerKm} onChange={e=>setRuteBaru(r=>({...r, pricePerKm:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-harga /></label>
-                                                        : <label className="text-xs font-bold text-gray-600">Rp / kg<input type="number" value={ruteBaru.pricePerKg} onChange={e=>setRuteBaru(r=>({...r, pricePerKg:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-harga /></label>}
-                                                    {ruteBaru.pricingType==='per_km' && <label className="text-xs font-bold text-gray-600">Jarak (km)<input type="number" value={ruteBaru.jarak} onChange={e=>setRuteBaru(r=>({...r, jarak:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-jarak /></label>}
-                                                    <label className="text-xs font-bold text-gray-600">Minimum (Rp)<input type="number" value={ruteBaru.minPrice} onChange={e=>setRuteBaru(r=>({...r, minPrice:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-min /></label>
-                                                </div>
-                                                <p className="text-[11px] text-slate-600">Tarif & minimum terisi dari tarif yang paling sering dipakai — tinggal isi tujuan{ruteBaru.pricingType==='per_km' ? ' (pilih dari saran / 📍 peta → jarak terisi otomatis)' : ''}. Rute disimpan ke daftar tarif.</p>
-                                                <div className="flex justify-end gap-2"><button type="button" onClick={()=>setRuteBaru(null)} className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-700">Batal</button><button type="button" onClick={pakaiRuteBaru} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-bold" data-eks-rb-pakai>Pakai rute ini</button></div>
+                                                {(() => {
+                                                    const rb = ruteBaru;
+                                                    const perKm = rb.pricingType === 'per_km';
+                                                    const ubahRB = (patch) => setRuteBaru(r => r ? { ...r, ...patch } : r);
+                                                    const tarifTeks = perKm
+                                                        ? `${formatRupiah(safeMoney(rb.pricePerKm))}/km`
+                                                        : `${formatRupiah(safeMoney(rb.pricePerKg))}/kg`;
+                                                    const minTeks = safeMoney(rb.minPrice) > 0 ? ` · min ${formatRupiah(safeMoney(rb.minPrice))}` : '';
+                                                    const adaKm = perKm && String(rb.jarak || '').trim() !== '';
+                                                    const kmBeda = jarakRB.status === 'ok' && adaKm && String(rb.jarak) !== String(jarakRB.km);
+                                                    const kolomJarak = (cls) => <input type="number" value={rb.jarak} onChange={e=>ubahRB({ jarak: e.target.value })} placeholder="km" className={cls} data-eks-rb-jarak />;
+                                                    const tombol = (
+                                                        <div className="flex gap-2 shrink-0">
+                                                            <button type="button" onClick={()=>setRuteBaru(null)} className="flex-1 sm:flex-none px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-700" data-eks-rb-batal>Batal</button>
+                                                            <button type="button" onClick={pakaiRuteBaru} className="flex-[2] sm:flex-none px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-bold" data-eks-rb-pakai>Pakai rute ini</button>
+                                                        </div>
+                                                    );
+                                                    return (<>
+                                                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                                                            <div className="font-bold text-sm text-blue-700">+ Rute baru</div>
+                                                            {!rb.dariBuka && <div className="text-xs text-gray-600 min-w-0" data-eks-rb-dari-ringkas>Dari: {titikAwal && namaSama(rb.from, titikAwal.nama) ? '🏭' : '📍'} <b className="text-gray-800">{rb.from}</b> <button type="button" onClick={()=>ubahRB({ dariBuka: true })} className="ml-1 font-bold text-blue-600" data-eks-rb-dari-ubah>ubah</button></div>}
+                                                        </div>
+                                                        <div className={rb.dariBuka ? 'grid grid-cols-1 sm:grid-cols-2 gap-2' : ''}>
+                                                            {rb.dariBuka && <KolomLokasi label="Dari" nilai={{ nama: rb.from, lat: rb.fromLat, lng: rb.fromLng }} onUbah={v=>ubahRB({ from:v.nama, fromLat:v.lat, fromLng:v.lng })} dekat={titikAwal} onBukaPeta={teks=>bukaPetaRB('from', teks)} dataAttr="data-eks-rb-dari" />}
+                                                            <KolomLokasi label="Ke" nilai={{ nama: rb.to, lat: rb.toLat, lng: rb.toLng }} onUbah={v=>ubahRB({ to:v.nama, toLat:v.lat, toLng:v.lng })} dekat={titikAwal || { lat: rb.fromLat, lng: rb.fromLng }} onBukaPeta={teks=>bukaPetaRB('to', teks)} placeholder="ketik alamat / nama tempat…" dataAttr="data-eks-rb-ke" />
+                                                        </div>
+                                                        {perKm && jarakRB.status === 'gagal' && (
+                                                            <div className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800" data-eks-rb-km="gagal">
+                                                                <span className="flex-1 min-w-[180px]">⚠ Server peta gratis sedang sibuk / tidak terjangkau — coba lagi, atau isi <b>jarak (km)</b> manual.</span>
+                                                                <button type="button" onClick={()=>setJarakRBUlang(n=>n+1)} className="px-2.5 py-1 rounded-lg border border-amber-300 bg-white font-bold" data-eks-rb-km-ulang>Coba lagi</button>
+                                                                {!rb.tarifBuka && kolomJarak('w-24 border border-amber-300 rounded-lg px-2 py-1 text-sm text-gray-800 bg-white')}
+                                                            </div>
+                                                        )}
+                                                        {rb.tarifBuka ? (<>
+                                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end bg-white border border-gray-200 rounded-lg p-2" data-eks-rb-tarif>
+                                                                <div className="col-span-2 sm:col-span-1"><div className="text-xs font-bold text-gray-600 mb-1">Hitung</div><div className="flex gap-1">
+                                                                    {[['per_km','per km'],['per_kg','per kg']].map(([v,l]) => <button key={v} type="button" onClick={()=>ubahRB({ pricingType:v })} className={`flex-1 border-2 rounded-lg px-2 py-1 text-xs font-bold ${rb.pricingType===v ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`} data-eks-rb-jenis={v}>{l}</button>)}
+                                                                </div></div>
+                                                                {perKm
+                                                                    ? <label className="text-xs font-bold text-gray-600">Rp / km<input type="number" value={rb.pricePerKm} onChange={e=>ubahRB({ pricePerKm:e.target.value })} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-harga /></label>
+                                                                    : <label className="text-xs font-bold text-gray-600">Rp / kg<input type="number" value={rb.pricePerKg} onChange={e=>ubahRB({ pricePerKg:e.target.value })} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-harga /></label>}
+                                                                {perKm && <label className="text-xs font-bold text-gray-600">Jarak (km){jarakRB.status === 'ok' ? <span className="text-emerald-700" data-eks-rb-km="ok"> · OSM <span data-eks-rb-km-nilai>{fmtKmId(jarakRB.km)} km</span><span className="hidden sm:inline"> ±{jarakRB.menit} mnt</span></span> : jarakRB.status === 'hitung' ? <span className="font-normal text-gray-500" data-eks-rb-km="hitung"> · menghitung…</span> : null}{kolomJarak('mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal')}</label>}
+                                                                <label className="text-xs font-bold text-gray-600">Minimum (Rp)<input type="number" value={rb.minPrice} onChange={e=>ubahRB({ minPrice:e.target.value })} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-min /></label>
+                                                            </div>
+                                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                                                <div className="flex-1 text-xs"><button type="button" onClick={()=>ubahRB({ tarifBuka: false })} className="font-bold text-blue-600" data-eks-rb-tutup-tarif>▲ tutup</button></div>
+                                                                {tombol}
+                                                            </div>
+                                                        </>) : (
+                                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                                                <div className={`flex-1 min-w-0 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg px-3 py-2 text-xs border ${(adaKm || !perKm) ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-white border-gray-200 text-gray-600'}`} data-eks-rb-ringkas>
+                                                                    {perKm && jarakRB.status === 'hitung' && <span data-eks-rb-km="hitung">🛣️ Menghitung jarak jalan…</span>}
+                                                                    {perKm && jarakRB.status === 'ok' && <span data-eks-rb-km="ok">🛣️ <b className="text-base text-emerald-700" data-eks-rb-km-nilai>{fmtKmId(jarakRB.km)} km</b> ±{jarakRB.menit} mnt{kmBeda ? <> · dipakai <b>{fmtKmId(rb.jarak)} km</b></> : null}</span>}
+                                                                    {perKm && jarakRB.status === '' && (adaKm
+                                                                        ? <span>🛣️ <b className="text-base text-emerald-700">{fmtKmId(rb.jarak)} km</b> (manual)</span>
+                                                                        : <span>Pilih tujuan dari saran / 📍 peta → km dihitung otomatis</span>)}
+                                                                    {perKm && jarakRB.status !== 'gagal' && <span className="hidden sm:inline text-emerald-200">|</span>}
+                                                                    <span data-eks-rb-tarif-teks>{tarifTeks}{minTeks}</span>
+                                                                    <button type="button" onClick={()=>ubahRB({ tarifBuka: true })} className="font-bold text-blue-600" data-eks-rb-ubah-tarif>✏️ ubah</button>
+                                                                </div>
+                                                                {tombol}
+                                                            </div>
+                                                        )}
+                                                    </>);
+                                                })()}
                                             </div>
                                         )}
                                     {/* Baris 2: Jarak/Berat · Catatan · Ongkir · Kirim WA · Simpan */}
