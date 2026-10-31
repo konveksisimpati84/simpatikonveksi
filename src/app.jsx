@@ -99,7 +99,7 @@
             { id: 'dana_operasional', label: 'Dana Operasional' },
             { id: 'pengaturan', label: 'Pengaturan Cetak' },
             { id: 'master_akun', label: 'Master Akun' },
-            { id: 'ekspedisi', label: 'Driver / Ekspedisi' },
+            { id: 'ekspedisi', label: 'SIJEK (Driver / Ekspedisi)' },
             { id: 'label_maker', label: 'Label Maker' },
             { id: 'stock_barang', label: 'Stock Barang' },
             { id: 'absensi_finger', label: 'Absensi Finger' },
@@ -337,6 +337,7 @@
         const IconUsers = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>;
         const IconPlusCircle = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>;
         const IconScissors = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2"></path></svg>;
+        const IconSkuter = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="6" cy="17" r="2.5" strokeWidth="2"></circle><circle cx="18" cy="17" r="2.5" strokeWidth="2"></circle><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.5 17h7M15 6h2l1.5 8.5M14 6h-2M6 14.5l2.5-4h5l1.5 4"></path></svg>;
         const IconTruck = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"></path></svg>;
         const IconBarChart = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>;
         const IconTrash = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>;
@@ -23225,6 +23226,29 @@ ${getRekapShareLink(rekap)}
             return `${teks} ${drvJam(akhir.at)}`;
         };
         // Foto dari HP dikecilkan dulu (sisi terpanjang 1280 px, JPEG) agar cepat terkirim walau sinyal lemah
+        // Logo kecil (±5–15 KB) untuk link driver & slip gaji: logo cetak bisa besar, tidak perlu diunduh di HP driver
+        const sidikTeks = (s) => { const t = String(s || ''); let h = 5381; for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0; return `${t.length}-${h.toString(36)}`; };
+        const logoAman = (s) => typeof s === 'string' && /^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/i.test(s) ? s : '';
+        const buatLogoMini = (src) => new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const buat = (maksT, maksL) => {
+                        const skala = Math.min(1, maksT / img.height, maksL / img.width);
+                        const c = document.createElement('canvas');
+                        c.width = Math.max(1, Math.round(img.width * skala)); c.height = Math.max(1, Math.round(img.height * skala));
+                        const g = c.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+                        g.drawImage(img, 0, 0, c.width, c.height);
+                        return c.toDataURL('image/png');
+                    };
+                    let hasil = buat(112, 224);
+                    if (hasil.length > 45000) hasil = buat(80, 160);
+                    resolve(hasil);
+                } catch (e) { reject(e); }
+            };
+            img.onerror = () => reject(new Error('Logo tidak bisa dibaca'));
+            img.src = src;
+        });
         // Foto driver harus baru dipotret: foto lama di galeri / screenshot / kiriman WA ditolak
         const DRV_FOTO_MAKS_UMUR = 5 * 60 * 1000;
         const umurFotoTeks = (ms) => { const m = Math.max(1, Math.round(ms / 60000)); if (m < 60) return `${m} menit lalu`; const j = Math.round(m / 60); return j < 24 ? `${j} jam lalu` : `${Math.round(j / 24)} hari lalu`; };
@@ -23450,6 +23474,7 @@ ${getRekapShareLink(rekap)}
             const per = periodeRekapGaji(rekap, trips);
             const info = infoKasbonRekap(rekap, sisaSekarang);
             const pot = safeMoney(rekap.potonganKasbon);
+            const apr = safeMoney(rekap.apresiasi);
             const nama = rekap.driverName || driver?.name || 'Driver';
             const rows = safeArray(trips).map(t => { const trf = safeArray(tarifs).find(x => x && x.id === t.tarifId); const rute = trf ? `${trf.from} → ${trf.to}` : '-'; return `<div class="item-row"><span><b>${escapeHtmlText(rute)}</b><small>${escapeHtmlText(t.date || '')}${t.tripType === 'pp' ? ' &bull; PP' : ''}${t.note ? ' &bull; ' + escapeHtmlText(t.note) : ''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`; }).join('');
             const judul = namaFileCetak('SGD', nama, per ? labelRentangStruk(per.dari, per.sampai) : fmtTglStruk(rekap.tanggalRekap));
@@ -23467,9 +23492,11 @@ ${getRekapShareLink(rekap)}
                 <div>${rows}</div>
                 <div class="total-box">
                     <div class="row"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                    ${apr > 0 ? `<div class="row"><span>Apresiasi</span><span>+ ${formatRupiah(apr)}</span></div>` : ''}
                     ${pot > 0 ? `<div class="row red"><span>Potongan Kasbon</span><span>- ${formatRupiah(pot)}</span></div>` : ''}
-                    <div class="row grand" style="${pot > 0 ? 'border-top:1px dashed #000;padding-top:5px;margin-top:4px' : ''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}</span></div>
+                    <div class="row grand" style="${pot > 0 || apr > 0 ? 'border-top:1px dashed #000;padding-top:5px;margin-top:4px' : ''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}</span></div>
                 </div>
+                ${apr > 0 ? `<div style="margin:8px 0 4px;border:2px solid #000;border-radius:6px;overflow:hidden;text-align:center;page-break-inside:avoid"><div style="background:#000;color:#fff;font-size:10.5px;font-weight:900;letter-spacing:2px;padding:4px 0">★ APRESIASI ★</div><div style="font-size:19px;font-weight:900;padding:5px 0 1px">${formatRupiah(apr)}</div>${rekap.apresiasiNote ? `<div style="font-size:10px;padding:0 4px 3px;overflow-wrap:anywhere">${escapeHtmlText(rekap.apresiasiNote)}</div>` : ''}<div style="font-size:9.5px;border-top:1px dashed #000;padding:4px;font-style:italic">Terima kasih atas kerja kerasnya</div></div>` : ''}
                 ${info ? `<div class="kasbon-box"><div class="t">Info Kasbon</div>
                     ${info.sebelum != null ? `<div class="row"><span>Sisa kasbon sebelumnya</span><span>${formatRupiah(info.sebelum)}</span></div>` : ''}
                     ${info.dipotong > 0 ? `<div class="row red"><span>Dipotong rekap ini</span><span>- ${formatRupiah(info.dipotong)}</span></div>` : ''}
@@ -23777,7 +23804,9 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d => d.id === trx.driverId);
                 const link = generateShareLink(trx);
                 const tarif = tarifObj || (driverTarifs || []).find(t => t && t.id === trx.tarifId);
-                const msg = `Halo ${drv ? drv.name : 'Driver'},\n\nAda order pengiriman baru:\n- Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n- Ongkir: ${formatRupiah(safeMoney(trx.ongkir))}\n- Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n${trx.note?'- Catatan: '+trx.note+'\n':''}\nKlik link untuk konfirmasi:\n${link}`;
+                // Keterangan untuk driver ditaruh paling atas & tebal agar tidak terlewat
+                const ket = String(trx.note || '').trim();
+                const msg = `Halo ${drv ? drv.name : 'Driver'},\n\nAda order pengiriman baru:\n${ket ? '📝 *Keterangan:* ' + ket + '\n\n' : ''}- Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n- Ongkir: ${formatRupiah(safeMoney(trx.ongkir))}\n- Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n\nKlik link untuk konfirmasi:\n${link}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g,'').replace(/^0/,'62') : '';
                 const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
                 window.open(waUrl, '_blank');
@@ -23972,6 +24001,9 @@ ${getRekapShareLink(rekap)}
             const [showRekapModal, setShowRekapModal] = React.useState(false);
             const [rekapDriverId, setRekapDriverId] = React.useState('');
             const [rekapNote, setRekapNote] = React.useState('');
+            const [rekapApresiasi, setRekapApresiasi] = React.useState(''); // ⭐ apresiasi / tips saat gajian (opsional)
+            const [rekapApresiasiNote, setRekapApresiasiNote] = React.useState('');
+            const [ubahApresiasi, setUbahApresiasi] = React.useState(null); // { id, nominal, note }
             const [selectedTripIds, setSelectedTripIds] = React.useState([]);
             const [rekapPotonganKasbon, setRekapPotonganKasbon] = React.useState(0);
 
@@ -24035,8 +24067,10 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d=>d.id===rekapDriverId);
                 const trips = visibleTrx.filter(t=>selectedTripIds.includes(t.id));
                 const totalOngkir = trips.reduce((s,t)=>s+safeMoney(t.ongkir),0);
+                // Potongan kasbon hanya dari ongkir: apresiasi diterima utuh
                 const potongan = Math.min(safeMoney(rekapPotonganKasbon)||0, totalOngkir);
-                const gajiDiterima = totalOngkir - potongan;
+                const apresiasi = safeMoney(rekapApresiasi);
+                const gajiDiterima = totalOngkir + apresiasi - potongan;
                 const newRekap = {
                     id: genId('RGAJI-'),
                     driverId: rekapDriverId,
@@ -24044,6 +24078,8 @@ ${getRekapShareLink(rekap)}
                     tripIds: selectedTripIds,
                     totalOngkir,
                     potonganKasbon: potongan,
+                    apresiasi,
+                    apresiasiNote: apresiasi > 0 ? String(rekapApresiasiNote || '').trim() : '',
                     gajiDiterima,
                     // Sisa kasbon saat rekap dibuat (untuk Info Kasbon di nota & link driver)
                     sisaKasbonSebelum: sisaKasbonDriver,
@@ -24469,7 +24505,7 @@ ${getRekapShareLink(rekap)}
                 const tot = trips.reduce((s, t) => s + safeMoney(t.ongkir), 0);
                 setRekapDriverId(driverId); setSelectedTripIds(trips.map(t => t.id));
                 setRekapPotonganKasbon(Math.min(getTotalSisaKasbon(driverId), tot)); setRekapPotonganManual(false);
-                setRekapNote(''); setRekapLuar(false); setRekapPeriode(rGaji); setShowRekapModal(true);
+                setRekapNote(''); setRekapApresiasi(''); setRekapApresiasiNote(''); setRekapLuar(false); setRekapPeriode(rGaji); setShowRekapModal(true);
             };
             // Potongan kasbon yang disarankan mengikuti trip yang dicentang (selama belum diubah manual)
             React.useEffect(() => {
@@ -24477,12 +24513,49 @@ ${getRekapShareLink(rekap)}
                 const tot = visibleTrx.filter(t => selectedTripIds.includes(t.id)).reduce((s, t) => s + safeMoney(t.ongkir), 0);
                 setRekapPotonganKasbon(Math.min(getTotalSisaKasbon(rekapDriverId), tot));
             }, [selectedTripIds, showRekapModal]);
+            // Kotak ⭐ Apresiasi: nominal + keterangan + pilihan cepat (fungsi biasa agar kolom tidak kehilangan fokus)
+            const PILIHAN_APRESIASI = ['⏱ Tepat waktu', '💪 Rajin', '🚚 Banyak trip', '📦 Barang selalu aman', '🙏 Terima kasih'];
+            const kotakApresiasi = (nominal, setNominal, note, setNote, nama) => {
+                const bagian = String(note || '').split(',').map(x => x.trim()).filter(Boolean);
+                const teksPilihan = (p) => p.replace(/^\S+\s/, '');
+                const togglePilihan = (p) => {
+                    const t = teksPilihan(p);
+                    const ada = bagian.some(b => b.toLowerCase() === t.toLowerCase());
+                    setNote((ada ? bagian.filter(b => b.toLowerCase() !== t.toLowerCase()) : [...bagian, t]).join(', ').slice(0, 150));
+                };
+                return (
+                    <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3" data-eks-apresiasi={nama}>
+                        <div className="text-sm font-black text-amber-800 mb-2">⭐ Apresiasi / tips (opsional)</div>
+                        <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+                            <label className="block text-xs font-bold text-gray-600">Nominal (Rp)<input type="number" min="0" value={nominal} onChange={e=>setNominal(e.target.value)} placeholder="0" className="mt-1 w-full border border-amber-300 rounded-lg px-2 py-1.5 text-sm font-bold bg-white" data-eks-apresiasi-nominal /></label>
+                            <label className="block text-xs font-bold text-gray-600 min-w-0">Keterangan<input value={note} maxLength={150} onChange={e=>setNote(e.target.value)} placeholder="mis. Rajin & selalu tepat waktu" className="mt-1 w-full border border-amber-300 rounded-lg px-2 py-1.5 text-sm font-normal bg-white" data-eks-apresiasi-note /></label>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                            {PILIHAN_APRESIASI.map(p => { const on = bagian.some(b => b.toLowerCase() === teksPilihan(p).toLowerCase()); return (
+                                <button key={p} type="button" onClick={()=>togglePilihan(p)} className={`text-xs font-bold rounded-full px-2.5 py-1 border ${on ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-amber-300 text-amber-800'}`} data-eks-apresiasi-pilih={teksPilihan(p)}>{p}</button>
+                            ); })}
+                        </div>
+                    </div>
+                );
+            };
+            // Ubah apresiasi setelah rekap dibuat: gaji diterima dihitung ulang, potongan kasbon tetap
+            const simpanUbahApresiasi = () => {
+                if (!ubahApresiasi) return;
+                const nominal = safeMoney(ubahApresiasi.nominal);
+                const note = nominal > 0 ? String(ubahApresiasi.note || '').trim() : '';
+                setDriverRekapGaji(prev => (prev || []).map(r => r && r.id === ubahApresiasi.id
+                    ? { ...r, apresiasi: nominal, apresiasiNote: note, gajiDiterima: safeMoney(r.totalOngkir) + nominal - safeMoney(r.potonganKasbon), _syncUpdatedAt: new Date().toISOString() }
+                    : r));
+                setUbahApresiasi(null);
+                showToast(nominal > 0 ? `Apresiasi ${formatRupiah(nominal)} disimpan` : 'Apresiasi dihapus', 'success');
+            };
             const linkSlip = (rekap) => `${window.location.origin + window.location.pathname}#driver-rekap-gaji=${encodeURIComponent(rekap.id)}`;
             const labelPeriodeRekap = (r) => r.periodeDari ? (r.periodeDari === r.periodeSampai ? fmtTglPendek(r.periodeDari) : `${fmtTglPendek(r.periodeDari)} – ${fmtTglPendek(r.periodeSampai)}`) : '–';
             const kirimSlipWA = (rekap) => {
                 const drv = visibleDrivers.find(d => d.id === rekap.driverId);
                 const pot = safeMoney(rekap.potonganKasbon);
-                const msg = `Halo ${drv ? drv.name : (rekap.driverName || 'Driver')},\n\nBerikut slip gaji pengiriman${rekap.periodeDari ? ' periode ' + labelPeriodeRekap(rekap) : ''}:\n- Jumlah trip: ${rekap.jumlahTrip || 0}\n- Total ongkir: ${formatRupiah(safeMoney(rekap.totalOngkir))}\n${pot > 0 ? `- Potong kasbon: ${formatRupiah(pot)}\n` : ''}- Gaji diterima: ${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}\n\nRincian:\n${linkSlip(rekap)}`;
+                const apr = safeMoney(rekap.apresiasi);
+                const msg = `Halo ${drv ? drv.name : (rekap.driverName || 'Driver')},\n\nBerikut slip gaji pengiriman${rekap.periodeDari ? ' periode ' + labelPeriodeRekap(rekap) : ''}:\n- Jumlah trip: ${rekap.jumlahTrip || 0}\n- Total ongkir: ${formatRupiah(safeMoney(rekap.totalOngkir))}\n${apr > 0 ? `- ⭐ *Apresiasi: ${formatRupiah(apr)}*${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `- Potong kasbon: ${formatRupiah(pot)}\n` : ''}- *Gaji diterima: ${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\nRincian:\n${linkSlip(rekap)}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
                 window.open(phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
             };
@@ -24549,26 +24622,27 @@ ${getRekapShareLink(rekap)}
             const jumlahFoto = (t) => safeArray(t.drvLangkah).filter(l => l && l.foto).length;
 
             const subTabs = [
-                { id:'kirim', label:'Pengiriman', icon:'🚚', on:'bg-orange-500 text-white border-orange-500 shadow-md' },
-                { id:'gaji', label:'Gaji & Kasbon', icon:'💵', on:'bg-emerald-600 text-white border-emerald-600 shadow-md' },
-                { id:'laporan', label:'Laporan', icon:'📊', on:'bg-violet-600 text-white border-violet-600 shadow-md' },
-                { id:'pengaturan', label:'Driver & Tarif', icon:'⚙️', on:'bg-slate-600 text-white border-slate-600 shadow-md' },
+                { id:'kirim', label:'Pengiriman', pendek:'Kirim', icon:'🚚', on:'bg-orange-500 text-white border-orange-500 shadow-md' },
+                { id:'gaji', label:'Gaji & Kasbon', pendek:'Gaji', icon:'💵', on:'bg-emerald-600 text-white border-emerald-600 shadow-md' },
+                { id:'laporan', label:'Laporan', pendek:'Laporan', icon:'📊', on:'bg-violet-600 text-white border-violet-600 shadow-md' },
+                { id:'pengaturan', label:'Driver & Tarif', pendek:'Tarif', icon:'⚙️', on:'bg-slate-600 text-white border-slate-600 shadow-md' },
             ];
 
             const selectedTarifInForm = visibleTarifs.find(t=>t.id===xForm.tarifId);
 
             return (
                 <div>
-                    <div className="mb-3">
-                        <h2 className="text-2xl font-bold text-slate-800">🚛 Driver / Ekspedisi</h2>
-                        <p className="text-sm text-gray-500 mt-0.5">Buat pengiriman, pantau driver, gaji &amp; kasbon</p>
+                    <div className="mb-2 md:mb-3" data-eks-judul>
+                        <h2 className="text-lg md:text-2xl font-bold text-slate-800 flex items-center gap-2">🛵 SIJEK <span className="text-[11px] md:text-xs font-bold text-orange-700 bg-orange-50 border border-orange-200 rounded-full px-2 py-0.5">Simpati Ojek</span></h2>
+                        <p className="hidden md:block text-sm text-gray-500 mt-0.5">Antar-jemput barang oleh driver: pengiriman, gaji &amp; kasbon, laporan, tarif</p>
                     </div>
-                    <div className="flex flex-wrap gap-2 mb-4">
+                    {/* HP: 1 baris ikon; PC: tombol biasa */}
+                    <div className="grid grid-cols-4 gap-1.5 mb-3 md:flex md:flex-wrap md:gap-2 md:mb-4" data-eks-tabs>
                         {subTabs.map(st => (
                             <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);setTarifHal(1);setMenu(null);}} data-eks-tab={st.id}
-                                className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 border ${activeSubTab===st.id ? st.on : 'bg-white text-slate-600 border-gray-200 hover:bg-gray-50 shadow-sm'}`}>
-                                <span>{st.icon}</span>{st.label}
-                                {st.id==='kirim' && (kpiMenunggu + kpiJalan) > 0 && <span className={`ml-1 text-[11px] rounded-full px-1.5 ${activeSubTab===st.id ? 'bg-white/25' : 'bg-orange-100 text-orange-700'}`}>{kpiMenunggu + kpiJalan}</span>}
+                                className={`relative flex flex-col md:flex-row items-center gap-0.5 md:gap-1.5 px-1 py-2 md:px-4 md:py-2.5 rounded-xl text-[11px] md:text-sm font-bold transition-all border ${activeSubTab===st.id ? st.on : 'bg-white text-slate-600 border-gray-200 hover:bg-gray-50 shadow-sm'}`}>
+                                <span className="text-lg leading-none md:text-sm">{st.icon}</span><span className="md:hidden">{st.pendek}</span><span className="hidden md:inline">{st.label}</span>
+                                {st.id==='kirim' && (kpiMenunggu + kpiJalan) > 0 && <span className={`absolute -top-1.5 -right-1 md:static md:ml-1 text-[11px] rounded-full px-1.5 ${activeSubTab===st.id ? 'bg-white text-orange-600 md:bg-white/25 md:text-white' : 'bg-orange-100 text-orange-700'}`} data-eks-tab-jumlah>{kpiMenunggu + kpiJalan}</span>}
                             </button>
                         ))}
                     </div>
@@ -24576,7 +24650,16 @@ ${getRekapShareLink(rekap)}
                     {/* ===== PENGIRIMAN ===== */}
                     {activeSubTab==='kirim' && (
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-eks-kpi>
+                            {/* HP: 1 strip ringkas */}
+                            <div className="md:hidden" data-eks-kpi-hp>
+                                <div className="grid grid-cols-3 bg-white border border-gray-200 rounded-2xl py-2 text-center divide-x divide-gray-100">
+                                    <div className="text-[11px] font-bold text-gray-500"><b className="block text-xl leading-tight text-yellow-700">{kpiMenunggu}</b>⏳ Menunggu</div>
+                                    <div className="text-[11px] font-bold text-gray-500"><b className="block text-xl leading-tight text-blue-700">{kpiJalan}</b>🚚 Di jalan</div>
+                                    <div className="text-[11px] font-bold text-gray-500"><b className="block text-xl leading-tight text-green-700">{kpiTerkirimHariIni}</b>✅ Terkirim</div>
+                                </div>
+                                <div className="flex justify-between px-1 mt-1.5 text-xs text-gray-600"><span>Ongkir bulan ini (terkirim)</span><b className="text-slate-800">{formatRupiah(kpiOngkirBulan)}</b></div>
+                            </div>
+                            <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3" data-eks-kpi>
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Menunggu</div><div className="text-2xl font-black text-yellow-700">{kpiMenunggu}</div></div>
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Di jalan</div><div className="text-2xl font-black text-blue-700">{kpiJalan}</div></div>
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Terkirim hari ini</div><div className="text-2xl font-black text-green-700">{kpiTerkirimHariIni}</div></div>
@@ -24584,7 +24667,7 @@ ${getRekapShareLink(rekap)}
                             </div>
 
                             {/* Input cepat */}
-                            <button type="button" onClick={()=>setFormHpBuka(v=>!v)} className="md:hidden w-full bg-blue-600 text-white rounded-xl py-3 font-bold text-sm" data-eks-q-toggle>{formHpBuka ? '▲ Tutup form pengiriman' : '➕ Pengiriman baru'}</button>
+                            <button type="button" onClick={()=>setFormHpBuka(v=>!v)} className="md:hidden w-full bg-blue-600 text-white rounded-xl py-2.5 font-bold text-sm" data-eks-q-toggle>{formHpBuka ? '▲ Tutup form pengiriman' : '➕ Pengiriman baru'}</button>
                             <div ref={qFormRef} className={`${formHpBuka ? 'block' : 'hidden'} md:block bg-white border-2 border-blue-500 rounded-2xl p-4 shadow-sm transition-shadow ${qSorot ? 'ring-4 ring-amber-200' : ''}`} data-eks-quick>
                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
                                     <b className="text-base text-slate-800">➕ Pengiriman baru</b>
@@ -24713,21 +24796,24 @@ ${getRekapShareLink(rekap)}
                                                 })()}
                                             </div>
                                         )}
-                                    {/* Baris 2: Jarak/Berat · Catatan · Ongkir · Kirim WA · Simpan */}
+                                    {/* Baris 2: Jarak/Berat · Keterangan · Ongkir · Kirim WA · Simpan (HP: Jarak+Ongkir, Keterangan, tombol) */}
                                     <div className="grid grid-cols-[110px_minmax(0,1fr)] lg:grid-cols-[110px_minmax(0,1fr)_220px_auto_auto] gap-3 items-end">
-                                        <div>
+                                        <div className="order-1">
                                             {qTarif?.pricingType==='per_kg'
                                                 ? <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Berat (kg)<input type="number" value={qForm.weight} onChange={e=>qUbah('weight', e.target.value)} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal" data-eks-q-berat /></label>
                                                 : <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Jarak (km)<input type="number" value={qForm.distance} onChange={e=>qUbah('distance', e.target.value)} disabled={!qTarif} className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal disabled:bg-gray-50" data-eks-q-jarak /></label>}
                                         </div>
-                                        <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide min-w-0">Catatan (opsional)<input value={qForm.note} onChange={e=>setQForm(f=>({...f, note:e.target.value}))} placeholder="mis. 3 karung, titip satpam" className="mt-1.5 w-full border rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal" data-eks-q-catatan /></label>
-                                        <div className="col-span-2 lg:col-span-1 bg-blue-50 border border-blue-200 rounded-xl px-3 py-1 text-right" data-eks-q-ongkir-box>
+                                        <label className="order-3 lg:order-2 col-span-2 lg:col-span-1 block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide min-w-0">
+                                            <span className="flex justify-between gap-2"><span>📝 Keterangan untuk driver (opsional)</span>{qForm.note ? <span className="normal-case tracking-normal font-semibold text-gray-400" data-eks-q-catatan-hitung>{String(qForm.note).length} / 300</span> : null}</span>
+                                            <textarea rows={2} maxLength={300} value={qForm.note} onChange={e=>setQForm(f=>({...f, note:e.target.value}))} placeholder="mis. belikan kain cotton 30 kg" className={`mt-1.5 w-full border rounded-lg px-3 py-1.5 text-sm font-normal normal-case tracking-normal resize-none leading-snug ${qForm.note ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-300'}`} data-eks-q-catatan />
+                                        </label>
+                                        <div className="order-2 lg:order-3 min-w-0 bg-blue-50 border border-blue-200 rounded-xl px-3 py-1 text-right" data-eks-q-ongkir-box>
                                             <div className="text-[11px] text-blue-900 min-h-[14px] truncate">{qTarif ? (qForm.ongkirManual ? 'diubah manual' : rincianOngkir(qTarif, qForm)) : 'pilih rute untuk menghitung'}</div>
                                             <div className="flex items-center justify-end gap-1"><span className="text-blue-700 font-black">Rp</span><input type="text" inputMode="numeric" value={safeMoney(qForm.ongkir) ? Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID') : ''} onChange={e=>qUbah('ongkir', Number(e.target.value.replace(/\D/g, '')) || 0)} placeholder="0" style={{ width: `${Math.max(3, String(Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID')).length + 1)}ch` }} className="bg-transparent text-right text-xl font-black text-blue-700 outline-none" title="Ongkir bisa diubah manual" data-eks-q-ongkir /></div>
                                         </div>
-                                        <div className="col-span-2 flex gap-2 lg:contents">
-                                            <button type="button" onClick={()=>simpanCepat(true)} className="flex-[1.4] bg-green-500 hover:bg-green-600 text-white rounded-xl px-4 py-2.5 font-black text-sm whitespace-nowrap" data-eks-q-kirim>💬 Kirim WA</button>
-                                            <button type="button" onClick={()=>simpanCepat(false)} className="flex-1 bg-white border border-gray-300 text-gray-700 rounded-xl px-3 py-2.5 font-bold text-sm whitespace-nowrap" data-eks-q-simpan>Simpan saja</button>
+                                        <div className="order-4 col-span-2 flex gap-2 lg:contents">
+                                            <button type="button" onClick={()=>simpanCepat(true)} className="lg:order-4 flex-[1.4] bg-green-500 hover:bg-green-600 text-white rounded-xl px-4 py-2.5 font-black text-sm whitespace-nowrap" data-eks-q-kirim>💬 Kirim WA</button>
+                                            <button type="button" onClick={()=>simpanCepat(false)} className="lg:order-5 flex-1 bg-white border border-gray-300 text-gray-700 rounded-xl px-3 py-2.5 font-bold text-sm whitespace-nowrap" data-eks-q-simpan>Simpan saja</button>
                                         </div>
                                     </div>
                                 </div>
@@ -24762,7 +24848,7 @@ ${getRekapShareLink(rekap)}
                                                     <tr key={t.id} className={`border-t ${baruId===t.id ? 'bg-green-50' : 'hover:bg-gray-50'}`} data-eks-row={t.id}>
                                                         <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{t.date===hariIniStr ? 'Hari ini' : fmtTglPendek(t.date)}{t.createdAt && <span className="block text-gray-400">{drvJam(t.createdAt)}</span>}</td>
                                                         <td className="px-3 py-2 font-bold text-gray-800">{t.driverName||'-'}</td>
-                                                        <td className="px-3 py-2 text-xs">{trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded font-bold">PP</span>}<span className="block text-gray-400">{trf?.pricingType==='per_km' ? (t.distance ? `${t.distance} km` : '') : (t.weight ? `${t.weight} kg` : '')}{t.note ? `${(trf?.pricingType==='per_km' ? t.distance : t.weight) ? ' · ' : ''}${t.note}` : ''}</span></td>
+                                                        <td className="px-3 py-2 text-xs">{trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded font-bold">PP</span>}<span className="block text-gray-400">{trf?.pricingType==='per_km' ? (t.distance ? `${t.distance} km` : '') : (t.weight ? `${t.weight} kg` : '')}{t.note ? `${(trf?.pricingType==='per_km' ? t.distance : t.weight) ? ' · ' : ''}📝 ${t.note}` : ''}</span></td>
                                                         <td className="px-3 py-2 text-right font-black text-blue-700 whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</td>
                                                         <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${statusColor(st)}`} data-eks-status>{st}</span>
                                                             {(drvKeterangan(t) || nf > 0) && <div className="text-[11px] text-gray-500 mt-1" data-drv-ket>{drvKeterangan(t)}{nf > 0 && <button type="button" onClick={()=>setFotoTrx(t)} className="ml-1 text-blue-700 font-bold hover:underline" data-drv-foto-btn>📷 {nf}</button>}</div>}</td>
@@ -24789,6 +24875,7 @@ ${getRekapShareLink(rekap)}
                                             <div key={t.id} className={`border rounded-xl px-3 py-2.5 ${baruId===t.id ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`} data-eks-row={t.id}>
                                                 <div className="flex justify-between items-start gap-2"><b className="text-sm text-gray-900">{t.driverName||'-'}</b><span className={`px-2 py-0.5 rounded text-xs font-bold shrink-0 ${statusColor(st)}`}>{st}</span></div>
                                                 <div className="text-xs text-gray-500 mt-0.5">{t.date===hariIniStr ? (t.createdAt ? drvJam(t.createdAt) : 'Hari ini') : fmtTglPendek(t.date)} · {trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1 rounded font-bold">PP</span>}</div>
+                                                {t.note && <div className="text-xs text-amber-800 bg-amber-50 rounded-md px-2 py-1 mt-1 break-words" data-eks-hp-ket>📝 {t.note}</div>}
                                                 {(drvKeterangan(t) || nf > 0) && <div className="text-[11px] text-gray-500 mt-0.5" data-drv-ket>{drvKeterangan(t)}{nf > 0 && <button type="button" onClick={()=>setFotoTrx(t)} className="ml-1 text-blue-700 font-bold" data-drv-foto-btn>📷 {nf}</button>}</div>}
                                                 <div className="flex justify-between items-center mt-1.5 gap-2">
                                                     <b className="text-blue-700 text-sm whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</b>
@@ -24879,22 +24966,23 @@ ${getRekapShareLink(rekap)}
                                     if (!list.length) return <div className="text-center py-6 text-gray-400 text-sm">Belum ada rekap gaji.</div>;
                                     return (<>
                                         <div className="overflow-x-auto hidden md:block"><table className="w-full text-sm">
-                                            <thead><tr className="bg-gray-50 text-left text-xs text-gray-500"><th className="px-3 py-2">Tanggal</th><th className="px-3 py-2">Driver</th><th className="px-3 py-2">Periode</th><th className="px-3 py-2 text-center">Trip</th><th className="px-3 py-2 text-right">Ongkir</th><th className="px-3 py-2 text-right">Potong kasbon</th><th className="px-3 py-2 text-right">Diterima</th><th className="px-3 py-2 text-right">Aksi</th></tr></thead>
+                                            <thead><tr className="bg-gray-50 text-left text-xs text-gray-500"><th className="px-3 py-2">Tanggal</th><th className="px-3 py-2">Driver</th><th className="px-3 py-2">Periode</th><th className="px-3 py-2 text-center">Trip</th><th className="px-3 py-2 text-right">Ongkir</th><th className="px-3 py-2 text-right">Apresiasi</th><th className="px-3 py-2 text-right">Potong kasbon</th><th className="px-3 py-2 text-right">Diterima</th><th className="px-3 py-2 text-right">Aksi</th></tr></thead>
                                             <tbody>{list.map(r => (
                                                 <tr key={r.id} className="border-t" data-eks-rekap-row={r.id}>
                                                     <td className="px-3 py-2 text-xs text-gray-500">{r.tanggalRekap}</td><td className="px-3 py-2 font-medium">{r.driverName}</td><td className="px-3 py-2 text-xs">{labelPeriodeRekap(r)}</td><td className="px-3 py-2 text-center">{r.jumlahTrip}</td>
                                                     <td className="px-3 py-2 text-right whitespace-nowrap">{formatRupiah(safeMoney(r.totalOngkir))}</td>
+                                                    <td className="px-3 py-2 text-right whitespace-nowrap" title={r.apresiasiNote || ''} data-eks-rekap-apresiasi>{safeMoney(r.apresiasi) > 0 ? <b className="text-amber-700">⭐ {formatRupiah(safeMoney(r.apresiasi))}</b> : <span className="text-gray-400">—</span>}</td>
                                                     <td className="px-3 py-2 text-right text-red-600 whitespace-nowrap">{safeMoney(r.potonganKasbon) > 0 ? `- ${formatRupiah(safeMoney(r.potonganKasbon))}` : '—'}</td>
                                                     <td className="px-3 py-2 text-right font-black text-green-700 whitespace-nowrap">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</td>
-                                                    <td className="px-3 py-2 text-right whitespace-nowrap"><div className="inline-flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2.5 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 3)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></td>
+                                                    <td className="px-3 py-2 text-right whitespace-nowrap"><div className="inline-flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2.5 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 4)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></td>
                                                 </tr>
                                             ))}</tbody>
                                         </table></div>
                                         <div className="md:hidden space-y-2">{list.map(r => (
                                             <div key={r.id} className="border border-gray-200 rounded-xl px-3 py-2.5" data-eks-rekap-row={r.id}>
                                                 <div className="flex justify-between"><b className="text-sm">{r.driverName}</b><span className="text-xs text-gray-500">{r.tanggalRekap}</span></div>
-                                                <div className="text-xs text-gray-500">{labelPeriodeRekap(r)} · {r.jumlahTrip} trip · ongkir {formatRupiah(safeMoney(r.totalOngkir))}{safeMoney(r.potonganKasbon) > 0 ? ` · kasbon -${formatRupiah(safeMoney(r.potonganKasbon))}` : ''}</div>
-                                                <div className="flex justify-between items-center mt-1.5"><b className="text-green-700 text-sm">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</b><div className="flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 3)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></div>
+                                                <div className="text-xs text-gray-500">{labelPeriodeRekap(r)} · {r.jumlahTrip} trip · ongkir {formatRupiah(safeMoney(r.totalOngkir))}{safeMoney(r.apresiasi) > 0 ? <b className="text-amber-700"> · ⭐ +{formatRupiah(safeMoney(r.apresiasi))}</b> : null}{safeMoney(r.potonganKasbon) > 0 ? ` · kasbon -${formatRupiah(safeMoney(r.potonganKasbon))}` : ''}</div>
+                                                <div className="flex justify-between items-center mt-1.5"><b className="text-green-700 text-sm">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</b><div className="flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 4)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></div>
                                             </div>
                                         ))}</div>
                                     </>);
@@ -24996,6 +25084,34 @@ ${getRekapShareLink(rekap)}
                         </div>
                     )}
 
+                    {ubahApresiasi && (() => {
+                        const r = visibleRekap.find(x => x.id === ubahApresiasi.id);
+                        if (!r) return null;
+                        const nom = safeMoney(ubahApresiasi.nominal);
+                        const baru = safeMoney(r.totalOngkir) + nom - safeMoney(r.potonganKasbon);
+                        return (
+                            <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" data-eks-ubah-apresiasi>
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                                    <div className="flex justify-between items-center p-4 border-b"><h3 className="font-bold">⭐ Ubah apresiasi — {r.driverName}</h3><button type="button" onClick={()=>setUbahApresiasi(null)} className="text-sm font-bold text-gray-500">Batal</button></div>
+                                    <div className="p-4 space-y-3">
+                                        <div className="text-xs text-gray-600">Rekap {r.tanggalRekap} · {labelPeriodeRekap(r)} · {r.jumlahTrip} trip</div>
+                                        {kotakApresiasi(ubahApresiasi.nominal, v => setUbahApresiasi(u => ({ ...u, nominal: v })), ubahApresiasi.note, v => setUbahApresiasi(u => ({ ...u, note: typeof v === 'function' ? v(u.note) : v })), 'ubah')}
+                                        <div className="text-sm space-y-1">
+                                            <div className="flex justify-between"><span>Ongkir {r.jumlahTrip} trip</span><b>{formatRupiah(safeMoney(r.totalOngkir))}</b></div>
+                                            {nom > 0 && <div className="flex justify-between text-amber-700"><span>⭐ Apresiasi</span><b>+ {formatRupiah(nom)}</b></div>}
+                                            {safeMoney(r.potonganKasbon) > 0 && <div className="flex justify-between text-red-600"><span>Potong kasbon (tetap)</span><b>- {formatRupiah(safeMoney(r.potonganKasbon))}</b></div>}
+                                            <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji diterima</span><span data-eks-ubah-apresiasi-diterima>{formatRupiah(Math.max(0, baru))}</span></div>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end gap-2 p-4 border-t">
+                                        <button type="button" onClick={()=>setUbahApresiasi(null)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold">Batal</button>
+                                        <button type="button" onClick={simpanUbahApresiasi} className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-black" data-eks-ubah-apresiasi-simpan>Simpan</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     {peta && <PetaPilihTitik key={peta.judul} {...peta} titikAsal={peta.titikAsal !== undefined ? peta.titikAsal : titikAwal} onTutup={()=>setPeta(null)} />}
 
                     {/* Menu ⋯ */}
@@ -25011,6 +25127,7 @@ ${getRekapShareLink(rekap)}
                         ] : menu.jenis === 'rekap' ? [
                             ['🖨 Cetak rekap', tutup(()=>printRekapGaji(d)), 'cetak'],
                             ['🔗 Salin link slip', tutup(()=>copyRekapGajiLink(d)), 'link'],
+                            ['⭐ Ubah apresiasi', tutup(()=>setUbahApresiasi({ id: d.id, nominal: safeMoney(d.apresiasi) ? String(safeMoney(d.apresiasi)) : '', note: d.apresiasiNote || '' })), 'apresiasi'],
                             ['🗑 Hapus', tutup(()=>mintaHapusRekap(d)), 'hapus'],
                         ] : menu.jenis === 'driver' ? [
                             ['✏️ Edit', tutup(()=>openDriverForm(d)), 'edit'],
@@ -25213,6 +25330,7 @@ ${getRekapShareLink(rekap)}
                         const tot = terpilih.reduce((s, t) => s + safeMoney(t.ongkir), 0);
                         const sisaKb = getTotalSisaKasbon(rekapDriverId);
                         const pot = Math.min(safeMoney(rekapPotonganKasbon) || 0, tot);
+                        const apr = safeMoney(rekapApresiasi);
                         const semuaTercentang = tampil.length > 0 && tampil.every(t => selectedTripIds.includes(t.id));
                         return (
                         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" data-eks-rekap-modal>
@@ -25245,10 +25363,12 @@ ${getRekapShareLink(rekap)}
                                             <input type="number" min="0" max={sisaKb} value={rekapPotonganKasbon} onChange={e=>{setRekapPotonganKasbon(Number(e.target.value)); setRekapPotonganManual(true);}} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="0 = tidak potong" data-eks-rekap-potong />
                                         </div>
                                     )}
+                                    {kotakApresiasi(rekapApresiasi, setRekapApresiasi, rekapApresiasiNote, setRekapApresiasiNote, 'rekap')}
                                     <div className="text-sm space-y-1" data-eks-rekap-ringkas>
                                         <div className="flex justify-between"><span>Ongkir {terpilih.length} trip</span><b>{formatRupiah(tot)}</b></div>
+                                        {apr > 0 && <div className="flex justify-between text-amber-700"><span>⭐ Apresiasi</span><b>+ {formatRupiah(apr)}</b></div>}
                                         {pot > 0 && <div className="flex justify-between text-red-600"><span>Potong kasbon</span><b>- {formatRupiah(pot)}</b></div>}
-                                        <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji diterima</span><span data-eks-rekap-diterima>{formatRupiah(Math.max(0, tot - pot))}</span></div>
+                                        <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji diterima</span><span data-eks-rekap-diterima>{formatRupiah(Math.max(0, tot + apr - pot))}</span></div>
                                     </div>
                                     <div><label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label><input value={rekapNote} onChange={e=>setRekapNote(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opsional (misal: gaji minggu ke-1)" /></div>
                                 </div>
@@ -25315,7 +25435,7 @@ ${getRekapShareLink(rekap)}
                                     <div><label className="block text-xs font-semibold text-gray-600 mb-1">Ongkir (Rp)</label>
                                         <input type="number" value={xForm.ongkir} onChange={e=>handleXFormChange('ongkir',e.target.value)} className="w-full border rounded px-3 py-2 text-sm bg-blue-50 font-bold" />
                                     </div>
-                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">Catatan</label><textarea value={xForm.note} onChange={e=>handleXFormChange('note',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" rows="2" placeholder="Opsional" /></div>
+                                    <div><label className="block text-xs font-semibold text-gray-600 mb-1">📝 Keterangan untuk driver (opsional)</label><textarea value={xForm.note} maxLength={300} onChange={e=>handleXFormChange('note',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" rows="2" placeholder="mis. belikan kain cotton 30 kg" /></div>
                                 </div>
                                 <div className="flex justify-end gap-2 p-4 border-t">
                                     <button onClick={()=>setShowTrxForm(false)} className="px-4 py-2 bg-gray-100 rounded text-sm">Batal</button>
@@ -25342,7 +25462,7 @@ ${getRekapShareLink(rekap)}
             const [trx, setTrx] = React.useState(null);
             const [prog, setProg] = React.useState(null);
             const [tarif, setTarif] = React.useState(null);
-            const [namaUsaha, setNamaUsaha] = React.useState('');
+            const [logoUsaha, setLogoUsaha] = React.useState('');
             const [loading, setLoading] = React.useState(true);
             const [gagalMuat, setGagalMuat] = React.useState(false);
             const [saving, setSaving] = React.useState(''); // '' | 'foto' | 'kirim'
@@ -25370,13 +25490,13 @@ ${getRekapShareLink(rekap)}
                 const p = progRes.data?.data && typeof progRes.data.data === 'object' ? progRes.data.data : null;
                 return { trx: found, prog: p };
             };
-            const simpanCache = (t, p, tf, nama) => { try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ trx: t, prog: p, tarif: tf, nama })); } catch (e) {} };
+            const simpanCache = (t, p, tf, logo) => { try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ trx: t, prog: p, tarif: tf, logo })); } catch (e) {} };
 
             React.useEffect(() => {
                 let hidup = true;
                 try {
                     const c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
-                    if (c && c.trx) { setTrx(c.trx); setProg(c.prog || null); setTarif(c.tarif || null); setNamaUsaha(c.nama || ''); setLoading(false); }
+                    if (c && c.trx) { setTrx(c.trx); setProg(c.prog || null); setTarif(c.tarif || null); setLogoUsaha(logoAman(c.logo)); setLoading(false); }
                 } catch (e) {}
                 (async () => {
                     if (!supabaseClient) { setGagalMuat(true); setLoading(false); return; }
@@ -25386,14 +25506,14 @@ ${getRekapShareLink(rekap)}
                         const [d, tarRes, tplRes] = await Promise.all([
                             ambilData(),
                             supabaseClient.from('app_data').select('data').eq('id', 'driverTarifs').maybeSingle(),
-                            // Hanya nama usaha (pengaturan cetak bisa berisi logo/tanda tangan yang besar)
-                            supabaseClient.from('app_data').select('nama:data->>companyName').eq('id', 'templates').maybeSingle(),
+                            // Hanya logo kecil (logo cetak / tanda tangan bisa besar)
+                            supabaseClient.from('app_data').select('logo:data->>companyLogoMini').eq('id', 'templates').maybeSingle(),
                         ]);
                         if (!hidup) return;
                         const tf = d.trx ? safeArray(tarRes.data?.data).find(t => t && t.id === d.trx.tarifId) || null : null;
-                        const nama = typeof tplRes.data?.nama === 'string' ? tplRes.data.nama : (typeof tplRes.data?.data?.companyName === 'string' ? tplRes.data.data.companyName : '');
-                        setTrx(d.trx); setProg(d.prog); setTarif(tf); setNamaUsaha(nama); setGagalMuat(false);
-                        simpanCache(d.trx, d.prog, tf, nama);
+                        const logo = logoAman(typeof tplRes.data?.logo === 'string' ? tplRes.data.logo : tplRes.data?.data?.companyLogoMini);
+                        setTrx(d.trx); setProg(d.prog); setTarif(tf); setLogoUsaha(logo); setGagalMuat(false);
+                        simpanCache(d.trx, d.prog, tf, logo);
                         cloudHealth.ok();
                     } catch (e) { console.error(e); if (hidup) setGagalMuat(true); }
                     if (hidup) setLoading(false);
@@ -25499,7 +25619,7 @@ ${getRekapShareLink(rekap)}
                     const cek = await supabaseClient.from('app_data').select('data').eq('id', `drvp:${trxId}`).maybeSingle();
                     if (cek.error || String(cek.data?.data?.at || '') !== at) throw new Error('Belum tersimpan');
                     setTrx(tNow); setProg(baru); setFoto(''); setPesan(null); setTanpaBarang(false); setFotoTolak(null);
-                    simpanCache(tNow, baru, tarif, namaUsaha);
+                    simpanCache(tNow, baru, tarif, logoUsaha);
                     cloudHealth.ok();
                     kirimSinyal();
                 };
@@ -25541,13 +25661,17 @@ ${getRekapShareLink(rekap)}
                 </div>
             );
 
-            const namaHeader = namaUsaha || 'SIMPATI KONVEKSI';
+            // Kepala link driver: logo usaha (versi kecil) + SIMPATI OJEK
+            const namaHeader = (<>
+                {logoUsaha && <img src={logoUsaha} alt="logo" className="mx-auto mb-2 h-14 w-auto min-w-[56px] max-w-[160px] object-contain bg-white rounded-2xl p-1.5 shadow" data-dc-logo />}
+                <span className="font-black tracking-widest" data-dc-merek>SIMPATI OJEK</span>
+            </>);
             const dialihkan = !!driverLink && String(trx.driverId || '') !== driverLink;
             if (dialihkan) return (
                 <div className="min-h-screen bg-gray-50 flex items-start justify-center py-8 px-4">
                     <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm overflow-hidden" data-dc-dialihkan>
                         <div className="bg-gray-500 text-white p-5 text-center">
-                            <div className="text-sm font-medium opacity-80">{namaHeader}</div>
+                            <div className="text-sm font-medium">{namaHeader}</div>
                             <div className="text-2xl font-bold mt-1">Konfirmasi Pengiriman</div>
                             <div className="mt-2 inline-block bg-white/20 rounded-full px-4 py-1 text-sm font-semibold">Dialihkan</div>
                         </div>
@@ -25578,11 +25702,17 @@ ${getRekapShareLink(rekap)}
                 <div className="min-h-screen bg-gray-50 flex items-start justify-center py-8 px-4">
                     <div className="relative bg-white rounded-2xl shadow-lg w-full max-w-sm overflow-hidden" data-dc-status={status} data-dc-tahap={k.tahap}>
                         <div className={`${DRV_WARNA_HEADER[status] || 'bg-yellow-500'} text-white p-5 text-center`}>
-                            <div className="text-sm font-medium opacity-80">{namaHeader}</div>
+                            <div className="text-sm font-medium">{namaHeader}</div>
                             <div className="text-2xl font-bold mt-1">Konfirmasi Pengiriman</div>
                             <div className="mt-2 inline-block bg-white/20 rounded-full px-4 py-1 text-sm font-semibold" data-dc-pill>{status}{pp && status === 'Dalam Perjalanan' && k.tahap >= 3 ? ' · pulang' : ''}</div>
                         </div>
                         <div className="p-5 space-y-3">
+                            {String(trx.note || '').trim() && (
+                                <div className="bg-amber-50 border-2 border-amber-400 rounded-xl px-4 py-3" data-dc-pesan>
+                                    <div className="text-[11px] font-black tracking-wider text-amber-700">📝 PESAN DARI ADMIN</div>
+                                    <div className="mt-1 text-base font-bold text-amber-900 leading-snug whitespace-pre-line break-words" data-dc-pesan-isi>{String(trx.note).trim()}</div>
+                                </div>
+                            )}
                             {!gagal && (
                                 <div className="flex items-start" data-dc-langkah>
                                     {urut.map((kd, i) => {
@@ -25606,7 +25736,7 @@ ${getRekapShareLink(rekap)}
                                 <div className="flex justify-between gap-3"><span className="text-gray-500">Jenis</span><span className="font-medium">{pp?'Pulang Pergi (PP)':'Sekali Jalan'}</span></div>
                                 {trx.weight && <div className="flex justify-between gap-3"><span className="text-gray-500">Berat</span><span className="font-medium">{trx.weight} kg</span></div>}
                                 {trx.distance && <div className="flex justify-between gap-3"><span className="text-gray-500">Jarak</span><span className="font-medium">{trx.distance} km</span></div>}
-                                {trx.note && <div className="flex justify-between gap-3"><span className="text-gray-500">Catatan</span><span className="font-medium text-right">{trx.note}</span></div>}
+
                                 {!selesai && !gagal && akhir && akhir.at && <div className="flex justify-between gap-3" data-dc-terakhir><span className="text-gray-500">{(DRV_LANGKAH_INFO[akhir.k]?.catat || 'Terakhir').replace('Barang diambil', 'Diambil')}</span><span className="font-semibold">{drvJam(akhir.at)}</span></div>}
                             </div>
                             <div className="bg-blue-50 rounded-lg p-4 text-center">
@@ -25780,6 +25910,7 @@ ${getRekapShareLink(rekap)}
             const info = infoKasbonRekap(rekap, sisaSekarang);
             const per = periodeRekapGaji(rekap, trips);
             const pot = safeMoney(rekap.potonganKasbon);
+            const apr = safeMoney(rekap.apresiasi);
             const diterima = safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir);
             // Cetak memakai nota yang sama persis dengan cetakan admin
             const printRekap = () => { setPopupDiblokir(!cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl, sisaSekarang }))); };
@@ -25788,7 +25919,8 @@ ${getRekapShareLink(rekap)}
                     <div className="max-w-lg mx-auto">
                         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
                             <div className="bg-slate-700 text-white p-5 text-center">
-                                <div className="text-sm opacity-80">{tpl?.companyName||'SIMPATI KONVEKSI'}</div>
+                                {logoAman(tpl?.companyLogoMini || tpl?.companyLogo) && <img src={logoAman(tpl?.companyLogoMini || tpl?.companyLogo)} alt="logo" className="mx-auto mb-2 h-14 w-auto min-w-[56px] max-w-[160px] object-contain bg-white rounded-2xl p-1.5 shadow" data-rg-logo />}
+                                <div className="text-sm font-black tracking-widest" data-rg-merek>SIMPATI OJEK</div>
                                 <div className="text-2xl font-bold mt-1">Rekap Gaji Driver</div>
                             </div>
                             <div className="p-5 space-y-4">
@@ -25800,8 +25932,17 @@ ${getRekapShareLink(rekap)}
                                     <div className="flex justify-between"><span className="text-gray-500">No Rekap</span><span className="text-xs font-mono text-gray-600">{rekap.id}</span></div>
                                     {rekap.note && <div className="flex justify-between"><span className="text-gray-500">Catatan</span><span className="font-medium">{rekap.note}</span></div>}
                                 </div>
+                                {apr > 0 && (
+                                    <div className="border-2 border-amber-400 bg-gradient-to-b from-amber-50 to-amber-100 rounded-xl px-4 py-3 text-center" data-rg-apresiasi>
+                                        <div className="text-[11px] font-black tracking-[0.2em] text-amber-700">⭐ APRESIASI ⭐</div>
+                                        <div className="text-3xl font-black text-amber-800 mt-0.5">{formatRupiah(apr)}</div>
+                                        {rekap.apresiasiNote && <div className="text-sm font-bold text-amber-900 mt-0.5">{rekap.apresiasiNote}</div>}
+                                        <div className="text-xs italic text-amber-800 border-t border-dashed border-amber-400 mt-2 pt-1.5">Terima kasih atas kerja kerasnya, {String(rekap.driverName || 'Driver').split(' ')[0]}! 🙏</div>
+                                    </div>
+                                )}
                                 <div className="border border-gray-200 rounded-xl p-4 space-y-1.5 text-sm" data-rg-uang>
                                     <div className="flex justify-between"><span className="text-gray-600">Total ongkir ({rekap.jumlahTrip} trip)</span><b>{formatRupiah(safeMoney(rekap.totalOngkir))}</b></div>
+                                    {apr > 0 && <div className="flex justify-between text-amber-700"><span>⭐ Apresiasi</span><b>+ {formatRupiah(apr)}</b></div>}
                                     {pot > 0 && <div className="flex justify-between text-red-600"><span>Potongan kasbon</span><b>- {formatRupiah(pot)}</b></div>}
                                 </div>
                                 <div className="bg-green-100 text-green-800 rounded-xl px-4 py-3 flex items-center justify-between" data-rg-diterima>
@@ -31828,6 +31969,23 @@ ${getRekapShareLink(rekap)}
                     return valid;
                 });
             };
+            // Logo kecil untuk link driver & slip gaji: dibuat sekali (dan saat logo diganti) setelah data cloud termuat
+            const logoMiniProsesRef = React.useRef('');
+            React.useEffect(() => {
+                if (!isReady || !authUser || !supabaseLoadedRef.current || !templates || typeof templates !== 'object') return;
+                const logo = logoAman(templates.companyLogo);
+                if (!logo) {
+                    if (templates.companyLogoMini || templates.companyLogoMiniSumber) updateTemplates(prev => ({ ...(prev || {}), companyLogoMini: '', companyLogoMiniSumber: '' }));
+                    return;
+                }
+                const sidik = sidikTeks(logo);
+                if (templates.companyLogoMiniSumber === sidik && templates.companyLogoMini) return;
+                if (logoMiniProsesRef.current === sidik) return;
+                logoMiniProsesRef.current = sidik;
+                buatLogoMini(logo).then(mini => {
+                    updateTemplates(prev => (logoAman(prev?.companyLogo) && sidikTeks(prev.companyLogo) === sidik) ? { ...prev, companyLogoMini: mini, companyLogoMiniSumber: sidik } : prev);
+                }).catch(err => { console.warn('Logo kecil gagal dibuat:', err); });
+            }, [isReady, authUser, templates?.companyLogo, templates?.companyLogoMiniSumber]);
 
             // Password teks asli (versi lama) diganti hash — satu akun per giliran agar layar tidak macet di HP lambat
             const passwordMigrationRef = React.useRef(false);
@@ -32435,7 +32593,7 @@ ${getRekapShareLink(rekap)}
                 { id: 'laporan_keuangan', label: 'Laporan Keuangan', icon: <IconBarChart /> },
                 { id: 'laporan_order', label: 'Laporan Per Order', icon: <IconDocument /> },
                 { id: 'investor', label: 'Investor', icon: <IconBarChart /> },
-                { id: 'ekspedisi', label: 'Driver / Ekspedisi', icon: <IconTruck /> },
+                { id: 'ekspedisi', label: 'SIJEK', icon: <IconSkuter /> },
                 { id: 'dana_operasional', label: 'Dana Operasional', icon: <IconDocument /> },
                 { id: 'pengaturan', label: 'Pengaturan Cetak', icon: <IconSettings /> },
                 { id: 'master_akun', label: 'Master Akun', icon: <IconKey /> },
