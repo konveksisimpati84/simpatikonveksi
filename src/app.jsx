@@ -24096,6 +24096,8 @@ ${getRekapShareLink(rekap)}
 
             // Pagination
             const [trxPage, setTrxPage] = React.useState(1);
+            const [tarifHal, setTarifHal] = React.useState(1);
+            const [gajiLipatBuka, setGajiLipatBuka] = React.useState(false);
             const TRX_PER_PAGE = 20;
 
             const statusColor = (s) => {
@@ -24134,17 +24136,16 @@ ${getRekapShareLink(rekap)}
                 const r = rentangPeriode(nilai);
                 return (
                     <div className="flex flex-wrap items-center gap-2" data-eks-periode={nama}>
-                        <span className="text-sm font-bold text-slate-600">Periode:</span>
-                        {[['hari', 'Hari ini'], ['minggu', 'Minggu ini'], ['bulan', 'Bulan ini'], ['pilih', 'Pilih tanggal…']].map(([m, l]) => (
-                            <button key={m} type="button" onClick={() => ubah(p => ({ ...p, mode: m }))} data-eks-periode-pilih={m}
-                                className={`px-3 py-1.5 rounded-full text-sm font-bold border ${nilai.mode === m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>{l}</button>
-                        ))}
+                        <select value={nilai.mode} onChange={e => { const m = e.target.value; ubah(p => ({ ...p, mode: m })); }} aria-label="Periode" title="Periode"
+                            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-bold text-gray-800 bg-white" data-eks-periode-pilih>
+                            {[['hari', '📅 Hari ini'], ['minggu', '📅 Minggu ini'], ['bulan', '📅 Bulan ini'], ['pilih', '📅 Pilih tanggal…']].map(([m, l]) => <option key={m} value={m}>{l}</option>)}
+                        </select>
                         {nilai.mode === 'pilih' && (<>
                             <input type="date" value={nilai.dari || ''} onChange={e => ubah(p => ({ ...p, dari: e.target.value }))} className="border rounded-lg px-2 py-1.5 text-sm" data-eks-periode-dari />
                             <span className="text-gray-400">–</span>
                             <input type="date" value={nilai.sampai || ''} onChange={e => ubah(p => ({ ...p, sampai: e.target.value }))} className="border rounded-lg px-2 py-1.5 text-sm" data-eks-periode-sampai />
                         </>)}
-                        <span className="text-sm text-slate-700 bg-slate-100 rounded-lg px-3 py-1.5" data-eks-periode-label>{r.label}</span>
+                        <span className="text-xs text-slate-600 whitespace-nowrap" data-eks-periode-label>{nilai.mode === 'hari' ? fmtTglPanjang(hariIniStr) : r.label}</span>
                     </div>
                 );
             };
@@ -24424,6 +24425,17 @@ ${getRekapShareLink(rekap)}
                 const terakhir = visibleRekap.filter(r => r.driverId === d.id).sort((a, b) => String(b.tanggalRekap || '').localeCompare(String(a.tanggalRekap || '')))[0];
                 return { d, dalam, luar: avail.length - dalam.length, ongkir: dalam.reduce((s, t) => s + safeMoney(t.ongkir), 0), kasbon: getTotalSisaKasbon(d.id), terakhir };
             }).filter(k => k.d.isActive !== false || k.dalam.length || k.luar || k.kasbon > 0);
+            // Daftar gaji ringkas: yang punya trip / kasbon di atas; driver tanpa trip & kasbon dilipat
+            const urutGaji = (a, b) => (b.ongkir - a.ongkir) || (b.dalam.length - a.dalam.length) || (b.luar - a.luar) || (b.kasbon - a.kasbon) || String(a.d.name || '').localeCompare(String(b.d.name || ''), 'id', { sensitivity: 'base' });
+            const gajiUtama = kartuGaji.filter(k => k.dalam.length || k.luar || k.kasbon > 0).sort(urutGaji);
+            const gajiLipat = kartuGaji.filter(k => !(k.dalam.length || k.luar || k.kasbon > 0)).sort(urutGaji);
+            const gajiTotal = kartuGaji.reduce((s, k) => ({ trip: s.trip + k.dalam.length, ongkir: s.ongkir + k.ongkir, kasbon: s.kasbon + k.kasbon }), { trip: 0, ongkir: 0, kasbon: 0 });
+            // Daftar tarif: sering dipakai (30 hari) di atas, sisanya A–Z; 10 per halaman
+            const TARIF_PER_HAL = 10;
+            const tarifDaftar = [...filteredTarifs].sort((a, b) => ((pakaiTarif[b.id] || 0) - (pakaiTarif[a.id] || 0)) || labelRute(a).localeCompare(labelRute(b), 'id', { sensitivity: 'base' }));
+            const tarifJmlHal = Math.max(1, Math.ceil(tarifDaftar.length / TARIF_PER_HAL));
+            const tarifHalAktif = Math.min(tarifHal, tarifJmlHal);
+            const tarifHalaman = tarifDaftar.slice((tarifHalAktif - 1) * TARIF_PER_HAL, tarifHalAktif * TARIF_PER_HAL);
             const bukaRekapUntuk = (driverId) => {
                 const trips = getAvailableTrips(driverId).filter(t => dalamRentang(t.date, rGaji));
                 const tot = trips.reduce((s, t) => s + safeMoney(t.ongkir), 0);
@@ -24525,7 +24537,7 @@ ${getRekapShareLink(rekap)}
                     </div>
                     <div className="flex flex-wrap gap-2 mb-4">
                         {subTabs.map(st => (
-                            <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);setMenu(null);}} data-eks-tab={st.id}
+                            <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);setTarifHal(1);setMenu(null);}} data-eks-tab={st.id}
                                 className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 border ${activeSubTab===st.id ? st.on : 'bg-white text-slate-600 border-gray-200 hover:bg-gray-50 shadow-sm'}`}>
                                 <span>{st.icon}</span>{st.label}
                                 {st.id==='kirim' && (kpiMenunggu + kpiJalan) > 0 && <span className={`ml-1 text-[11px] rounded-full px-1.5 ${activeSubTab===st.id ? 'bg-white/25' : 'bg-orange-100 text-orange-700'}`}>{kpiMenunggu + kpiJalan}</span>}
@@ -24695,14 +24707,14 @@ ${getRekapShareLink(rekap)}
 
                             {/* Daftar */}
                             <Card>
-                                <div className="flex flex-col gap-2 mb-3">
+                                <div className="flex flex-wrap items-center gap-2 mb-3">
                                     {pilihPeriode(periodeKirim, (u)=>{setPeriodeKirim(u);setTrxPage(1);}, 'kirim')}
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        {[['','Semua'],['Menunggu','Menunggu'],['jalan','Di Jalan'],['Terkirim','Terkirim'],['Gagal','Gagal']].map(([v,l]) => (
-                                            <button key={v||'semua'} type="button" onClick={()=>{setFilterStatus(v);setTrxPage(1);}} data-eks-status-chip={v||'semua'}
-                                                className={`px-3 py-1.5 rounded-full text-sm font-bold border ${filterStatus===v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>{l} <span className="opacity-75">{jumlahStatus(v)}</span></button>
-                                        ))}
-                                        <select value={filterDriver} onChange={e=>{setFilterDriver(e.target.value);setTrxPage(1);}} className="border rounded-lg px-2 py-1.5 text-sm" data-eks-filter-driver>
+                                    <div className="contents">
+                                        <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setTrxPage(1);}} aria-label="Status" title="Status"
+                                            className={`border rounded-lg px-2 py-1.5 text-sm font-bold ${filterStatus ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-800'}`} data-eks-filter-status>
+                                            {[['','Semua status'],['Menunggu','⏳ Menunggu'],['jalan','🚚 Di Jalan'],['Terkirim','✅ Terkirim'],['Gagal','❌ Gagal']].map(([v,l]) => <option key={v||'semua'} value={v}>{l} ({jumlahStatus(v)})</option>)}
+                                        </select>
+                                        <select value={filterDriver} onChange={e=>{setFilterDriver(e.target.value);setTrxPage(1);}} className={`border rounded-lg px-2 py-1.5 text-sm font-bold ${filterDriver ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-800'}`} data-eks-filter-driver>
                                             <option value="">Semua driver</option>
                                             {visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
                                         </select>
@@ -24778,26 +24790,58 @@ ${getRekapShareLink(rekap)}
                     {/* ===== GAJI & KASBON ===== */}
                     {activeSubTab==='gaji' && (
                         <div className="space-y-4">
-                            {pilihPeriode(periodeGaji, setPeriodeGaji, 'gaji')}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                                {kartuGaji.length===0 && <div className="text-sm text-gray-500">Belum ada driver.</div>}
-                                {kartuGaji.map(k => (
-                                    <div key={k.d.id} className="bg-white border border-gray-200 rounded-2xl p-3.5" data-eks-gaji-card={k.d.id}>
-                                        <div className="font-extrabold text-gray-900">{k.d.name}<span className="ml-1.5 text-xs font-medium text-gray-500">{k.d.vehicle||''}{k.d.isActive===false ? ' · nonaktif' : ''}</span></div>
-                                        <div className="grid grid-cols-3 gap-1.5 my-2.5">
-                                            <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-[11px] text-gray-500">Belum direkap<b className="block text-sm text-gray-900" data-eks-gaji-trip>{k.dalam.length} trip</b></div>
-                                            <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-[11px] text-gray-500">Ongkir<b className="block text-sm text-gray-900 whitespace-nowrap" data-eks-gaji-ongkir>{k.ongkir ? formatRupiah(k.ongkir) : '—'}</b></div>
-                                            <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-[11px] text-gray-500">Sisa kasbon<b className={`block text-sm whitespace-nowrap ${k.kasbon > 0 ? 'text-red-700' : 'text-gray-900'}`} data-eks-gaji-kasbon>{k.kasbon > 0 ? formatRupiah(k.kasbon) : '—'}</b></div>
+                            <Card>
+                                {(() => {
+                                    // PC: 1 baris per driver (5 kolom). HP: 2 baris pendek (nama · ongkir / trip · tombol)
+                                    const KOLOM = 'grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_120px_120px_190px] gap-x-3 gap-y-1.5 items-center';
+                                    const bukaKasbon = (id) => { setShowKasbonDriver(id); setKasbonForm({ driverId: id, jumlah: '', keterangan: '', tanggal: toLocalDateStr() }); setShowKasbonAddForm(false); };
+                                    const baris = (k) => (
+                                        <div key={k.d.id} className={`grid ${KOLOM} px-3 py-2.5 border-t border-gray-100`} data-eks-gaji-card={k.d.id}>
+                                            <div className="min-w-0 order-1"><b className="text-sm text-gray-900">{k.d.name}</b><span className="ml-1.5 text-xs text-gray-500">{k.d.vehicle||''}{k.d.isActive===false ? ' · nonaktif' : ''}</span>
+                                                {!k.dalam.length && !k.luar && k.terakhir && <div className="text-[11px] text-gray-500">✓ Terakhir direkap {k.terakhir.tanggalRekap}</div>}
+                                            </div>
+                                            <div className="min-w-0 order-3 md:order-2 text-sm">
+                                                <b className={`whitespace-nowrap ${k.dalam.length ? 'text-gray-900' : 'font-normal text-gray-400'}`} data-eks-gaji-trip>{k.dalam.length} trip</b>
+                                                <span className="md:hidden text-xs text-gray-500"> belum direkap</span>
+                                                {k.kasbon > 0 && <span className="md:hidden text-xs font-bold text-red-700"> · kasbon {formatRupiah(k.kasbon)}</span>}
+                                                {k.luar > 0 && <span className="block text-[11px] font-bold text-amber-700" data-eks-gaji-luar>⚠ +{k.luar} trip di luar periode belum direkap</span>}
+                                            </div>
+                                            <div className="order-2 md:order-3 text-right text-sm"><b className={`whitespace-nowrap tabular-nums ${k.ongkir ? 'text-gray-900' : 'font-normal text-gray-400'}`} data-eks-gaji-ongkir>{k.ongkir ? formatRupiah(k.ongkir) : '—'}</b></div>
+                                            <div className="hidden md:block md:order-4 text-right text-sm"><b className={`whitespace-nowrap tabular-nums ${k.kasbon > 0 ? 'text-red-700' : 'font-normal text-gray-400'}`} data-eks-gaji-kasbon>{k.kasbon > 0 ? formatRupiah(k.kasbon) : '—'}</b></div>
+                                            <div className="order-4 md:order-5 flex justify-end gap-1.5">
+                                                <button type="button" disabled={!k.dalam.length} onClick={()=>bukaRekapUntuk(k.d.id)} className={`rounded-lg px-2.5 py-1.5 text-xs font-bold whitespace-nowrap ${k.dalam.length ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-400'}`} data-eks-rekap-buka>📋 <span className="hidden sm:inline">Buat </span>Rekap</button>
+                                                <button type="button" onClick={()=>bukaKasbon(k.d.id)} className="rounded-lg px-2.5 py-1.5 text-xs font-bold whitespace-nowrap bg-white border border-gray-300 text-gray-700 hover:bg-gray-50" title="Kasbon" data-eks-kasbon-buka>💳<span className="hidden sm:inline"> Kasbon</span></button>
+                                            </div>
                                         </div>
-                                        <div className="flex gap-2">
-                                            <button type="button" disabled={!k.dalam.length} onClick={()=>bukaRekapUntuk(k.d.id)} className={`flex-1 rounded-xl px-3 py-2 text-sm font-bold ${k.dalam.length ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-400'}`} data-eks-rekap-buka>📋 Buat Rekap</button>
-                                            <button type="button" onClick={()=>{setShowKasbonDriver(k.d.id);setKasbonForm({driverId:k.d.id,jumlah:'',keterangan:'',tanggal:toLocalDateStr()});setShowKasbonAddForm(false);}} className="rounded-xl px-3 py-2 text-sm font-bold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50" data-eks-kasbon-buka>💳 Kasbon</button>
+                                    );
+                                    return (
+                                        <div data-eks-gaji-daftar>
+                                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                                                {pilihPeriode(periodeGaji, setPeriodeGaji, 'gaji')}
+                                            </div>
+                                            {kartuGaji.length===0 && <div className="text-sm text-gray-500 py-2">Belum ada driver.</div>}
+                                            {kartuGaji.length > 0 && <div className={`${KOLOM} hidden md:grid bg-gray-50 rounded-lg px-3 py-2 text-xs font-semibold text-gray-500`}><span>Driver</span><span>Belum direkap</span><span className="text-right">Ongkir</span><span className="text-right">Sisa kasbon</span><span></span></div>}
+                                            {gajiUtama.map(baris)}
+                                            {gajiUtama.length === 0 && kartuGaji.length > 0 && <div className="px-3 py-3 border-t border-gray-100 text-sm text-gray-500" data-eks-gaji-kosong>✓ Tidak ada trip yang belum direkap.</div>}
+                                            {gajiUtama.length > 0 && (
+                                                <div className={`grid ${KOLOM} px-3 py-2 border-t border-gray-200 bg-gray-50 rounded-b-lg text-sm font-bold`} data-eks-gaji-total>
+                                                    <div className="order-1">Total<span className="hidden md:inline"> periode ini</span><span className="md:hidden"> · {gajiTotal.trip} trip</span></div>
+                                                    <div className="hidden md:block md:order-2">{gajiTotal.trip} trip</div>
+                                                    <div className="order-2 md:order-3 text-right tabular-nums whitespace-nowrap">{formatRupiah(gajiTotal.ongkir)}</div>
+                                                    <div className={`hidden md:block md:order-4 text-right tabular-nums whitespace-nowrap ${gajiTotal.kasbon > 0 ? 'text-red-700' : 'text-gray-400'}`}>{gajiTotal.kasbon > 0 ? formatRupiah(gajiTotal.kasbon) : '—'}</div>
+                                                    <div className="hidden md:block md:order-5"></div>
+                                                </div>
+                                            )}
+                                            {gajiLipat.length > 0 && (<>
+                                                <button type="button" onClick={()=>setGajiLipatBuka(v=>!v)} className="w-full text-left px-3 py-2.5 border-t border-gray-100 text-sm font-bold text-blue-600 truncate" data-eks-gaji-lipat>
+                                                    {gajiLipatBuka ? '▾' : '▸'} {gajiLipat.length} driver tanpa trip{!gajiLipatBuka ? <span className="font-normal text-gray-500"> ({gajiLipat.map(k => k.d.name).join(', ')})</span> : null}
+                                                </button>
+                                                {gajiLipatBuka && <div className="opacity-90">{gajiLipat.map(baris)}</div>}
+                                            </>)}
                                         </div>
-                                        {k.luar > 0 && <div className="text-[11px] text-amber-700 mt-1.5" data-eks-gaji-luar>⚠ {k.luar} trip di luar periode belum direkap</div>}
-                                        {!k.dalam.length && !k.luar && k.terakhir && <div className="text-[11px] text-gray-500 mt-1.5">✓ Terakhir direkap {k.terakhir.tanggalRekap}</div>}
-                                    </div>
-                                ))}
-                            </div>
+                                    );
+                                })()}
+                            </Card>
                             <Card>
                                 <div className="flex flex-wrap items-center gap-2 mb-3"><b className="text-slate-700">Riwayat rekap gaji</b>
                                     <select value={riwayatDriver} onChange={e=>setRiwayatDriver(e.target.value)} className="ml-auto border rounded-lg px-2 py-1.5 text-sm"><option value="">Semua driver</option>{visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>
@@ -24836,7 +24880,7 @@ ${getRekapShareLink(rekap)}
                         <div className="space-y-4">
                             <div className="flex flex-wrap items-center gap-2">
                                 {pilihPeriode(periodeLap, setPeriodeLap, 'laporan')}
-                                <select value={lapDriver} onChange={e=>setLapDriver(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" data-eks-lap-driver><option value="">Semua driver</option>{visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>
+                                <select value={lapDriver} onChange={e=>setLapDriver(e.target.value)} className={`border rounded-lg px-2 py-1.5 text-sm font-bold ${lapDriver ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-800'}`} data-eks-lap-driver><option value="">Semua driver</option>{visibleDrivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>
                                 <button type="button" onClick={cetakLaporan} className="sm:ml-auto bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-eks-lap-cetak>🖨 Cetak Laporan</button>
                             </div>
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-eks-lap-kpi>
@@ -24865,7 +24909,7 @@ ${getRekapShareLink(rekap)}
                     {/* ===== DRIVER & TARIF ===== */}
                     {activeSubTab==='pengaturan' && (
                         <div className="space-y-4">
-                            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Cari driver / rute…" className="border rounded-lg px-3 py-2 text-sm w-full sm:w-72" data-eks-atur-cari />
+                            <input value={search} onChange={e=>{setSearch(e.target.value);setTarifHal(1);}} placeholder="🔍 Cari driver / rute…" className="border rounded-lg px-3 py-2 text-sm w-full sm:w-72" data-eks-atur-cari />
                             <Card>
                                 <div className="flex items-center gap-2 mb-2"><b className="text-slate-700">👤 Driver ({visibleDrivers.length})</b><button onClick={()=>openDriverForm()} className="ml-auto bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-eks-driver-tambah>+ Tambah Driver</button></div>
                                 <div className="divide-y divide-gray-100">
@@ -24897,8 +24941,8 @@ ${getRekapShareLink(rekap)}
                             <Card>
                                 <div className="flex items-center gap-2 mb-2"><b className="text-slate-700">💰 Tarif / rute ({visibleTarifs.length})</b><button onClick={()=>openTarifForm()} className="ml-auto bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-eks-tarif-tambah>+ Tambah Tarif</button></div>
                                 <div className="divide-y divide-gray-100">
-                                    {filteredTarifs.length===0 && <div className="py-6 text-center text-gray-400 text-sm">Belum ada data tarif</div>}
-                                    {filteredTarifs.map(t => (
+                                    {filteredTarifs.length===0 && <div className="py-6 text-center text-gray-400 text-sm">{search && visibleTarifs.length ? 'Rute tidak ditemukan' : 'Belum ada data tarif'}</div>}
+                                    {tarifHalaman.map(t => (
                                         <div key={t.id} className="flex items-center gap-3 py-2.5" data-eks-tarif-row={t.id}>
                                             <div className="flex-1 min-w-0"><div className="font-bold text-sm text-gray-900">{t.from} → {t.to}</div><div className="text-xs text-gray-500">{t.pricingType==='per_km' ? `${formatRupiah(safeMoney(t.pricePerKm))}/km` : `${formatRupiah(safeMoney(t.pricePerKg))}/kg`}{t.jarak ? ` · ${t.jarak} km` : ''} · min {formatRupiah(safeMoney(t.minPrice))}{t.note ? ` · ${t.note}` : ''}{pakaiTarif[t.id] ? ` · dipakai ${pakaiTarif[t.id]}× (30 hari)` : ''}</div></div>
                                             {t.pricingType==='per_km' && (hitungTarifId===t.id
@@ -24908,6 +24952,18 @@ ${getRekapShareLink(rekap)}
                                         </div>
                                     ))}
                                 </div>
+                                {(tarifDaftar.length > TARIF_PER_HAL || (search && tarifDaftar.length > 0)) && (
+                                    <div className="flex flex-wrap items-center justify-between gap-2 mt-3 text-xs text-gray-500" data-eks-tarif-hal>
+                                        <span data-eks-tarif-hal-info>{tarifDaftar.length > TARIF_PER_HAL ? `Menampilkan ${(tarifHalAktif - 1) * TARIF_PER_HAL + 1}–${Math.min(tarifHalAktif * TARIF_PER_HAL, tarifDaftar.length)} dari ${tarifDaftar.length} rute` : `${tarifDaftar.length} rute ditemukan`}</span>
+                                        {tarifJmlHal > 1 && (
+                                            <div className="flex items-center gap-2">
+                                                <button type="button" disabled={tarifHalAktif <= 1} onClick={()=>setTarifHal(Math.max(1, tarifHalAktif - 1))} className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-700 disabled:opacity-40" data-eks-tarif-hal-prev>‹ Sebelumnya</button>
+                                                <span className="font-bold text-gray-700" data-eks-tarif-hal-no>{tarifHalAktif} / {tarifJmlHal}</span>
+                                                <button type="button" disabled={tarifHalAktif >= tarifJmlHal} onClick={()=>setTarifHal(Math.min(tarifJmlHal, tarifHalAktif + 1))} className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-700 disabled:opacity-40" data-eks-tarif-hal-next>Berikutnya ›</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </Card>
                         </div>
                     )}
