@@ -23489,7 +23489,210 @@ ${getRekapShareLink(rekap)}
             return true;
         };
 
-        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates }) => {
+        // ===== Peta OpenStreetMap (gratis, tanpa akun): cari alamat (Photon), jarak jalan (OSRM), pilih titik (Leaflet) =====
+        const OSM_PUSAT_DEFAULT = { lat: -7.4478, lng: 112.7183 }; // Sidoarjo
+        const OSM_ATRIBUSI = '© OpenStreetMap contributors';
+        const loadLeaflet = () => {
+            if (!document.querySelector('link[data-lazy-css="leaflet"]')) {
+                const el = document.createElement('link');
+                el.rel = 'stylesheet'; el.crossOrigin = 'anonymous'; el.setAttribute('data-lazy-css', 'leaflet');
+                el.onerror = () => { el.onerror = null; el.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; };
+                el.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
+                document.head.appendChild(el);
+            }
+            return window.L ? Promise.resolve() : loadScriptOnce('leaflet', ['https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js']);
+        };
+        const titikValid = (p) => !!p && isFinite(parseFloat(p.lat)) && isFinite(parseFloat(p.lng));
+        const fmtKoordinat = (p) => titikValid(p) ? `${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}` : '';
+        const fmtKmId = (km) => String(km).replace('.', ',');
+        const namaSama = (a, b) => !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+        // Hasil disimpan selama aplikasi terbuka (server gratis tidak dipanggil berulang untuk hal yang sama)
+        const osmCache = new Map();
+        const fetchJsonBatas = async (url, ms = 9000) => {
+            const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const t = setTimeout(() => ctl && ctl.abort(), ms);
+            try {
+                const r = await fetch(url, ctl ? { signal: ctl.signal } : undefined);
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return await r.json();
+            } finally { clearTimeout(t); }
+        };
+        const osmCariAlamat = async (q, dekat) => {
+            const kata = String(q || '').trim();
+            const p = titikValid(dekat) ? dekat : OSM_PUSAT_DEFAULT;
+            const kunci = `cari|${kata.toLowerCase()}|${Number(p.lat).toFixed(2)},${Number(p.lng).toFixed(2)}`;
+            if (osmCache.has(kunci)) return osmCache.get(kunci);
+            const data = await fetchJsonBatas(`https://photon.komoot.io/api/?q=${encodeURIComponent(kata)}&limit=8&lat=${p.lat}&lon=${p.lng}`);
+            const hasil = safeArray(data?.features)
+                .filter(f => f && f.geometry && Array.isArray(f.geometry.coordinates) && (!f.properties?.countrycode || f.properties.countrycode === 'ID'))
+                .map(f => {
+                    const pr = f.properties || {};
+                    const [lng, lat] = f.geometry.coordinates;
+                    const jalan = [pr.street, pr.housenumber].filter(Boolean).join(' ');
+                    const nama = pr.name || jalan || pr.district || pr.city || 'Tanpa nama';
+                    const detail = [pr.name ? jalan : '', pr.district, pr.city || pr.county, pr.state].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i && v !== nama).join(', ');
+                    return { nama, detail, lat: Number(lat), lng: Number(lng) };
+                })
+                .filter(x => isFinite(x.lat) && isFinite(x.lng))
+                .slice(0, 6);
+            osmCache.set(kunci, hasil);
+            return hasil;
+        };
+        const osmJarakJalan = async (a, b) => {
+            const kunci = `rute|${Number(a.lat).toFixed(5)},${Number(a.lng).toFixed(5)}|${Number(b.lat).toFixed(5)},${Number(b.lng).toFixed(5)}`;
+            if (osmCache.has(kunci)) return osmCache.get(kunci);
+            const data = await fetchJsonBatas(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`);
+            const r = data && data.code === 'Ok' ? safeArray(data.routes)[0] : null;
+            if (!r || !isFinite(r.distance)) throw new Error('Rute tidak ditemukan');
+            const hasil = { km: Math.max(0.1, Math.round(r.distance / 100) / 10), menit: Math.max(1, Math.round((r.duration || 0) / 60)) };
+            osmCache.set(kunci, hasil);
+            return hasil;
+        };
+
+        // Kolom lokasi: ketik → saran alamat; "Pilih di peta" bila tidak ketemu. nilai = { nama, lat, lng }
+        const KolomLokasi = ({ label, nilai, onUbah, dekat, onBukaPeta, placeholder, dataAttr }) => {
+            const [teks, setTeks] = useState(nilai?.nama || '');
+            const [hasil, setHasil] = useState([]);
+            const [buka, setBuka] = useState(false);
+            const [status, setStatus] = useState(''); // '' | 'cari' | 'gagal'
+            const ref = useRef(null);
+            const urut = useRef(0);
+            useEffect(() => { setTeks(nilai?.nama || ''); }, [nilai?.nama]);
+            useEffect(() => {
+                if (!buka) return;
+                const q = teks.trim();
+                if (q.length < 3) { setHasil([]); setStatus(''); return; }
+                const id = ++urut.current;
+                setStatus('cari');
+                const t = setTimeout(async () => {
+                    try { const h = await osmCariAlamat(q, dekat); if (id === urut.current) { setHasil(h); setStatus(''); } }
+                    catch (e) { if (id === urut.current) { setHasil([]); setStatus('gagal'); } }
+                }, 450);
+                return () => clearTimeout(t);
+            }, [teks, buka]);
+            useEffect(() => {
+                if (!buka) return;
+                const tutup = (ev) => { if (ref.current && !ref.current.contains(ev.target)) setBuka(false); };
+                document.addEventListener('mousedown', tutup); document.addEventListener('touchstart', tutup);
+                return () => { document.removeEventListener('mousedown', tutup); document.removeEventListener('touchstart', tutup); };
+            }, [buka]);
+            const adaTitik = titikValid(nilai);
+            return (
+                <div className="relative min-w-0" ref={ref} data-lokasi={dataAttr}>
+                    <div className="flex items-center justify-between gap-2 text-xs font-bold text-gray-600"><span>{label}</span>{adaTitik ? <span className="text-[10.5px] font-bold text-green-700" data-lokasi-titik>📍 titik ✓</span> : null}</div>
+                    <div className="mt-1 flex gap-1.5">
+                        <input value={teks} placeholder={placeholder} autoComplete="off"
+                            onChange={e => { setTeks(e.target.value); setBuka(true); onUbah({ nama: e.target.value, lat: null, lng: null }); }}
+                            onFocus={() => { if (!titikValid(nilai)) setBuka(true); }}
+                            onKeyDown={e => { if (e.key === 'Escape' || e.key === 'Tab') setBuka(false); }}
+                            className="w-full min-w-0 border rounded-lg px-2 py-1.5 text-sm font-normal" {...(dataAttr ? { [dataAttr]: '' } : {})} />
+                        <button type="button" onClick={() => { setBuka(false); onBukaPeta(teks); }} className="shrink-0 border border-gray-300 bg-white rounded-lg px-2 text-sm" title="Pilih lokasi di peta" data-lokasi-peta>📍</button>
+                    </div>
+                    {buka && teks.trim().length >= 3 && (
+                        <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-xl shadow-xl p-1.5 max-h-72 overflow-y-auto" data-lokasi-saran>
+                            {status === 'cari' && <div className="px-2.5 py-2 text-xs text-gray-500">Mencari alamat…</div>}
+                            {status === 'gagal' && <div className="px-2.5 py-2 text-xs text-amber-700">Pencarian alamat sedang tidak tersedia. Pilih di peta, atau isi jarak manual.</div>}
+                            {status === '' && hasil.length === 0 && <div className="px-2.5 py-2 text-xs text-gray-500">Alamat "{teks.trim()}" tidak ditemukan.</div>}
+                            {status === '' && hasil.map((h, i) => (
+                                <button key={i} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { onUbah({ nama: h.nama, lat: h.lat, lng: h.lng }); setTeks(h.nama); setBuka(false); }} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-50" data-lokasi-hasil={i}>
+                                    <div className="text-sm font-semibold text-gray-800">📍 {h.nama}</div>{h.detail && <div className="text-[11px] text-gray-500 pl-5">{h.detail}</div>}
+                                </button>
+                            ))}
+                            <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setBuka(false); onBukaPeta(teks); }} className="w-full text-left mt-1 border-t border-gray-100 px-2.5 py-2 text-sm font-bold text-blue-600" data-lokasi-peta-saran>📍 Tidak ketemu? Pilih lokasi di peta…</button>
+                            <div className="text-[10px] text-gray-400 text-right px-2">Data {OSM_ATRIBUSI}</div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Jendela "Pilih di peta" (Leaflet + peta OpenStreetMap). Ketuk peta → pin pindah. onPakai({ nama, lat, lng })
+        const PetaPilihTitik = ({ judul, awal, titikAsal, namaAwal, cariAwal = '', minta = 'Nama tempat', pakaiNama = true, onPakai, onTutup }) => {
+            const elRef = useRef(null);
+            const petaRef = useRef(null);
+            const [titik, setTitik] = useState(titikValid(awal) ? { lat: Number(awal.lat), lng: Number(awal.lng) } : null);
+            const [nama, setNama] = useState(namaAwal || '');
+            const [status, setStatus] = useState('muat'); // muat | siap | gagal
+            const [cari, setCari] = useState(cariAwal || '');
+            const [hasilCari, setHasilCari] = useState([]);
+            const [statusCari, setStatusCari] = useState('');
+            const urut = useRef(0);
+            const pindahKe = (p, zoom = 16) => {
+                const pr = petaRef.current; if (!pr) return;
+                pr.peta.setView([p.lat, p.lng], zoom);
+                pr.pasangPin([p.lat, p.lng]);
+                setTitik({ lat: Number(p.lat), lng: Number(p.lng) });
+            };
+            useEffect(() => {
+                let batal = false;
+                loadLeaflet().then(() => {
+                    if (batal || !elRef.current || !window.L) return;
+                    const L = window.L;
+                    const pusat = titikValid(awal) ? awal : (titikValid(titikAsal) ? titikAsal : OSM_PUSAT_DEFAULT);
+                    const peta = L.map(elRef.current, { zoomControl: false }).setView([Number(pusat.lat), Number(pusat.lng)], titikValid(awal) ? 16 : 13);
+                    L.control.zoom({ position: 'bottomright' }).addTo(peta);
+                    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: OSM_ATRIBUSI }).addTo(peta);
+                    if (titikValid(titikAsal)) L.marker([Number(titikAsal.lat), Number(titikAsal.lng)], { interactive: false, icon: L.divIcon({ html: '<div style="font-size:24px;line-height:1">🏭</div>', className: '', iconSize: [28, 28], iconAnchor: [14, 14] }) }).addTo(peta);
+                    const ikonPin = L.divIcon({ html: '<div style="font-size:32px;line-height:1">📍</div>', className: '', iconSize: [32, 32], iconAnchor: [16, 30] });
+                    let pin = null;
+                    const pasangPin = (ll) => { if (pin) pin.setLatLng(ll); else pin = L.marker(ll, { icon: ikonPin }).addTo(peta); };
+                    if (titikValid(awal)) pasangPin([Number(awal.lat), Number(awal.lng)]);
+                    peta.on('click', (ev) => { pasangPin(ev.latlng); setTitik({ lat: ev.latlng.lat, lng: ev.latlng.lng }); });
+                    petaRef.current = { peta, pasangPin };
+                    setStatus('siap');
+                    setTimeout(() => { try { peta.invalidateSize(); } catch (e) {} }, 200);
+                }).catch(() => { if (!batal) setStatus('gagal'); });
+                return () => { batal = true; if (petaRef.current) { try { petaRef.current.peta.remove(); } catch (e) {} petaRef.current = null; } };
+            }, []);
+            useEffect(() => {
+                const q = cari.trim();
+                if (q.length < 3) { setHasilCari([]); setStatusCari(''); return; }
+                const id = ++urut.current;
+                setStatusCari('cari');
+                const t = setTimeout(async () => {
+                    try { const h = await osmCariAlamat(q, titikAsal); if (id === urut.current) { setHasilCari(h); setStatusCari(h.length ? '' : 'kosong'); } }
+                    catch (e) { if (id === urut.current) { setHasilCari([]); setStatusCari('gagal'); } }
+                }, 450);
+                return () => clearTimeout(t);
+            }, [cari]);
+            return (
+                <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-3" data-peta-modal>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+                            <h3 className="font-bold text-gray-800 text-sm sm:text-base min-w-0 truncate">📍 {judul}</h3>
+                            <button type="button" onClick={onTutup} className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-bold text-gray-700 bg-white shrink-0" data-peta-tutup>✕ Tutup</button>
+                        </div>
+                        <div className="relative">
+                            <div ref={elRef} style={{ height: '55vh', minHeight: 280 }} className="w-full bg-gray-100" data-peta-kanvas />
+                            {status === 'muat' && <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500 pointer-events-none">Memuat peta…</div>}
+                            {status === 'gagal' && <div className="absolute inset-0 flex items-center justify-center text-sm text-red-600 bg-white/90 p-6 text-center" data-peta-gagal>Peta tidak bisa dimuat (cek internet). Tutup jendela ini lalu isi jarak secara manual.</div>}
+                            {status !== 'gagal' && <div className="absolute top-2 left-2 right-2 z-[1001]">
+                                <input value={cari} onChange={e => setCari(e.target.value)} placeholder="🔍 Cari daerah / jalan (mis. Gedangan)…" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm shadow" data-peta-cari />
+                                {cari.trim().length >= 3 && (statusCari || hasilCari.length > 0) && (
+                                    <div className="mt-1 bg-white border border-gray-200 rounded-xl shadow-xl p-1 max-h-48 overflow-y-auto" data-peta-saran>
+                                        {statusCari === 'cari' && <div className="px-2.5 py-1.5 text-xs text-gray-500">Mencari…</div>}
+                                        {statusCari === 'gagal' && <div className="px-2.5 py-1.5 text-xs text-amber-700">Pencarian tidak tersedia — geser peta & ketuk lokasinya.</div>}
+                                        {statusCari === 'kosong' && <div className="px-2.5 py-1.5 text-xs text-gray-500">"{cari.trim()}" tidak ditemukan — geser peta & ketuk lokasinya.</div>}
+                                        {!statusCari && hasilCari.map((h, i) => (
+                                            <button key={i} type="button" onClick={() => { pindahKe(h); if (!nama.trim()) setNama(h.nama); setHasilCari([]); setCari(''); }} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-50" data-peta-hasil={i}>
+                                                <div className="text-sm font-semibold text-gray-800">{h.nama}</div>{h.detail && <div className="text-[11px] text-gray-500">{h.detail}</div>}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>}
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-3 border-t">
+                            <div className="text-xs text-gray-600 sm:flex-1 min-w-0">{titik ? <>Titik dipilih: <b data-peta-koordinat>{fmtKoordinat(titik)}</b></> : <span className="text-amber-700">Ketuk lokasi di peta untuk memasang pin.</span>}</div>
+                            {pakaiNama && <input value={nama} onChange={e => setNama(e.target.value)} placeholder={minta} className="border border-gray-300 rounded-lg px-3 py-2 text-sm sm:w-56" data-peta-nama />}
+                            <button type="button" disabled={!titik || (pakaiNama && !nama.trim())} onClick={() => onPakai({ nama: (pakaiNama ? nama : (namaAwal || '')).trim(), lat: titik.lat, lng: titik.lng })} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50" data-peta-pakai>Pakai titik ini</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates, setTemplates }) => {
             const [activeSubTab, setActiveSubTab] = React.useState('kirim');
             const [search, setSearch] = React.useState('');
             const [showDriverForm, setShowDriverForm] = React.useState(false);
@@ -23584,7 +23787,14 @@ ${getRekapShareLink(rekap)}
             const saveTarif = () => {
                 if (!tForm.from.trim() || !tForm.to.trim()) { showToast('Asal dan Tujuan wajib diisi', 'error'); return; }
                 if (editTarif) {
-                    setDriverTarifs(prev => prev.map(t => t.id===editTarif.id ? {...t,...tForm,id:t.id} : t));
+                    // Nama asal/tujuan diganti → titik peta lama tidak dipakai lagi
+                    setDriverTarifs(prev => prev.map(t => {
+                        if (t.id !== editTarif.id) return t;
+                        const next = {...t,...tForm,id:t.id};
+                        if (!namaSama(t.from, tForm.from)) { next.fromLat = null; next.fromLng = null; }
+                        if (!namaSama(t.to, tForm.to)) { next.toLat = null; next.toLng = null; }
+                        return next;
+                    }));
                 } else {
                     setDriverTarifs(prev => [...(prev||[]), { id:genId('TRF-'), ...tForm, _syncUpdatedAt: new Date().toISOString() }]);
                 }
@@ -23947,7 +24157,78 @@ ${getRekapShareLink(rekap)}
             const QFORM_KOSONG = { date: hariIniStr, driverId: '', tarifId: '', tripType: 'sekali', distance: '', weight: '', note: '', ongkir: 0, ongkirManual: false, dari: '' };
             const [qForm, setQForm] = React.useState(QFORM_KOSONG);
             const [qCari, setQCari] = React.useState('');
-            const [ruteBaru, setRuteBaru] = React.useState(null); // { from, to, pricingType, pricePerKm, pricePerKg, minPrice, jarak }
+            const [ruteBaru, setRuteBaru] = React.useState(null); // { from, to, fromLat, fromLng, toLat, toLng, pricingType, pricePerKm, pricePerKg, minPrice, jarak }
+            // ----- Jarak otomatis (OpenStreetMap) -----
+            const titikAwal = titikValid(templates?.ekspedisiTitikAwal) ? templates.ekspedisiTitikAwal : null;
+            const [peta, setPeta] = React.useState(null); // props jendela "Pilih di peta"
+            const [jarakRB, setJarakRB] = React.useState({ status: '' }); // '' | hitung | ok | gagal
+            const [jarakRBUlang, setJarakRBUlang] = React.useState(0);
+            const [hitungTarifId, setHitungTarifId] = React.useState('');
+            const kunciJarakRB = ruteBaru && ruteBaru.pricingType === 'per_km' && titikValid({ lat: ruteBaru.fromLat, lng: ruteBaru.fromLng }) && titikValid({ lat: ruteBaru.toLat, lng: ruteBaru.toLng })
+                ? [ruteBaru.fromLat, ruteBaru.fromLng, ruteBaru.toLat, ruteBaru.toLng].join(',') : '';
+            React.useEffect(() => {
+                if (!kunciJarakRB) { setJarakRB({ status: '' }); return; }
+                let batal = false;
+                const [aLat, aLng, bLat, bLng] = kunciJarakRB.split(',').map(Number);
+                setJarakRB({ status: 'hitung' });
+                osmJarakJalan({ lat: aLat, lng: aLng }, { lat: bLat, lng: bLng })
+                    .then(h => {
+                        if (batal) return;
+                        setJarakRB({ status: 'ok', km: h.km, menit: h.menit });
+                        setRuteBaru(r => r ? { ...r, jarak: String(h.km) } : r);
+                    })
+                    .catch(() => { if (!batal) setJarakRB({ status: 'gagal' }); });
+                return () => { batal = true; };
+            }, [kunciJarakRB, jarakRBUlang]);
+            // Titik yang sudah diketahui untuk sebuah nama tempat (titik awal / rute lain yang sudah punya titik)
+            const titikDikenal = (nama) => {
+                if (!String(nama || '').trim()) return null;
+                if (titikAwal && namaSama(nama, titikAwal.nama)) return { lat: Number(titikAwal.lat), lng: Number(titikAwal.lng) };
+                for (const o of visibleTarifs) {
+                    if (namaSama(o.from, nama) && titikValid({ lat: o.fromLat, lng: o.fromLng })) return { lat: Number(o.fromLat), lng: Number(o.fromLng) };
+                    if (namaSama(o.to, nama) && titikValid({ lat: o.toLat, lng: o.toLng })) return { lat: Number(o.toLat), lng: Number(o.toLng) };
+                }
+                return null;
+            };
+            const bukaPetaRB = (sisi, teks) => {
+                const r = ruteBaru; if (!r) return;
+                const titik = sisi === 'from' ? { lat: r.fromLat, lng: r.fromLng } : { lat: r.toLat, lng: r.toLng };
+                const ada = titikValid(titik);
+                setPeta({
+                    judul: sisi === 'from' ? 'Pilih lokasi asal' : 'Pilih lokasi tujuan',
+                    awal: ada ? titik : null, namaAwal: teks || '', cariAwal: ada ? '' : (teks || ''),
+                    minta: sisi === 'from' ? 'Nama asal' : 'Nama tujuan',
+                    onPakai: (v) => { setRuteBaru(x => x ? (sisi === 'from' ? { ...x, from: v.nama, fromLat: v.lat, fromLng: v.lng } : { ...x, to: v.nama, toLat: v.lat, toLng: v.lng }) : x); setPeta(null); },
+                });
+            };
+            // Tombol "Hitung jarak" di daftar tarif: titik tujuan selalu dikonfirmasi di peta (tidak diubah diam-diam)
+            const hitungJarakTarif = (t, a0) => {
+                const a = a0 || (titikValid({ lat: t.fromLat, lng: t.fromLng }) ? { lat: Number(t.fromLat), lng: Number(t.fromLng) } : titikDikenal(t.from));
+                if (!a) {
+                    setPeta({ judul: `Lokasi asal: ${t.from}`, awal: null, namaAwal: t.from, cariAwal: t.from, pakaiNama: false,
+                        onPakai: (v) => { setPeta(null); hitungJarakTarif(t, { lat: v.lat, lng: v.lng }); } });
+                    return;
+                }
+                const bAda = titikValid({ lat: t.toLat, lng: t.toLng }) ? { lat: Number(t.toLat), lng: Number(t.toLng) } : titikDikenal(t.to);
+                setPeta({ judul: `Lokasi tujuan: ${t.to}`, awal: bAda, titikAsal: a, namaAwal: t.to, cariAwal: bAda ? '' : t.to, pakaiNama: false,
+                    onPakai: (v) => {
+                        setPeta(null);
+                        const b = { lat: v.lat, lng: v.lng };
+                        setHitungTarifId(t.id);
+                        osmJarakJalan(a, b)
+                            .then(h => {
+                                setDriverTarifs(prev => (prev || []).map(x => x && x.id === t.id ? { ...x, jarak: String(h.km), fromLat: a.lat, fromLng: a.lng, toLat: b.lat, toLng: b.lng, _syncUpdatedAt: new Date().toISOString() } : x));
+                                showToast(`Jarak ${t.from} → ${t.to}: ${fmtKmId(h.km)} km (±${h.menit} menit)`, 'success');
+                            })
+                            .catch(() => showToast('Server peta gratis sedang sibuk — coba lagi sebentar, atau isi jarak manual lewat Edit', 'error'))
+                            .finally(() => setHitungTarifId(''));
+                    } });
+            };
+            const aturTitikAwal = () => {
+                const asalSering = (() => { const n = {}; visibleTarifs.forEach(t => { if (t.from) n[t.from] = (n[t.from] || 0) + 1; }); return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || ''; })();
+                setPeta({ judul: 'Titik awal (lokasi konveksi)', awal: titikAwal, titikAsal: null, namaAwal: titikAwal?.nama || asalSering || templates?.companyName || '', minta: 'Nama titik awal',
+                    onPakai: (v) => { setTemplates(prev => ({ ...(prev || {}), ekspedisiTitikAwal: { nama: v.nama, lat: v.lat, lng: v.lng } })); setPeta(null); showToast('Titik awal disimpan', 'success'); } });
+            };
             const [qSorot, setQSorot] = React.useState(false);
             const [baruId, setBaruId] = React.useState('');
             const [formHpBuka, setFormHpBuka] = React.useState(false);
@@ -24028,7 +24309,9 @@ ${getRekapShareLink(rekap)}
             const bukaRuteBaru = () => {
                 const dasar = tarifUrut[0] || null;
                 const asal = (() => { const n = {}; visibleTarifs.forEach(t => { if (t.from) n[t.from] = (n[t.from] || 0) + 1; }); return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || templates?.companyName || ''; })();
-                setRuteBaru({ from: asal, to: qCari.trim(), pricingType: dasar?.pricingType || 'per_km', pricePerKm: dasar?.pricePerKm || '', pricePerKg: dasar?.pricePerKg || '', minPrice: dasar?.minPrice || '', jarak: '' });
+                const dari = titikAwal ? { nama: titikAwal.nama, ...titikDikenal(titikAwal.nama) } : { nama: asal, ...(titikDikenal(asal) || {}) };
+                const ke = { nama: qCari.trim(), ...(titikDikenal(qCari.trim()) || {}) };
+                setRuteBaru({ from: dari.nama, fromLat: dari.lat ?? null, fromLng: dari.lng ?? null, to: ke.nama, toLat: ke.lat ?? null, toLng: ke.lng ?? null, pricingType: dasar?.pricingType || 'per_km', pricePerKm: dasar?.pricePerKm || '', pricePerKg: dasar?.pricePerKg || '', minPrice: dasar?.minPrice || '', jarak: '' });
             };
             const pakaiRuteBaru = () => {
                 const r = ruteBaru;
@@ -24036,7 +24319,9 @@ ${getRekapShareLink(rekap)}
                 if (r.pricingType === 'per_km' ? !safeMoney(r.pricePerKm) : !safeMoney(r.pricePerKg)) { showToast(r.pricingType === 'per_km' ? 'Isi tarif per km' : 'Isi tarif per kg', 'error'); return; }
                 const sama = visibleTarifs.find(t => String(t.from || '').trim().toLowerCase() === r.from.trim().toLowerCase() && String(t.to || '').trim().toLowerCase() === r.to.trim().toLowerCase());
                 if (sama) { qUbah('tarifId', sama.id, sama); setRuteBaru(null); setQCari(''); showToast('Rute ini sudah ada — dipakai rute yang ada', 'success'); return; }
-                const t = { id: genId('TRF-'), from: r.from.trim(), to: r.to.trim(), pricingType: r.pricingType, pricePerKm: r.pricingType === 'per_km' ? r.pricePerKm : '', pricePerKg: r.pricingType === 'per_kg' ? r.pricePerKg : '', minPrice: r.minPrice, jarak: r.pricingType === 'per_km' ? r.jarak : '', note: '', _syncUpdatedAt: new Date().toISOString() };
+                const ok1 = titikValid({ lat: r.fromLat, lng: r.fromLng }), ok2 = titikValid({ lat: r.toLat, lng: r.toLng });
+                const t = { id: genId('TRF-'), from: r.from.trim(), to: r.to.trim(), pricingType: r.pricingType, pricePerKm: r.pricingType === 'per_km' ? r.pricePerKm : '', pricePerKg: r.pricingType === 'per_kg' ? r.pricePerKg : '', minPrice: r.minPrice, jarak: r.pricingType === 'per_km' ? r.jarak : '', note: '',
+                    fromLat: ok1 ? Number(r.fromLat) : null, fromLng: ok1 ? Number(r.fromLng) : null, toLat: ok2 ? Number(r.toLat) : null, toLng: ok2 ? Number(r.toLng) : null, _syncUpdatedAt: new Date().toISOString() };
                 setDriverTarifs(prev => [...(prev || []), t]);
                 qUbah('tarifId', t.id, t);
                 setRuteBaru(null); setQCari('');
@@ -24321,9 +24606,22 @@ ${getRekapShareLink(rekap)}
                                             <div className="mt-2 border-2 border-dashed border-blue-300 bg-blue-50/40 rounded-xl p-3 space-y-2" data-eks-rute-baru>
                                                 <div className="font-bold text-sm text-blue-700">+ Rute baru</div>
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                    <label className="text-xs font-bold text-gray-600">Dari<input value={ruteBaru.from} onChange={e=>setRuteBaru(r=>({...r, from:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-dari /></label>
-                                                    <label className="text-xs font-bold text-gray-600">Ke<input value={ruteBaru.to} onChange={e=>setRuteBaru(r=>({...r, to:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" placeholder="mis. Bu Rina Gedangan" data-eks-rb-ke /></label>
+                                                    <KolomLokasi label="Dari" nilai={{ nama: ruteBaru.from, lat: ruteBaru.fromLat, lng: ruteBaru.fromLng }} onUbah={v=>setRuteBaru(r=>r ? ({...r, from:v.nama, fromLat:v.lat, fromLng:v.lng}) : r)} dekat={titikAwal} onBukaPeta={teks=>bukaPetaRB('from', teks)} dataAttr="data-eks-rb-dari" />
+                                                    <KolomLokasi label="Ke" nilai={{ nama: ruteBaru.to, lat: ruteBaru.toLat, lng: ruteBaru.toLng }} onUbah={v=>setRuteBaru(r=>r ? ({...r, to:v.nama, toLat:v.lat, toLng:v.lng}) : r)} dekat={titikAwal || { lat: ruteBaru.fromLat, lng: ruteBaru.fromLng }} onBukaPeta={teks=>bukaPetaRB('to', teks)} placeholder="ketik alamat / nama tempat…" dataAttr="data-eks-rb-ke" />
                                                 </div>
+                                                {ruteBaru.pricingType==='per_km' && jarakRB.status==='hitung' && <div className="text-xs text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-2" data-eks-rb-km="hitung">🛣️ Menghitung jarak jalan…</div>}
+                                                {ruteBaru.pricingType==='per_km' && jarakRB.status==='ok' && (
+                                                    <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2" data-eks-rb-km="ok">
+                                                        <span className="text-xl">🛣️</span>
+                                                        <div className="min-w-0"><div><b className="text-emerald-800" data-eks-rb-km-nilai>{fmtKmId(jarakRB.km)} km</b> <span className="text-xs text-emerald-700">· ±{jarakRB.menit} menit</span></div><div className="text-[11px] text-emerald-800">Jarak jalan (OpenStreetMap) — otomatis masuk ke Jarak (km), tetap bisa diubah</div></div>
+                                                    </div>
+                                                )}
+                                                {ruteBaru.pricingType==='per_km' && jarakRB.status==='gagal' && (
+                                                    <div className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800" data-eks-rb-km="gagal">
+                                                        <span className="flex-1 min-w-0">⚠ Server peta gratis sedang sibuk / tidak terjangkau. Coba lagi sebentar, atau isi <b>Jarak (km)</b> secara manual — rute tetap bisa disimpan.</span>
+                                                        <button type="button" onClick={()=>setJarakRBUlang(n=>n+1)} className="px-2.5 py-1 rounded-lg border border-amber-300 bg-white font-bold" data-eks-rb-km-ulang>Coba lagi</button>
+                                                    </div>
+                                                )}
                                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
                                                     <div className="col-span-2 sm:col-span-1"><div className="text-xs font-bold text-gray-600 mb-1">Hitung</div><div className="flex gap-1">
                                                         {[['per_km','per km'],['per_kg','per kg']].map(([v,l]) => <button key={v} type="button" onClick={()=>setRuteBaru(r=>({...r, pricingType:v}))} className={`flex-1 border-2 rounded-lg px-2 py-1 text-xs font-bold ${ruteBaru.pricingType===v ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'}`} data-eks-rb-jenis={v}>{l}</button>)}
@@ -24334,7 +24632,7 @@ ${getRekapShareLink(rekap)}
                                                     {ruteBaru.pricingType==='per_km' && <label className="text-xs font-bold text-gray-600">Jarak (km)<input type="number" value={ruteBaru.jarak} onChange={e=>setRuteBaru(r=>({...r, jarak:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-jarak /></label>}
                                                     <label className="text-xs font-bold text-gray-600">Minimum (Rp)<input type="number" value={ruteBaru.minPrice} onChange={e=>setRuteBaru(r=>({...r, minPrice:e.target.value}))} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-min /></label>
                                                 </div>
-                                                <p className="text-[11px] text-slate-600">Tarif & minimum terisi dari tarif yang paling sering dipakai — tinggal isi tujuan{ruteBaru.pricingType==='per_km' ? ' & jarak' : ''}. Rute disimpan ke daftar tarif.</p>
+                                                <p className="text-[11px] text-slate-600">Tarif & minimum terisi dari tarif yang paling sering dipakai — tinggal isi tujuan{ruteBaru.pricingType==='per_km' ? ' (pilih dari saran / 📍 peta → jarak terisi otomatis)' : ''}. Rute disimpan ke daftar tarif.</p>
                                                 <div className="flex justify-end gap-2"><button type="button" onClick={()=>setRuteBaru(null)} className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-700">Batal</button><button type="button" onClick={pakaiRuteBaru} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-bold" data-eks-rb-pakai>Pakai rute ini</button></div>
                                             </div>
                                         )}
@@ -24546,12 +24844,29 @@ ${getRekapShareLink(rekap)}
                                 </div>
                             </Card>
                             <Card>
+                                <div data-eks-osm-kartu>
+                                    <b className="text-slate-700">📍 Hitung jarak otomatis (OpenStreetMap)</b>
+                                    <p className="text-xs text-gray-500 mt-0.5">Gratis, tanpa daftar. Dipakai saat membuat rute baru & tombol "Hitung jarak" di daftar tarif.</p>
+                                    <div className="text-xs font-bold text-gray-600 mt-3 mb-1">Titik awal (lokasi konveksi)</div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div className="flex-1 min-w-[200px] border rounded-lg px-3 py-2 text-sm bg-gray-50" data-eks-osm-titik>{titikAwal ? <>🏭 <b>{titikAwal.nama}</b> <span className="text-xs text-gray-500">· {fmtKoordinat(titikAwal)}</span></> : <span className="text-gray-400">Belum diatur</span>}</div>
+                                        <button type="button" onClick={aturTitikAwal} className={`px-3 py-2 rounded-lg text-sm font-bold ${titikAwal ? 'border border-gray-300 bg-white text-gray-700' : 'bg-blue-600 text-white'}`} data-eks-osm-atur>📍 {titikAwal ? 'Ubah di peta' : 'Atur di peta'}</button>
+                                    </div>
+                                    {titikAwal
+                                        ? <div className="mt-2 text-xs font-bold text-green-700">✓ Aktif — rute baru otomatis berangkat dari titik ini</div>
+                                        : <div className="mt-2 text-xs text-amber-700">Atur titik awal sekali (ketuk lokasi konveksi di peta) agar jarak dihitung dari konveksi.</div>}
+                                </div>
+                            </Card>
+                            <Card>
                                 <div className="flex items-center gap-2 mb-2"><b className="text-slate-700">💰 Tarif / rute ({visibleTarifs.length})</b><button onClick={()=>openTarifForm()} className="ml-auto bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-eks-tarif-tambah>+ Tambah Tarif</button></div>
                                 <div className="divide-y divide-gray-100">
                                     {filteredTarifs.length===0 && <div className="py-6 text-center text-gray-400 text-sm">Belum ada data tarif</div>}
                                     {filteredTarifs.map(t => (
                                         <div key={t.id} className="flex items-center gap-3 py-2.5" data-eks-tarif-row={t.id}>
                                             <div className="flex-1 min-w-0"><div className="font-bold text-sm text-gray-900">{t.from} → {t.to}</div><div className="text-xs text-gray-500">{t.pricingType==='per_km' ? `${formatRupiah(safeMoney(t.pricePerKm))}/km` : `${formatRupiah(safeMoney(t.pricePerKg))}/kg`}{t.jarak ? ` · ${t.jarak} km` : ''} · min {formatRupiah(safeMoney(t.minPrice))}{t.note ? ` · ${t.note}` : ''}{pakaiTarif[t.id] ? ` · dipakai ${pakaiTarif[t.id]}× (30 hari)` : ''}</div></div>
+                                            {t.pricingType==='per_km' && (hitungTarifId===t.id
+                                                ? <span className="text-xs text-gray-500 whitespace-nowrap" data-eks-tarif-jarak-proses>Menghitung…</span>
+                                                : <button type="button" onClick={()=>hitungJarakTarif(t)} disabled={!!hitungTarifId} className={`px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 disabled:opacity-50 ${t.jarak ? 'border border-gray-300 bg-white text-gray-700' : 'bg-blue-600 text-white'}`} data-eks-tarif-jarak={t.id}>📍 {t.jarak ? 'Hitung ulang' : 'Hitung jarak'}</button>)}
                                             <button type="button" onClick={(e)=>bukaMenu(e, 'tarif', t, 2)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black text-gray-700 shrink-0" data-eks-menu-btn>⋯</button>
                                         </div>
                                     ))}
@@ -24559,6 +24874,8 @@ ${getRekapShareLink(rekap)}
                             </Card>
                         </div>
                     )}
+
+                    {peta && <PetaPilihTitik key={peta.judul} {...peta} titikAsal={peta.titikAsal !== undefined ? peta.titikAsal : titikAwal} onTutup={()=>setPeta(null)} />}
 
                     {/* Menu ⋯ */}
                     {menu && (() => {
@@ -32167,7 +32484,7 @@ ${getRekapShareLink(rekap)}
                                 {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></MenuBeku></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} /></MenuBeku></div>}
+                                {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></MenuBeku></div>}
                                 {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={orders} templates={templates} showToast={showToast} /></div>}
                                 {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
                                 {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} getDataSizeReport={authUser?.role === 'Admin' ? getDataSizeReport : null} /></div>}
