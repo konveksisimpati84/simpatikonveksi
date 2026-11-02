@@ -23580,13 +23580,23 @@ ${getRekapShareLink(rekap)}
                 </div>
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>`;
         // Nota rekap gaji driver (sumber yang sama untuk cetak admin & link driver)
+        // 🎁 Tips per trip (opsional, diisi admin saat input pengiriman). Disimpan terpisah dari ongkir.
+        const tipsTrip = (t) => Math.max(0, safeMoney(t?.tips));
+        // Tips sebuah trip di dalam rekap: pakai catatan rekap (dikunci saat rekap dibuat). Rekap lama tanpa data tips = Rp 0.
+        const tipsTripDiRekap = (rekap, t) => {
+            if (!rekap || rekap.totalTips == null) return 0;
+            const snap = rekap.tipsPerTrip;
+            if (snap && snap[t?.id] != null) return Math.max(0, safeMoney(snap[t.id]));
+            return snap ? 0 : tipsTrip(t);
+        };
         const htmlStrukRekapGaji = ({ rekap, driver, trips, tarifs, tpl, sisaSekarang }) => {
             const per = periodeRekapGaji(rekap, trips);
             const info = infoKasbonRekap(rekap, sisaSekarang);
             const pot = safeMoney(rekap.potonganKasbon);
             const apr = safeMoney(rekap.apresiasi);
+            const tipsTot = safeMoney(rekap.totalTips);
             const nama = rekap.driverName || driver?.name || 'Driver';
-            const rows = safeArray(trips).map(t => { const trf = safeArray(tarifs).find(x => x && x.id === t.tarifId); const rute = trf ? `${trf.from} → ${trf.to}` : '-'; return `<div class="item-row"><span><b>${escapeHtmlText(rute)}</b><small>${escapeHtmlText(t.date || '')}${t.tripType === 'pp' ? ' &bull; PP' : ''}${t.note ? ' &bull; ' + escapeHtmlText(t.note) : ''}</small></span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`; }).join('');
+            const rows = safeArray(trips).map(t => { const trf = safeArray(tarifs).find(x => x && x.id === t.tarifId); const rute = trf ? `${trf.from} → ${trf.to}` : '-'; const tp = tipsTripDiRekap(rekap, t); return `<div class="item-row"><span><b>${escapeHtmlText(rute)}</b><small>${escapeHtmlText(t.date || '')}${t.tripType === 'pp' ? ' &bull; PP' : ''}${t.note ? ' &bull; ' + escapeHtmlText(t.note) : ''}</small>${tp > 0 ? `<small style="font-weight:bold">+ tips ${formatRupiah(tp)}${t.tipsNote ? ' &bull; ' + escapeHtmlText(t.tipsNote) : ''}</small>` : ''}</span><span>${formatRupiah(safeMoney(t.ongkir))}</span></div>`; }).join('');
             const judul = namaFileCetak('SGD', nama, per ? labelRentangStruk(per.dari, per.sampai) : fmtTglStruk(rekap.tanggalRekap));
             return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtmlText(judul)}</title><style>${STRUK_CSS}</style></head><body><div class="receipt">
                 ${kepalaStruk(tpl, 'REKAP GAJI DRIVER')}
@@ -23602,9 +23612,10 @@ ${getRekapShareLink(rekap)}
                 <div>${rows}</div>
                 <div class="total-box">
                     <div class="row"><span>Total Ongkir</span><span>${formatRupiah(safeMoney(rekap.totalOngkir))}</span></div>
+                    ${tipsTot > 0 ? `<div class="row"><span>Total Tips</span><span>+ ${formatRupiah(tipsTot)}</span></div>` : ''}
                     ${apr > 0 ? `<div class="row"><span>Apresiasi</span><span>+ ${formatRupiah(apr)}</span></div>` : ''}
                     ${pot > 0 ? `<div class="row red"><span>Potongan Kasbon</span><span>- ${formatRupiah(pot)}</span></div>` : ''}
-                    <div class="row grand" style="${pot > 0 || apr > 0 ? 'border-top:1px dashed #000;padding-top:5px;margin-top:4px' : ''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}</span></div>
+                    <div class="row grand" style="${pot > 0 || apr > 0 || tipsTot > 0 ? 'border-top:1px dashed #000;padding-top:5px;margin-top:4px' : ''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}</span></div>
                 </div>
                 ${apr > 0 ? `<div style="margin:8px 0 4px;border:2px solid #000;border-radius:6px;overflow:hidden;text-align:center;page-break-inside:avoid"><div style="background:#000;color:#fff;font-size:10.5px;font-weight:900;letter-spacing:2px;padding:4px 0">★ APRESIASI ★</div><div style="font-size:19px;font-weight:900;padding:5px 0 1px">${formatRupiah(apr)}</div>${rekap.apresiasiNote ? `<div style="font-size:10px;padding:0 4px 3px;overflow-wrap:anywhere">${escapeHtmlText(rekap.apresiasiNote)}</div>` : ''}<div style="font-size:9.5px;border-top:1px dashed #000;padding:4px;font-style:italic">Terima kasih atas kerja kerasnya</div></div>` : ''}
                 ${info ? `<div class="kasbon-box"><div class="t">Info Kasbon</div>
@@ -23916,7 +23927,9 @@ ${getRekapShareLink(rekap)}
                 const tarif = tarifObj || (driverTarifs || []).find(t => t && t.id === trx.tarifId);
                 // Keterangan untuk driver ditaruh paling atas & tebal agar tidak terlewat
                 const ket = String(trx.note || '').trim();
-                const msg = `Halo ${drv ? drv.name : 'Driver'},\n\nAda order pengiriman baru:\n${ket ? '📝 *Keterangan:* ' + ket + '\n\n' : ''}- Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n- Ongkir: ${formatRupiah(safeMoney(trx.ongkir))}\n- Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n\nKlik link untuk konfirmasi:\n${link}`;
+                const tp = tipsTrip(trx);
+                const tpNote = String(trx.tipsNote || '').trim();
+                const msg = `Halo ${drv ? drv.name : 'Driver'},\n\nAda order pengiriman baru:\n${ket ? '📝 *Keterangan:* ' + ket + '\n\n' : ''}${tp > 0 ? '🎁 *Tips: ' + formatRupiah(tp) + '*' + (tpNote ? ' — ' + tpNote : '') + '\n\n' : ''}- Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n- Ongkir: ${formatRupiah(safeMoney(trx.ongkir))}\n- Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n\nKlik link untuk konfirmasi:\n${link}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g,'').replace(/^0/,'62') : '';
                 const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
                 window.open(waUrl, '_blank');
@@ -23974,10 +23987,12 @@ ${getRekapShareLink(rekap)}
             };
 
             // ----- TRANSAKSI FORM -----
-            const [xForm, setXForm] = React.useState({ date: toLocalDateStr(), weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'' });
+            const [xForm, setXForm] = React.useState({ date: toLocalDateStr(), weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'', tips:'', tipsNote:'' });
+            // Trip yang sudah masuk rekap gaji (tips-nya dikunci)
+            const tripSudahDirekap = (id) => (driverRekapGaji || []).filter(isVisibleRecord).some(r => safeArray(r.tripIds).includes(id));
             const openTrxForm = (trx=null) => {
                 setEditTrx(trx);
-                setXForm(trx ? { date:trx.date||'', weight:trx.weight||'', distance:trx.distance||'', driverId:trx.driverId||'', tarifId:trx.tarifId||'', ongkir:trx.ongkir||'', tripType:trx.tripType||'sekali', status:trx.status||'Menunggu', note:trx.note||'' } : { date: toLocalDateStr(), weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'' });
+                setXForm(trx ? { date:trx.date||'', weight:trx.weight||'', distance:trx.distance||'', driverId:trx.driverId||'', tarifId:trx.tarifId||'', ongkir:trx.ongkir||'', tripType:trx.tripType||'sekali', status:trx.status||'Menunggu', note:trx.note||'', tips: tipsTrip(trx) ? String(tipsTrip(trx)) : '', tipsNote: trx.tipsNote||'' } : { date: toLocalDateStr(), weight:'', distance:'', driverId:'', tarifId:'', ongkir:'', tripType:'sekali', status:'Menunggu', note:'', tips:'', tipsNote:'' });
                 setShowTrxForm(true);
             };
             const handleXFormChange = (field, val) => {
@@ -24001,7 +24016,10 @@ ${getRekapShareLink(rekap)}
             const saveTrx = () => {
                 if (!xForm.driverId) { showToast('Pilih driver', 'error'); return; }
                 const drv = visibleDrivers.find(d=>d.id===xForm.driverId);
-                const payload = { ...xForm, tripType: xForm.tripType||'sekali', driverName: drv?drv.name:'', _syncUpdatedAt: new Date().toISOString() };
+                const tipsBaru = Math.max(0, safeMoney(xForm.tips));
+                const payload = { ...xForm, tips: tipsBaru, tipsNote: tipsBaru > 0 ? String(xForm.tipsNote || '').trim().slice(0, 100) : '', tripType: xForm.tripType||'sekali', driverName: drv?drv.name:'', _syncUpdatedAt: new Date().toISOString() };
+                // Tips trip yang sudah direkap dikunci (slip yang sudah dikirim tidak berubah)
+                if (editTrx && tripSudahDirekap(editTrx.id)) { payload.tips = tipsTrip(editTrx); payload.tipsNote = editTrx.tipsNote || ''; }
                 if (editTrx) {
                     setDriverTransactions(prev => prev.map(t => {
                         if (t.id !== editTrx.id) return t;
@@ -24177,16 +24195,22 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d=>d.id===rekapDriverId);
                 const trips = visibleTrx.filter(t=>selectedTripIds.includes(t.id));
                 const totalOngkir = trips.reduce((s,t)=>s+safeMoney(t.ongkir),0);
-                // Potongan kasbon hanya dari ongkir: apresiasi diterima utuh
+                // 🎁 Tips per trip dicatat di rekap (dikunci) — slip tetap sama walau data trip berubah
+                const tipsPerTrip = {};
+                trips.forEach(t => { const tp = tipsTrip(t); if (tp > 0) tipsPerTrip[t.id] = tp; });
+                const totalTips = Object.values(tipsPerTrip).reduce((s, v) => s + v, 0);
+                // Potongan kasbon hanya dari ongkir: tips & apresiasi diterima utuh
                 const potongan = Math.min(safeMoney(rekapPotonganKasbon)||0, totalOngkir);
                 const apresiasi = safeMoney(rekapApresiasi);
-                const gajiDiterima = totalOngkir + apresiasi - potongan;
+                const gajiDiterima = totalOngkir + totalTips + apresiasi - potongan;
                 const newRekap = {
                     id: genId('RGAJI-'),
                     driverId: rekapDriverId,
                     driverName: drv?drv.name:'',
                     tripIds: selectedTripIds,
                     totalOngkir,
+                    totalTips,
+                    tipsPerTrip,
                     potonganKasbon: potongan,
                     apresiasi,
                     apresiasiNote: apresiasi > 0 ? String(rekapApresiasiNote || '').trim() : '',
@@ -24329,7 +24353,7 @@ ${getRekapShareLink(rekap)}
             const aktifStatus = (s) => s === 'Menunggu' || s === 'Menuju Lokasi' || s === 'Dalam Perjalanan' || !s;
 
             // ----- Input cepat pengiriman -----
-            const QFORM_KOSONG = { date: hariIniStr, driverId: '', tarifId: '', tripType: 'sekali', distance: '', weight: '', note: '', ongkir: 0, ongkirManual: false, dari: '' };
+            const QFORM_KOSONG = { date: hariIniStr, driverId: '', tarifId: '', tripType: 'sekali', distance: '', weight: '', note: '', ongkir: 0, ongkirManual: false, dari: '', tips: 0, tipsNote: '', tipsBuka: false };
             const [qForm, setQForm] = React.useState(QFORM_KOSONG);
             const [qCari, setQCari] = React.useState('');
             const [ruteBaru, setRuteBaru] = React.useState(null); // { from, to, fromLat, fromLng, toLat, toLng, pricingType, pricePerKm, pricePerKg, minPrice, jarak }
@@ -24522,6 +24546,9 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d => d.id === qForm.driverId);
                 const now = new Date().toISOString();
                 const trx = { id: genId('XPDC-'), date: qForm.date || hariIniStr, driverId: qForm.driverId, driverName: drv ? drv.name : '', tarifId: qTarif.id, tripType: qForm.tripType, distance: qTarif.pricingType === 'per_km' ? String(qForm.distance || '') : '', weight: qTarif.pricingType === 'per_kg' ? String(qForm.weight || '') : '', ongkir: safeMoney(qForm.ongkir), status: 'Menunggu', note: qForm.note || '', createdAt: now, _syncUpdatedAt: now };
+                // 🎁 Tips opsional (terpisah dari ongkir)
+                const tipsQ = Math.max(0, safeMoney(qForm.tips));
+                if (tipsQ > 0) { trx.tips = tipsQ; const pesanTips = String(qForm.tipsNote || '').trim().slice(0, 100); if (pesanTips) trx.tipsNote = pesanTips; }
                 setDriverTransactions(prev => [...(prev || []), trx]);
                 if (kirimWA) shareViaWA(trx, qTarif);
                 // Driver & rute terakhir tetap terpilih untuk pengiriman berikutnya; jenis kembali Sekali, catatan kosong
@@ -24597,13 +24624,13 @@ ${getRekapShareLink(rekap)}
                 const avail = getAvailableTrips(d.id);
                 const dalam = avail.filter(t => dalamRentang(t.date, rGaji));
                 const terakhir = visibleRekap.filter(r => r.driverId === d.id).sort((a, b) => String(b.tanggalRekap || '').localeCompare(String(a.tanggalRekap || '')))[0];
-                return { d, dalam, luar: avail.length - dalam.length, ongkir: dalam.reduce((s, t) => s + safeMoney(t.ongkir), 0), kasbon: getTotalSisaKasbon(d.id), terakhir };
+                return { d, dalam, luar: avail.length - dalam.length, ongkir: dalam.reduce((s, t) => s + safeMoney(t.ongkir), 0), tips: dalam.reduce((s, t) => s + tipsTrip(t), 0), kasbon: getTotalSisaKasbon(d.id), terakhir };
             }).filter(k => k.d.isActive !== false || k.dalam.length || k.luar || k.kasbon > 0);
             // Daftar gaji ringkas: yang punya trip / kasbon di atas; driver tanpa trip & kasbon dilipat
             const urutGaji = (a, b) => (b.ongkir - a.ongkir) || (b.dalam.length - a.dalam.length) || (b.luar - a.luar) || (b.kasbon - a.kasbon) || String(a.d.name || '').localeCompare(String(b.d.name || ''), 'id', { sensitivity: 'base' });
             const gajiUtama = kartuGaji.filter(k => k.dalam.length || k.luar || k.kasbon > 0).sort(urutGaji);
             const gajiLipat = kartuGaji.filter(k => !(k.dalam.length || k.luar || k.kasbon > 0)).sort(urutGaji);
-            const gajiTotal = kartuGaji.reduce((s, k) => ({ trip: s.trip + k.dalam.length, ongkir: s.ongkir + k.ongkir, kasbon: s.kasbon + k.kasbon }), { trip: 0, ongkir: 0, kasbon: 0 });
+            const gajiTotal = kartuGaji.reduce((s, k) => ({ trip: s.trip + k.dalam.length, ongkir: s.ongkir + k.ongkir, tips: s.tips + k.tips, kasbon: s.kasbon + k.kasbon }), { trip: 0, ongkir: 0, tips: 0, kasbon: 0 });
             // Daftar tarif: sering dipakai (30 hari) di atas, sisanya A–Z; 10 per halaman
             const TARIF_PER_HAL = 10;
             const tarifDaftar = [...filteredTarifs].sort((a, b) => ((pakaiTarif[b.id] || 0) - (pakaiTarif[a.id] || 0)) || labelRute(a).localeCompare(labelRute(b), 'id', { sensitivity: 'base' }));
@@ -24654,7 +24681,7 @@ ${getRekapShareLink(rekap)}
                 const nominal = safeMoney(ubahApresiasi.nominal);
                 const note = nominal > 0 ? String(ubahApresiasi.note || '').trim() : '';
                 setDriverRekapGaji(prev => (prev || []).map(r => r && r.id === ubahApresiasi.id
-                    ? { ...r, apresiasi: nominal, apresiasiNote: note, gajiDiterima: safeMoney(r.totalOngkir) + nominal - safeMoney(r.potonganKasbon), _syncUpdatedAt: new Date().toISOString() }
+                    ? { ...r, apresiasi: nominal, apresiasiNote: note, gajiDiterima: safeMoney(r.totalOngkir) + safeMoney(r.totalTips) + nominal - safeMoney(r.potonganKasbon), _syncUpdatedAt: new Date().toISOString() }
                     : r));
                 setUbahApresiasi(null);
                 showToast(nominal > 0 ? `Apresiasi ${formatRupiah(nominal)} disimpan` : 'Apresiasi dihapus', 'success');
@@ -24665,7 +24692,7 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d => d.id === rekap.driverId);
                 const pot = safeMoney(rekap.potonganKasbon);
                 const apr = safeMoney(rekap.apresiasi);
-                const msg = `Halo ${drv ? drv.name : (rekap.driverName || 'Driver')},\n\nBerikut slip gaji pengiriman${rekap.periodeDari ? ' periode ' + labelPeriodeRekap(rekap) : ''}:\n- Jumlah trip: ${rekap.jumlahTrip || 0}\n- Total ongkir: ${formatRupiah(safeMoney(rekap.totalOngkir))}\n${apr > 0 ? `- ⭐ *Apresiasi: ${formatRupiah(apr)}*${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `- Potong kasbon: ${formatRupiah(pot)}\n` : ''}- *Gaji diterima: ${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\nRincian:\n${linkSlip(rekap)}`;
+                const msg = `Halo ${drv ? drv.name : (rekap.driverName || 'Driver')},\n\nBerikut slip gaji pengiriman${rekap.periodeDari ? ' periode ' + labelPeriodeRekap(rekap) : ''}:\n- Jumlah trip: ${rekap.jumlahTrip || 0}\n- Total ongkir: ${formatRupiah(safeMoney(rekap.totalOngkir))}\n${safeMoney(rekap.totalTips) > 0 ? `- 🎁 *Tips: ${formatRupiah(safeMoney(rekap.totalTips))}*\n` : ''}${apr > 0 ? `- ⭐ *Apresiasi: ${formatRupiah(apr)}*${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `- Potong kasbon: ${formatRupiah(pot)}\n` : ''}- *Gaji diterima: ${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\nRincian:\n${linkSlip(rekap)}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
                 window.open(phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
             };
@@ -24678,9 +24705,10 @@ ${getRekapShareLink(rekap)}
             const trxLap = visibleTrx.filter(t => dalamRentang(t.date, rLap) && (!lapDriver || t.driverId === lapDriver));
             const lapTerkirim = trxLap.filter(t => t.status === 'Terkirim').sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
             const lapPendapatan = lapTerkirim.reduce((s, t) => s + safeMoney(t.ongkir), 0);
+            const lapTips = lapTerkirim.reduce((s, t) => s + tipsTrip(t), 0);
             const lapPerDriver = (() => {
                 const m = new Map();
-                lapTerkirim.forEach(t => { const k = t.driverId || t.driverName || '-'; const x = m.get(k) || { nama: t.driverName || '-', n: 0, ongkir: 0 }; x.n += 1; x.ongkir += safeMoney(t.ongkir); m.set(k, x); });
+                lapTerkirim.forEach(t => { const k = t.driverId || t.driverName || '-'; const x = m.get(k) || { nama: t.driverName || '-', n: 0, ongkir: 0, tips: 0 }; x.n += 1; x.ongkir += safeMoney(t.ongkir); x.tips += tipsTrip(t); m.set(k, x); });
                 return [...m.values()].sort((a, b) => b.ongkir - a.ongkir);
             })();
             const LAP_PER_PAGE = 25;
@@ -24703,7 +24731,7 @@ ${getRekapShareLink(rekap)}
                 <div>Total pengiriman: ${trxLap.length} | Terkirim: ${rows.length} | Gagal: ${trxLap.filter(t => t.status === 'Gagal').length}</div>
                 <table><thead><tr><th>No</th><th>Tanggal</th><th>Driver</th><th>Rute</th><th>Berat/KM</th><th>Ongkir</th></tr></thead>
                 <tbody>${rows.map((t, i) => { const trf = cariTarif(t.tarifId); return `<tr><td>${i + 1}</td><td>${t.date}</td><td>${t.driverName || '-'}</td><td>${trf ? trf.from + ' → ' + trf.to : '-'}${t.tripType === 'pp' ? ' (PP)' : ''}</td><td>${trf?.pricingType === 'per_km' ? (t.distance ? t.distance + ' km' : '-') : (t.weight ? t.weight + ' kg' : '-')}</td><td>${formatRupiah(safeMoney(t.ongkir))}</td></tr>`; }).join('')}</tbody>
-                <tfoot><tr><td colspan="5">TOTAL PENDAPATAN</td><td>${formatRupiah(lapPendapatan)}</td></tr></tfoot></table>
+                <tfoot><tr><td colspan="5">TOTAL PENDAPATAN</td><td>${formatRupiah(lapPendapatan)}</td></tr>${lapTips > 0 ? `<tr><td colspan="5">TOTAL TIPS DRIVER</td><td>${formatRupiah(lapTips)}</td></tr>` : ''}</tfoot></table>
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
                 </body></html>`);
                 w.document.close(); setTimeout(() => { w.print(); w.close(); }, 500);
@@ -24729,6 +24757,7 @@ ${getRekapShareLink(rekap)}
             const kpiTerkirimHariIni = visibleTrx.filter(t => t.status === 'Terkirim' && t.date === hariIniStr).length;
             const bulanIni = hariIniStr.slice(0, 7);
             const kpiOngkirBulan = visibleTrx.filter(t => t.status === 'Terkirim' && String(t.date || '').slice(0, 7) === bulanIni).reduce((s, t) => s + safeMoney(t.ongkir), 0);
+            const kpiTipsBulan = visibleTrx.filter(t => t.status === 'Terkirim' && String(t.date || '').slice(0, 7) === bulanIni).reduce((s, t) => s + tipsTrip(t), 0);
             const jumlahFoto = (t) => safeArray(t.drvLangkah).filter(l => l && l.foto).length;
 
             const subTabs = [
@@ -24768,12 +24797,13 @@ ${getRekapShareLink(rekap)}
                                     <div className="text-[11px] font-bold text-gray-500"><b className="block text-xl leading-tight text-green-700">{kpiTerkirimHariIni}</b>✅ Terkirim</div>
                                 </div>
                                 <div className="flex justify-between px-1 mt-1.5 text-xs text-gray-600"><span>Ongkir bulan ini (terkirim)</span><b className="text-slate-800">{formatRupiah(kpiOngkirBulan)}</b></div>
+                                {kpiTipsBulan > 0 && <div className="flex justify-between px-1 mt-0.5 text-xs text-gray-600" data-eks-kpi-tips-hp><span>🎁 Tips bulan ini</span><b className="text-green-700">{formatRupiah(kpiTipsBulan)}</b></div>}
                             </div>
                             <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3" data-eks-kpi>
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Menunggu</div><div className="text-2xl font-black text-yellow-700">{kpiMenunggu}</div></div>
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Di jalan</div><div className="text-2xl font-black text-blue-700">{kpiJalan}</div></div>
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Terkirim hari ini</div><div className="text-2xl font-black text-green-700">{kpiTerkirimHariIni}</div></div>
-                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Ongkir bulan ini (terkirim)</div><div className="text-xl sm:text-2xl font-black text-slate-800 whitespace-nowrap">{formatRupiah(kpiOngkirBulan)}</div></div>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Ongkir bulan ini (terkirim)</div><div className="text-xl sm:text-2xl font-black text-slate-800 whitespace-nowrap">{formatRupiah(kpiOngkirBulan)}</div>{kpiTipsBulan > 0 && <div className="text-xs font-bold text-green-700" data-eks-kpi-tips>🎁 Tips bulan ini {formatRupiah(kpiTipsBulan)}</div>}</div>
                             </div>
 
                             {/* Input cepat */}
@@ -24921,6 +24951,20 @@ ${getRekapShareLink(rekap)}
                                             <div className="text-[11px] text-blue-900 min-h-[14px] truncate">{qTarif ? (qForm.ongkirManual ? 'diubah manual' : rincianOngkir(qTarif, qForm)) : 'pilih rute untuk menghitung'}</div>
                                             <div className="flex items-center justify-end gap-1"><span className="text-blue-700 font-black">Rp</span><input type="text" inputMode="numeric" value={safeMoney(qForm.ongkir) ? Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID') : ''} onChange={e=>qUbah('ongkir', Number(e.target.value.replace(/\D/g, '')) || 0)} placeholder="0" style={{ width: `${Math.max(3, String(Number(safeMoney(qForm.ongkir)).toLocaleString('id-ID')).length + 1)}ch` }} className="bg-transparent text-right text-xl font-black text-blue-700 outline-none" title="Ongkir bisa diubah manual" data-eks-q-ongkir /></div>
                                         </div>
+                                        <div className="order-3 col-span-2 lg:order-6 lg:col-span-5 min-w-0" data-eks-q-tips-wrap>
+                                            {!qForm.tipsBuka ? (
+                                                <button type="button" onClick={()=>setQForm(f=>({...f, tipsBuka:true}))} className="w-full lg:w-auto border border-dashed border-green-400 bg-green-50 text-green-700 rounded-lg px-3 py-1.5 text-sm font-bold" data-eks-q-tips-buka>🎁 Tambah tips untuk driver (opsional)</button>
+                                            ) : (
+                                                <div className="border-2 border-green-400 bg-green-50 rounded-xl p-2.5" data-eks-q-tips>
+                                                    <div className="flex justify-between items-center gap-2 mb-1.5"><span className="text-[11px] font-black text-green-800 tracking-wide">🎁 TIPS UNTUK DRIVER</span><button type="button" onClick={()=>setQForm(f=>({...f, tips:0, tipsNote:'', tipsBuka:false}))} className="text-xs font-bold text-gray-500" data-eks-q-tips-hapus>✕ Hapus</button></div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-[170px_minmax(0,1fr)] gap-2">
+                                                        <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide">Nominal (Rp)<input type="text" inputMode="numeric" value={safeMoney(qForm.tips) ? Number(safeMoney(qForm.tips)).toLocaleString('id-ID') : ''} onChange={e=>setQForm(f=>({...f, tips: Number(e.target.value.replace(/\D/g, '')) || 0}))} placeholder="0" className="mt-1 w-full border border-green-300 rounded-lg px-3 py-1.5 text-sm font-bold normal-case tracking-normal bg-white" data-eks-q-tips-nominal /></label>
+                                                        <label className="block text-[11px] font-extrabold text-gray-600 uppercase tracking-wide min-w-0">Pesan (opsional)<input type="text" maxLength={100} value={qForm.tipsNote} onChange={e=>setQForm(f=>({...f, tipsNote:e.target.value}))} placeholder="mis. Hati-hati di jalan 🙏" className="mt-1 w-full border border-green-300 rounded-lg px-3 py-1.5 text-sm font-normal normal-case tracking-normal bg-white" data-eks-q-tips-pesan /></label>
+                                                    </div>
+                                                    <div className="text-[11px] text-green-700 mt-1.5" data-eks-q-tips-info>Dibayar bersama gaji · tidak dipotong kasbon{safeMoney(qForm.tips) > 0 ? <> · ongkir {formatRupiah(safeMoney(qForm.ongkir))} + tips {formatRupiah(safeMoney(qForm.tips))} = <b>{formatRupiah(safeMoney(qForm.ongkir) + safeMoney(qForm.tips))}</b></> : null}</div>
+                                                </div>
+                                            )}
+                                        </div>
                                         <div className="order-4 col-span-2 flex gap-2 lg:contents">
                                             <button type="button" onClick={()=>simpanCepat(true)} className="lg:order-4 flex-[1.4] bg-green-500 hover:bg-green-600 text-white rounded-xl px-4 py-2.5 font-black text-sm whitespace-nowrap" data-eks-q-kirim>💬 Kirim WA</button>
                                             <button type="button" onClick={()=>simpanCepat(false)} className="lg:order-5 flex-1 bg-white border border-gray-300 text-gray-700 rounded-xl px-3 py-2.5 font-bold text-sm whitespace-nowrap" data-eks-q-simpan>Simpan saja</button>
@@ -24959,7 +25003,7 @@ ${getRekapShareLink(rekap)}
                                                         <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{t.date===hariIniStr ? 'Hari ini' : fmtTglPendek(t.date)}{t.createdAt && <span className="block text-gray-400">{drvJam(t.createdAt)}</span>}</td>
                                                         <td className="px-3 py-2 font-bold text-gray-800">{t.driverName||'-'}</td>
                                                         <td className="px-3 py-2 text-xs">{trf ? `${trf.from} → ${trf.to}` : '-'}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded font-bold">PP</span>}<span className="block text-gray-400">{trf?.pricingType==='per_km' ? (t.distance ? `${t.distance} km` : '') : (t.weight ? `${t.weight} kg` : '')}{t.note ? `${(trf?.pricingType==='per_km' ? t.distance : t.weight) ? ' · ' : ''}📝 ${t.note}` : ''}</span></td>
-                                                        <td className="px-3 py-2 text-right font-black text-blue-700 whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</td>
+                                                        <td className="px-3 py-2 text-right font-black text-blue-700 whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}{tipsTrip(t) > 0 && <span className="block text-[11px] font-bold text-green-700" title={t.tipsNote || ''} data-eks-trx-tips>🎁 +{formatRupiah(tipsTrip(t))}</span>}</td>
                                                         <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${statusColor(st)}`} data-eks-status>{st}</span>
                                                             {(drvKeterangan(t) || nf > 0) && <div className="text-[11px] text-gray-500 mt-1" data-drv-ket>{drvKeterangan(t)}{nf > 0 && <button type="button" onClick={()=>setFotoTrx(t)} className="ml-1 text-blue-700 font-bold hover:underline" data-drv-foto-btn>📷 {nf}</button>}</div>}</td>
                                                         <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -24988,7 +25032,7 @@ ${getRekapShareLink(rekap)}
                                                 {t.note && <div className="text-xs text-amber-800 bg-amber-50 rounded-md px-2 py-1 mt-1 break-words" data-eks-hp-ket>📝 {t.note}</div>}
                                                 {(drvKeterangan(t) || nf > 0) && <div className="text-[11px] text-gray-500 mt-0.5" data-drv-ket>{drvKeterangan(t)}{nf > 0 && <button type="button" onClick={()=>setFotoTrx(t)} className="ml-1 text-blue-700 font-bold" data-drv-foto-btn>📷 {nf}</button>}</div>}
                                                 <div className="flex justify-between items-center mt-1.5 gap-2">
-                                                    <b className="text-blue-700 text-sm whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</b>
+                                                    <b className="text-blue-700 text-sm whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}{tipsTrip(t) > 0 && <span className="text-[11px] text-green-700" data-eks-trx-tips> 🎁 +{formatRupiah(tipsTrip(t))}</span>}</b>
                                                     <div className="flex gap-1 items-center">
                                                         <button type="button" onClick={()=>ulangiPengiriman(t)} className="text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1.5 rounded-lg" data-eks-ulangi>↻ Ulangi</button>
                                                         {st==='Menunggu' && <button type="button" onClick={()=>shareViaWA(t)} className="text-xs font-black bg-green-500 text-white px-2 py-1.5 rounded-lg" data-eks-wa>💬 Kirim WA</button>}
@@ -25031,7 +25075,7 @@ ${getRekapShareLink(rekap)}
                                                 {k.kasbon > 0 && <span className="md:hidden text-xs font-bold text-red-700"> · kasbon {formatRupiah(k.kasbon)}</span>}
                                                 {k.luar > 0 && <span className="block text-[11px] font-bold text-amber-700" data-eks-gaji-luar>⚠ +{k.luar} trip di luar periode belum direkap</span>}
                                             </div>
-                                            <div className="order-2 md:order-3 text-right text-sm"><b className={`whitespace-nowrap tabular-nums ${k.ongkir ? 'text-gray-900' : 'font-normal text-gray-400'}`} data-eks-gaji-ongkir>{k.ongkir ? formatRupiah(k.ongkir) : '—'}</b></div>
+                                            <div className="order-2 md:order-3 text-right text-sm"><b className={`whitespace-nowrap tabular-nums ${k.ongkir ? 'text-gray-900' : 'font-normal text-gray-400'}`} data-eks-gaji-ongkir>{k.ongkir ? formatRupiah(k.ongkir) : '—'}</b>{k.tips > 0 && <span className="block text-[11px] font-bold text-green-700 whitespace-nowrap" data-eks-gaji-tips>🎁 +{formatRupiah(k.tips)}</span>}</div>
                                             <div className="hidden md:block md:order-4 text-right text-sm"><b className={`whitespace-nowrap tabular-nums ${k.kasbon > 0 ? 'text-red-700' : 'font-normal text-gray-400'}`} data-eks-gaji-kasbon>{k.kasbon > 0 ? formatRupiah(k.kasbon) : '—'}</b></div>
                                             <div className="order-4 md:order-5 flex justify-end gap-1.5">
                                                 <button type="button" disabled={!k.dalam.length} onClick={()=>bukaRekapUntuk(k.d.id)} className={`rounded-lg px-2.5 py-1.5 text-xs font-bold whitespace-nowrap ${k.dalam.length ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-400'}`} data-eks-rekap-buka>📋 <span className="hidden sm:inline">Buat </span>Rekap</button>
@@ -25052,7 +25096,7 @@ ${getRekapShareLink(rekap)}
                                                 <div className={`grid ${KOLOM} px-3 py-2 border-t border-gray-200 bg-gray-50 rounded-b-lg text-sm font-bold`} data-eks-gaji-total>
                                                     <div className="order-1">Total<span className="hidden md:inline"> periode ini</span><span className="md:hidden"> · {gajiTotal.trip} trip</span></div>
                                                     <div className="hidden md:block md:order-2">{gajiTotal.trip} trip</div>
-                                                    <div className="order-2 md:order-3 text-right tabular-nums whitespace-nowrap">{formatRupiah(gajiTotal.ongkir)}</div>
+                                                    <div className="order-2 md:order-3 text-right tabular-nums whitespace-nowrap">{formatRupiah(gajiTotal.ongkir)}{gajiTotal.tips > 0 && <span className="block text-[11px] text-green-700" data-eks-gaji-total-tips>🎁 +{formatRupiah(gajiTotal.tips)}</span>}</div>
                                                     <div className={`hidden md:block md:order-4 text-right tabular-nums whitespace-nowrap ${gajiTotal.kasbon > 0 ? 'text-red-700' : 'text-gray-400'}`}>{gajiTotal.kasbon > 0 ? formatRupiah(gajiTotal.kasbon) : '—'}</div>
                                                     <div className="hidden md:block md:order-5"></div>
                                                 </div>
@@ -25080,7 +25124,7 @@ ${getRekapShareLink(rekap)}
                                             <tbody>{list.map(r => (
                                                 <tr key={r.id} className="border-t" data-eks-rekap-row={r.id}>
                                                     <td className="px-3 py-2 text-xs text-gray-500">{r.tanggalRekap}</td><td className="px-3 py-2 font-medium">{r.driverName}</td><td className="px-3 py-2 text-xs">{labelPeriodeRekap(r)}</td><td className="px-3 py-2 text-center">{r.jumlahTrip}</td>
-                                                    <td className="px-3 py-2 text-right whitespace-nowrap">{formatRupiah(safeMoney(r.totalOngkir))}</td>
+                                                    <td className="px-3 py-2 text-right whitespace-nowrap">{formatRupiah(safeMoney(r.totalOngkir))}{safeMoney(r.totalTips) > 0 && <span className="block text-[11px] font-bold text-green-700" data-eks-rekap-tips>🎁 +{formatRupiah(safeMoney(r.totalTips))}</span>}</td>
                                                     <td className="px-3 py-2 text-right whitespace-nowrap" title={r.apresiasiNote || ''} data-eks-rekap-apresiasi>{safeMoney(r.apresiasi) > 0 ? <b className="text-amber-700">⭐ {formatRupiah(safeMoney(r.apresiasi))}</b> : <span className="text-gray-400">—</span>}</td>
                                                     <td className="px-3 py-2 text-right text-red-600 whitespace-nowrap">{safeMoney(r.potonganKasbon) > 0 ? `- ${formatRupiah(safeMoney(r.potonganKasbon))}` : '—'}</td>
                                                     <td className="px-3 py-2 text-right font-black text-green-700 whitespace-nowrap">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</td>
@@ -25091,7 +25135,7 @@ ${getRekapShareLink(rekap)}
                                         <div className="md:hidden space-y-2">{list.map(r => (
                                             <div key={r.id} className="border border-gray-200 rounded-xl px-3 py-2.5" data-eks-rekap-row={r.id}>
                                                 <div className="flex justify-between"><b className="text-sm">{r.driverName}</b><span className="text-xs text-gray-500">{r.tanggalRekap}</span></div>
-                                                <div className="text-xs text-gray-500">{labelPeriodeRekap(r)} · {r.jumlahTrip} trip · ongkir {formatRupiah(safeMoney(r.totalOngkir))}{safeMoney(r.apresiasi) > 0 ? <b className="text-amber-700"> · ⭐ +{formatRupiah(safeMoney(r.apresiasi))}</b> : null}{safeMoney(r.potonganKasbon) > 0 ? ` · kasbon -${formatRupiah(safeMoney(r.potonganKasbon))}` : ''}</div>
+                                                <div className="text-xs text-gray-500">{labelPeriodeRekap(r)} · {r.jumlahTrip} trip · ongkir {formatRupiah(safeMoney(r.totalOngkir))}{safeMoney(r.totalTips) > 0 ? <b className="text-green-700"> · 🎁 +{formatRupiah(safeMoney(r.totalTips))}</b> : null}{safeMoney(r.apresiasi) > 0 ? <b className="text-amber-700"> · ⭐ +{formatRupiah(safeMoney(r.apresiasi))}</b> : null}{safeMoney(r.potonganKasbon) > 0 ? ` · kasbon -${formatRupiah(safeMoney(r.potonganKasbon))}` : ''}</div>
                                                 <div className="flex justify-between items-center mt-1.5"><b className="text-green-700 text-sm">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</b><div className="flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 4)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></div>
                                             </div>
                                         ))}</div>
@@ -25113,12 +25157,12 @@ ${getRekapShareLink(rekap)}
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Total pengiriman</div><div className="text-2xl font-black">{trxLap.length}</div></div>
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Terkirim</div><div className="text-2xl font-black text-green-700">{lapTerkirim.length}</div></div>
                                 <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Gagal / ditolak</div><div className="text-2xl font-black text-red-700">{trxLap.filter(t=>t.status==='Gagal').length}</div></div>
-                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Pendapatan ongkir (terkirim)</div><div className="text-xl sm:text-2xl font-black whitespace-nowrap" data-eks-lap-pendapatan>{formatRupiah(lapPendapatan)}</div></div>
+                                <div className="bg-white border border-gray-200 rounded-xl px-4 py-3"><div className="text-xs font-semibold text-gray-500">Pendapatan ongkir (terkirim)</div><div className="text-xl sm:text-2xl font-black whitespace-nowrap" data-eks-lap-pendapatan>{formatRupiah(lapPendapatan)}</div>{lapTips > 0 && <div className="text-xs font-bold text-green-700" data-eks-lap-tips>🎁 + tips {formatRupiah(lapTips)}</div>}</div>
                             </div>
                             <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-4">
                                 <Card><b className="text-slate-700">Per driver</b>
                                     <table className="w-full text-sm mt-2"><thead><tr className="bg-gray-50 text-left text-xs text-gray-500"><th className="px-3 py-2">Driver</th><th className="px-3 py-2 text-right">Terkirim</th><th className="px-3 py-2 text-right">Ongkir</th></tr></thead>
-                                        <tbody>{lapPerDriver.length===0 && <tr><td colSpan="3" className="text-center py-6 text-gray-400">Tidak ada data</td></tr>}{lapPerDriver.map(x => <tr key={x.nama} className="border-t"><td className="px-3 py-2">{x.nama}</td><td className="px-3 py-2 text-right">{x.n}</td><td className="px-3 py-2 text-right whitespace-nowrap">{formatRupiah(x.ongkir)}</td></tr>)}</tbody>
+                                        <tbody>{lapPerDriver.length===0 && <tr><td colSpan="3" className="text-center py-6 text-gray-400">Tidak ada data</td></tr>}{lapPerDriver.map(x => <tr key={x.nama} className="border-t"><td className="px-3 py-2">{x.nama}</td><td className="px-3 py-2 text-right">{x.n}</td><td className="px-3 py-2 text-right whitespace-nowrap">{formatRupiah(x.ongkir)}{x.tips > 0 && <span className="block text-[11px] font-bold text-green-700">🎁 +{formatRupiah(x.tips)}</span>}</td></tr>)}</tbody>
                                     </table>
                                 </Card>
                                 <Card><b className="text-slate-700">Rincian pengiriman terkirim</b>
@@ -25198,7 +25242,7 @@ ${getRekapShareLink(rekap)}
                         const r = visibleRekap.find(x => x.id === ubahApresiasi.id);
                         if (!r) return null;
                         const nom = safeMoney(ubahApresiasi.nominal);
-                        const baru = safeMoney(r.totalOngkir) + nom - safeMoney(r.potonganKasbon);
+                        const baru = safeMoney(r.totalOngkir) + safeMoney(r.totalTips) + nom - safeMoney(r.potonganKasbon);
                         return (
                             <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" data-eks-ubah-apresiasi>
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -25208,6 +25252,7 @@ ${getRekapShareLink(rekap)}
                                         {kotakApresiasi(ubahApresiasi.nominal, v => setUbahApresiasi(u => ({ ...u, nominal: v })), ubahApresiasi.note, v => setUbahApresiasi(u => ({ ...u, note: typeof v === 'function' ? v(u.note) : v })), 'ubah')}
                                         <div className="text-sm space-y-1">
                                             <div className="flex justify-between"><span>Ongkir {r.jumlahTrip} trip</span><b>{formatRupiah(safeMoney(r.totalOngkir))}</b></div>
+                                            {safeMoney(r.totalTips) > 0 && <div className="flex justify-between text-green-700"><span>🎁 Tips</span><b>+ {formatRupiah(safeMoney(r.totalTips))}</b></div>}
                                             {nom > 0 && <div className="flex justify-between text-amber-700"><span>⭐ Apresiasi</span><b>+ {formatRupiah(nom)}</b></div>}
                                             {safeMoney(r.potonganKasbon) > 0 && <div className="flex justify-between text-red-600"><span>Potong kasbon (tetap)</span><b>- {formatRupiah(safeMoney(r.potonganKasbon))}</b></div>}
                                             <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji diterima</span><span data-eks-ubah-apresiasi-diterima>{formatRupiah(Math.max(0, baru))}</span></div>
@@ -25438,6 +25483,8 @@ ${getRekapShareLink(rekap)}
                         const tampil = rekapLuar ? semua : dalam;
                         const terpilih = visibleTrx.filter(t => selectedTripIds.includes(t.id));
                         const tot = terpilih.reduce((s, t) => s + safeMoney(t.ongkir), 0);
+                        const totTips = terpilih.reduce((s, t) => s + tipsTrip(t), 0);
+                        const nTips = terpilih.filter(t => tipsTrip(t) > 0).length;
                         const sisaKb = getTotalSisaKasbon(rekapDriverId);
                         const pot = Math.min(safeMoney(rekapPotonganKasbon) || 0, tot);
                         const apr = safeMoney(rekapApresiasi);
@@ -25461,7 +25508,7 @@ ${getRekapShareLink(rekap)}
                                             <label key={t.id} className="flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer" data-eks-rekap-trip={t.id}>
                                                 <input type="checkbox" checked={selectedTripIds.includes(t.id)} onChange={()=>toggleTripSelect(t.id)} />
                                                 <span className="flex-1">{fmtTglPendek(t.date)} · {namaRute(t)}{t.tripType==='pp' && <span className="ml-1 bg-purple-100 text-purple-700 text-[10px] px-1 rounded font-bold">PP</span>}{!dalamRentang(t.date, r) && <span className="ml-1 text-[10px] text-amber-700 font-bold">di luar periode</span>}</span>
-                                                <span className="font-bold text-blue-700 whitespace-nowrap">{formatRupiah(safeMoney(t.ongkir))}</span>
+                                                <span className="text-right whitespace-nowrap"><b className="text-blue-700">{formatRupiah(safeMoney(t.ongkir))}</b>{tipsTrip(t) > 0 && <span className="block text-[11px] font-bold text-green-700" data-eks-rekap-trip-tips>🎁 +{formatRupiah(tipsTrip(t))}</span>}</span>
                                             </label>
                                         ))}
                                     </div>
@@ -25476,9 +25523,10 @@ ${getRekapShareLink(rekap)}
                                     {kotakApresiasi(rekapApresiasi, setRekapApresiasi, rekapApresiasiNote, setRekapApresiasiNote, 'rekap')}
                                     <div className="text-sm space-y-1" data-eks-rekap-ringkas>
                                         <div className="flex justify-between"><span>Ongkir {terpilih.length} trip</span><b>{formatRupiah(tot)}</b></div>
+                                        {totTips > 0 && <div className="flex justify-between text-green-700" data-eks-rekap-tips-total><span>🎁 Tips ({nTips} trip)</span><b>+ {formatRupiah(totTips)}</b></div>}
                                         {apr > 0 && <div className="flex justify-between text-amber-700"><span>⭐ Apresiasi</span><b>+ {formatRupiah(apr)}</b></div>}
                                         {pot > 0 && <div className="flex justify-between text-red-600"><span>Potong kasbon</span><b>- {formatRupiah(pot)}</b></div>}
-                                        <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji diterima</span><span data-eks-rekap-diterima>{formatRupiah(Math.max(0, tot + apr - pot))}</span></div>
+                                        <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji diterima</span><span data-eks-rekap-diterima>{formatRupiah(Math.max(0, tot + totTips + apr - pot))}</span></div>
                                     </div>
                                     <div><label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label><input value={rekapNote} onChange={e=>setRekapNote(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opsional (misal: gaji minggu ke-1)" /></div>
                                 </div>
@@ -25545,6 +25593,18 @@ ${getRekapShareLink(rekap)}
                                     <div><label className="block text-xs font-semibold text-gray-600 mb-1">Ongkir (Rp)</label>
                                         <input type="number" value={xForm.ongkir} onChange={e=>handleXFormChange('ongkir',e.target.value)} className="w-full border rounded px-3 py-2 text-sm bg-blue-50 font-bold" />
                                     </div>
+                                    {(() => {
+                                        const kunci = !!(editTrx && tripSudahDirekap(editTrx.id));
+                                        return (
+                                            <div className="border border-green-300 bg-green-50 rounded-lg p-2.5" data-eks-x-tips>
+                                                <div className="text-xs font-bold text-green-800 mb-1.5">🎁 Tips untuk driver (opsional){kunci && <span className="font-semibold text-gray-500"> · terkunci, trip sudah direkap</span>}</div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-[140px_minmax(0,1fr)] gap-2">
+                                                    <input type="text" inputMode="numeric" disabled={kunci} value={safeMoney(xForm.tips) ? Number(safeMoney(xForm.tips)).toLocaleString('id-ID') : ''} onChange={e=>handleXFormChange('tips', String(Number(e.target.value.replace(/\D/g, '')) || ''))} placeholder="Rp 0" className="w-full border rounded px-3 py-2 text-sm font-bold disabled:bg-gray-100" data-eks-x-tips-nominal />
+                                                    <input type="text" disabled={kunci} maxLength={100} value={xForm.tipsNote} onChange={e=>handleXFormChange('tipsNote', e.target.value)} placeholder="Pesan (opsional)" className="w-full border rounded px-3 py-2 text-sm disabled:bg-gray-100" data-eks-x-tips-pesan />
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                     <div><label className="block text-xs font-semibold text-gray-600 mb-1">📝 Keterangan untuk driver (opsional)</label><textarea value={xForm.note} maxLength={300} onChange={e=>handleXFormChange('note',e.target.value)} className="w-full border rounded px-3 py-2 text-sm" rows="2" placeholder="mis. belikan kain cotton 30 kg" /></div>
                                 </div>
                                 <div className="flex justify-end gap-2 p-4 border-t">
@@ -25823,6 +25883,14 @@ ${getRekapShareLink(rekap)}
                                     <div className="mt-1 text-base font-bold text-amber-900 leading-snug whitespace-pre-line break-words" data-dc-pesan-isi>{String(trx.note).trim()}</div>
                                 </div>
                             )}
+                            {tipsTrip(trx) > 0 && !gagal && (
+                                <div className="border-2 border-green-500 rounded-xl px-4 py-3 text-center" style={{ background: 'linear-gradient(180deg,#f0fdf4,#dcfce7)' }} data-dc-tips>
+                                    <div className="text-[11px] font-black tracking-wider text-green-700">🎁 TIPS UNTUK KAMU</div>
+                                    <div className="text-3xl font-black text-green-800 leading-tight mt-0.5" data-dc-tips-nominal>{formatRupiah(tipsTrip(trx))}</div>
+                                    {String(trx.tipsNote || '').trim() && <div className="text-sm font-bold text-green-900 mt-0.5 break-words" data-dc-tips-pesan>"{String(trx.tipsNote).trim()}"</div>}
+                                    <div className="text-[11px] italic text-green-700 mt-1.5 pt-1.5 border-t border-dashed border-green-300">Dibayarkan bersama gaji setelah pengiriman selesai</div>
+                                </div>
+                            )}
                             {!gagal && (
                                 <div className="flex items-start" data-dc-langkah>
                                     {urut.map((kd, i) => {
@@ -25852,6 +25920,7 @@ ${getRekapShareLink(rekap)}
                             <div className="bg-blue-50 rounded-lg p-4 text-center">
                                 <div className="text-xs text-blue-500 font-semibold">ONGKIR{pp ? ' (PP)' : ''}</div>
                                 <div className="text-3xl font-bold text-blue-700">{formatRupiah(safeMoney(trx.ongkir))}</div>
+                                {tipsTrip(trx) > 0 && !gagal && <div className="text-sm font-black text-green-700 mt-0.5" data-dc-ongkir-tips>+ 🎁 tips {formatRupiah(tipsTrip(trx))}</div>}
                             </div>
 
                             {!selesai && !gagal && k.tahap === 0 && (
@@ -26052,6 +26121,7 @@ ${getRekapShareLink(rekap)}
                                 )}
                                 <div className="border border-gray-200 rounded-xl p-4 space-y-1.5 text-sm" data-rg-uang>
                                     <div className="flex justify-between"><span className="text-gray-600">Total ongkir ({rekap.jumlahTrip} trip)</span><b>{formatRupiah(safeMoney(rekap.totalOngkir))}</b></div>
+                                    {safeMoney(rekap.totalTips) > 0 && <div className="flex justify-between text-green-700" data-rg-tips><span>🎁 Total tips</span><b>+ {formatRupiah(safeMoney(rekap.totalTips))}</b></div>}
                                     {apr > 0 && <div className="flex justify-between text-amber-700"><span>⭐ Apresiasi</span><b>+ {formatRupiah(apr)}</b></div>}
                                     {pot > 0 && <div className="flex justify-between text-red-600"><span>Potongan kasbon</span><b>- {formatRupiah(pot)}</b></div>}
                                 </div>
@@ -26077,7 +26147,7 @@ ${getRekapShareLink(rekap)}
                                                     return (<tr key={t.id} className="border-t">
                                                         <td className="px-2 py-1 text-gray-400">{i+1}</td>
                                                         <td className="px-2 py-1">{t.date}</td>
-                                                        <td className="px-2 py-1 font-medium">{trf?trf.from+' → '+trf.to:'-'}{t.tripType==='pp'&&<span className="ml-1 bg-purple-100 text-purple-600 px-1 rounded">PP</span>}</td>
+                                                        <td className="px-2 py-1 font-medium">{trf?trf.from+' → '+trf.to:'-'}{t.tripType==='pp'&&<span className="ml-1 bg-purple-100 text-purple-600 px-1 rounded">PP</span>}{tipsTripDiRekap(rekap, t) > 0 && <div className="text-[11px] font-bold text-green-700" data-rg-trip-tips>🎁 tips {formatRupiah(tipsTripDiRekap(rekap, t))}{t.tipsNote ? ` · "${t.tipsNote}"` : ''}</div>}</td>
                                                         <td className="px-2 py-1 text-gray-500 text-xs">{t.note||'-'}</td>
                                                         <td className="px-2 py-1 text-right font-bold text-blue-600">{formatRupiah(safeMoney(t.ongkir))}</td>
                                                     </tr>);
