@@ -15941,7 +15941,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null }) => {
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null, driverRekapGaji = [], driverKasbon = [] }) => {
             // Gaji Direksi & Marketing: tanpa akses "Lihat", tetap DIHITUNG di semua total (kas & laba benar),
             // tapi ditampilkan gabungan tanpa nama/rincian per orang
             const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : authUser?.role === 'Admin';
@@ -16066,7 +16066,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 note: (!canViewSens && isSensitiveSalaryEmp(emp)) ? '' : (item.note || '')
             }))), [employees, canViewSens]);
 
+            // ===== Gaji & kasbon driver (menu SIJEK) — dibayar dari kas perusahaan =====
+            // Driver bukan karyawan: barisnya hanya ikut bila filter Karyawan & Divisi = "Semua".
+            const allDriverRekap = React.useMemo(() => safeArray(driverRekapGaji).filter(isVisibleRecord), [driverRekapGaji]);
+            const allDriverKasbon = React.useMemo(() => safeArray(driverKasbon).filter(isVisibleRecord), [driverKasbon]);
+            const filterDriverAktif = employeeFilter === 'Semua' && divisionFilter === 'Semua';
             // Syarat pencarian/filter per jenis data (dipakai juga oleh grafik laba per bulan)
+            const cocokDriver = (r) => filterDriverAktif && (!normalizedSearch || [r.id, r.driverName, 'gaji driver sijek', r.note, r.tanggalRekap].join(' ').toLowerCase().includes(normalizedSearch));
             const cocokBahan = (row) => !normalizedSearch || [row.id, row.client, row.type, ...row.vendors, ...(row.materials || []).map(item => item.name)].join(' ').toLowerCase().includes(normalizedSearch);
             const cocokUpah = (row) => {
                 if (employeeFilter !== 'Semua' && String(row.empId) !== String(employeeFilter)) return false;
@@ -16143,6 +16149,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalClientDpIncome = clientDpRows.reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalManualIncome = expenseRows.filter(row => row.type === 'Uang Masuk').reduce((sum, row) => sum + safeMoney(row.amount), 0);
             const totalOperationalExpense = expenseRows.filter(row => row.type === 'Uang Keluar').reduce((sum, row) => sum + safeMoney(row.amount), 0);
+            // Beban gaji driver = ongkir + tips + apresiasi (bruto, sebelum potong kasbon) menurut TANGGAL REKAP — sama seperti gaji karyawan
+            const driverRekapRows = allDriverRekap.filter(r => isInPeriod(r.tanggalRekap) && cocokDriver(r));
+            const totalDriverWage = driverRekapRows.reduce((sum, r) => sum + drvRekapBruto(r), 0);
+            const totalDriverOngkir = driverRekapRows.reduce((sum, r) => sum + safeMoney(r.totalOngkir), 0);
+            const totalDriverTips = driverRekapRows.reduce((sum, r) => sum + safeMoney(r.totalTips), 0);
+            const totalDriverApresiasi = driverRekapRows.reduce((sum, r) => sum + safeMoney(r.apresiasi), 0);
+            const unpaidDriverWageTotal = driverRekapRows.reduce((sum, r) => sum + drvRekapSisa(r), 0);
+            // Posisi per hari ini (tidak ikut periode/filter): kasbon driver belum terpotong & gaji driver belum dibayar
+            const totalKasbonDriverOutstanding = allDriverKasbon.reduce((sum, k) => sum + Math.max(0, safeMoney(k.jumlah) - safeMoney(k.sudahDipotong)), 0);
+            const totalGajiDriverBelumDibayar = allDriverRekap.reduce((sum, r) => sum + drvRekapSisa(r), 0);
 
             // Pilihan tahun di filter: tahun yang punya data (invoice, biaya, nota, rekap gaji, saldo DP, order) + tahun berjalan
             const tahunOpsi = React.useMemo(() => {
@@ -16154,9 +16170,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 safeFinanceRekaps.filter(isVisibleRecord).forEach(r => add(r.dateProcessed || r.date));
                 safeArray(clients).filter(isVisibleRecord).forEach(c => safeArray(c.clientDpPayments).forEach(dp => add(dp.date)));
                 safeOrders.forEach(o => add(o.date));
+                allDriverRekap.forEach(r => { add(r.tanggalRekap); drvRekapKasKeluar(r).forEach(e => add(e.date)); });
+                allDriverKasbon.forEach(k => add(k.tanggal));
                 if (fYear !== 'semua') ys.add(fYear);
                 return [...ys].sort((a, b) => Number(b) - Number(a));
-            }, [safeFinanceInvoices, expenses, purchaseNotes, rekapKinerja, clients, safeOrders, fYear]);
+            }, [safeFinanceInvoices, expenses, purchaseNotes, rekapKinerja, clients, safeOrders, fYear, allDriverRekap, allDriverKasbon]);
 
             // Komisi dari invoice yang di-rekap sudah masuk totalWage; kecuali rekapnya sudah dihapus
             const deletedRekapIds = new Set(safeFinanceRekaps.filter(r => !isVisibleRecord(r)).map(r => String(r.id)));
@@ -16201,7 +16219,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Beban L/R: kasbon = piutang karyawan (aset), bukan biaya — tidak masuk beban.
             // totalWage menggunakan grossSalary (biaya tenaga kerja penuh, sebelum potongan kasbon).
             // bagiHasilDireksi sudah termasuk dalam totalWage (via grossSalary rekap) — tidak perlu ditambahkan lagi
-            const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid;
+            const totalBeban = totalMaterialPaid + totalWage + totalOperationalExpense + totalMarketingCommission + totalBagiHasilPromosiPaid + totalDriverWage;
             // Buku Kas = arus kas keluar nyata: pakai totalCashWage (netSalary) + kasbon yang diberikan
             // Buku Kas Keluar = hanya pembayaran yang benar-benar dilakukan, per TANGGAL BAYAR.
             // Data lama tanpa catatan pembayaran (sebelum fitur bayar ada) tetap dianggap lunas pada tanggalnya.
@@ -16230,7 +16248,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 ...allWageRows.filter(r => !pakaiFilterKaryawan || passEmpFilters(r)).flatMap(r => getWagePaidEvents(r).map(ev => ({ date: ev.date || '-', ref: r.id || '-', sumber: 'Gaji', ket: r.empName, nominal: ev.amount }))),
                 ...allCashAdvanceRows.filter(r => !pakaiFilterKaryawan || passEmpFilters(r)).map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Kasbon', ket: r.empName, nominal: r.amount })),
                 ...(expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Keluar').flatMap(e => getExpensePaidEvents(e).map(ev => ({ date: ev.date || '-', ref: e.id || '-', sumber: 'Biaya Operasional', ket: getExpenseLabel(e), nominal: ev.amount }))),
-                ...safeArray(bagiHasilPromosi).filter(isVisibleRecord).flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) })))
+                ...safeArray(bagiHasilPromosi).filter(isVisibleRecord).flatMap(b => safeArray(b.payments).map(p => ({ date: p.date || b.tanggal || '-', ref: b.id || '-', sumber: 'Bagi Hasil Promosi', ket: b.nama || '-', nominal: safeMoney(p.amount) }))),
+                // Gaji driver (SIJEK): per tanggal bayar; rekap lama = lunas pada tanggal rekap
+                ...allDriverRekap.filter(() => !pakaiFilterKaryawan || filterDriverAktif).flatMap(r => drvRekapKasKeluar(r).map(ev => ({ date: ev.date || '-', ref: r.id || '-', sumber: 'Gaji Driver', ket: `${r.driverName || '-'}${ev.note ? ' · ' + ev.note : ''}`, nominal: ev.amount }))),
+                // Kasbon driver: kas keluar saat kasbon diberikan (potongan saat gajian tidak dicatat lagi)
+                ...allDriverKasbon.filter(() => !pakaiFilterKaryawan || filterDriverAktif).map(k => ({ date: k.tanggal || '-', ref: k.id || '-', sumber: 'Kasbon Driver', ket: `${k.driverName || '-'}${k.keterangan ? ' · ' + k.keterangan : ''}`, nominal: safeMoney(k.jumlah) }))
             ];
             const cashOutRows = gabungBarisSensitif(kasKeluarBaris(true).filter(r => r.nominal > 0 && isInPeriod(r.date) && (!normalizedSearch || [r.date, r.ref, r.sumber, r.ket].join(' ').toLowerCase().includes(normalizedSearch)))
              .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0)));
@@ -16296,7 +16318,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const totalHPP = totalMaterialPaid + totalProductionWage;
             const labaKotor = totalPendapatan - totalHPP;
             // Beban Usaha = operasional + komisi dibayar (via rekap) + komisi belum dibayar + bagi hasil promosi + bagi hasil direksi
-            const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiWage;
+            const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiWage + totalDriverWage;
             const labaBersih = totalPendapatan - totalBeban; // = labaKotor - totalBebanUsaha
 
             // ===== Data grafik (hanya membaca, tidak mengubah perhitungan di atas) =====
@@ -16313,7 +16335,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     + invs.filter(inv => !inv.commissionRekapId || deletedRekapIds.has(String(inv.commissionRekapId)))
                         .filter(inv => !filteredMktEmps || filteredMktEmps.some(emp => isInvoiceOfMarketing(inv, emp)))
                         .reduce((x, inv) => x + getInvoiceCommission(inv), 0)
-                    + safeArray(bagiHasilPromosi).filter(isVisibleRecord).filter(b => inP(b.tanggal || '')).reduce((x, b) => x + safeArray(b.payments).reduce((ps, p) => ps + safeMoney(p.amount), 0), 0);
+                    + safeArray(bagiHasilPromosi).filter(isVisibleRecord).filter(b => inP(b.tanggal || '')).reduce((x, b) => x + safeArray(b.payments).reduce((ps, p) => ps + safeMoney(p.amount), 0), 0)
+                    + allDriverRekap.filter(r => inP(r.tanggalRekap) && cocokDriver(r)).reduce((x, r) => x + drvRekapBruto(r), 0);
                 return { pendapatan, laba: pendapatan - beban };
             };
             // Kelompok waktu grafik: per bulan pada tahun terpilih (bulan terpilih ditandai), atau per tahun bila "Semua tahun"
@@ -16339,6 +16362,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 { label: 'Upah produksi', nilai: totalProductionWage, warna: '#eb6834' },
                 { label: 'Operasional', nilai: totalOperationalExpense, warna: '#1baf7a' },
                 { label: 'Komisi & bagi hasil', nilai: totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiWage, warna: '#eda100' },
+                ...(totalDriverWage > 0 ? [{ label: 'Gaji driver', nilai: totalDriverWage, warna: '#8a5cd6' }] : []),
             ];
 
             // Piutang (for balance sheet)
@@ -16624,18 +16648,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 ${totalMarketingCommission > 0 ? `<tr><td>&nbsp;&nbsp;Komisi Belum Dibayar (akrual)</td><td class="text-right">${formatRupiah(totalMarketingCommission)}</td></tr>` : ''}
                                 ${totalBagiHasilPromosiPaid > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Promosi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilPromosiPaid)}</td></tr>` : ''}
                                 ${totalBagiHasilDireksiWage > 0 ? `<tr><td>&nbsp;&nbsp;Bagi Hasil Direksi (dibayar)</td><td class="text-right">${formatRupiah(totalBagiHasilDireksiWage)}</td></tr>` : ''}
+                                ${totalDriverWage > 0 ? `<tr><td>&nbsp;&nbsp;Gaji Driver (SIJEK: ongkir + tips + apresiasi)</td><td class="text-right">${formatRupiah(totalDriverWage)}</td></tr>` : ''}
                                 <tr class="total-row"><td>TOTAL BEBAN USAHA</td><td class="text-right">${formatRupiah(totalBebanUsaha)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
                             </tbody>
                         </table>
-                        ${(totalPiutangInvoice > 0 || totalKasbonOutstanding > 0) ? `
+                        ${(totalPiutangInvoice > 0 || totalKasbonOutstanding > 0 || totalKasbonDriverOutstanding > 0 || totalGajiDriverBelumDibayar > 0) ? `
                         <table>
                             <thead><tr><th>Posisi Keuangan (Akumulatif)</th><th class="text-right">Jumlah (Rp)</th></tr></thead>
                             <tbody>
                                 <tr class="section-header"><td colspan="2">ASET</td></tr>
                                 ${totalPiutangInvoice > 0 ? `<tr><td>&nbsp;&nbsp;Piutang Invoice (belum dibayar)</td><td class="text-right">${formatRupiah(totalPiutangInvoice)}</td></tr>` : ''}
                                 ${totalKasbonOutstanding > 0 ? `<tr><td>&nbsp;&nbsp;Piutang Kasbon Karyawan (belum terpotong)</td><td class="text-right">${formatRupiah(totalKasbonOutstanding)}</td></tr>` : ''}
+                                ${totalKasbonDriverOutstanding > 0 ? `<tr><td>&nbsp;&nbsp;Piutang Kasbon Driver (belum terpotong)</td><td class="text-right">${formatRupiah(totalKasbonDriverOutstanding)}</td></tr>` : ''}
+                                ${totalGajiDriverBelumDibayar > 0 ? `<tr class="section-header"><td colspan="2">KEWAJIBAN</td></tr><tr><td>&nbsp;&nbsp;Gaji Driver belum dibayar</td><td class="text-right">${formatRupiah(totalGajiDriverBelumDibayar)}</td></tr>` : ''}
                             </tbody>
                         </table>` : ''}
                         <div class="footer">Dicetak pada: ${printedDate}</div>
@@ -16708,6 +16735,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr class="total-row"><td colspan="4">TOTAL KAS KELUAR</td><td class="text-right">${formatRupiah(totalKasKeluar)}</td></tr>
                                 ${unpaidExpenseTotal > 0 ? `<tr><td colspan="4" style="color:#92400e;font-style:italic;">Catatan: biaya belum dibayar (tidak masuk kas)</td><td class="text-right" style="color:#92400e;">${formatRupiah(unpaidExpenseTotal)}</td></tr>` : ''}
                                 ${unpaidWageTotal > 0 ? `<tr><td colspan="4" style="color:#92400e;font-style:italic;">Catatan: gaji belum dibayar (tidak masuk kas)</td><td class="text-right" style="color:#92400e;">${formatRupiah(unpaidWageTotal)}</td></tr>` : ''}
+                                ${unpaidDriverWageTotal > 0 ? `<tr><td colspan="4" style="color:#92400e;font-style:italic;">Catatan: gaji driver belum dibayar (tidak masuk kas)</td><td class="text-right" style="color:#92400e;">${formatRupiah(unpaidDriverWageTotal)}</td></tr>` : ''}
                             </tbody>
                         </table>
                         <div class="footer">Dicetak pada: ${printedDate}</div>
@@ -16931,10 +16959,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-xs text-gray-500 mt-1">Dibayar · Direktur &amp; Komisaris</p>
                                     </Card>
                                     )}
+                                    {totalDriverWage > 0 && (
+                                    <Card className="border-l-4 border-l-violet-600">
+                                        <h3 className="text-xs font-bold text-gray-500">Gaji Driver (SIJEK)</h3>
+                                        <p className="text-2xl font-black text-violet-700 mt-2" data-keu-gaji-driver>{formatRupiah(totalDriverWage)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Ongkir {formatRupiah(totalDriverOngkir)}{totalDriverTips > 0 ? ` + tips ${formatRupiah(totalDriverTips)}` : ''}{totalDriverApresiasi > 0 ? ` + apresiasi ${formatRupiah(totalDriverApresiasi)}` : ''}</p>
+                                    </Card>
+                                    )}
                                     <Card className="border-l-4 border-l-orange-700 bg-orange-100">
                                         <h3 className="text-xs font-black text-orange-800">TOTAL BEBAN USAHA</h3>
                                         <p className="text-2xl font-black text-orange-800 mt-2">{formatRupiah(totalBebanUsaha)}</p>
-                                        <p className="text-xs text-orange-700 mt-1">Operasional + komisi + bagi hasil</p>
+                                        <p className="text-xs text-orange-700 mt-1">Operasional + komisi + bagi hasil{totalDriverWage > 0 ? ' + gaji driver' : ''}</p>
                                     </Card>
                                 </div>
                             </div>
@@ -16964,6 +16999,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <span className="font-black text-blue-700">{formatRupiah(totalKasbonOutstanding)}</span>
                                         </div>
                                         )}
+                                        {totalKasbonDriverOutstanding > 0 && (
+                                        <div className="flex justify-between border-b border-blue-100 pb-2" data-keu-kasbon-driver>
+                                            <span className="text-gray-700">Piutang Kasbon Driver (belum terpotong)</span>
+                                            <span className="font-black text-blue-700">{formatRupiah(totalKasbonDriverOutstanding)}</span>
+                                        </div>
+                                        )}
                                         <div className="flex justify-between border-b border-blue-100 pb-2" data-keu-kas-hari-ini>
                                             <span className="text-gray-700">Kas (Buku Kas)</span>
                                             <span className={`font-black ${kasHariIni < 0 ? 'text-red-600' : 'text-blue-700'}`}>{formatRupiah(kasHariIni)}</span>
@@ -16981,6 +17022,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <span className="text-gray-700">Saldo DP Customer (belum diselesaikan)</span>
                                             <span className="font-black text-orange-700">{formatRupiah(sisaSaldoDpKewajiban)}</span>
                                         </div>
+                                        {totalGajiDriverBelumDibayar > 0 && (
+                                        <div className="flex justify-between border-b border-orange-100 pb-2" data-keu-gaji-driver-belum>
+                                            <span className="text-gray-700">Gaji Driver belum dibayar (SIJEK)</span>
+                                            <span className="font-black text-orange-700">{formatRupiah(totalGajiDriverBelumDibayar)}</span>
+                                        </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -17078,6 +17125,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {totalCommissionWage > 0 && <div className="flex justify-between px-3 py-1 text-violet-700"><span>Komisi Dibayar (via rekap kinerja)</span><span className="font-bold">{formatRupiah(totalCommissionWage)}</span></div>}
                                 {totalMarketingCommission > 0 && <div className="flex justify-between px-3 py-1 text-purple-700"><span>Komisi Belum Dibayar (akrual)</span><span className="font-bold">{formatRupiah(totalMarketingCommission)}</span></div>}
                                 {totalBagiHasilPromosiPaid > 0 && <div className="flex justify-between px-3 py-1"><span>Bagi Hasil Promosi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilPromosiPaid)}</span></div>}
+                                {totalDriverWage > 0 && <div className="flex justify-between px-3 py-1 text-violet-700" data-keu-lr-driver><span>Gaji Driver (SIJEK)<span className="block text-[11px] text-gray-500 font-normal">ongkir {formatRupiah(totalDriverOngkir)}{totalDriverTips > 0 ? ` + tips ${formatRupiah(totalDriverTips)}` : ''}{totalDriverApresiasi > 0 ? ` + apresiasi ${formatRupiah(totalDriverApresiasi)}` : ''}</span></span><span className="font-bold">{formatRupiah(totalDriverWage)}</span></div>}
                                 {totalBagiHasilDireksiWage > 0 && <div className="flex justify-between px-3 py-1 text-amber-700"><span>Bagi Hasil Direksi (dibayar)</span><span className="font-bold">{formatRupiah(totalBagiHasilDireksiWage)}</span></div>}
                                 <div className="flex justify-between px-3 py-1.5 border-t-2 border-gray-400 font-black text-orange-800 bg-orange-50 rounded"><span>TOTAL BEBAN USAHA</span><span>{formatRupiah(totalBebanUsaha)}</span></div>
                                 <div className="py-1"></div>
@@ -17267,12 +17315,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                 </div>
                                 <Paginator page={cashOutPage} setPage={setCashOutPage} totalPages={cashOutTotalPages} total={cashOutTotal} pageSize={25} label="transaksi kas keluar" />
-                                {(unpaidExpenseTotal > 0 || unpaidWageTotal > 0) && (
+                                {(unpaidExpenseTotal > 0 || unpaidWageTotal > 0 || unpaidDriverWageTotal > 0) && (
                                     <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-1">
                                         <div className="font-bold">Tagihan periode ini yang belum dibayar (tidak masuk kas keluar):</div>
                                         {unpaidExpenseTotal > 0 && <div className="flex justify-between gap-2"><span>Biaya operasional belum dibayar</span><span className="font-bold">{formatRupiah(unpaidExpenseTotal)}</span></div>}
+                                        {unpaidDriverWageTotal > 0 && <div className="flex justify-between gap-2" data-keu-driver-belum-periode><span>Gaji driver belum dibayar (SIJEK)</span><span className="font-bold">{formatRupiah(unpaidDriverWageTotal)}</span></div>}
                                         {unpaidWageTotal > 0 && <div className="flex justify-between gap-2"><span>Gaji belum dibayar</span><span className="font-bold">{formatRupiah(unpaidWageTotal)}</span></div>}
-                                        <div className="text-amber-700">Catat pembayarannya di menu Biaya / Laporan Kinerja agar masuk Buku Kas.</div>
+                                        <div className="text-amber-700">Catat pembayarannya di menu Biaya / Laporan Kinerja / SIJEK agar masuk Buku Kas.</div>
                                     </div>
                                 )}
                             </Card>
@@ -23589,6 +23638,25 @@ ${getRekapShareLink(rekap)}
             if (snap && snap[t?.id] != null) return Math.max(0, safeMoney(snap[t.id]));
             return snap ? 0 : tipsTrip(t);
         };
+        // ===== Status bayar rekap gaji driver =====
+        // Rekap lama (sebelum ada status bayar, tanpa daftar pembayaran) dianggap SUDAH DIBAYAR pada tanggal rekap.
+        const drvRekapNet = (r) => Math.max(0, safeMoney(r?.gajiDiterima != null ? r.gajiDiterima : r?.totalOngkir));
+        const drvRekapBruto = (r) => safeMoney(r?.totalOngkir) + safeMoney(r?.totalTips) + safeMoney(r?.apresiasi);
+        const drvRekapLama = (r) => !Array.isArray(r?.payments);
+        const drvRekapBayar = (r) => drvRekapLama(r) ? [] : r.payments.filter(p => p && safeMoney(p.amount) > 0);
+        const drvRekapDibayar = (r) => drvRekapLama(r) ? drvRekapNet(r) : drvRekapBayar(r).reduce((s, p) => s + safeMoney(p.amount), 0);
+        const drvRekapStatus = (r) => {
+            if (drvRekapLama(r)) return 'lunas';
+            const net = drvRekapNet(r), paid = drvRekapDibayar(r);
+            if (net <= 0 || paid >= net - 1) return 'lunas';
+            return paid > 0 ? 'sebagian' : 'belum';
+        };
+        const drvRekapSisa = (r) => drvRekapStatus(r) === 'lunas' ? 0 : Math.max(0, drvRekapNet(r) - drvRekapDibayar(r));
+        const DRV_STATUS_BAYAR_LABEL = { belum: 'Belum dibayar', sebagian: 'Dibayar sebagian', lunas: 'Sudah dibayar' };
+        // Uang yang benar-benar keluar (untuk Buku Kas): per tanggal bayar; rekap lama = lunas pada tanggal rekap
+        const drvRekapKasKeluar = (r) => drvRekapLama(r)
+            ? (drvRekapNet(r) > 0 ? [{ date: r.tanggalRekap, amount: drvRekapNet(r), lama: true }] : [])
+            : drvRekapBayar(r).map(p => ({ date: p.date || r.tanggalRekap, amount: safeMoney(p.amount), method: p.method || '', note: p.note || '' }));
         const htmlStrukRekapGaji = ({ rekap, driver, trips, tarifs, tpl, sisaSekarang }) => {
             const per = periodeRekapGaji(rekap, trips);
             const info = infoKasbonRekap(rekap, sisaSekarang);
@@ -23618,6 +23686,14 @@ ${getRekapShareLink(rekap)}
                     <div class="row grand" style="${pot > 0 || apr > 0 || tipsTot > 0 ? 'border-top:1px dashed #000;padding-top:5px;margin-top:4px' : ''}"><span>Gaji Diterima</span><span>${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}</span></div>
                 </div>
                 ${apr > 0 ? `<div style="margin:8px 0 4px;border:2px solid #000;border-radius:6px;overflow:hidden;text-align:center;page-break-inside:avoid"><div style="background:#000;color:#fff;font-size:10.5px;font-weight:900;letter-spacing:2px;padding:4px 0">★ APRESIASI ★</div><div style="font-size:19px;font-weight:900;padding:5px 0 1px">${formatRupiah(apr)}</div>${rekap.apresiasiNote ? `<div style="font-size:10px;padding:0 4px 3px;overflow-wrap:anywhere">${escapeHtmlText(rekap.apresiasiNote)}</div>` : ''}<div style="font-size:9.5px;border-top:1px dashed #000;padding:4px;font-style:italic">Terima kasih atas kerja kerasnya</div></div>` : ''}
+                ${(() => {
+                    const st = drvRekapStatus(rekap);
+                    const evs = drvRekapKasKeluar(rekap);
+                    if (drvRekapNet(rekap) <= 0) return '';
+                    return `<div class="section-title">Status Pembayaran: ${escapeHtmlText(DRV_STATUS_BAYAR_LABEL[st])}</div>
+                    ${drvRekapLama(rekap) ? '' : evs.map((e, i) => `<div class="item-row"><span><b>Pembayaran ${i + 1}</b><small>${escapeHtmlText(e.date || '-')}${e.method ? ' &bull; ' + escapeHtmlText(e.method) : ''}${e.note ? ' &bull; ' + escapeHtmlText(e.note) : ''}</small></span><span>${formatRupiah(e.amount)}</span></div>`).join('')}
+                    ${st !== 'lunas' ? `<div class="row red" style="font-weight:900;display:flex;justify-content:space-between;margin-top:3px"><span>Sisa belum dibayar</span><span>${formatRupiah(drvRekapSisa(rekap))}</span></div>` : ''}`;
+                })()}
                 ${info ? `<div class="kasbon-box"><div class="t">Info Kasbon</div>
                     ${info.sebelum != null ? `<div class="row"><span>Sisa kasbon sebelumnya</span><span>${formatRupiah(info.sebelum)}</span></div>` : ''}
                     ${info.dipotong > 0 ? `<div class="row red"><span>Dipotong rekap ini</span><span>- ${formatRupiah(info.dipotong)}</span></div>` : ''}
@@ -24131,6 +24207,8 @@ ${getRekapShareLink(rekap)}
             const [rekapNote, setRekapNote] = React.useState('');
             const [rekapApresiasi, setRekapApresiasi] = React.useState(''); // ⭐ apresiasi / tips saat gajian (opsional)
             const [rekapApresiasiNote, setRekapApresiasiNote] = React.useState('');
+            const [rekapLangsungBayar, setRekapLangsungBayar] = React.useState(false); // "Langsung bayar lunas sekarang" saat membuat rekap
+            const [bayarRekap, setBayarRekap] = React.useState(null); // { id, tanggal, jumlah, metode, catatan } jendela pembayaran gaji driver
             const [ubahApresiasi, setUbahApresiasi] = React.useState(null); // { id, nominal, note }
             const [selectedTripIds, setSelectedTripIds] = React.useState([]);
             const [rekapPotonganKasbon, setRekapPotonganKasbon] = React.useState(0);
@@ -24211,6 +24289,8 @@ ${getRekapShareLink(rekap)}
                     totalOngkir,
                     totalTips,
                     tipsPerTrip,
+                    // Status bayar: dibayar lewat tombol 💰 Bayar (bisa sebagian) atau langsung lunas saat rekap dibuat
+                    payments: (rekapLangsungBayar && gajiDiterima > 0) ? [{ id: genId('PAY-'), date: toLocalDateStr(), amount: gajiDiterima, method: 'Tunai', note: '', createdAt: new Date().toISOString() }] : [],
                     potonganKasbon: potongan,
                     apresiasi,
                     apresiasiNote: apresiasi > 0 ? String(rekapApresiasiNote || '').trim() : '',
@@ -24600,7 +24680,11 @@ ${getRekapShareLink(rekap)}
                 setHapus({ judul: 'Hapus kasbon?', detail: `${k.driverName || ''} · ${k.tanggal || '-'} · ${formatRupiah(safeMoney(k.jumlah))}${k.keterangan ? ' · ' + k.keterangan : ''}`, peringatan: safeMoney(k.sudahDipotong) > 0 ? `Kasbon ini sudah dipotong ${formatRupiah(safeMoney(k.sudahDipotong))} lewat rekap gaji.` : '', aksi: () => hapusKasbon(k.id) });
             };
             const mintaHapusRekap = (r) => {
-                setHapus({ judul: 'Hapus rekap gaji?', detail: `${r.driverName || ''} · ${r.tanggalRekap || '-'} · ${r.jumlahTrip || 0} trip · ${formatRupiah(safeMoney(r.gajiDiterima != null ? r.gajiDiterima : r.totalOngkir))}`, peringatan: `Trip di rekap ini kembali "belum direkap"${safeMoney(r.potonganKasbon) > 0 ? ' dan potongan kasbon dipulihkan' : ''}.`, aksi: () => deleteRekap(r.id) });
+                if (drvRekapBayar(r).length > 0) {
+                    setHapus({ judul: 'Hapus rekap gaji?', detail: `${r.driverName || ''} · ${r.tanggalRekap || '-'}`, blokir: `Rekap ini sudah ada pembayaran ${formatRupiah(drvRekapDibayar(r))}. Hapus dulu pembayarannya (tombol 💰 Bayar) agar Buku Kas tetap benar.` });
+                    return;
+                }
+                setHapus({ judul: 'Hapus rekap gaji?', detail: `${r.driverName || ''} · ${r.tanggalRekap || '-'} · ${r.jumlahTrip || 0} trip · ${formatRupiah(safeMoney(r.gajiDiterima != null ? r.gajiDiterima : r.totalOngkir))}`, peringatan: `Trip di rekap ini kembali "belum direkap"${safeMoney(r.potonganKasbon) > 0 ? ' dan potongan kasbon dipulihkan' : ''}.${drvRekapLama(r) && drvRekapNet(r) > 0 ? ` Rekap lama ini tercatat sudah dibayar ${formatRupiah(drvRekapNet(r))} — pembayarannya ikut hilang dari Buku Kas.` : ''}`, aksi: () => deleteRekap(r.id) });
             };
             const simpanAlihkan = (kirimWA) => {
                 const { trx: t, driverId } = alihkan || {};
@@ -24642,7 +24726,7 @@ ${getRekapShareLink(rekap)}
                 const tot = trips.reduce((s, t) => s + safeMoney(t.ongkir), 0);
                 setRekapDriverId(driverId); setSelectedTripIds(trips.map(t => t.id));
                 setRekapPotonganKasbon(Math.min(getTotalSisaKasbon(driverId), tot)); setRekapPotonganManual(false);
-                setRekapNote(''); setRekapApresiasi(''); setRekapApresiasiNote(''); setRekapLuar(false); setRekapPeriode(rGaji); setShowRekapModal(true);
+                setRekapNote(''); setRekapApresiasi(''); setRekapApresiasiNote(''); setRekapLangsungBayar(false); setRekapLuar(false); setRekapPeriode(rGaji); setShowRekapModal(true);
             };
             // Potongan kasbon yang disarankan mengikuti trip yang dicentang (selama belum diubah manual)
             React.useEffect(() => {
@@ -24680,11 +24764,45 @@ ${getRekapShareLink(rekap)}
                 if (!ubahApresiasi) return;
                 const nominal = safeMoney(ubahApresiasi.nominal);
                 const note = nominal > 0 ? String(ubahApresiasi.note || '').trim() : '';
-                setDriverRekapGaji(prev => (prev || []).map(r => r && r.id === ubahApresiasi.id
-                    ? { ...r, apresiasi: nominal, apresiasiNote: note, gajiDiterima: safeMoney(r.totalOngkir) + safeMoney(r.totalTips) + nominal - safeMoney(r.potonganKasbon), _syncUpdatedAt: new Date().toISOString() }
-                    : r));
+                const r0 = (driverRekapGaji || []).find(r => r && r.id === ubahApresiasi.id);
+                if (!r0) return;
+                const netBaru = Math.max(0, safeMoney(r0.totalOngkir) + safeMoney(r0.totalTips) + nominal - safeMoney(r0.potonganKasbon));
+                const sudah = drvRekapDibayar(r0);
+                // Gaji tidak boleh lebih kecil dari yang sudah dibayar (Buku Kas tetap benar)
+                if (netBaru < sudah - 0.01) { showToast(`Gaji diterima akan menjadi ${formatRupiah(netBaru)}, lebih kecil dari yang sudah dibayar (${formatRupiah(sudah)}). Hapus dulu pembayaran yang berlebih.`, 'error'); return; }
+                setDriverRekapGaji(prev => (prev || []).map(r => {
+                    if (!r || r.id !== ubahApresiasi.id) return r;
+                    const next = { ...r, apresiasi: nominal, apresiasiNote: note, gajiDiterima: netBaru, _syncUpdatedAt: new Date().toISOString() };
+                    // Rekap lama (dianggap lunas): pembayaran lamanya dicatat dulu, tambahan apresiasi menjadi sisa yang perlu dibayar
+                    if (drvRekapLama(r) && Math.abs(netBaru - drvRekapNet(r)) > 0.01) {
+                        next.payments = drvRekapNet(r) > 0 ? [{ id: genId('PAY-'), date: r.tanggalRekap || toLocalDateStr(), amount: drvRekapNet(r), method: '', note: 'Dibayar saat rekap (data lama)', createdAt: new Date().toISOString() }] : [];
+                    }
+                    return next;
+                }));
                 setUbahApresiasi(null);
                 showToast(nominal > 0 ? `Apresiasi ${formatRupiah(nominal)} disimpan` : 'Apresiasi dihapus', 'success');
+            };
+            // ----- Pembayaran gaji driver (masuk Buku Kas di Laporan Keuangan per tanggal bayar) -----
+            const bukaBayarRekap = (r) => setBayarRekap({ id: r.id, tanggal: toLocalDateStr(), jumlah: drvRekapSisa(r) ? String(drvRekapSisa(r)) : '', metode: 'Tunai', catatan: '' });
+            const simpanBayarRekap = () => {
+                const f = bayarRekap; if (!f) return;
+                const r = (driverRekapGaji || []).find(x => x && x.id === f.id && !x.isDeleted);
+                if (!r) return;
+                if (drvRekapLama(r)) { showToast('Rekap lama ini tercatat sudah dibayar.', 'error'); return; }
+                const jumlah = safeMoney(String(f.jumlah).replace(/\D/g, ''));
+                if (!(jumlah > 0)) { showToast('Isi jumlah pembayaran', 'error'); return; }
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(String(f.tanggal || ''))) { showToast('Isi tanggal bayar', 'error'); return; }
+                if (jumlah > drvRekapSisa(r) + 0.01) { showToast(`Jumlah melebihi sisa yang harus dibayar (${formatRupiah(drvRekapSisa(r))})`, 'error'); return; }
+                const now = new Date().toISOString();
+                const pay = { id: genId('PAY-'), date: f.tanggal, amount: jumlah, method: f.metode || 'Tunai', note: String(f.catatan || '').trim().slice(0, 100), createdAt: now };
+                setDriverRekapGaji(prev => (prev || []).map(x => x && x.id === r.id ? { ...x, payments: [...safeArray(x.payments), pay], _syncUpdatedAt: now } : x));
+                setBayarRekap(b => b ? { ...b, jumlah: '', catatan: '' } : b);
+                showToast(`Pembayaran ${formatRupiah(jumlah)} dicatat`, 'success');
+            };
+            const hapusBayarRekap = (rekapId, payId) => {
+                const now = new Date().toISOString();
+                setDriverRekapGaji(prev => (prev || []).map(x => x && x.id === rekapId ? { ...x, payments: safeArray(x.payments).filter(p => p && p.id !== payId), _syncUpdatedAt: now } : x));
+                showToast('Pembayaran dihapus', 'success');
             };
             const linkSlip = (rekap) => `${window.location.origin + window.location.pathname}#driver-rekap-gaji=${encodeURIComponent(rekap.id)}`;
             const labelPeriodeRekap = (r) => r.periodeDari ? (r.periodeDari === r.periodeSampai ? fmtTglPendek(r.periodeDari) : `${fmtTglPendek(r.periodeDari)} – ${fmtTglPendek(r.periodeSampai)}`) : '–';
@@ -24692,7 +24810,7 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d => d.id === rekap.driverId);
                 const pot = safeMoney(rekap.potonganKasbon);
                 const apr = safeMoney(rekap.apresiasi);
-                const msg = `Halo ${drv ? drv.name : (rekap.driverName || 'Driver')},\n\nBerikut slip gaji pengiriman${rekap.periodeDari ? ' periode ' + labelPeriodeRekap(rekap) : ''}:\n- Jumlah trip: ${rekap.jumlahTrip || 0}\n- Total ongkir: ${formatRupiah(safeMoney(rekap.totalOngkir))}\n${safeMoney(rekap.totalTips) > 0 ? `- 🎁 *Tips: ${formatRupiah(safeMoney(rekap.totalTips))}*\n` : ''}${apr > 0 ? `- ⭐ *Apresiasi: ${formatRupiah(apr)}*${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `- Potong kasbon: ${formatRupiah(pot)}\n` : ''}- *Gaji diterima: ${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\nRincian:\n${linkSlip(rekap)}`;
+                const msg = `Halo ${drv ? drv.name : (rekap.driverName || 'Driver')},\n\nBerikut slip gaji pengiriman${rekap.periodeDari ? ' periode ' + labelPeriodeRekap(rekap) : ''}:\n- Jumlah trip: ${rekap.jumlahTrip || 0}\n- Total ongkir: ${formatRupiah(safeMoney(rekap.totalOngkir))}\n${safeMoney(rekap.totalTips) > 0 ? `- 🎁 *Tips: ${formatRupiah(safeMoney(rekap.totalTips))}*\n` : ''}${apr > 0 ? `- ⭐ *Apresiasi: ${formatRupiah(apr)}*${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `- Potong kasbon: ${formatRupiah(pot)}\n` : ''}- *Gaji diterima: ${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${drvRekapStatus(rekap) === 'lunas' ? '- Status: ✅ Sudah dibayar\n' : `- Status: ${DRV_STATUS_BAYAR_LABEL[drvRekapStatus(rekap)]}${drvRekapDibayar(rekap) > 0 ? ` · sudah dibayar ${formatRupiah(drvRekapDibayar(rekap))}` : ''} · *sisa ${formatRupiah(drvRekapSisa(rekap))}*\n`}${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\nRincian:\n${linkSlip(rekap)}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
                 window.open(phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
             };
@@ -25118,9 +25236,17 @@ ${getRekapShareLink(rekap)}
                                 {(() => {
                                     const list = visibleRekap.filter(r=>!riwayatDriver||r.driverId===riwayatDriver).sort((a,b)=>String(b.tanggalRekap||'').localeCompare(String(a.tanggalRekap||'')) || String(b._syncUpdatedAt||'').localeCompare(String(a._syncUpdatedAt||'')));
                                     if (!list.length) return <div className="text-center py-6 text-gray-400 text-sm">Belum ada rekap gaji.</div>;
+                                    const belum = list.reduce((a, r) => { const st = drvRekapStatus(r); if (st === 'lunas') return a; return { total: a.total + drvRekapSisa(r), belum: a.belum + (st === 'belum' ? 1 : 0), sebagian: a.sebagian + (st === 'sebagian' ? 1 : 0) }; }, { total: 0, belum: 0, sebagian: 0 });
+                                    const badgeBayar = (r) => { const st = drvRekapStatus(r); return <span className={`inline-block text-[11px] font-bold rounded-full px-2 py-0.5 whitespace-nowrap ${st === 'lunas' ? 'bg-green-100 text-green-700' : st === 'sebagian' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'}`} data-eks-rekap-status={st}>{DRV_STATUS_BAYAR_LABEL[st]}</span>; };
+                                    const tombolBayar = (r) => drvRekapStatus(r) === 'lunas' && !drvRekapBayar(r).length ? null
+                                        : <button type="button" onClick={()=>bukaBayarRekap(r)} className={`text-xs font-black px-2.5 py-1.5 rounded-lg whitespace-nowrap ${drvRekapStatus(r) === 'lunas' ? 'bg-white border border-gray-300 text-gray-700' : 'bg-blue-600 text-white'}`} data-eks-bayar-buka>{drvRekapStatus(r) === 'lunas' ? '💰 Riwayat' : '💰 Bayar'}</button>;
                                     return (<>
+                                        {belum.total > 0 && <div className="flex flex-wrap items-center justify-between gap-2 bg-red-50 border-2 border-red-200 rounded-xl px-3 py-2 mb-3" data-eks-belum-dibayar>
+                                            <span className="text-sm font-bold text-red-800">💸 Gaji driver belum dibayar <span className="font-semibold text-gray-500">· {[belum.belum ? `${belum.belum} belum` : '', belum.sebagian ? `${belum.sebagian} sebagian` : ''].filter(Boolean).join(' · ')}</span></span>
+                                            <b className="text-lg text-red-600 tabular-nums" data-eks-belum-dibayar-total>{formatRupiah(belum.total)}</b>
+                                        </div>}
                                         <div className="overflow-x-auto hidden md:block"><table className="w-full text-sm">
-                                            <thead><tr className="bg-gray-50 text-left text-xs text-gray-500"><th className="px-3 py-2">Tanggal</th><th className="px-3 py-2">Driver</th><th className="px-3 py-2">Periode</th><th className="px-3 py-2 text-center">Trip</th><th className="px-3 py-2 text-right">Ongkir</th><th className="px-3 py-2 text-right">Apresiasi</th><th className="px-3 py-2 text-right">Potong kasbon</th><th className="px-3 py-2 text-right">Diterima</th><th className="px-3 py-2 text-right">Aksi</th></tr></thead>
+                                            <thead><tr className="bg-gray-50 text-left text-xs text-gray-500"><th className="px-3 py-2">Tanggal</th><th className="px-3 py-2">Driver</th><th className="px-3 py-2">Periode</th><th className="px-3 py-2 text-center">Trip</th><th className="px-3 py-2 text-right">Ongkir</th><th className="px-3 py-2 text-right">Apresiasi</th><th className="px-3 py-2 text-right">Potong kasbon</th><th className="px-3 py-2 text-right">Diterima</th><th className="px-3 py-2">Status</th><th className="px-3 py-2 text-right">Aksi</th></tr></thead>
                                             <tbody>{list.map(r => (
                                                 <tr key={r.id} className="border-t" data-eks-rekap-row={r.id}>
                                                     <td className="px-3 py-2 text-xs text-gray-500">{r.tanggalRekap}</td><td className="px-3 py-2 font-medium">{r.driverName}</td><td className="px-3 py-2 text-xs">{labelPeriodeRekap(r)}</td><td className="px-3 py-2 text-center">{r.jumlahTrip}</td>
@@ -25128,7 +25254,8 @@ ${getRekapShareLink(rekap)}
                                                     <td className="px-3 py-2 text-right whitespace-nowrap" title={r.apresiasiNote || ''} data-eks-rekap-apresiasi>{safeMoney(r.apresiasi) > 0 ? <b className="text-amber-700">⭐ {formatRupiah(safeMoney(r.apresiasi))}</b> : <span className="text-gray-400">—</span>}</td>
                                                     <td className="px-3 py-2 text-right text-red-600 whitespace-nowrap">{safeMoney(r.potonganKasbon) > 0 ? `- ${formatRupiah(safeMoney(r.potonganKasbon))}` : '—'}</td>
                                                     <td className="px-3 py-2 text-right font-black text-green-700 whitespace-nowrap">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</td>
-                                                    <td className="px-3 py-2 text-right whitespace-nowrap"><div className="inline-flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2.5 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 4)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></td>
+                                                    <td className="px-3 py-2">{badgeBayar(r)}{drvRekapLama(r) && <div className="text-[10px] text-gray-400">data lama</div>}{drvRekapStatus(r) === 'sebagian' && <div className="text-[11px] font-bold text-red-600 whitespace-nowrap">Sisa {formatRupiah(drvRekapSisa(r))}</div>}</td>
+                                                    <td className="px-3 py-2 text-right whitespace-nowrap"><div className="inline-flex gap-1">{tombolBayar(r)}<button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2.5 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 4)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></td>
                                                 </tr>
                                             ))}</tbody>
                                         </table></div>
@@ -25136,7 +25263,8 @@ ${getRekapShareLink(rekap)}
                                             <div key={r.id} className="border border-gray-200 rounded-xl px-3 py-2.5" data-eks-rekap-row={r.id}>
                                                 <div className="flex justify-between"><b className="text-sm">{r.driverName}</b><span className="text-xs text-gray-500">{r.tanggalRekap}</span></div>
                                                 <div className="text-xs text-gray-500">{labelPeriodeRekap(r)} · {r.jumlahTrip} trip · ongkir {formatRupiah(safeMoney(r.totalOngkir))}{safeMoney(r.totalTips) > 0 ? <b className="text-green-700"> · 🎁 +{formatRupiah(safeMoney(r.totalTips))}</b> : null}{safeMoney(r.apresiasi) > 0 ? <b className="text-amber-700"> · ⭐ +{formatRupiah(safeMoney(r.apresiasi))}</b> : null}{safeMoney(r.potonganKasbon) > 0 ? ` · kasbon -${formatRupiah(safeMoney(r.potonganKasbon))}` : ''}</div>
-                                                <div className="flex justify-between items-center mt-1.5"><b className="text-green-700 text-sm">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</b><div className="flex gap-1"><button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 4)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></div>
+                                                <div className="flex flex-wrap items-center gap-1.5 mt-1">{badgeBayar(r)}{drvRekapStatus(r) === 'sebagian' && <span className="text-[11px] font-bold text-red-600">Sisa {formatRupiah(drvRekapSisa(r))}</span>}</div>
+                                                <div className="flex justify-between items-center mt-1.5"><b className="text-green-700 text-sm">{formatRupiah(safeMoney(r.gajiDiterima!=null?r.gajiDiterima:r.totalOngkir))}</b><div className="flex gap-1">{tombolBayar(r)}<button type="button" onClick={()=>kirimSlipWA(r)} className="text-xs font-black bg-green-500 text-white px-2 py-1.5 rounded-lg" data-eks-slip>💬 Kirim slip</button><button type="button" onClick={(e)=>bukaMenu(e, 'rekap', r, 4)} className="w-8 h-8 rounded-lg border border-gray-300 bg-white font-black" data-eks-menu-btn>⋯</button></div></div>
                                             </div>
                                         ))}</div>
                                     </>);
@@ -25237,6 +25365,55 @@ ${getRekapShareLink(rekap)}
                             </Card>
                         </div>
                     )}
+
+                    {bayarRekap && (() => {
+                        const r = visibleRekap.find(x => x.id === bayarRekap.id);
+                        if (!r) return null;
+                        const st = drvRekapStatus(r);
+                        const pays = drvRekapBayar(r);
+                        const ubah = (k, v) => setBayarRekap(b => b ? { ...b, [k]: v } : b);
+                        return (
+                            <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" data-eks-bayar-modal>
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+                                    <div className="flex justify-between items-center p-4 border-b"><h3 className="font-bold">💰 Bayar gaji — {r.driverName}</h3><button type="button" onClick={()=>setBayarRekap(null)} className="text-sm font-bold text-gray-500" data-eks-bayar-tutup>Tutup</button></div>
+                                    <div className="p-4 space-y-3 overflow-y-auto">
+                                        <div className="text-xs text-gray-500">{labelPeriodeRekap(r)} · {r.jumlahTrip || 0} trip · rekap {r.tanggalRekap || '-'}</div>
+                                        <div className="grid grid-cols-3 gap-2 text-center">
+                                            <div className="bg-blue-50 rounded-lg p-2"><div className="text-[11px] text-gray-500">Gaji diterima</div><b className="text-blue-700 text-sm" data-eks-bayar-net>{formatRupiah(drvRekapNet(r))}</b></div>
+                                            <div className="bg-green-50 rounded-lg p-2"><div className="text-[11px] text-gray-500">Sudah dibayar</div><b className="text-green-700 text-sm" data-eks-bayar-sudah>{formatRupiah(drvRekapDibayar(r))}</b></div>
+                                            <div className="bg-orange-50 rounded-lg p-2"><div className="text-[11px] text-gray-500">Sisa</div><b className="text-orange-700 text-sm" data-eks-bayar-sisa>{formatRupiah(drvRekapSisa(r))}</b></div>
+                                        </div>
+                                        <div className={`rounded-lg px-3 py-1.5 text-center text-sm font-black ${st === 'lunas' ? 'bg-green-100 text-green-700' : st === 'sebagian' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'}`} data-eks-bayar-status>{DRV_STATUS_BAYAR_LABEL[st]}</div>
+                                        {st !== 'lunas' && (
+                                            <div className="border border-gray-200 rounded-xl p-3 bg-gray-50 space-y-2" data-eks-bayar-form>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <label className="block text-xs font-bold text-gray-600">Tanggal bayar<input type="date" value={bayarRekap.tanggal} onChange={e=>ubah('tanggal', e.target.value)} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-bayar-tanggal /></label>
+                                                    <label className="block text-xs font-bold text-gray-600">Jumlah (Rp)<input type="text" inputMode="numeric" value={safeMoney(bayarRekap.jumlah) ? Number(safeMoney(bayarRekap.jumlah)).toLocaleString('id-ID') : ''} onChange={e=>ubah('jumlah', e.target.value.replace(/\D/g, ''))} placeholder={`Maks ${formatRupiah(drvRekapSisa(r))}`} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-bold" data-eks-bayar-jumlah /></label>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <label className="block text-xs font-bold text-gray-600">Metode<select value={bayarRekap.metode} onChange={e=>ubah('metode', e.target.value)} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal bg-white" data-eks-bayar-metode><option>Tunai</option><option>Transfer</option></select></label>
+                                                    <label className="block text-xs font-bold text-gray-600 min-w-0">Catatan<input value={bayarRekap.catatan} maxLength={100} onChange={e=>ubah('catatan', e.target.value)} placeholder="opsional" className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-bayar-catatan /></label>
+                                                </div>
+                                                <button type="button" onClick={simpanBayarRekap} className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-black" data-eks-bayar-simpan>Simpan pembayaran</button>
+                                            </div>
+                                        )}
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-600 mb-1">Riwayat pembayaran</div>
+                                            {drvRekapLama(r) ? <div className="text-xs text-gray-500 border border-dashed rounded-lg p-2 text-center">Rekap lama: tercatat sudah dibayar {formatRupiah(drvRekapNet(r))} pada tanggal rekap (masuk Buku Kas).</div>
+                                                : pays.length === 0 ? <div className="text-xs text-gray-400 border border-dashed rounded-lg p-2 text-center">Belum ada pembayaran</div>
+                                                : <div className="border rounded-lg divide-y" data-eks-bayar-riwayat>{pays.map((p, i) => (
+                                                    <div key={p.id || i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm" data-eks-bayar-baris>
+                                                        <span className="min-w-0"><b>{fmtTglPendek(p.date)}</b> <span className="text-xs text-gray-500">· {p.method || '-'}{p.note ? ` · ${p.note}` : ''}</span></span>
+                                                        <span className="flex items-center gap-2 shrink-0"><b className="text-green-700">{formatRupiah(safeMoney(p.amount))}</b><button type="button" onClick={()=>setHapus({ judul: 'Hapus pembayaran?', detail: `${r.driverName} · ${fmtTglPendek(p.date)} · ${formatRupiah(safeMoney(p.amount))}`, peringatan: 'Pembayaran ini ikut hilang dari Buku Kas di Laporan Keuangan.', aksi: () => hapusBayarRekap(r.id, p.id) })} className="text-red-500 font-bold px-1" title="Hapus pembayaran" data-eks-bayar-hapus>✕</button></span>
+                                                    </div>
+                                                ))}</div>}
+                                        </div>
+                                        <div className="text-[11px] text-gray-500">Pembayaran tercatat sebagai kas keluar "Gaji Driver" di Laporan Keuangan pada tanggal bayar.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {ubahApresiasi && (() => {
                         const r = visibleRekap.find(x => x.id === ubahApresiasi.id);
@@ -25528,6 +25705,10 @@ ${getRekapShareLink(rekap)}
                                         {pot > 0 && <div className="flex justify-between text-red-600"><span>Potong kasbon</span><b>- {formatRupiah(pot)}</b></div>}
                                         <div className="flex justify-between text-green-700 font-black border-t pt-1"><span>Gaji diterima</span><span data-eks-rekap-diterima>{formatRupiah(Math.max(0, tot + totTips + apr - pot))}</span></div>
                                     </div>
+                                    <label className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm font-bold text-blue-900 cursor-pointer" data-eks-rekap-langsung-wrap>
+                                        <input type="checkbox" checked={rekapLangsungBayar} onChange={e=>setRekapLangsungBayar(e.target.checked)} className="w-4 h-4" data-eks-rekap-langsung />
+                                        Langsung bayar lunas sekarang <span className="font-normal text-slate-600">(tanggal hari ini, tunai)</span>
+                                    </label>
                                     <div><label className="block text-xs font-bold text-gray-600 mb-1">Catatan</label><input value={rekapNote} onChange={e=>setRekapNote(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Opsional (misal: gaji minggu ke-1)" /></div>
                                 </div>
                                 <div className="flex justify-end gap-2 p-4 border-t">
@@ -26128,6 +26309,17 @@ ${getRekapShareLink(rekap)}
                                 <div className="bg-green-100 text-green-800 rounded-xl px-4 py-3 flex items-center justify-between" data-rg-diterima>
                                     <span className="font-black text-sm">GAJI DITERIMA</span><span className="text-2xl font-black">{formatRupiah(diterima)}</span>
                                 </div>
+                                {drvRekapNet(rekap) > 0 && (() => {
+                                    const st = drvRekapStatus(rekap);
+                                    const evs = drvRekapKasKeluar(rekap);
+                                    return (
+                                        <div className="border border-gray-200 rounded-xl px-4 py-3 text-sm space-y-1" data-rg-bayar={st}>
+                                            <div className="flex justify-between items-center"><b>Status</b><span className={`text-xs font-bold rounded-full px-2.5 py-0.5 ${st === 'lunas' ? 'bg-green-100 text-green-700' : st === 'sebagian' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'}`} data-rg-bayar-status>{st === 'lunas' ? '✓ ' : ''}{DRV_STATUS_BAYAR_LABEL[st]}</span></div>
+                                            {!drvRekapLama(rekap) && evs.map((e, i) => <div key={i} className="flex justify-between text-gray-600" data-rg-bayar-baris><span>{e.date ? new Date(`${e.date}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}{e.method ? ` · ${e.method}` : ''}</span><b className="text-green-700">{formatRupiah(e.amount)}</b></div>)}
+                                            {st !== 'lunas' && <div className="flex justify-between border-t border-dashed pt-1.5 mt-1"><b>Sisa belum dibayar</b><b className="text-red-600" data-rg-bayar-sisa>{formatRupiah(drvRekapSisa(rekap))}</b></div>}
+                                        </div>
+                                    );
+                                })()}
                                 {info && (
                                     <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm space-y-1" data-rg-kasbon>
                                         <div className="font-bold text-red-800">💳 Info Kasbon</div>
@@ -32962,7 +33154,7 @@ ${getRekapShareLink(rekap)}
                                     karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
                                     onLihatNotaVendor={canOpen('pembelian_bahan') ? (vendor) => { setNotaVendorReq({ vendor, t: Date.now() }); setActiveTab('pembelian_bahan'); } : null} /></div>}
-                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></MenuBeku></div>}
+                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></MenuBeku></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></MenuBeku></div>}
