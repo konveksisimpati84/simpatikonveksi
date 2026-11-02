@@ -336,9 +336,11 @@
         const IconDashboard = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>;
         const IconUsers = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>;
         const IconPlusCircle = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>;
-        const IconScissors = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2m-2 2l-2-2"></path></svg>;
+        // Gunting (dulu gambarnya rusak berupa garis zig-zag)
+        const IconScissors = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="6" cy="6.5" r="2.8" strokeWidth="2"/><circle cx="6" cy="17.5" r="2.8" strokeWidth="2"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.4 8L20 18.5M8.4 16L20 5.5"/></svg>;
         const IconSkuter = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="6" cy="17" r="2.5" strokeWidth="2"></circle><circle cx="18" cy="17" r="2.5" strokeWidth="2"></circle><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.5 17h7M15 6h2l1.5 8.5M14 6h-2M6 14.5l2.5-4h5l1.5 4"></path></svg>;
-        const IconTruck = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"></path></svg>;
+        // Truk pengiriman (dulu gambar gedung)
+        const IconTruck = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2 6.5h11.5v9.5H2zM13.5 9.5h4l3.5 3.8V16h-7.5"/><circle cx="6" cy="17.5" r="2" strokeWidth="2"/><circle cx="17" cy="17.5" r="2" strokeWidth="2"/></svg>;
         const IconBarChart = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>;
         const IconTrash = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>;
         const IconPrinter = ({ className = "w-4 h-4" }) => <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>;
@@ -363,6 +365,18 @@
         const IconLayers = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>;
         const IconFingerprint = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.153-.433 2.445-1.457 3.757l-.291.337m-1.854 1.807a13.999 13.999 0 001.587-5.001m-5.2-1.6C7.12 12.178 7 12.598 7 13c0 2.5.906 4.787 2.4 6.55m-.8-10.572A4 4 0 0116 11c0 .626-.061 1.236-.18 1.826" /></svg>;
         const IconCalculatorHpp = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01" /></svg>;
+        // Ikon menu (tiap menu punya ikon sendiri)
+        const IconStruk = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 3h12v18l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4L6 21V3zM9 8h6M9 11.5h6M9 15h3.5"/></svg>;
+        // Dokumen bertanda "Rp" (huruf digambar sebagai garis, bukan teks, agar tidak ikut terbaca sebagai teks tombol)
+        const IconInvoiceRp = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h5.6a1 1 0 01.7.3l5.4 5.4a1 1 0 01.3.7V19a2 2 0 01-2 2z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.35" d="M8.4 17.6v-5h1.8a1.45 1.45 0 010 2.9H8.4m1.7 0l1.6 2.1M13.3 18.9v-4.9"/><circle cx="14.6" cy="15.5" r="1.35" strokeWidth="1.35"/></svg>;
+        const IconInstansi = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.5 21h12M3.5 21V9l5-3 5 3v12M6.5 12h.01M10.5 12h.01M6.5 16h.01M10.5 16h.01M18.5 16.5s-3.5-3.4-3.5-6.3a3.5 3.5 0 017 0c0 2.9-3.5 6.3-3.5 6.3z"/><circle cx="18.5" cy="10.2" r="1.1" fill="currentColor" stroke="none"/></svg>;
+        const IconKinerja = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>;
+        const IconPieChart = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/></svg>;
+        const IconDocSearch = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z"/></svg>;
+        const IconTrendUp = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>;
+        const IconWallet = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8V5.5A1.5 1.5 0 0015.5 4H5a2 2 0 00-2 2m0 0a2 2 0 002 2h14a1 1 0 011 1v9a2 2 0 01-2 2H5a2 2 0 01-2-2V6zm13.5 8h.01"/></svg>;
+        const IconShieldUser = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3l7 3v5c0 4.6-3 8.5-7 10-4-1.5-7-5.4-7-10V6l7-3zM8.8 16.2a3.4 3.4 0 016.4 0"/><circle cx="12" cy="10.6" r="2.1" strokeWidth="2"/></svg>;
+        const IconTag = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>;
         const IconEye = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>;
         const IconCash = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>;
 
@@ -32674,29 +32688,30 @@ ${getRekapShareLink(rekap)}
                 );
             }
 
+            // Urutan dari yang paling sering dipakai (harian) sampai yang jarang (pengaturan)
             const allNavItems = [
                 { id: 'dashboard', label: 'Dashboard', icon: <IconDashboard /> },
                 { id: 'input_order', label: 'Input Order', icon: <IconPlusCircle /> },
+                { id: 'produksi', label: authUser?.role === 'Karyawan' ? 'Pekerjaan Saya' : 'Proses Produksi', icon: <IconScissors /> },
                 { id: 'antrean', label: 'Monitor Antrean', icon: <IconMonitor /> },
                 { id: 'pembelian_bahan', label: 'Pembelian Bahan', icon: <IconShoppingCart /> },
-                { id: 'produksi', label: authUser?.role === 'Karyawan' ? 'Pekerjaan Saya' : 'Proses Produksi', icon: <IconScissors /> },
                 { id: 'pengiriman', label: 'Pengiriman', icon: <IconTruck /> },
-                { id: 'biaya', label: 'Biaya', icon: <IconDocument /> },
-                { id: 'invoice', label: 'Invoice', icon: <IconDocument /> },
-                { id: 'data_master', label: 'Data Master', icon: <IconUsers /> },
-                { id: 'tracking_instansi', label: 'Tracking Instansi', icon: <IconBarChart /> },
-                { id: 'laporan', label: authUser?.role === 'Karyawan' ? 'Laporan Rekap Saya' : 'Laporan Kinerja', icon: <IconBarChart /> },
-                { id: 'laporan_keuangan', label: 'Laporan Keuangan', icon: <IconBarChart /> },
-                { id: 'laporan_order', label: 'Laporan Per Order', icon: <IconDocument /> },
-                { id: 'investor', label: 'Investor', icon: <IconBarChart /> },
                 { id: 'ekspedisi', label: 'SIJEK', icon: <IconSkuter /> },
-                { id: 'dana_operasional', label: 'Dana Operasional', icon: <IconDocument /> },
-                { id: 'pengaturan', label: 'Pengaturan Cetak', icon: <IconSettings /> },
-                { id: 'master_akun', label: 'Master Akun', icon: <IconKey /> },
-                { id: 'label_maker', label: 'Label Maker', icon: <IconLayers /> },
-                { id: 'stock_barang', label: 'Stock Barang', icon: <IconArchive /> },
                 { id: 'absensi_finger', label: 'Absensi Finger', icon: <IconFingerprint /> },
+                { id: 'invoice', label: 'Invoice', icon: <IconInvoiceRp /> },
+                { id: 'biaya', label: 'Biaya', icon: <IconStruk /> },
+                { id: 'laporan', label: authUser?.role === 'Karyawan' ? 'Laporan Rekap Saya' : 'Laporan Kinerja', icon: <IconKinerja /> },
+                { id: 'dana_operasional', label: 'Dana Operasional', icon: <IconWallet /> },
+                { id: 'stock_barang', label: 'Stock Barang', icon: <IconArchive /> },
+                { id: 'tracking_instansi', label: 'Tracking Instansi', icon: <IconInstansi /> },
+                { id: 'laporan_keuangan', label: 'Laporan Keuangan', icon: <IconPieChart /> },
+                { id: 'laporan_order', label: 'Laporan Per Order', icon: <IconDocSearch /> },
+                { id: 'investor', label: 'Investor', icon: <IconTrendUp /> },
                 { id: 'hpp_kalkulator', label: 'Kalkulator HPP', icon: <IconCalculatorHpp /> },
+                { id: 'data_master', label: 'Data Master', icon: <IconUsers /> },
+                { id: 'label_maker', label: 'Label Maker', icon: <IconTag /> },
+                { id: 'pengaturan', label: 'Pengaturan Cetak', icon: <IconPrinter className="w-5 h-5" /> },
+                { id: 'master_akun', label: 'Master Akun', icon: <IconShieldUser /> },
             ];
             const allowedMenuIds = new Set(getAccountNavAccess(authUser));
             const canOpen = (menuId) => allowedMenuIds.has(menuId);
@@ -32804,8 +32819,8 @@ ${getRekapShareLink(rekap)}
                                 { id: 'dashboard', label: 'Beranda', icon: <IconDashboard /> },
                                 { id: 'input_order', label: 'Order', icon: <IconPlusCircle /> },
                                 { id: 'produksi', label: 'Produksi', icon: <IconScissors /> },
-                                { id: 'invoice', label: 'Invoice', icon: <IconDocument /> },
-                                { id: 'laporan', label: 'Laporan', icon: <IconBarChart /> },
+                                { id: 'invoice', label: 'Invoice', icon: <IconInvoiceRp /> },
+                                { id: 'laporan', label: 'Laporan', icon: <IconKinerja /> },
                             ].filter(t => navItems.some(n => n.id === t.id));
                             return (
                                 <div className="app-bottom-nav lg:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-700 flex z-[150] print:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
