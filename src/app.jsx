@@ -9157,6 +9157,41 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 return [...byKey.values()].sort((a, b) => a.localeCompare(b));
             }, [orders, purchaseNotes]);
             const setInstansiCombo = (idx, patch) => setInstansiComboState(p => ({ ...p, [idx]: { ...p[idx], ...patch } }));
+            // Dropdown Untuk Order / Untuk Instansi menempel di bawah kolomnya (position absolute), jadi selalu ikut bergeser bersama kolom.
+            // Dibuka ke atas bila ruang di bawah kolom (di atas keyboard HP) tidak cukup.
+            const ddBukaKeAtas = (el) => {
+                if (!el || !el.getBoundingClientRect) return false;
+                const r = el.getBoundingClientRect();
+                const vv = window.visualViewport;
+                const atas = vv ? vv.offsetTop : 0;
+                let bawah = vv ? vv.offsetTop + vv.height : window.innerHeight;
+                // Menu bawah HP menutupi bagian bawah layar
+                const nav = document.querySelector('.app-bottom-nav');
+                if (nav) { const nr = nav.getBoundingClientRect(); if (nr.height > 0 && nr.top > r.bottom && nr.top < bawah) bawah = nr.top; }
+                const ruangBawah = bawah - r.bottom, ruangAtas = r.top - atas;
+                return ruangBawah < 230 && ruangAtas > ruangBawah;
+            };
+            const ddTutupTimer = React.useRef({});
+            const ddBatalTutup = (key) => { clearTimeout(ddTutupTimer.current[key]); delete ddTutupTimer.current[key]; };
+            const ddTutupNanti = (key, tutup) => { ddBatalTutup(key); ddTutupTimer.current[key] = setTimeout(() => { delete ddTutupTimer.current[key]; tutup(); }, 180); };
+            useEffect(() => () => { Object.values(ddTutupTimer.current).forEach(clearTimeout); }, []);
+            // Saat keyboard HP muncul/hilang, arah dropdown kolom yang sedang aktif dihitung ulang
+            useEffect(() => {
+                const vv = window.visualViewport;
+                if (!vv) return;
+                const hitung = () => {
+                    const el = document.activeElement;
+                    const jenis = el && el.getAttribute && el.getAttribute('data-dd-jenis');
+                    if (!jenis) return;
+                    const idx = Number(el.getAttribute('data-dd-idx'));
+                    const up = ddBukaKeAtas(el);
+                    const set = jenis === 'order' ? setOrderComboState : setInstansiComboState;
+                    set(p => (p[idx] && p[idx].open && !!p[idx].up !== up) ? { ...p, [idx]: { ...p[idx], up } } : p);
+                };
+                vv.addEventListener('resize', hitung);
+                return () => vv.removeEventListener('resize', hitung);
+            }, []);
+            const ddGaya = (up, maxHeight) => ({ position: 'absolute', left: 0, right: 0, zIndex: 9999, maxHeight, overflowY: 'auto', ...(up ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }) });
             const getFilteredInstansi = (text) => {
                 const q = normBahanText(text).toLowerCase();
                 return (q ? instansiOptions.filter(c => c.toLowerCase().includes(q)) : instansiOptions).slice(0, 8);
@@ -9776,16 +9811,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                             ? (() => { const o = allOrderOptions.find(x => String(x.id) === it.orderId); return o ? `${o.id} · ${o.client || '-'}` : it.orderId; })()
                                                                             : getComboSearch(idx)
                                                                         }
-                                                                        onFocus={(e) => { const r = e.target.getBoundingClientRect(); setComboVal(idx, { open: true, search: '', dropTop: r.bottom, dropLeft: r.left, dropWidth: r.width }); }}
-                                                                        onChange={e => { const r = e.target.getBoundingClientRect(); updateItem(idx, 'orderId', ''); setComboVal(idx, { search: e.target.value, open: true, dropTop: r.bottom, dropLeft: r.left, dropWidth: r.width }); }}
-                                                                        onBlur={() => setTimeout(() => setComboVal(idx, { open: false }), 180)}
+                                                                        data-dd-jenis="order" data-dd-idx={idx}
+                                                                        onFocus={(e) => { ddBatalTutup('o' + idx); setComboVal(idx, { open: true, search: '', up: ddBukaKeAtas(e.target) }); }}
+                                                                        onClick={(e) => { if (!getComboOpen(idx)) { ddBatalTutup('o' + idx); setComboVal(idx, { open: true, up: ddBukaKeAtas(e.target) }); } }}
+                                                                        onChange={e => { ddBatalTutup('o' + idx); updateItem(idx, 'orderId', ''); setComboVal(idx, { search: e.target.value, open: true, up: ddBukaKeAtas(e.target) }); }}
+                                                                        onBlur={() => ddTutupNanti('o' + idx, () => setComboVal(idx, { open: false }))}
                                                                     />
                                                                     {it.orderId && (
                                                                         <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 text-xs" onClick={() => { updateItem(idx, 'orderId', ''); setComboVal(idx, { search: '', open: false }); }}>✕</button>
                                                                     )}
                                                                     {getComboOpen(idx) && (
-                                                                        <div style={{ position: 'fixed', top: (orderComboState[idx]?.dropTop || 0) + 4, left: orderComboState[idx]?.dropLeft || 0, width: orderComboState[idx]?.dropWidth || 240, zIndex: 9999, maxHeight: 200, overflowY: 'auto' }} className="bg-white border border-gray-200 rounded-xl shadow-xl">
-                                                                            <div className="px-3 py-1.5 flex items-center justify-between border-b border-gray-100">
+                                                                        <div data-order-drop={idx} data-dd-atas={orderComboState[idx]?.up ? '1' : undefined} style={ddGaya(orderComboState[idx]?.up, 200)} className="bg-white border border-gray-200 rounded-xl shadow-xl">
+                                                                            <div className="px-3 py-1.5 flex items-center justify-between border-b border-gray-100" onMouseDown={e => e.preventDefault()}>
                                                                                 <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Pilih order</span>
                                                                                 <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
                                                                                     <input type="checkbox" checked={showArchivedOrders} onChange={e => setShowArchivedOrders(e.target.checked)} className="w-3 h-3" />
@@ -9833,9 +9870,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                             className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-1 focus:ring-teal-400 pr-8"
                                                                             placeholder="Ketik nama sekolah / instansi..."
                                                                             value={it.instansi || ''}
-                                                                            onFocus={(e) => { const r = e.target.getBoundingClientRect(); setInstansiCombo(idx, { open: true, dropTop: r.bottom, dropLeft: r.left, dropWidth: r.width }); }}
-                                                                            onChange={e => { const r = e.target.getBoundingClientRect(); updateItem(idx, 'instansi', e.target.value); setInstansiCombo(idx, { open: true, dropTop: r.bottom, dropLeft: r.left, dropWidth: r.width }); }}
-                                                                            onBlur={() => setTimeout(() => setInstansiCombo(idx, { open: false }), 180)}
+                                                                            data-dd-jenis="instansi" data-dd-idx={idx}
+                                                                            onFocus={(e) => { ddBatalTutup('i' + idx); setInstansiCombo(idx, { open: true, up: ddBukaKeAtas(e.target) }); }}
+                                                                            onClick={(e) => { if (!instansiComboState[idx]?.open) { ddBatalTutup('i' + idx); setInstansiCombo(idx, { open: true, up: ddBukaKeAtas(e.target) }); } }}
+                                                                            onChange={e => { ddBatalTutup('i' + idx); updateItem(idx, 'instansi', e.target.value); setInstansiCombo(idx, { open: true, up: ddBukaKeAtas(e.target) }); }}
+                                                                            onBlur={() => ddTutupNanti('i' + idx, () => setInstansiCombo(idx, { open: false }))}
                                                                         />
                                                                         {it.instansi && (
                                                                             <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 text-xs" onClick={() => { updateItem(idx, 'instansi', ''); setInstansiCombo(idx, { open: false }); }}>✕</button>
@@ -9844,9 +9883,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                             const typed = normBahanText(it.instansi);
                                                                             const opts = getFilteredInstansi(typed);
                                                                             const isNew = typed && !instansiOptions.some(c => c.toLowerCase() === typed.toLowerCase());
-                                                                            if (opts.length === 0 && !isNew) return null;
                                                                             return (
-                                                                                <div data-instansi-drop={idx} style={{ position: 'fixed', top: (instansiComboState[idx]?.dropTop || 0) + 4, left: instansiComboState[idx]?.dropLeft || 0, width: instansiComboState[idx]?.dropWidth || 240, zIndex: 9999, maxHeight: 220, overflowY: 'auto' }} className="bg-white border border-gray-200 rounded-xl shadow-xl">
+                                                                                <div data-instansi-drop={idx} data-dd-atas={instansiComboState[idx]?.up ? '1' : undefined} style={ddGaya(instansiComboState[idx]?.up, 220)} className="bg-white border border-gray-200 rounded-xl shadow-xl">
+                                                                                    {opts.length === 0 && !isNew && <div data-instansi-kosong className="px-3 py-3 text-xs text-gray-400 text-center" onMouseDown={e => e.preventDefault()}>Belum ada instansi tersimpan — ketik nama sekolah / instansi</div>}
                                                                                     {opts.map(c => (
                                                                                         <div key={c} className="px-3 py-2 text-xs hover:bg-teal-50 cursor-pointer border-t border-gray-50 text-gray-800" onMouseDown={() => { updateItem(idx, 'instansi', c); setInstansiCombo(idx, { open: false }); }}>🏫 <b>{c}</b></div>
                                                                                     ))}
