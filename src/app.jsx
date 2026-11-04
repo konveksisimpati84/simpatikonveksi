@@ -15514,7 +15514,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [bhSelectedIds, setBhSelectedIds] = React.useState([]);
             const [bhNote, setBhNote] = React.useState('');
             const [deleteConfirm, setDeleteConfirm] = useState(null);
-            const [deleteBHConfirm, setDeleteBHConfirm] = useState(null);
+            // Hapus beberapa / semua catatan bagi hasil: mode Pilih per investor, konfirmasi, dan Urungkan
+            const [bhPilihInvestor, setBhPilihInvestor] = useState(null);
+            const [bhDipilih, setBhDipilih] = useState(() => new Set());
+            const [bhHapusKonfirm, setBhHapusKonfirm] = useState(null); // { investorId, ids }
+            const [bhUrungkan, setBhUrungkan] = useState(null); // { investorId, ids, total }
             const [lunasConfirm, setLunasConfirm] = useState(null);
             const [shareModal, setShareModal] = useState(null);
 
@@ -15604,10 +15608,28 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 showToast(`${newRecords.length} invoice dicatat · Total BH: ${formatRupiah(totalBHAll)}`, 'success');
             };
 
-            const deleteBH = (id) => {
-                setInvestorBagiHasil(prev => safeArray(prev).map(r => r.id === id ? { ...r, isDeleted: true, deletedAt: now(), _syncUpdatedAt: now() } : r));
-                setDeleteBHConfirm(null);
-                showToast('Catatan bagi hasil dihapus', 'success');
+            const keluarPilihBH = () => { setBhPilihInvestor(null); setBhDipilih(new Set()); };
+            const togglePilihBH = (id) => setBhDipilih(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+            const hapusBHBanyak = (investorId, ids) => {
+                const idSet = new Set((ids || []).map(String));
+                const kena = getBagiHasilByInvestor(investorId).filter(r => idSet.has(String(r.id)));
+                if (kena.length === 0) { setBhHapusKonfirm(null); return; }
+                const ts = now();
+                const kenaIds = new Set(kena.map(r => String(r.id)));
+                setInvestorBagiHasil(prev => safeArray(prev).map(r => kenaIds.has(String(r.id)) && !r.isDeleted ? { ...r, isDeleted: true, deletedAt: ts, _syncUpdatedAt: ts } : r));
+                const total = kena.reduce((s, r) => s + (parseFloat(r.totalBagiHasil) || 0), 0);
+                setBhUrungkan({ investorId, ids: [...kenaIds], total });
+                setBhHapusKonfirm(null);
+                keluarPilihBH();
+                showToast(`${kena.length} catatan bagi hasil dihapus`, 'success');
+            };
+            const urungkanHapusBH = () => {
+                if (!bhUrungkan) return;
+                const ts = now();
+                const ids = new Set(bhUrungkan.ids);
+                setInvestorBagiHasil(prev => safeArray(prev).map(r => ids.has(String(r.id)) && r.isDeleted ? (() => { const { deletedAt, ...rest } = r; return { ...rest, isDeleted: false, _syncUpdatedAt: ts }; })() : r));
+                showToast(`${bhUrungkan.ids.length} catatan bagi hasil dikembalikan`, 'success');
+                setBhUrungkan(null);
             };
 
             const totalModalSemua = safeInvestors.reduce((s,inv) => s + (parseFloat(inv.modalMasuk)||0), 0);
@@ -15728,7 +15750,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 </div>
                                                 <div className="flex items-center gap-1.5 flex-wrap justify-start sm:justify-end">
                                                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${status==='Lunas'?'bg-green-100 text-green-800':'bg-indigo-100 text-indigo-800'}`}>{status}</span>
-                                                    <button onClick={() => setExpandedId(isExpanded ? null : investor.id)} className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1.5 rounded-lg">{isExpanded?'▲ Tutup':'▼ Detail'}</button>
+                                                    <button onClick={() => { setExpandedId(isExpanded ? null : investor.id); keluarPilihBH(); }} className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1.5 rounded-lg">{isExpanded?'▲ Tutup':'▼ Detail'}</button>
                                                     {!investor.isLunas && <button onClick={() => { setShowBHModal(investor.id); setBhForm({ invoiceId:'', tanggal: toLocalDateStr(), note:'' }); setBhSelectedIds([]); setBhNote(''); }} className="text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 px-2.5 py-1.5 rounded-lg">+ Catat BH</button>}
                                                     {!investor.isLunas
                                                         ? <button onClick={() => setLunasConfirm({ id: investor.id, lunas: true, kewajiban: totalKewajiban })} className="text-xs font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 px-2.5 py-1.5 rounded-lg">Tandai Lunas</button>
@@ -15758,21 +15780,57 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </div>
                                         {/* Detail riwayat bagi hasil */}
                                         {isExpanded && (
-                                            <div className="border-t border-gray-100 bg-gray-50 p-4">
-                                                <div className="text-xs font-bold text-gray-600 uppercase mb-3">Riwayat Bagi Hasil ({records.length} transaksi)</div>
+                                            <div data-bh-riwayat={investor.id} className="border-t border-gray-100 bg-gray-50 p-4">
+                                                {(() => { const pilihAktif = bhPilihInvestor === investor.id; return (<>
+                                                <div className="flex flex-wrap items-center gap-2 mb-3">
+                                                    <div className="text-xs font-bold text-gray-600 uppercase mr-auto">Riwayat Bagi Hasil ({records.length} transaksi)</div>
+                                                    {records.length > 0 && (
+                                                        <button type="button" data-bh-pilih onClick={() => pilihAktif ? keluarPilihBH() : (setBhPilihInvestor(investor.id), setBhDipilih(new Set()))} className={`text-xs font-bold px-3 py-1.5 rounded-lg border ${pilihAktif ? 'bg-white text-gray-600 border-gray-300' : 'bg-indigo-50 text-indigo-700 border-indigo-300'}`}>{pilihAktif ? 'Selesai' : '☑ Pilih'}</button>
+                                                    )}
+                                                </div>
+                                                {bhUrungkan && bhUrungkan.investorId === investor.id && (
+                                                    <div data-bh-urungkan className="flex flex-wrap items-center gap-2 mb-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-lg px-3 py-2 text-sm">
+                                                        <span>✓ <b>{bhUrungkan.ids.length} catatan dihapus</b> ({formatRupiah(bhUrungkan.total)})</span>
+                                                        <button type="button" data-bh-urungkan-btn onClick={urungkanHapusBH} className="ml-auto px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold">↶ Urungkan</button>
+                                                        <button type="button" onClick={() => setBhUrungkan(null)} className="text-emerald-700 text-xs font-bold px-1" title="Tutup">✕</button>
+                                                    </div>
+                                                )}
+                                                {pilihAktif && records.length > 0 && (() => {
+                                                    const semua = records.every(r => bhDipilih.has(r.id));
+                                                    return (
+                                                        <div className="mb-3">
+                                                            <button type="button" data-bh-pilih-semua onClick={() => setBhDipilih(semua ? new Set() : new Set(records.map(r => r.id)))} className={`text-xs font-bold px-3 py-1 rounded-full border ${semua ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-indigo-700 border-indigo-200'}`}>{semua ? '✓ ' : ''}Pilih semua ({records.length})</button>
+                                                        </div>
+                                                    );
+                                                })()}
+                                                {pilihAktif && records.length > 0 && (() => {
+                                                    const terpilih = records.filter(r => bhDipilih.has(r.id));
+                                                    const jml = terpilih.reduce((s, r) => s + (parseFloat(r.totalBagiHasil) || 0), 0);
+                                                    return (
+                                                        <div data-bh-bar className="fixed z-[140] left-0 right-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:bottom-24 lg:left-auto lg:right-6 lg:w-[520px] lg:rounded-xl flex flex-wrap items-center gap-2 bg-indigo-950 text-white px-4 py-3 shadow-2xl text-sm">
+                                                            <span><b data-bh-jumlah>{terpilih.length} dipilih</b> · {formatRupiah(jml)}</span>
+                                                            <span className="ml-auto flex gap-2">
+                                                                <button type="button" data-bh-hapus-terpilih disabled={terpilih.length === 0} onClick={() => setBhHapusKonfirm({ investorId: investor.id, ids: terpilih.map(r => r.id) })} className={`px-3 py-1.5 rounded-lg font-bold text-xs text-white ${terpilih.length === 0 ? 'bg-gray-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}>🗑 Hapus terpilih</button>
+                                                                <button type="button" onClick={keluarPilihBH} className="px-3 py-1.5 rounded-lg font-bold text-xs text-indigo-200 border border-indigo-400">Batal</button>
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()}
                                                 {records.length === 0 ? (
                                                     <p className="text-xs text-gray-400 italic">Belum ada catatan bagi hasil.</p>
                                                 ) : (
-                                                    <div className="space-y-2">
+                                                    <div className={`space-y-2 ${pilihAktif ? 'pb-28' : ''}`}>
                                                         {(() => {
                                                             let kumulatif = 0;
                                                             return [...records]
                                                                 .sort((a, b) => (a.tanggal || '').localeCompare(b.tanggal || ''))
                                                                 .map(r => {
                                                                     kumulatif += parseFloat(r.totalBagiHasil) || 0;
+                                                                    const dipilih = pilihAktif && bhDipilih.has(r.id);
                                                                     return (
-                                                                        <div key={r.id} className="bg-white border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-2">
-                                                                            <div className="min-w-0">
+                                                                        <div key={r.id} data-bh-baris={r.id} onClick={pilihAktif ? () => togglePilihBH(r.id) : undefined} className={`border rounded-lg p-3 flex items-center justify-between gap-2 ${dipilih ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-100'} ${pilihAktif ? 'cursor-pointer' : ''}`}>
+                                                                            {pilihAktif && <input type="checkbox" data-bh-cek checked={dipilih} onChange={() => togglePilihBH(r.id)} onClick={e => e.stopPropagation()} className="w-4 h-4 shrink-0 accent-indigo-600 cursor-pointer" />}
+                                                                            <div className="min-w-0 flex-1">
                                                                                 <div className="text-xs font-bold text-gray-700">{r.invoiceId} — {r.invoiceCustomer}
                                                                                     {!safeInvoices.some(inv => String(inv.id) === String(r.invoiceId)) && <span className="ml-1.5 text-[10px] font-black text-white bg-red-600 rounded px-1.5 py-0.5" title="Invoice ini sudah dihapus. Periksa apakah catatan bagi hasil ini masih berlaku.">⚠ Invoice sudah dihapus</span>}
                                                                                 </div>
@@ -15782,7 +15840,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                             </div>
                                                                             <div className="flex items-center gap-2 shrink-0">
                                                                                 <div className="font-black text-green-700 text-sm">{formatRupiah(r.totalBagiHasil)}</div>
-                                                                                <button onClick={() => setDeleteBHConfirm(r.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded"><IconTrash /></button>
+                                                                                {!pilihAktif && <button data-bh-hapus-satu onClick={() => setBhHapusKonfirm({ investorId: investor.id, ids: [r.id] })} className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded" title="Hapus"><IconTrash /></button>}
                                                                             </div>
                                                                         </div>
                                                                     );
@@ -15790,6 +15848,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         })()}
                                                     </div>
                                                 )}
+                                                </>); })()}
                                             </div>
                                         )}
                                     </Card>
@@ -15966,18 +16025,36 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     )}
 
                     {/* Confirm delete bagi hasil */}
-                    {deleteBHConfirm && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
-                            <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
-                                <h3 className="font-bold text-gray-800 mb-2">Hapus Catatan Bagi Hasil?</h3>
-                                <p className="text-sm text-gray-600 mb-4">Tindakan ini tidak dapat dibatalkan.</p>
-                                <div className="flex justify-end gap-2">
-                                    <button onClick={() => setDeleteBHConfirm(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
-                                    <button onClick={() => deleteBH(deleteBHConfirm)} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>
+                    {bhHapusKonfirm && (() => {
+                        const inv = safeInvestors.find(i => i.id === bhHapusKonfirm.investorId);
+                        const semuaRec = getBagiHasilByInvestor(bhHapusKonfirm.investorId);
+                        const idSet = new Set(bhHapusKonfirm.ids.map(String));
+                        const kena = semuaRec.filter(r => idSet.has(String(r.id)));
+                        if (!inv || kena.length === 0) return null;
+                        const modal = parseFloat(inv.modalMasuk) || 0;
+                        const bhSebelum = semuaRec.reduce((s, r) => s + (parseFloat(r.totalBagiHasil) || 0), 0);
+                        const hilang = kena.reduce((s, r) => s + (parseFloat(r.totalBagiHasil) || 0), 0);
+                        const semua = kena.length === semuaRec.length && semuaRec.length > 1;
+                        return (
+                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[160] p-4">
+                                <div data-bh-konfirm className="bg-white rounded-xl p-5 max-w-md w-full shadow-xl">
+                                    <h3 className="font-bold text-gray-800 mb-2">{semua ? `Hapus SEMUA catatan bagi hasil (${kena.length})?` : kena.length === 1 ? 'Hapus catatan bagi hasil ini?' : `Hapus ${kena.length} catatan bagi hasil?`}</h3>
+                                    {semua
+                                        ? <div className="text-sm font-bold text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">Seluruh riwayat bagi hasil investor {inv.name} akan dihapus.</div>
+                                        : <p className="text-sm text-gray-600 mb-3">{kena.length === 1 ? `${kena[0].invoiceId} — ${kena[0].invoiceCustomer}. ` : ''}Total bagi hasil yang dihapus: <b>{formatRupiah(hilang)}</b></p>}
+                                    <table className="w-full text-sm mb-3"><tbody>
+                                        <tr className="border-t border-gray-100"><td className="py-1.5 text-gray-600">Bagi Hasil</td><td data-bh-konfirm-bh className="py-1.5 text-right whitespace-nowrap">{formatRupiah(bhSebelum)} <span className="text-gray-400 px-1">→</span> <b>{formatRupiah(bhSebelum - hilang)}</b></td></tr>
+                                        <tr className="border-t border-gray-100"><td className="py-1.5 text-gray-600">Total Dikembalikan</td><td data-bh-konfirm-total className="py-1.5 text-right whitespace-nowrap">{formatRupiah(modal + bhSebelum)} <span className="text-gray-400 px-1">→</span> <b>{formatRupiah(modal + bhSebelum - hilang)}</b></td></tr>
+                                    </tbody></table>
+                                    <div className="text-xs bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-3 py-2 mb-4">Invoice yang catatannya dihapus akan muncul lagi di <b>Catat BH</b>, jadi bisa dicatat ulang. Setelah menghapus masih bisa <b>Urungkan</b>.</div>
+                                    <div className="flex justify-end gap-2">
+                                        <button type="button" onClick={() => setBhHapusKonfirm(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 border border-gray-200 rounded-lg">Batal</button>
+                                        <button type="button" data-bh-konfirm-hapus onClick={() => hapusBHBanyak(bhHapusKonfirm.investorId, bhHapusKonfirm.ids)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold">Hapus {kena.length} catatan</button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        );
+                    })()}
                 </div>
             );
         };
