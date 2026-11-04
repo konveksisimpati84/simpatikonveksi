@@ -1815,6 +1815,62 @@
                 : ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
             return `${nama[i - 1]} ${y}`;
         };
+        // ===== Filter Periode (Tahun / Bulan) untuk daftar Invoice, Komisi Marketing, Bagi Hasil Promosi & nota Pembelian Bahan =====
+        // Hanya mengatur yang DITAMPILKAN; data tidak diubah. tahun '' = semua tahun, bulan '' = semua bulan.
+        const NAMA_BULAN_PANJANG = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+        const tahunBulanDari = (tgl) => {
+            const s = String(tgl || '').trim();
+            if (!s) return null;
+            const m = s.match(/^(\d{4})-(\d{1,2})/);
+            if (m) return { y: m[1], m: String(parseInt(m[2], 10)) };
+            const d = new Date(s);
+            return isNaN(d.getTime()) ? null : { y: String(d.getFullYear()), m: String(d.getMonth() + 1) };
+        };
+        const cocokPeriode = (tgl, tahun, bulan) => {
+            if (!tahun && !bulan) return true;
+            const p = tahunBulanDari(tgl);
+            if (!p) return false;
+            return (!tahun || p.y === String(tahun)) && (!bulan || p.m === String(bulan));
+        };
+        const tahunIniStr = () => toLocalDateStr().slice(0, 4);
+        const opsiTahunPeriode = (daftarTanggal) => {
+            const s = new Set([tahunIniStr()]);
+            (daftarTanggal || []).forEach(t => { const p = tahunBulanDari(t); if (p) s.add(p.y); });
+            return [...s].sort((a, b) => b.localeCompare(a));
+        };
+        const labelPeriodeTB = (tahun, bulan) => {
+            const b = parseInt(bulan, 10);
+            if (!tahun) return b >= 1 && b <= 12 ? `Semua tahun · ${NAMA_BULAN_PANJANG[b - 1]}` : 'Semua tahun';
+            return b >= 1 && b <= 12 ? formatBulanPendek(`${tahun}-${String(b).padStart(2, '0')}`) : `Tahun ${tahun}`;
+        };
+        const PeriodeBar = ({ kunci, tahun, bulan, setTahun, setBulan, opsiTahun, info }) => (
+            <div data-periode={kunci} className="flex flex-wrap items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
+                <span className="text-sm font-bold text-slate-700">📅<span className="hidden sm:inline"> Periode</span></span>
+                <select data-periode-tahun value={tahun} onChange={e => setTahun(e.target.value)} className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-bold text-slate-800 bg-white focus:ring-2 focus:ring-blue-400">
+                    {(opsiTahun.includes(tahun) || !tahun ? opsiTahun : [tahun, ...opsiTahun]).map(y => <option key={y} value={y}>{y}</option>)}
+                    <option value="">Semua tahun</option>
+                </select>
+                <select data-periode-bulan value={bulan} onChange={e => setBulan(e.target.value)} className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-bold text-slate-800 bg-white focus:ring-2 focus:ring-blue-400">
+                    <option value="">Semua bulan</option>
+                    {NAMA_BULAN_PANJANG.map((b, i) => <option key={b} value={String(i + 1)}>{b}</option>)}
+                </select>
+                {info ? <span data-periode-info className="basis-full sm:basis-auto sm:ml-auto text-xs text-gray-500">{info}</span> : null}
+            </div>
+        );
+        // Pemberitahuan: masih ada tagihan/hutang belum lunas di luar periode yang dipilih
+        const PeriodeLuarBanner = ({ kunci, onLihat, children }) => (
+            <div data-periode-luar={kunci} className="flex flex-wrap items-center gap-2 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-sm text-amber-900">
+                <span>⚠ {children}</span>
+                <button type="button" onClick={onLihat} className="ml-auto px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold">Lihat</button>
+            </div>
+        );
+        // Pencarian: ada hasil di periode lain
+        const PeriodeCariHint = ({ kunci, jumlah, satuan, kata, onTampil, className = '' }) => (
+            <div data-periode-cari={kunci} className={`flex flex-wrap items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-900 ${className}`}>
+                <span>🔎 Ditemukan <b>{jumlah} {satuan}</b> "{kata}" di periode lain</span>
+                <button type="button" onClick={onTampil} className="ml-auto px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold">Tampilkan semua tahun</button>
+            </div>
+        );
         // Susunan "Gaji Harian" untuk nota thermal & slip gaji (link):
         // - hari tanpa penyesuaian jam dikelompokkan per TARIF ASLI (bukan rata-rata), urut tanggal pertama
         // - hari yang dipotong / lebih jam tampil sendiri: nilai lama dicoret → nilai baru + alasannya
@@ -9088,12 +9144,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [sortBy, setSortBy] = useState('terbaru');
             // Dari Data Master → Vendor: saring nota ke satu vendor (nama yang hanya beda huruf besar/kecil atau spasi ikut)
             const [vendorSaring, setVendorSaring] = useState(null);
-            useEffect(() => { setNotePage(1); }, [noteSearch, filterStatus, sortBy, vendorSaring]);
+            // Filter periode nota (menurut tanggal beli). Bawaan: tahun ini, semua bulan.
+            const [notaTahun, setNotaTahun] = useState(() => tahunIniStr());
+            const [notaBulan, setNotaBulan] = useState('');
+            useEffect(() => { setNotePage(1); }, [noteSearch, filterStatus, sortBy, vendorSaring, notaTahun, notaBulan]);
             useEffect(() => {
                 if (!bukaNotaVendor || !bukaNotaVendor.vendor) return;
                 setBahanTab('nota');
                 setFilterStatus('Semua');
                 setNoteSearch('');
+                // Dari Data Master → Vendor: tampilkan nota vendor itu dari semua tahun
+                setNotaTahun('');
+                setNotaBulan('');
                 setVendorSaring({ key: vendorKunci(bukaNotaVendor.vendor), name: bukaNotaVendor.vendor });
             }, [bukaNotaVendor && bukaNotaVendor.t]);
             const [expandedNotes, setExpandedNotes] = useState({});
@@ -9296,7 +9358,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setNoteForm(emptyNoteForm);
                 setOrderComboState({});
                 setInstansiComboState({});
-                showToast(editNoteId ? 'Nota diperbarui.' : 'Nota pembelian disimpan.', 'success');
+                showToast((editNoteId ? 'Nota diperbarui.' : 'Nota pembelian disimpan.') + (!cocokPeriode(note.date, notaTahun, notaBulan) ? ` Tanggalnya di luar periode ${labelPeriodeTB(notaTahun, notaBulan)} — ganti Periode untuk melihatnya.` : ''), 'success');
             };
 
             const saveQuickPay = (noteId) => {
@@ -9346,7 +9408,17 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const renderInputPembelian = () => {
                 const allNotes = safeArray(purchaseNotes).filter(isVisibleRecord);
-                const filteredNotes = allNotes.filter(note => {
+                // Periode (Tahun/Bulan) menurut tanggal beli
+                const notaPeriodeAktif = !!(notaTahun || notaBulan);
+                const notaLabelPeriode = labelPeriodeTB(notaTahun, notaBulan);
+                const periodNotes = allNotes.filter(note => cocokPeriode(note.date, notaTahun, notaBulan));
+                const luarPeriodeNotes = notaPeriodeAktif ? allNotes.filter(note => !cocokPeriode(note.date, notaTahun, notaBulan)) : [];
+                // Nota lama "Dibayar Sebagian" tanpa rincian bayar: dihitung jumlahnya saja (sisa tidak diketahui), sama seperti kartu Total Hutang
+                const _legacySebagian = (n) => !Array.isArray(n.payments) && n.paymentStatus === 'Dibayar Sebagian';
+                const hutangLuarNotes = luarPeriodeNotes.filter(n => noteStatus(n) !== 'Lunas' && (noteDebt(n) > 0.5 || _legacySebagian(n)));
+                const hutangLuarTotal = hutangLuarNotes.filter(n => !_legacySebagian(n)).reduce((s, n) => s + noteDebt(n), 0);
+                const setNotaPeriode = (tahun, bulan) => { setNotaTahun(tahun); setNotaBulan(bulan); };
+                const cocokFilterNota = (note) => {
                     if (vendorSaring && vendorKunci(note.vendor) !== vendorSaring.key) return false;
                     if (filterStatus !== 'Semua' && noteStatus(note) !== filterStatus) return false;
                     if (!noteSearch.trim()) return true;
@@ -9354,7 +9426,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.color, it.orderId, it.instansi, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
                     const paymentMethodsText = safeArray(note.payments).map(p => p.method || '').join(' ');
                     return [note.vendor, note.date, note.note, note.method, noteStatus(note), itemsText, paymentMethodsText].join(' ').toLowerCase().includes(term);
-                });
+                };
+                const filteredNotes = periodNotes.filter(cocokFilterNota);
+                const cariLuarPeriode = noteSearch.trim() ? luarPeriodeNotes.filter(cocokFilterNota).length : 0;
                 const notes = [...filteredNotes].sort((a, b) => {
                     if (sortBy === 'terlama')   return (a.date || '').localeCompare(b.date || '');
                     if (sortBy === 'terbesar')  return noteTotal(b) - noteTotal(a);
@@ -9382,11 +9456,11 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const val = typeof next === 'function' ? next(cur) : next;
                     return Math.max(1, Math.min(noteTotalPages, val));
                 });
-                // Stat cards selalu dari allNotes (global) agar tetap informatif saat filter aktif
-                const totalAll = allNotes.reduce((sum, n) => sum + noteTotal(n), 0);
-                const allLunas = allNotes.filter(n => noteStatus(n) === 'Lunas');
-                const allBelum = allNotes.filter(n => noteStatus(n) === 'Belum Dibayar');
-                const allSebagian = allNotes.filter(n => noteStatus(n) === 'Dibayar Sebagian');
+                // Stat cards dari nota dalam PERIODE yang dipilih (tidak ikut filter status / pencarian)
+                const totalAll = periodNotes.reduce((sum, n) => sum + noteTotal(n), 0);
+                const allLunas = periodNotes.filter(n => noteStatus(n) === 'Lunas');
+                const allBelum = periodNotes.filter(n => noteStatus(n) === 'Belum Dibayar');
+                const allSebagian = periodNotes.filter(n => noteStatus(n) === 'Dibayar Sebagian');
                 const totalLunas = allLunas.reduce((sum, n) => sum + noteTotal(n), 0);
                 const totalBelum = allBelum.reduce((sum, n) => sum + noteTotal(n), 0);
                 // Legacy: nota lama dengan paymentStatus='Dibayar Sebagian' tanpa payments[] — jumlah bayar tidak diketahui, debt tidak bisa dihitung akurat
@@ -9395,7 +9469,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const modernSebagian = allSebagian.filter(n => !isLegacySebagian(n));
                 const totalSisaSebagian = modernSebagian.reduce((sum, n) => sum + noteDebt(n), 0);
                 const totalHutang = [...allBelum, ...modernSebagian].reduce((sum, n) => sum + noteDebt(n), 0);
-                const jumlahVendor = new Set(allNotes.map(n => normalizeVendorName(n.vendor))).size;
+                const jumlahVendor = new Set(periodNotes.map(n => normalizeVendorName(n.vendor))).size;
                 const jumlahBelumLunas = allBelum.length + allSebagian.length;
                 const grouped = {};
                 if (useGrouped) notes.forEach(note => { const k = (note.date || '').slice(0, 7); if (!grouped[k]) grouped[k] = []; grouped[k].push(note); });
@@ -9415,7 +9489,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 ];
 
                 const statCards = [
-                    { label: 'Total Pembelian', value: formatRupiah(totalAll), sub: `${allNotes.length} nota`, icon: '💰', accent: '#1B6B3A', text: '#166534' },
+                    { label: 'Total Pembelian', value: formatRupiah(totalAll), sub: `${periodNotes.length} nota · ${notaLabelPeriode}`, icon: '💰', accent: '#1B6B3A', text: '#166534' },
                     { label: 'Lunas', value: formatRupiah(totalLunas), sub: `${allLunas.length} nota`, icon: '✅', accent: '#1B4F72', text: '#1e40af' },
                     { label: 'Dibayar Sebagian', value: formatRupiah(totalSisaSebagian), sub: legacySebagian.length > 0 ? `sisa dari ${modernSebagian.length} nota (+${legacySebagian.length} tdk terlacak)` : `sisa dari ${allSebagian.length} nota`, icon: '◑', accent: '#D97706', text: '#92400E' },
                     { label: 'Belum Dibayar', value: formatRupiah(totalBelum), sub: `${allBelum.length} nota`, icon: '✗', accent: '#DC2626', text: '#991B1B' },
@@ -9661,6 +9735,19 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
                 return (
                     <div className="space-y-5">
+                        {/* Periode (Tahun/Bulan) */}
+                        {allNotes.length > 0 && (
+                            <div className="space-y-2">
+                                <PeriodeBar kunci="nota" tahun={notaTahun} bulan={notaBulan} setTahun={(v) => setNotaPeriode(v, notaBulan)} setBulan={(v) => setNotaPeriode(notaTahun, v)}
+                                    opsiTahun={opsiTahunPeriode(allNotes.map(n => n.date))}
+                                    info={`${periodNotes.length} nota · ${notaTahun && !notaBulan ? `Jan–Des ${notaTahun}` : notaLabelPeriode}`} />
+                                {hutangLuarNotes.length > 0 && (
+                                    <PeriodeLuarBanner kunci="nota" onLihat={() => { setNotaPeriode('', ''); setFilterStatus('Semua'); setSortBy('hutang'); }}>
+                                        Masih ada hutang nota di luar periode ini: <b>{hutangLuarNotes.length} nota{hutangLuarTotal > 0 ? ` · ${formatRupiah(hutangLuarTotal)}` : ''}</b>
+                                    </PeriodeLuarBanner>
+                                )}
+                            </div>
+                        )}
                         {/* Stat Cards */}
                         <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
                             {statCards.map((c, i) => (
@@ -9678,8 +9765,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         {/* Tombol + Form */}
                         <div className="flex justify-between items-center gap-2">
                             <div className="text-sm font-semibold text-gray-500">
-                                {notes.length > 0 ? `${notes.length} nota pembelian` : 'Belum ada nota'}
-                                {(filterStatus !== 'Semua' || noteSearch.trim() || vendorSaring) && allNotes.length !== notes.length && <span className="text-xs font-normal text-gray-400 ml-1">(dari {allNotes.length} total)</span>}
+                                {notes.length > 0 ? `${notes.length} nota pembelian` : (allNotes.length > 0 ? 'Tidak ada nota' : 'Belum ada nota')}
+                                {(filterStatus !== 'Semua' || noteSearch.trim() || vendorSaring) && periodNotes.length !== notes.length && <span className="text-xs font-normal text-gray-400 ml-1">(dari {periodNotes.length} nota · {notaLabelPeriode})</span>}
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
@@ -10086,13 +10173,16 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <button key={s} onClick={() => setFilterStatus(s)}
                                                 className="px-3 py-2 text-[11px] font-bold rounded-xl border transition-all whitespace-nowrap"
                                                 style={active ? { background: tc, color: 'white', borderColor: tc } : { background: bg, color: tc, borderColor: 'transparent' }}
-                                            >{s === 'Semua' ? `Semua (${allNotes.length})` : s}</button>
+                                            >{s === 'Semua' ? `Semua (${periodNotes.length})` : s}</button>
                                         );
                                     })}
                                 </div>
                             </div>
                         )}
 
+                        {notaPeriodeAktif && cariLuarPeriode > 0 && (
+                            <PeriodeCariHint kunci="nota" jumlah={cariLuarPeriode} satuan="nota" kata={noteSearch.trim()} onTampil={() => setNotaPeriode('', '')} />
+                        )}
                         {/* Daftar Nota */}
                         {allNotes.length === 0 ? (
                             <div className="rounded-2xl border-2 border-dashed border-gray-200 py-16 text-center bg-gray-50">
@@ -10103,8 +10193,17 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         ) : notes.length === 0 ? (
                             <div className="rounded-2xl border-2 border-dashed border-gray-200 py-12 text-center bg-gray-50">
                                 <div className="text-4xl mb-3">🔍</div>
-                                <div className="font-bold text-gray-500 mb-1">Tidak ada nota yang cocok</div>
-                                <div className="text-sm text-gray-400">Coba ubah kata kunci atau filter status.</div>
+                                {periodNotes.length === 0 && notaPeriodeAktif ? (
+                                    <>
+                                        <div data-nota-periode-kosong className="font-bold text-gray-500 mb-1">Tidak ada nota pada periode {notaLabelPeriode}</div>
+                                        <button type="button" onClick={() => setNotaPeriode('', '')} className="mt-2 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold">Tampilkan semua tahun</button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="font-bold text-gray-500 mb-1">Tidak ada nota yang cocok</div>
+                                        <div className="text-sm text-gray-400">Coba ubah kata kunci atau filter status.</div>
+                                    </>
+                                )}
                             </div>
                         ) : useGrouped ? groupKeys.map(groupKey => {
                             const groupNotes = grouped[groupKey];
@@ -12383,7 +12482,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             return 'Dibayar Sebagian';
         };
 
-        const BagiHasilPromosiTab = ({ bagiHasilPromosi, updateBagiHasilPromosi, invoices, showToast, employees, danaOperasional, purchaseNotes, expenses, rekapKinerja }) => {
+        const BagiHasilPromosiTab = ({ bagiHasilPromosi, updateBagiHasilPromosi, invoices, showToast, employees, danaOperasional, purchaseNotes, expenses, rekapKinerja, periodeTahun = '', periodeBulan = '', onSemuaPeriode = null }) => {
             const emptyBhpForm = { nama: '', tanggal: toLocalDateStr(), invoiceIds: [], bagiHasilType: '%', bagiHasilValue: '', note: '', payments: [] };
             const [form, setForm] = React.useState(emptyBhpForm);
             const [editId, setEditId] = React.useState(null);
@@ -12396,6 +12495,10 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
 
             const safeInvoices = (Array.isArray(invoices) ? invoices : []).filter(isVisibleRecord);
             const safeBhp = (Array.isArray(bagiHasilPromosi) ? bagiHasilPromosi : []).filter(isVisibleRecord);
+            // Filter periode dari menu Invoice (menurut tanggal bagi hasil)
+            const bhpPeriodeAktif = !!(periodeTahun || periodeBulan);
+            const bhpLabelPeriode = labelPeriodeTB(periodeTahun, periodeBulan);
+            const bhpPeriode = safeBhp.filter(b => cocokPeriode(b.tanggal, periodeTahun, periodeBulan));
 
             const filteredInvOptions = safeInvoices.filter(inv => {
                 const q = invSearch.trim().toLowerCase();
@@ -12441,7 +12544,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                     const list = Array.isArray(prev) ? prev : [];
                     return editId ? list.map(b => String(b.id) === String(editId) ? row : b) : [row, ...list];
                 });
-                showToast(editId ? 'Bagi Hasil diperbarui.' : 'Bagi Hasil disimpan.', 'success');
+                showToast((editId ? 'Bagi Hasil diperbarui.' : 'Bagi Hasil disimpan.') + (!cocokPeriode(row.tanggal, periodeTahun, periodeBulan) ? ` Tanggalnya di luar periode ${labelPeriodeTB(periodeTahun, periodeBulan)} — ganti Periode untuk melihatnya.` : ''), 'success');
                 setForm(emptyBhpForm);
                 setEditId(null);
             };
@@ -12662,13 +12765,29 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
 
                     {/* List */}
                     <div className="space-y-3">
+                        {bhpPeriodeAktif && (() => {
+                            const luar = safeBhp.filter(b => !cocokPeriode(b.tanggal, periodeTahun, periodeBulan)).map(b => ({ b, sisa: Math.max(0, calcBagiHasil(b, safeInvoices).nominal - getBhpPaid(b)) })).filter(x => x.sisa > 0.5);
+                            if (luar.length === 0 || !onSemuaPeriode) return null;
+                            return (
+                                <PeriodeLuarBanner kunci="bagi-hasil" onLihat={onSemuaPeriode}>
+                                    Bagi hasil belum lunas di luar periode ini: <b>{luar.length} · {formatRupiah(luar.reduce((s, x) => s + x.sisa, 0))}</b>
+                                </PeriodeLuarBanner>
+                            );
+                        })()}
+                        {safeBhp.length > 0 && <div data-bhp-periode className="text-xs text-gray-500 px-1">{bhpPeriode.length} bagi hasil · {bhpLabelPeriode}</div>}
+                        {safeBhp.length > 0 && bhpPeriode.length === 0 && (
+                            <div className="text-center py-10 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200 text-sm">
+                                Tidak ada bagi hasil promosi pada periode {bhpLabelPeriode}.
+                                {onSemuaPeriode && <div className="mt-2"><button type="button" onClick={onSemuaPeriode} className="px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold">Tampilkan semua tahun</button></div>}
+                            </div>
+                        )}
                         {safeBhp.length === 0 && (
                             <div className="text-center py-14 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
                                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" className="mx-auto mb-3"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
                                 <p className="text-sm font-medium">Belum ada data bagi hasil promosi</p>
                             </div>
                         )}
-                        {safeBhp.sort((a, b) => new Date(b.tanggal || 0) - new Date(a.tanggal || 0)).map(bhp => {
+                        {[...bhpPeriode].sort((a, b) => new Date(b.tanggal || 0) - new Date(a.tanggal || 0)).map(bhp => {
                             const { invs, totalNilai, nominal, termasukOngkir } = calcBagiHasil(bhp, safeInvoices);
                             const paid = getBhpPaid(bhp);
                             const sisa = Math.max(0, nominal - paid);
@@ -12913,6 +13032,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const [mktShareModal, setMktShareModal] = useState(null);
             const [invShareModal, setInvShareModal] = useState(null);
             const [activeInvoiceTab, setActiveInvoiceTab] = useState('invoice');
+            // Filter periode (Tahun/Bulan) untuk tab Invoice, Komisi Marketing & Bagi Hasil Promosi. Bawaan: tahun ini, semua bulan.
+            const [invTahun, setInvTahun] = useState(() => tahunIniStr());
+            const [invBulan, setInvBulan] = useState('');
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
@@ -12948,16 +13070,28 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             // Saldo DP klien yang boleh dipakai = sisa tagihan setelah DP invoice & pembayaran yang sudah ada
             const getFormOtherPaid = (f) => safeMoney(f.invoiceDp?.amount) + getInvoicePayments(f).reduce((s, p) => s + safeMoney(p.amount), 0);
             const maxLinkedDpForForm = Math.max(0, Math.min(availableDpForForm, currentInvoiceTotal - getFormOtherPaid(form)));
-            const visibleInvoices = React.useMemo(() => safeInvoiceRows.filter(isVisibleRecord).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(inv => {
+            const invCocokFilter = (inv) => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.address, inv.marketing, inv.paymentStatus, inv.note, ...getInvoiceItems(inv).map(item => item.productionType)], searchTerm);
-            }).sort((a, b) => {
+            };
+            const invPeriodeAktif = !!(invTahun || invBulan);
+            const invLabelPeriode = labelPeriodeTB(invTahun, invBulan);
+            const invOpsiTahun = React.useMemo(() => opsiTahunPeriode([...safeInvoiceRows.filter(isVisibleRecord).map(inv => inv.date), ...safeArray(bagiHasilPromosi).filter(isVisibleRecord).map(b => b.tanggal)]), [invoices, bagiHasilPromosi]);
+            const setInvPeriode = (tahun, bulan) => { setInvTahun(tahun); setInvBulan(bulan); setInvPage(1); };
+            // Invoice dalam periode (semua status) — dasar Komisi Marketing
+            const invoicesPeriode = React.useMemo(() => safeInvoiceRows.filter(isVisibleRecord).filter(inv => cocokPeriode(inv.date, invTahun, invBulan)), [invoices, invTahun, invBulan]);
+            // Di luar periode: piutang yang belum lunas & hasil pencarian
+            const invLuarPeriode = React.useMemo(() => invPeriodeAktif ? safeInvoiceRows.filter(isVisibleRecord).filter(inv => !cocokPeriode(inv.date, invTahun, invBulan)).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })) : [], [invoices, invTahun, invBulan]);
+            const invPiutangLuar = invLuarPeriode.filter(inv => getInvoiceTotals(inv).total - getInvoicePaidTotal(inv) > 0.5);
+            const invPiutangLuarTotal = invPiutangLuar.reduce((s, inv) => s + Math.max(0, getInvoiceTotals(inv).total - getInvoicePaidTotal(inv)), 0);
+            const invCariLuar = String(searchTerm || '').trim() ? invLuarPeriode.filter(invCocokFilter).length : 0;
+            const visibleInvoices = React.useMemo(() => safeInvoiceRows.filter(isVisibleRecord).filter(inv => cocokPeriode(inv.date, invTahun, invBulan)).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(invCocokFilter).sort((a, b) => {
                 if (invSortBy === 'terlama')       return (a.date || '').localeCompare(b.date || '');
                 if (invSortBy === 'terbesar')      return getInvoiceTotals(b).total - getInvoiceTotals(a).total;
                 if (invSortBy === 'terkecil')      return getInvoiceTotals(a).total - getInvoiceTotals(b).total;
                 if (invSortBy === 'sisa_terbesar') return Math.max(0, getInvoiceTotals(b).total - getInvoicePaidTotal(b)) - Math.max(0, getInvoiceTotals(a).total - getInvoicePaidTotal(a));
                 return new Date(b.date || 0) - new Date(a.date || 0);
-            }), [invoices, statusFilter, searchTerm, invSortBy]);
+            }), [invoices, statusFilter, searchTerm, invSortBy, invTahun, invBulan]);
             const { page: invPage, setPage: setInvPage, totalPages: invTotalPages, paged: pagedInvoices, total: invTotal } = usePagination(visibleInvoices, 20);
             const totalInvoice = visibleInvoices.reduce((sum, inv) => sum + getInvoiceTotals(inv).total, 0);
             const totalPaid = visibleInvoices.reduce((sum, inv) => sum + getInvoicePaidTotal(inv), 0);
@@ -13020,7 +13154,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 });
                 syncClientFromInvoice(row);
                 resetForm();
-                showToast(editId ? "Invoice diperbarui." : "Invoice dibuat.", "success");
+                const _luarPeriode = !cocokPeriode(row.date, invTahun, invBulan);
+                showToast((editId ? "Invoice diperbarui." : "Invoice dibuat.") + (_luarPeriode ? ` Tanggalnya di luar periode ${invLabelPeriode} — ganti Periode untuk melihatnya.` : ''), "success");
             };
             const deleteInvoice = (id) => setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => String(inv.id) === String(id) ? { ...inv, isDeleted: true, linkedDpAmount: 0, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : inv));
             const saveInvoicePayment = () => {
@@ -13390,7 +13525,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 </div></div></body></html>`;
                 const w = window.open('', '_blank'); if (!w) return showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); w.document.open(); w.document.write(printContent); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
             };
-            const commissionRows = Object.values(safeInvoiceRows.filter(isVisibleRecord).reduce((acc, inv) => {
+            const commissionRows = Object.values(invoicesPeriode.reduce((acc, inv) => {
                 const key = inv.marketing || 'Tanpa Marketing';
                 if (!acc[key]) acc[key] = { marketing: key, invoices: 0, pcs: 0, sales: 0, commission: 0 };
                 acc[key].invoices += 1; acc[key].pcs += getInvoicePcsTotal(inv); acc[key].sales += getInvoiceTotals(inv).total; acc[key].commission += getInvoiceCommissionTotal(inv);
@@ -13441,6 +13576,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                     </div>
 
+                    {/* ── PERIODE (Tahun/Bulan) ── */}
+                    <div className="space-y-2">
+                        <PeriodeBar kunci="invoice" tahun={invTahun} bulan={invBulan} setTahun={(v) => setInvPeriode(v, invBulan)} setBulan={(v) => setInvPeriode(invTahun, v)} opsiTahun={invOpsiTahun}
+                            info={`${invoicesPeriode.length} invoice · ${invTahun && !invBulan ? `Jan–Des ${invTahun}` : invLabelPeriode}`} />
+                        {invPiutangLuar.length > 0 && (
+                            <PeriodeLuarBanner kunci="invoice" onLihat={() => { setInvPeriode('', ''); setStatusFilter('Semua'); setInvSortBy('sisa_terbesar'); setActiveInvoiceTab('invoice'); }}>
+                                Masih ada piutang di luar periode ini: <b>{invPiutangLuar.length} invoice · {formatRupiah(invPiutangLuarTotal)}</b>
+                            </PeriodeLuarBanner>
+                        )}
+                    </div>
+
                     {/* ── 4 KPI CARDS ── */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 p-5 shadow-md">
@@ -13449,6 +13595,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div>
                                     <p className="text-blue-100 text-xs font-semibold uppercase tracking-wide">Total Invoice</p>
                                     <p className="text-2xl font-black text-white mt-1">{formatRupiah(totalInvoice)}</p>
+                                    <p data-kpi-periode className="text-[11px] text-white/80 mt-0.5">{invLabelPeriode}</p>
                                 </div>
                                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><IconDocument /></div>
                             </div>
@@ -13459,6 +13606,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div>
                                     <p className="text-emerald-100 text-xs font-semibold uppercase tracking-wide">DP Pool Terpakai</p>
                                     <p className="text-2xl font-black text-white mt-1">{formatRupiah(visibleInvoices.reduce((sum, inv) => sum + getInvoiceLinkedDpAmount(inv), 0))}</p>
+                                    <p data-kpi-periode className="text-[11px] text-white/80 mt-0.5">{invLabelPeriode}</p>
                                 </div>
                                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><IconUsers /></div>
                             </div>
@@ -13469,6 +13617,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div>
                                     <p className="text-green-100 text-xs font-semibold uppercase tracking-wide">Sudah Dibayar</p>
                                     <p className="text-2xl font-black text-white mt-1">{formatRupiah(totalPaid)}</p>
+                                    <p data-kpi-periode className="text-[11px] text-white/80 mt-0.5">{invLabelPeriode}</p>
                                 </div>
                                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><IconCheckCircle /></div>
                             </div>
@@ -13479,6 +13628,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div>
                                     <p className="text-red-100 text-xs font-semibold uppercase tracking-wide">Piutang</p>
                                     <p className="text-2xl font-black text-white mt-1">{formatRupiah(totalRemaining)}</p>
+                                    <p data-kpi-periode className="text-[11px] text-white/80 mt-0.5">{invLabelPeriode}</p>
                                 </div>
                                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center"><IconAlertCircle /></div>
                             </div>
@@ -13729,7 +13879,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><IconBarChart /></div>
                                 <div>
                                     <h3 className="text-white font-black text-base">Daftar Invoice</h3>
-                                    <p className="text-slate-300 text-xs">{visibleInvoices.length} invoice · {totalPcs.toLocaleString('id-ID')} pcs</p>
+                                    <p className="text-slate-300 text-xs">{visibleInvoices.length} invoice · {totalPcs.toLocaleString('id-ID')} pcs · {invLabelPeriode}</p>
                                 </div>
                             </div>
                             <div className="flex flex-col md:flex-row gap-2 md:items-center">
@@ -13756,10 +13906,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 ))}
                                 {statusFilter !== 'Semua' && <button onClick={() => setStatusFilter('Semua')} className="ml-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">✕ Semua</button>}
                             </div>
+                            {invPeriodeAktif && invCariLuar > 0 && (
+                                <div className="px-4 py-2"><PeriodeCariHint kunci="invoice" jumlah={invCariLuar} satuan="invoice" kata={String(searchTerm).trim()} onTampil={() => setInvPeriode('', '')} /></div>
+                            )}
                             {pagedInvoices.length === 0 && (
                                 <div className="p-10 text-center text-gray-400 italic flex flex-col items-center gap-3">
                                     <IconDocument />
-                                    <span>Belum ada invoice.</span>
+                                    <span>{invPeriodeAktif && safeInvoiceRows.some(isVisibleRecord) && !String(searchTerm || '').trim() && statusFilter === 'Semua' ? `Tidak ada invoice pada periode ${invLabelPeriode}.` : 'Belum ada invoice.'}</span>
                                 </div>
                             )}
                             {pagedInvoices.map(inv => {
@@ -13825,7 +13978,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Marketing</h3><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th>{canViewKomisi && <th className="p-3 text-right">Total Komisi</th>}{canViewKomisi && <th className="p-3 text-center">Share Link</th>}</tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td>{canViewKomisi && <td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td>}{canViewKomisi && <td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td>}</tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div>{canViewKomisi && <div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)}</div>}</div>{canViewKomisi && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
                     }
                     {activeInvoiceTab === 'bagi_hasil' &&
-                    <BagiHasilPromosiTab bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />
+                    <BagiHasilPromosiTab periodeTahun={invTahun} periodeBulan={invBulan} onSemuaPeriode={() => setInvPeriode('', '')} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />
                     }
                 </div>
                 {proofViewImg && (
