@@ -4185,6 +4185,80 @@ ${blocks}
             if (abaikan && abaikan === klienNorm(name)) return null;
             return cariKlienMirip(clients, name);
         };
+        // ===== Pesanan bertahap =====
+        // order.tahapDari = id order Tahap 1 (kepala kelompok). Nomor tahap dihitung dari urutan tanggal di kelompok
+        // (kepala selalu Tahap 1), jadi tetap benar walau ada tahap yang dihapus/diubah.
+        // Kunci instansi: klien di Data Master (termasuk "nama lain") bila ada, selain itu nama yang dirapikan.
+        const kunciInstansi = (clients, name) => { const c = cariKlienTepat(clients, name); return c ? 'cli:' + c.id : 'nm:' + klienNorm(name); };
+        const urutOrderTahap = (a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+        const infoTahapOrders = (orders) => {
+            const vis = safeArray(orders).filter(isVisibleOrder);
+            const anggota = new Map();
+            vis.forEach(o => { if (o.tahapDari) { const k = String(o.tahapDari); if (!anggota.has(k)) anggota.set(k, []); anggota.get(k).push(o); } });
+            const hasil = new Map();
+            anggota.forEach((list, kepalaId) => {
+                const kepala = vis.find(o => String(o.id) === kepalaId && !o.tahapDari);
+                const semua = [...(kepala ? [kepala] : []), ...[...list].sort(urutOrderTahap)];
+                semua.forEach((o, i) => hasil.set(String(o.id), { ke: i + 1, dari: kepalaId, jumlah: semua.length }));
+            });
+            return hasil;
+        };
+        const labelTahapOrder = (info) => info ? `Tahap ${info.ke}${info.ke > 1 ? ` · lanjutan ${info.dari}` : ''}` : '';
+        // Pilihan "Lanjutan dari order sebelumnya": kepala kelompok / order tunggal dari instansi yang sama
+        const pilihanTahapDari = (orders, clients, client, kecualiId = '') => {
+            if (!normBahanText(client)) return [];
+            const kunci = kunciInstansi(clients, client);
+            const vis = safeArray(orders).filter(isVisibleOrder);
+            const info = infoTahapOrders(vis);
+            return vis.filter(o => !o.tahapDari && String(o.id) !== String(kecualiId) && kunciInstansi(clients, o.client) === kunci)
+                .sort((a, b) => urutOrderTahap(b, a))
+                .map(o => ({ id: String(o.id), type: o.type || '-', date: o.date || '', jumlah: (info.get(String(o.id)) || {}).jumlah || 1 }));
+        };
+        const TahapPill = ({ info, className = '' }) => info ? <span data-tahap-label className={`inline-block ml-1 text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full whitespace-nowrap align-middle ${className}`}>{labelTahapOrder(info)}</span> : null;
+        // Kolom "Tahap Pesanan" (Input Order & Edit Order)
+        const TahapPesananField = ({ orders, clients, client, value, onChange, kecualiId = '', className = '' }) => {
+            const opsi = React.useMemo(() => pilihanTahapDari(orders, clients, client, kecualiId), [orders, clients, client, kecualiId]);
+            const infoSendiri = React.useMemo(() => kecualiId ? infoTahapOrders(orders).get(String(kecualiId)) || null : null, [orders, kecualiId]);
+            // Kepala kelompok (Tahap 1 yang sudah punya lanjutan) tidak bisa dijadikan lanjutan order lain
+            if (infoSendiri && infoSendiri.ke === 1 && infoSendiri.jumlah > 1) {
+                return (
+                    <div data-tahap-field className={className}>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Tahap Pesanan</label>
+                        <div data-tahap-kepala className="text-sm bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-3 py-2">Order ini <b>Tahap 1</b> dari pesanan bertahap ({infoSendiri.jumlah} tahap). Order lanjutannya menginduk ke order ini.</div>
+                    </div>
+                );
+            }
+            const pilihan = value && !opsi.some(o => o.id === String(value)) ? null : opsi.find(o => o.id === String(value)) || null;
+            if (opsi.length === 0 && !value) return null;
+            const lanjut = !!value;
+            const keBaru = pilihan ? (infoSendiri && String(infoSendiri.dari) === pilihan.id ? infoSendiri.ke : pilihan.jumlah + 1) : 0;
+            return (
+                <div data-tahap-field className={className}>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Tahap Pesanan</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label className={`flex items-start gap-2 border rounded-lg px-3 py-2 cursor-pointer text-sm ${!lanjut ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white'}`}>
+                            <input type="radio" data-tahap-baru checked={!lanjut} onChange={() => onChange('')} className="mt-0.5" />
+                            <span><b>Pesanan baru</b> (Tahap 1)<span className="block text-xs text-gray-500">Pesanan pertama, atau pesanan lain dari instansi ini</span></span>
+                        </label>
+                        <label className={`flex items-start gap-2 border rounded-lg px-3 py-2 text-sm ${opsi.length ? 'cursor-pointer' : 'opacity-60'} ${lanjut ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white'}`}>
+                            <input type="radio" data-tahap-lanjut disabled={!opsi.length} checked={lanjut} onChange={() => onChange(opsi[0] ? opsi[0].id : '')} className="mt-0.5" />
+                            <span><b>Lanjutan dari order sebelumnya</b><span className="block text-xs text-gray-500">Tambahan pesanan bertahap dari instansi yang sama</span></span>
+                        </label>
+                    </div>
+                    {lanjut && (
+                        <div className="mt-2">
+                            <select data-tahap-pilih className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white" value={pilihan ? pilihan.id : ''} onChange={e => onChange(e.target.value)}>
+                                {!pilihan && <option value="">— Pilih pesanan —</option>}
+                                {opsi.map(o => <option key={o.id} value={o.id}>{o.type} · {o.id} ({o.date || '-'}) · sudah {o.jumlah} tahap</option>)}
+                            </select>
+                            {pilihan
+                                ? <p data-tahap-info className="text-xs text-indigo-800 mt-1.5">Order ini akan menjadi <b className="bg-indigo-100 rounded-full px-2 py-0.5">Tahap {keBaru}</b> dari pesanan <b>{pilihan.type} ({pilihan.id})</b></p>
+                                : <p data-tahap-info className="text-xs text-amber-700 mt-1.5">Pesanan sebelumnya tidak ditemukan untuk instansi ini (nama instansi berubah?). Pilih ulang atau pilih "Pesanan baru".</p>}
+                        </div>
+                    )}
+                </div>
+            );
+        };
         // Kode klien untuk invoice yang disimpan; bila belum ada di daftar, siapkan klien baru (belum disimpan)
         const siapkanKodeKlien = (clients, name, now) => {
             const nama = normBahanText(name);
@@ -4233,9 +4307,10 @@ ${blocks}
             return <div><span data-dash-isian={g} className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold whitespace-nowrap ${cls}`}>{label}</span></div>;
         };
 
-        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], stokBahan = [], templates }) => {
+        const DashboardView = ({ orders, setOrders, showToast, riwayatPengiriman, setRiwayatPengiriman, purchaseNotes = [], masterBahan = [], stokBahan = [], templates, clients = [] }) => {
             const [dashChartRef, dashChartW] = useElementWidth();
             const safeOrders = React.useMemo(() => (orders || []).filter(isVisibleOrder), [orders]);
+            const tahapInfoMap = React.useMemo(() => infoTahapOrders(safeOrders), [safeOrders]);
             const { totalOrders, activeOrders, doneOrders, shippedOrders } = React.useMemo(() => ({
                 totalOrders: safeOrders.filter(o => !o?.isArchived).length,
                 activeOrders: safeOrders.filter(o => !o?.isArchived && o?.status !== 'Terkirim' && o?.status !== 'Siap Kirim').length,
@@ -4548,6 +4623,16 @@ ${blocks}
                     showToast(`Tahap ${names} masih punya setoran yang upahnya belum direkap. Rekap gaji dulu sebelum mematikan tahap ini.`, "error");
                     return;
                 }
+                // Tahap pesanan: hanya divalidasi bila diubah; order Tahap 1 yang sudah punya lanjutan tidak bisa dijadikan lanjutan
+                const tahapAwal = String(original?.tahapDari || '');
+                const tahapDiminta = String(editOrder.tahapDari || '');
+                let tahapDariAkhir = tahapAwal;
+                if (tahapDiminta !== tahapAwal) {
+                    if (!tahapDiminta) tahapDariAkhir = '';
+                    else if (pilihanTahapDari(safeOrders, clients, editOrder.client, editOrder.id).some(o => o.id === tahapDiminta)) tahapDariAkhir = tahapDiminta;
+                    else { showToast('Pesanan sebelumnya untuk "Tahap Pesanan" tidak ditemukan pada instansi ini. Pilih ulang atau pilih "Pesanan baru".', "error"); return; }
+                    if (tahapDariAkhir && safeOrders.some(o => String(o.tahapDari || '') === String(editOrder.id))) { showToast('Order ini adalah Tahap 1 dari pesanan bertahap, jadi tidak bisa dijadikan lanjutan order lain.', "error"); return; }
+                }
                 const editNow = new Date().toISOString();
                 const renameSize = (sz) => sizeRenames[sz] || sz;
 
@@ -4580,7 +4665,8 @@ ${blocks}
                             productionPrices: { ...getDefaultProductionPrices(), ...(editOrder.productionPrices || {}) },
                             materialStatus: editOrder.materialStatus || ((editOrder.processFlow || {}).materials === false ? 'Tidak Perlu' : o.materialStatus),
                             revisiItems: editOrder.revisiItems || [],
-                            ...((Array.isArray(o.rencanaBahan) || cleanRencanaBahan(editOrder.rencanaBahan).length > 0) ? { rencanaBahan: cleanRencanaBahan(editOrder.rencanaBahan) } : {})
+                            ...((Array.isArray(o.rencanaBahan) || cleanRencanaBahan(editOrder.rencanaBahan).length > 0) ? { rencanaBahan: cleanRencanaBahan(editOrder.rencanaBahan) } : {}),
+                            ...((tahapDariAkhir || o.tahapDari) ? { tahapDari: tahapDariAkhir || undefined } : {})
                         });
                     }
                     return o;
@@ -4885,7 +4971,7 @@ ${blocks}
                                     {paginatedOrders.map(order => (
                                         <tr key={order.id} className={`border-b border-gray-100 transition-colors ${dashPins.pinSet.has(String(order.id)) ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
                                             <td className="p-3 text-sm font-medium text-blue-600 whitespace-nowrap">{pinButton(order)}{order.id}</td>
-                                            <td className="p-3 text-sm text-gray-800">{order.client}</td>
+                                            <td className="p-3 text-sm text-gray-800">{order.client}<TahapPill info={tahapInfoMap.get(String(order.id))} /></td>
                                             <td className="p-3 text-sm text-gray-600">
                                                 {order.type} ({order.total} pcs)
                                                 {((order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0)) > 0 && (
@@ -4948,6 +5034,7 @@ ${blocks}
                                                 <Badge status={order.status} />
                                             </div>
                                             <div className="font-semibold text-gray-800 text-sm truncate">{order.client}</div>
+                                            {tahapInfoMap.get(String(order.id)) && <div><TahapPill info={tahapInfoMap.get(String(order.id))} /></div>}
                                             <div className="text-xs text-gray-500 mt-0.5">
                                                 {order.type} ({order.total} pcs)
                                                 {revisiQty > 0 && <span className="ml-1 inline-flex items-center bg-orange-100 text-orange-700 text-xs font-bold px-1.5 py-0.5 rounded">⚠ {revisiQty} pcs revisi</span>}
@@ -5003,6 +5090,7 @@ ${blocks}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div><label className="block text-sm mb-1 font-semibold">Nama Klien / Instansi</label><input required type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.client} onChange={e => setEditOrder({...editOrder, client: e.target.value})} /></div>
                                         <div><label className="block text-sm mb-1 font-semibold">Jenis Barang</label><input required type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.type} onChange={e => setEditOrder({...editOrder, type: e.target.value})} /></div>
+                                        <TahapPesananField className="md:col-span-2" orders={safeOrders} clients={clients} client={editOrder.client} kecualiId={editOrder.id} value={editOrder.tahapDari || ''} onChange={(v) => setEditOrder(prev => ({ ...prev, tahapDari: v }))} />
                                         <div><label className="block text-sm mb-1 font-semibold">Tanggal Masuk</label><input required type="date" disabled className="w-full p-2 border rounded bg-gray-100 text-gray-500" value={editOrder.date} /></div>
                                         <div><label className="block text-sm mb-1 font-semibold">Deadline Produksi</label><input required type="date" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" value={editOrder.deadline} onChange={e => setEditOrder({...editOrder, deadline: e.target.value})} /></div>
                                         <div>
@@ -6439,7 +6527,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             );
         };
 
-        const InputOrderView = ({ orders, setOrders, setActiveTab, showToast, purchaseNotes = [], masterBahan = [], stokBahan = [] }) => {
+        const InputOrderView = ({ orders, setOrders, setActiveTab, showToast, purchaseNotes = [], masterBahan = [], stokBahan = [], clients = [] }) => {
             const allOrders = orders || [];
             const safeOrders = allOrders.filter(isVisibleOrder);
             const [newOrder, setNewOrder] = useState({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
@@ -6536,10 +6624,13 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 }
 
                 const rencanaBahanBaru = cleanRencanaBahan(newOrder.rencanaBahan);
-                const { rencanaBahan: _rbDraft, ...newOrderTanpaRencana } = newOrder;
+                const { rencanaBahan: _rbDraft, tahapDari: tahapDariDraft, ...newOrderTanpaRencana } = newOrder;
+                // Tahap pesanan: hanya disimpan bila order induknya memang order instansi yang sama
+                const tahapDariBaru = tahapDariDraft && pilihanTahapDari(allOrders, clients, newOrder.client).some(o => o.id === String(tahapDariDraft)) ? String(tahapDariDraft) : '';
                 const orderToAdd = {
                     ...newOrderTanpaRencana,
                     ...(rencanaBahanBaru.length > 0 ? { rencanaBahan: rencanaBahanBaru } : {}),
+                    ...(tahapDariBaru ? { tahapDari: tahapDariBaru } : {}),
                     id: newOrderId,
                     sizes: finalSizes,
                     total: totalQty,
@@ -6591,6 +6682,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                         ))}
                                     </datalist>
                                 </div>
+                                <TahapPesananField className="md:col-span-2" orders={allOrders} clients={clients} client={newOrder.client} value={newOrder.tahapDari || ''} onChange={(v) => setNewOrder(prev => ({ ...prev, tahapDari: v }))} />
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Nama Marketing (Opsional)</label>
                                     <input list="marketing-list" type="text" className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500" placeholder="Nama sales/marketing..." value={newOrder.marketing || ''} onChange={e => setNewOrder({...newOrder, marketing: e.target.value})} />
@@ -22396,7 +22488,282 @@ ${getRekapShareLink(rekap)}
             );
         };
 
-        const TrackingInstansiView = ({ orders, templates, showToast }) => {
+        // ===== Tracking Instansi → "Rekap Pesanan": gabungan semua order (tahap) satu instansi, per jenis × ukuran =====
+        const BULAN_PENDEK_RP = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+        const tglRekapPesanan = (d, tahun = true) => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${parseInt(m[3], 10)} ${BULAN_PENDEK_RP[parseInt(m[2], 10) - 1]}${tahun ? ' ' + m[1] : ''}` : (d || '-'); };
+        const ukuranKunciRP = (s) => String(s == null ? '' : s).trim().toUpperCase();
+        const RekapPesananPanel = ({ orders, clients = [], riwayatPengiriman = [], templates, showToast }) => {
+            const semuaOrder = React.useMemo(() => safeArray(orders).filter(isVisibleOrder), [orders]);
+            const tahapInfo = React.useMemo(() => infoTahapOrders(semuaOrder), [semuaOrder]);
+            const kunciOrder = React.useMemo(() => { const m = new Map(); semuaOrder.forEach(o => m.set(String(o.id), normBahanText(o.client) ? kunciInstansi(clients, o.client) : '')); return m; }, [semuaOrder, clients]);
+            const daftarInstansi = React.useMemo(() => {
+                const m = new Map();
+                semuaOrder.forEach(o => {
+                    const k = kunciOrder.get(String(o.id)); if (!k) return;
+                    const klien = k.startsWith('cli:') ? safeArray(clients).find(c => 'cli:' + c.id === k) : null;
+                    const cur = m.get(k);
+                    if (!cur) m.set(k, { key: k, nama: klien ? klien.name : normBahanText(o.client), jumlah: 1, terakhir: o.date || '' });
+                    else { cur.jumlah++; if (String(o.date || '') > cur.terakhir) { cur.terakhir = o.date || ''; if (!klien) cur.nama = normBahanText(o.client); } }
+                });
+                return [...m.values()].sort((a, b) => a.nama.localeCompare(b.nama));
+            }, [semuaOrder, kunciOrder, clients]);
+            const sjPerOrder = React.useMemo(() => {
+                const m = new Map();
+                safeArray(riwayatPengiriman).filter(isVisibleRecord).forEach(r => safeArray(r.items).forEach(it => {
+                    const id = String(it && it.orderId || ''); if (!id) return;
+                    if (!m.has(id)) m.set(id, []);
+                    m.get(id).push({ id: r.id, date: r.date || '', details: it.details || '', total: it.total || 0 });
+                }));
+                m.forEach(list => list.sort((a, b) => String(a.date).localeCompare(String(b.date))));
+                return m;
+            }, [riwayatPengiriman]);
+            const [instKey, setInstKey] = useState('');
+            const [tahun, setTahun] = useState(() => tahunIniStr());
+            const [jenis, setJenis] = useState('');
+            const [kelompok, setKelompok] = useState('');
+            const [statusKirim, setStatusKirim] = useState('');
+            const [lepas, setLepas] = useState(() => new Set());
+            const [bukaSJ, setBukaSJ] = useState(() => new Set());
+            useEffect(() => { setJenis(''); setKelompok(''); setBukaSJ(new Set()); }, [instKey]);
+            useEffect(() => { setLepas(new Set()); }, [instKey, tahun, jenis, kelompok, statusKirim]);
+
+            const jenisNorm = (t) => normBahanText(t) || '-';
+            const ukuranOrder = (o) => { const m = {}; Object.entries(safeObject(o.sizes)).forEach(([s, q]) => { const k = ukuranKunciRP(s); if (!k) return; m[k] = (m[k] || 0) + (parseInt(q) || 0); }); return m; };
+            const kirimOrder = (o) => { const m = {}; Object.entries(safeObject(o.shipped)).forEach(([s, q]) => { const k = ukuranKunciRP(s); if (!k) return; m[k] = (m[k] || 0) + (parseInt(q) || 0); }); return m; };
+            const jml = (m) => Object.values(m).reduce((s, v) => s + v, 0);
+            const statusOrder = (o) => {
+                const u = ukuranOrder(o), k = kirimOrder(o);
+                const kurang = sortSizeKeys(Object.keys(u)).filter(s => u[s] > (k[s] || 0)).map(s => `${s} ${u[s] - (k[s] || 0)}`);
+                const totalKirim = Object.keys(u).reduce((s, sz) => s + Math.min(u[sz], k[sz] || 0), 0);
+                const st = kurang.length === 0 ? 'ok' : totalKirim > 0 ? 'part' : 'no';
+                const sj = sjPerOrder.get(String(o.id)) || [];
+                return { st, kurang, totalKirim, total: jml(u), sj, terakhir: sj.length ? sj[sj.length - 1].date : '' };
+            };
+            const kelompokDari = (o) => { const i = tahapInfo.get(String(o.id)); return i ? i.dari : ''; };
+
+            const orderInst = instKey ? semuaOrder.filter(o => kunciOrder.get(String(o.id)) === instKey) : [];
+            const opsiTahun = opsiTahunPeriode(orderInst.map(o => o.date));
+            const dalamTahun = orderInst.filter(o => cocokPeriode(o.date, tahun, ''));
+            const opsiJenis = [...new Set(dalamTahun.map(o => jenisNorm(o.type)))].sort((a, b) => a.localeCompare(b));
+            const jenisAktif = jenis && (opsiJenis.includes(jenis) || kelompok) ? jenis : '';
+            const opsiKelompok = [...new Set(dalamTahun.filter(o => !jenisAktif || jenisNorm(o.type) === jenisAktif).map(kelompokDari).filter(Boolean))].map(id => {
+                const kepala = semuaOrder.find(o => String(o.id) === id);
+                const anggota = semuaOrder.filter(o => kelompokDari(o) === id);
+                return { id, label: `${jenisNorm((kepala || anggota[0] || {}).type)} (${id}) · ${anggota.length} tahap` };
+            });
+            const kelompokAktif = kelompok && opsiKelompok.some(k => k.id === kelompok) ? kelompok : '';
+            const daftar = orderInst
+                .filter(o => kelompokAktif ? kelompokDari(o) === kelompokAktif : cocokPeriode(o.date, tahun, ''))
+                .filter(o => !jenisAktif || jenisNorm(o.type) === jenisAktif)
+                .filter(o => { if (!statusKirim) return true; const st = statusOrder(o).st; return statusKirim === 'ok' ? st === 'ok' : st !== 'ok'; })
+                .sort((a, b) => jenisNorm(a.type).localeCompare(jenisNorm(b.type)) || urutOrderTahap(a, b));
+            const dipilih = daftar.filter(o => !lepas.has(String(o.id)));
+            const daftarJenis = [...new Set(dipilih.map(o => jenisNorm(o.type)))];
+            const instNama = (daftarInstansi.find(i => i.key === instKey) || {}).nama || '';
+            const labelPer = kelompokAktif ? `${(opsiKelompok.find(k => k.id === kelompokAktif) || {}).label || kelompokAktif} · semua tahap` : (tahun ? `Tahun ${tahun}` : 'Semua tahun');
+            const labelStatus = statusKirim === 'ok' ? 'Sudah terkirim semua' : statusKirim === 'belum' ? 'Belum selesai dikirim' : '';
+
+            // Hitung per jenis: tabel tahap × ukuran
+            const hitungJenis = (list, jenisNama) => {
+                const ukuran = sortSizeKeys([...new Set(list.flatMap(o => Object.keys(ukuranOrder(o))))]);
+                // Nomor tahap: order berkelompok → nomor di kelompoknya. Bila tak ada yang berkelompok → urutan tanggal
+                // (dihitung dari semua order instansi+jenis di periode ini, jadi tidak berubah karena filter status/centang).
+                // Bila tercampur → order tanpa kelompok diberi label "Tanpa tahap".
+                const adaGrup = list.some(o => tahapInfo.has(String(o.id)));
+                const basis = (kelompokAktif ? list : dalamTahun.filter(o => jenisNorm(o.type) === jenisNama)).filter(o => !tahapInfo.has(String(o.id))).sort(urutOrderTahap);
+                const rows = list.map((o, i) => {
+                    const info = tahapInfo.get(String(o.id));
+                    const idx = basis.findIndex(b => String(b.id) === String(o.id));
+                    const label = info ? `Tahap ${info.ke}` : adaGrup ? 'Tanpa tahap' : `Tahap ${idx >= 0 ? idx + 1 : i + 1}`;
+                    return { o, label, u: ukuranOrder(o), k: kirimOrder(o), s: statusOrder(o) };
+                });
+                const T = ukuran.map(sz => rows.reduce((a, r) => a + (r.u[sz] || 0), 0));
+                const K = ukuran.map(sz => rows.reduce((a, r) => a + Math.min(r.u[sz] || 0, r.k[sz] || 0), 0));
+                return { ukuran, rows, T, K, total: T.reduce((a, b) => a + b, 0), kirim: K.reduce((a, b) => a + b, 0) };
+            };
+            const perJenis = daftarJenis.map(j => ({ jenis: j, ...hitungJenis(dipilih.filter(o => jenisNorm(o.type) === j), j) }));
+            const semua = { tahap: dipilih.length, total: perJenis.reduce((a, x) => a + x.total, 0), kirim: perJenis.reduce((a, x) => a + x.kirim, 0) };
+            const teksStatus = (s, wa = false) => s.st === 'ok' ? `${wa ? '✅ terkirim semua' : '✅ Terkirim semua'}${!wa && s.terakhir ? ' · ' + tglRekapPesanan(s.terakhir, false) : ''}` : s.st === 'part' ? (wa ? `🟡 terkirim ${s.totalKirim}, kurang ${s.kurang.join(', ')}` : `🟡 Sebagian · ${s.totalKirim} dari ${s.total} · kurang ${s.kurang.join(', ')}`) : (wa ? '⏳ belum dikirim' : '⏳ Belum dikirim');
+            const ringkasUkuran = (u) => sortSizeKeys(Object.keys(u)).map(sz => `${sz} ${u[sz]}`).join(', ');
+
+            const teksWA = () => {
+                let t = `*Rekap Pesanan ${instNama}*\n${jenisAktif || 'Semua jenis'} · ${labelPer}${labelStatus ? ' · ' + labelStatus : ''}\n`;
+                if (!jenisAktif) {
+                    t += `\n*Ringkasan:*\n` + perJenis.map(x => `• ${x.jenis}: ${x.total} pcs (${x.rows.length} tahap) · belum dikirim ${x.total - x.kirim}`).join('\n') + `\n*SEMUA: ${semua.total} pcs · belum dikirim ${semua.total - semua.kirim}*\n`;
+                }
+                perJenis.forEach(x => {
+                    t += `\n*${x.jenis}*\n` + x.rows.map(r => `${r.label} (${r.o.id}, ${tglRekapPesanan(r.o.date, false)}): ${ringkasUkuran(r.u)} — ${teksStatus(r.s, true)}`).join('\n');
+                    t += `\nTOTAL: ${x.ukuran.map((sz, i) => `${sz} ${x.T[i]}`).join(', ')} = ${x.total} pcs · belum dikirim ${x.total - x.kirim}\n`;
+                });
+                return t.trim();
+            };
+            const salinWA = async () => {
+                if (!dipilih.length) return;
+                const t = teksWA();
+                try { await navigator.clipboard.writeText(t); showToast('Teks rekap disalin. Tempel di WhatsApp.', 'success'); }
+                catch (e) { window.prompt('Salin teks rekap:', t); }
+            };
+            const cetak = () => {
+                if (!dipilih.length) return;
+                const esc = escapeHtmlText;
+                const tabelHtml = (x) => `<table><thead><tr><th class="l">Tahap</th><th class="l">No. Order</th><th class="l">Tanggal</th>${x.ukuran.map(sz => `<th>${esc(sz)}</th>`).join('')}<th>Total</th><th class="l">Status Kirim</th></tr></thead><tbody>`
+                    + x.rows.map(r => `<tr><td class="l">${esc(r.label)}</td><td class="l">${esc(r.o.id)}</td><td class="l">${esc(tglRekapPesanan(r.o.date))}</td>${x.ukuran.map(sz => `<td>${r.u[sz] || '–'}</td>`).join('')}<td><b>${jml(r.u)}</b></td><td class="l">${esc(teksStatus(r.s))}${r.s.sj.length ? `<div class="sj">${r.s.sj.map(j => `${esc(tglRekapPesanan(j.date))} · ${esc(j.id)} · ${esc(j.details)}`).join('<br>')}</div>` : ''}</td></tr>`).join('')
+                    + `<tr class="tot"><td class="l" colspan="3">TOTAL</td>${x.T.map(v => `<td>${v || '–'}</td>`).join('')}<td>${x.total}</td><td></td></tr>`
+                    + `<tr class="kirim"><td class="l" colspan="3">Sudah dikirim</td>${x.K.map(v => `<td>${v || '–'}</td>`).join('')}<td>${x.kirim}</td><td></td></tr>`
+                    + `<tr class="sisa"><td class="l" colspan="3">Belum dikirim</td>${x.T.map((v, i) => `<td>${(v - x.K[i]) || '–'}</td>`).join('')}<td>${x.total - x.kirim}</td><td></td></tr></tbody></table>`;
+                const ringkas = !jenisAktif ? `<h3>Ringkasan semua pesanan</h3><table><thead><tr><th class="l">Jenis Produksi</th><th>Tahap</th><th>Total</th><th>Sudah dikirim</th><th>Belum dikirim</th></tr></thead><tbody>`
+                    + perJenis.map(x => `<tr><td class="l"><b>${esc(x.jenis)}</b></td><td>${x.rows.length}</td><td>${x.total} pcs</td><td>${x.kirim}</td><td>${x.total - x.kirim || '–'}</td></tr>`).join('')
+                    + `<tr class="tot"><td class="l">SEMUA</td><td>${semua.tahap}</td><td>${semua.total} pcs</td><td>${semua.kirim}</td><td>${semua.total - semua.kirim || '–'}</td></tr></tbody></table>` : '';
+                const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rekap Pesanan - ${esc(instNama)}</title><style>
+                    body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:18px}h1{font-size:18px;margin:0}h2{font-size:14px;margin:2px 0 12px;color:#444;font-weight:normal}h3{font-size:13px;margin:14px 0 6px}
+                    table{width:100%;border-collapse:collapse;margin-bottom:8px}th,td{border:1px solid #999;padding:4px 6px;text-align:right}th{background:#eee}.l{text-align:left}
+                    tr.tot td{font-weight:bold;background:#eef2ff}tr.kirim td{background:#f0fdf4}tr.sisa td{background:#fef2f2;font-weight:bold}.sj{font-size:10px;color:#555;margin-top:2px}
+                    @media print{body{margin:8mm}}</style></head><body>
+                    <h1>${esc((templates && templates.companyName) || 'Simpati Konveksi')} — Rekap Pesanan</h1>
+                    <h2><b>${esc(instNama)}</b> · ${esc(jenisAktif || 'Semua jenis')} · ${esc(labelPer)}${labelStatus ? ' · ' + esc(labelStatus) : ''} · dicetak ${esc(tglRekapPesanan(toLocalDateStr()))}</h2>
+                    ${ringkas}${perJenis.map(x => `${!jenisAktif ? `<h3>${esc(x.jenis)}</h3>` : ''}${tabelHtml(x)}`).join('')}
+                    </body></html>`;
+                const w = window.open('', '_blank');
+                if (!w) { showToast('Gagal mencetak. Harap izinkan Pop-up di browser Anda!', 'error'); return; }
+                w.document.open(); w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
+            };
+
+            const selKls = 'w-full p-2 border border-indigo-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-300';
+            const lblKls = 'block text-xs font-bold text-indigo-900 mb-1';
+            const badgeKls = { ok: 'bg-green-100 text-green-800', part: 'bg-amber-100 text-amber-800', no: 'bg-slate-100 text-slate-600' };
+            return (
+                <div className="space-y-4" data-rekap-pesanan>
+                    <Card className="bg-indigo-50 border-indigo-100">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                            <div className="sm:col-span-2 lg:col-span-2">
+                                <label className={lblKls}>Instansi</label>
+                                <select data-rp-instansi className={selKls} value={instKey} onChange={e => setInstKey(e.target.value)}>
+                                    <option value="">-- Pilih Instansi --</option>
+                                    {daftarInstansi.map(i => <option key={i.key} value={i.key}>{i.nama} ({i.jumlah} order)</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className={lblKls}>Tahun</label>
+                                <select data-rp-tahun className={selKls} value={tahun} onChange={e => setTahun(e.target.value)} disabled={!!kelompokAktif}>
+                                    {(opsiTahun.includes(tahun) || !tahun ? opsiTahun : [tahun, ...opsiTahun]).map(y => <option key={y} value={y}>{y}</option>)}
+                                    <option value="">Semua tahun</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className={lblKls}>Jenis Produksi</label>
+                                <select data-rp-jenis className={selKls} value={jenisAktif} onChange={e => { setJenis(e.target.value); setKelompok(''); }}>
+                                    <option value="">Semua jenis</option>
+                                    {opsiJenis.map(j => <option key={j} value={j}>{j}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className={lblKls}>Kelompok Pesanan</label>
+                                <select data-rp-kelompok className={selKls} value={kelompokAktif} onChange={e => setKelompok(e.target.value)}>
+                                    <option value="">Semua order</option>
+                                    {opsiKelompok.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className={lblKls}>Status Kirim</label>
+                                <select data-rp-status className={selKls} value={statusKirim} onChange={e => setStatusKirim(e.target.value)}>
+                                    <option value="">Semua</option>
+                                    <option value="belum">Belum selesai dikirim</option>
+                                    <option value="ok">Sudah terkirim semua</option>
+                                </select>
+                            </div>
+                        </div>
+                        {kelompokAktif && <p className="text-xs text-indigo-800 mt-2">Kelompok pesanan dipilih: semua tahapnya ditampilkan walau beda tahun.</p>}
+                    </Card>
+
+                    {!instKey ? (
+                        <div className="text-center py-12 text-gray-400 italic text-sm">Pilih instansi untuk melihat rekap semua pesanannya.</div>
+                    ) : daftar.length === 0 ? (
+                        <div data-rp-kosong className="text-center py-10 text-gray-500 text-sm bg-white rounded-xl border border-dashed border-gray-200">
+                            Tidak ada order pada filter ini.
+                            {tahun && !kelompokAktif && <div className="mt-2"><button type="button" onClick={() => setTahun('')} className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">Tampilkan semua tahun</button></div>}
+                        </div>
+                    ) : (<>
+                        <Card>
+                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Order yang direkap <span className="normal-case text-indigo-700">({dipilih.length} dari {daftar.length} dicentang)</span></div>
+                            <div className="space-y-1.5">
+                                {daftar.map(o => {
+                                    const info = tahapInfo.get(String(o.id)); const s = statusOrder(o); const aktif = !lepas.has(String(o.id));
+                                    return (
+                                        <label key={o.id} data-rp-order={o.id} className={`flex items-start gap-2.5 border rounded-lg px-3 py-2 cursor-pointer text-sm ${aktif ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+                                            <input type="checkbox" className="mt-1 w-4 h-4 accent-indigo-600" checked={aktif} onChange={() => setLepas(prev => { const n = new Set(prev); n.has(String(o.id)) ? n.delete(String(o.id)) : n.add(String(o.id)); return n; })} />
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex flex-wrap items-center gap-1.5"><b>{o.id}</b><span className="text-gray-500">· {jenisNorm(o.type)}</span>{info && <TahapPill info={info} className="ml-0" />}{o.isArchived && <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">Arsip</span>}<span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full ${badgeKls[s.st]}`}>{teksStatus(s)}</span></div>
+                                                <div className="text-xs text-gray-500">{tglRekapPesanan(o.date)} · {jml(ukuranOrder(o))} pcs · {ringkasUkuran(ukuranOrder(o))}</div>
+                                            </div>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </Card>
+                        {dipilih.length > 0 && (
+                            <Card>
+                                <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+                                    <div>
+                                        <div className="font-black text-gray-800 text-base">Rekap Pesanan — {instNama}</div>
+                                        <div className="text-xs text-gray-500">{jenisAktif || 'Semua jenis'} · {labelPer}{labelStatus ? ` · ${labelStatus}` : ''} · {dipilih.length} order</div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button type="button" data-rp-cetak onClick={cetak} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold flex items-center gap-1.5"><IconPrinter /> Cetak / PDF</button>
+                                        <button type="button" data-rp-wa onClick={salinWA} className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-bold">💬 Salin teks WA</button>
+                                    </div>
+                                </div>
+                                {!jenisAktif && (
+                                    <div className="mb-4" data-rp-ringkasan>
+                                        <div className="font-bold text-sm text-gray-800 mb-1.5">Ringkasan semua pesanan</div>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm min-w-[420px]">
+                                                <thead><tr className="bg-gray-50 text-xs text-gray-600 uppercase"><th className="p-2 text-left">Jenis Produksi</th><th className="p-2 text-right">Tahap</th><th className="p-2 text-right">Total</th><th className="p-2 text-right">Sudah dikirim</th><th className="p-2 text-right">Belum dikirim</th></tr></thead>
+                                                <tbody>
+                                                    {perJenis.map(x => <tr key={x.jenis} className="border-t border-gray-100"><td className="p-2 font-bold">{x.jenis}</td><td className="p-2 text-right">{x.rows.length}</td><td className="p-2 text-right">{x.total} pcs</td><td className="p-2 text-right">{x.kirim}</td><td className="p-2 text-right">{x.total - x.kirim || '–'}</td></tr>)}
+                                                    <tr data-rp-semua className="border-t-2 border-indigo-400 bg-indigo-50 font-black"><td className="p-2">SEMUA</td><td className="p-2 text-right">{semua.tahap}</td><td className="p-2 text-right">{semua.total} pcs</td><td className="p-2 text-right">{semua.kirim}</td><td className="p-2 text-right">{semua.total - semua.kirim || '–'}</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+                                {perJenis.map(x => (
+                                    <div key={x.jenis} className="mb-4" data-rp-tabel={x.jenis}>
+                                        {!jenisAktif && <div className="font-bold text-sm text-gray-800 mb-1.5">{x.jenis}</div>}
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm min-w-[560px]">
+                                                <thead><tr className="bg-gray-50 text-xs text-gray-600 uppercase"><th className="p-2 text-left">Tahap</th><th className="p-2 text-left">No. Order</th><th className="p-2 text-left">Tanggal</th>{x.ukuran.map(sz => <th key={sz} className="p-2 text-right">{sz}</th>)}<th className="p-2 text-right">Total</th><th className="p-2 text-left">Status Kirim</th></tr></thead>
+                                                <tbody>
+                                                    {x.rows.map(r => (
+                                                        <React.Fragment key={r.o.id}>
+                                                            <tr data-rp-baris={r.o.id} className="border-t border-gray-100">
+                                                                <td className="p-2 whitespace-nowrap">{r.label}</td><td className="p-2 whitespace-nowrap">{r.o.id}</td><td className="p-2 whitespace-nowrap">{tglRekapPesanan(r.o.date)}</td>
+                                                                {x.ukuran.map(sz => <td key={sz} className="p-2 text-right">{r.u[sz] || '–'}</td>)}
+                                                                <td className="p-2 text-right font-bold">{jml(r.u)}</td>
+                                                                <td className="p-2"><button type="button" data-rp-status-kirim={r.o.id} disabled={!r.s.sj.length} onClick={() => setBukaSJ(prev => { const n = new Set(prev); n.has(String(r.o.id)) ? n.delete(String(r.o.id)) : n.add(String(r.o.id)); return n; })} className={`text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${badgeKls[r.s.st]} ${r.s.sj.length ? 'cursor-pointer' : 'cursor-default'}`}>{teksStatus(r.s)}{r.s.sj.length ? ' ▾' : ''}</button></td>
+                                                            </tr>
+                                                            {bukaSJ.has(String(r.o.id)) && r.s.sj.length > 0 && (
+                                                                <tr><td colSpan={x.ukuran.length + 5} className="p-2"><div data-rp-sj={r.o.id} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700"><b>Riwayat Surat Jalan {r.o.id}</b>{r.s.sj.map(j => <div key={j.id} className="py-0.5">🚚 {tglRekapPesanan(j.date)} · <span className="font-mono">{j.id}</span> · {j.details || `${j.total} pcs`}</div>)}</div></td></tr>
+                                                            )}
+                                                        </React.Fragment>
+                                                    ))}
+                                                    <tr data-rp-total className="border-t-2 border-indigo-400 bg-indigo-50 font-black"><td className="p-2" colSpan={3}>TOTAL</td>{x.T.map((v, i) => <td key={i} className="p-2 text-right">{v || '–'}</td>)}<td className="p-2 text-right">{x.total}</td><td></td></tr>
+                                                    <tr data-rp-kirim className="bg-green-50 text-green-800"><td className="p-2" colSpan={3}>Sudah dikirim</td>{x.K.map((v, i) => <td key={i} className="p-2 text-right">{v || '–'}</td>)}<td className="p-2 text-right">{x.kirim}</td><td></td></tr>
+                                                    <tr data-rp-sisa className="bg-red-50 text-red-700 font-bold"><td className="p-2" colSpan={3}>Belum dikirim</td>{x.T.map((v, i) => <td key={i} className="p-2 text-right">{(v - x.K[i]) || '–'}</td>)}<td className="p-2 text-right">{x.total - x.kirim}</td><td></td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                ))}
+                            </Card>
+                        )}
+                    </>)}
+                    <p className="text-xs text-gray-500">Order yang sudah selesai/diarsip ikut dihitung (label "Arsip"). Nama instansi yang terdaftar sebagai "nama lain" di Data Master → Klien ikut tergabung. Rekap ini hanya membaca data.</p>
+                </div>
+            );
+        };
+        const TrackingInstansiView = ({ orders, templates, showToast, klienMaster = [], riwayatPengiriman = [] }) => {
+            const [tiTab, setTiTab] = useState('tracking');
+            const tahapInfoTI = React.useMemo(() => infoTahapOrders(orders), [orders]);
             const [selectedClient, setSelectedClient] = useState('');
             const safeOrders = (orders || []).filter(isVisibleOrder);
             
@@ -22546,6 +22913,11 @@ ${getRekapShareLink(rekap)}
             return (
                 <div className="space-y-6">
                     <h2 className="text-2xl font-bold text-gray-800">Tracking Detail Instansi</h2>
+                    <div className="flex gap-1 bg-gray-100 p-1 rounded-xl max-w-md" data-ti-tabs>
+                        <button type="button" data-ti-tab="tracking" onClick={() => setTiTab('tracking')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${tiTab === 'tracking' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Tracking Order</button>
+                        <button type="button" data-ti-tab="rekap" onClick={() => setTiTab('rekap')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${tiTab === 'rekap' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Rekap Pesanan</button>
+                    </div>
+                    {tiTab === 'rekap' ? <RekapPesananPanel orders={orders} clients={klienMaster} riwayatPengiriman={riwayatPengiriman} templates={templates} showToast={showToast} /> : (<>
                     <p className="text-gray-500 text-sm">Pantau jumlah barang yang telah selesai di masing-masing tahapan produksi secara *real-time* per ukuran.</p>
 
                     <Card className="bg-indigo-50 border-indigo-100 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
@@ -22597,7 +22969,7 @@ ${getRekapShareLink(rekap)}
                                 <Card key={order.id} className="border-l-4 border-l-indigo-500">
                                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 border-b border-gray-100 pb-4">
                                         <div>
-                                            <h3 className="text-xl font-bold text-gray-800">{order.id} - {order.type}</h3>
+                                            <h3 className="text-xl font-bold text-gray-800">{order.id} - {order.type}<TahapPill info={tahapInfoTI.get(String(order.id))} className="text-xs" /></h3>
                                             <p className="text-sm text-gray-500 mt-1">Deadline: <span className="font-bold text-red-600">{order.deadline}</span></p>
                                         </div>
                                         <div className="mt-2 md:mt-0">
@@ -22654,6 +23026,7 @@ ${getRekapShareLink(rekap)}
                             Tidak ada pesanan aktif untuk instansi ini.
                         </div>
                     )}
+                    </>)}
                 </div>
             );
         };
@@ -33513,10 +33886,10 @@ ${getRekapShareLink(rekap)}
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
-                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} templates={templates} /></div>}
+                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView clients={clients} orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} templates={templates} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
                                 {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView onLihatPemakaian={(jenis, id, emp) => { const J = DANA_PAKAI_JENIS[jenis]; if (!J || !canOpen(J.tab) || !emp) return; setDanaBukaReq({ jenis, id: String(id), empName: emp.name || '', t: Date.now() }); setDanaKembali({ empId: String(emp.id), empName: emp.name || '' }); setActiveTab(J.tab); }} bisaBukaMenu={(jenis) => !!DANA_PAKAI_JENIS[jenis] && canOpen(DANA_PAKAI_JENIS[jenis].tab)} pilihKaryawanReq={danaPilihReq} bolehKelola={hasDanaOpsKelola(myLoginAccount)} namaPencatat={authUser?.name || authUser?.username || ''} employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
-                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} /></div>}
+                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView clients={clients} orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} /></div>}
                                 {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} stokBahan={stokBahan} setStokBahan={updateStokBahan} bukaNotaVendor={notaVendorReq} bukaNotaDana={danaBukaReq && danaBukaReq.jenis === 'nota' ? danaBukaReq : null} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView bukaRekapDana={danaBukaReq && danaBukaReq.jenis === 'gaji' ? danaBukaReq : null} orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
@@ -33530,7 +33903,7 @@ ${getRekapShareLink(rekap)}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></MenuBeku></div>}
-                                {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={orders} templates={templates} showToast={showToast} /></div>}
+                                {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={orders} templates={templates} showToast={showToast} klienMaster={clients} riwayatPengiriman={riwayatPengiriman} /></div>}
                                 {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
                                 {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} getDataSizeReport={authUser?.role === 'Admin' ? getDataSizeReport : null} /></div>}
                                 {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} authUser={authUser} maintenance={maintenance} onSetMaintenance={setMaintenanceMode} /></div>}
