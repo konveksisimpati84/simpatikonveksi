@@ -9131,7 +9131,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [], masterBahan = [], setMasterBahan, stokBahan = [], setStokBahan, bukaNotaVendor = null }) => {
+        const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [], masterBahan = [], setMasterBahan, stokBahan = [], setStokBahan, bukaNotaVendor = null, bukaNotaDana = null }) => {
             const [previewImage, setPreviewImage] = useState(null);
             const [bahanTab, setBahanTab] = useState('nota');
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
@@ -9150,7 +9150,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             // Filter periode nota (menurut tanggal beli). Bawaan: tahun ini, semua bulan.
             const [notaTahun, setNotaTahun] = useState(() => tahunIniStr());
             const [notaBulan, setNotaBulan] = useState('');
-            useEffect(() => { setNotePage(1); }, [noteSearch, filterStatus, sortBy, vendorSaring, notaTahun, notaBulan]);
+            // Dari Dana Operasional → "Lihat ›": tampilkan hanya nota itu (terbuka)
+            const [notaFokus, setNotaFokus] = useState(null); // { id, empName }
+            useEffect(() => { setNotePage(1); }, [noteSearch, filterStatus, sortBy, vendorSaring, notaTahun, notaBulan, notaFokus]);
             useEffect(() => {
                 if (!bukaNotaVendor || !bukaNotaVendor.vendor) return;
                 setBahanTab('nota');
@@ -9159,9 +9161,21 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 // Dari Data Master → Vendor: tampilkan nota vendor itu dari semua tahun
                 setNotaTahun('');
                 setNotaBulan('');
+                setNotaFokus(null);
                 setVendorSaring({ key: vendorKunci(bukaNotaVendor.vendor), name: bukaNotaVendor.vendor });
             }, [bukaNotaVendor && bukaNotaVendor.t]);
             const [expandedNotes, setExpandedNotes] = useState({});
+            useEffect(() => {
+                if (!bukaNotaDana || !bukaNotaDana.id) return;
+                setBahanTab('nota');
+                setFilterStatus('Semua');
+                setNoteSearch('');
+                setVendorSaring(null);
+                setNotaTahun('');
+                setNotaBulan('');
+                setNotaFokus({ id: String(bukaNotaDana.id), empName: bukaNotaDana.empName || '' });
+                setExpandedNotes(prev => ({ ...prev, [bukaNotaDana.id]: true }));
+            }, [bukaNotaDana && bukaNotaDana.t]);
             const toggleNote = (id) => setExpandedNotes(p => ({ ...p, [id]: !p[id] }));
 
             const [selectionMode, setSelectionMode] = useState(false);
@@ -9422,6 +9436,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const hutangLuarTotal = hutangLuarNotes.filter(n => !_legacySebagian(n)).reduce((s, n) => s + noteDebt(n), 0);
                 const setNotaPeriode = (tahun, bulan) => { setNotaTahun(tahun); setNotaBulan(bulan); };
                 const cocokFilterNota = (note) => {
+                    if (notaFokus && String(note.id) !== notaFokus.id) return false;
                     if (vendorSaring && vendorKunci(note.vendor) !== vendorSaring.key) return false;
                     if (filterStatus !== 'Semua' && noteStatus(note) !== filterStatus) return false;
                     if (!noteSearch.trim()) return true;
@@ -10138,6 +10153,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         {/* Search & Filter bar */}
                         {allNotes.length > 0 && (
                             <div className="flex flex-col gap-2">
+                                {notaFokus && (
+                                    <div data-nota-fokus className="flex flex-wrap items-center justify-between gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-sm text-blue-900">
+                                        <span>🧾 Menampilkan nota dari <b>Dana Operasional{notaFokus.empName ? ` — ${notaFokus.empName}` : ''}</b></span>
+                                        <button type="button" onClick={() => { setNotaFokus(null); setNotaTahun(tahunIniStr()); setNotaBulan(''); }} className="text-xs font-bold text-blue-700 bg-white border border-blue-200 rounded-lg px-2.5 py-1">✕ Tampilkan semua nota</button>
+                                    </div>
+                                )}
                                 {vendorSaring && (
                                     <div data-saring-vendor className="flex flex-wrap items-center justify-between gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-sm text-blue-900">
                                         <span>🏪 Nota vendor: <b>{vendorSaring.name}</b></span>
@@ -10675,7 +10696,14 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast, gajiSensitif = null, bolehKelola = false, namaPencatat = '' }) => {
+        // Jenis pemakaian dana operasional (uang keluar) & menu asalnya — untuk daftar Penggunaan Dana & tombol "Lihat ›"
+        const DANA_PAKAI_JENIS = {
+            nota: { label: 'Pembelian Bahan', tab: 'pembelian_bahan', menu: 'Pembelian Bahan', bg: 'bg-red-50 border-red-200', ic: 'bg-red-100 text-red-700', amt: 'text-red-800' },
+            biaya: { label: 'Biaya', tab: 'biaya', menu: 'Biaya', bg: 'bg-red-50 border-red-200', ic: 'bg-red-100 text-red-700', amt: 'text-red-800' },
+            gaji: { label: 'Bayar Gaji', tab: 'laporan', menu: 'Laporan Kinerja', bg: 'bg-purple-50 border-purple-200', ic: 'bg-purple-100 text-purple-700', amt: 'text-purple-800' },
+            bh: { label: 'Bagi Hasil Promosi', tab: 'invoice', menu: 'Invoice', bg: 'bg-teal-50 border-teal-200', ic: 'bg-teal-100 text-teal-700', amt: 'text-teal-800' },
+        };
+        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast, gajiSensitif = null, bolehKelola = false, namaPencatat = '', onLihatPemakaian = null, bisaBukaMenu = null, pilihKaryawanReq = null }) => {
             // Tanpa akses "Kelola Dana Operasional" menu ini hanya lihat: semua penyimpanan ditolak
             const tolakTanpaAkses = () => { if (bolehKelola) return false; showToast('Hanya Admin (akses Kelola Dana Operasional) yang dapat menambah atau mengubah dana operasional.', 'error'); return true; };
             const canViewSensDana = gajiSensitif ? !!gajiSensitif.lihat : false;
@@ -10791,7 +10819,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 }
             };
             const empDana = safeDana.filter(d => String(d.karyawanId) === selectedEmpId && d.type !== 'aktivasi').sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
-            const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, notaId: n.id, vendor: n.vendor, notaDate: n.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const linkedPN = safeArray(purchaseNotes).filter(n => !n.isDeleted).flatMap(n => safeArray(n.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, notaId: n.id, vendor: n.vendor, notaDate: n.date, namaBahan: (() => { const nm = [...new Set(safeArray(n.items).map(it => normBahanText(it && it.name)).filter(Boolean))]; return nm.length > 3 ? nm.slice(0, 3).join(', ') + ', …' : nm.join(', '); })() }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const linkedExp = safeArray(expenses).filter(ex => !ex.isDeleted).flatMap(ex => safeArray(ex.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, expId: ex.id, category: getExpenseLabel(ex), expDate: ex.date }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             // Pembayaran gaji Direksi & Marketing tetap dihitung di saldo, tapi namanya disembunyikan tanpa akses "Lihat"
             const rekapGajiSensitif = (r) => { const e = safeArray(employees).find(x => String(x.id) === String(r.empId)); return e ? isSensitiveSalaryEmp(e) : SENSITIVE_SALARY_DIVISIONS.some(d => String(r.division || '').includes(d)); };
@@ -10801,6 +10829,21 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             })).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const linkedBHP = safeArray(bagiHasilPromosi).filter(b => !b.isDeleted).flatMap(b => safeArray(b.payments).filter(p => String(p.operasionalKaryawanId || '') === selectedEmpId).map(p => ({ ...p, bhpId: b.id, bhpNama: b.nama }))).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             const stats = selectedEmp ? getDanaSaldoKaryawan(selectedEmp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi) : null;
+            // Riwayat uang masuk: 10 per halaman (kembali ke halaman 1 saat ganti karyawan)
+            const { page: masukPage, setPage: setMasukPage, totalPages: masukTotalPages, paged: masukPaged, total: masukTotal } = usePagination(empDana, 10, selectedEmpId);
+            // Penggunaan dana (uang keluar) dari semua menu: digabung, urut tanggal terbaru, bisa disaring per jenis
+            const [saringPakai, setSaringPakai] = useState('semua');
+            useEffect(() => { setSaringPakai('semua'); }, [selectedEmpId]);
+            const pemakaianDana = [
+                ...linkedPN.map(p => ({ jenis: 'nota', key: 'pn-' + p.notaId + '-' + p.id, tgl: p.date || p.notaDate || '', amount: p.amount, judul: p.vendor || '-', ket: p.namaBahan, refId: p.notaId })),
+                ...linkedExp.map(p => ({ jenis: 'biaya', key: 'ex-' + p.expId + '-' + p.id, tgl: p.date || p.expDate || '', amount: p.amount, judul: p.category || '-', ket: '', refId: p.expId })),
+                ...linkedRekap.map(p => ({ jenis: 'gaji', key: 'rk-' + p.rekapId + '-' + p.id, tgl: p.date || '', amount: p.amount, judul: p.empName || '-', ket: '', refId: p.rekapId === '-' ? '' : p.rekapId, disembunyikan: p.rekapId === '-' })),
+                ...linkedBHP.map(p => ({ jenis: 'bh', key: 'bh-' + p.bhpId + '-' + p.id, tgl: p.date || '', amount: p.amount, judul: p.bhpNama || '-', ket: '', refId: p.bhpId })),
+            ].sort((a, b) => String(b.tgl).localeCompare(String(a.tgl)));
+            const pemakaianTersaring = saringPakai === 'semua' ? pemakaianDana : pemakaianDana.filter(x => x.jenis === saringPakai);
+            const { page: pakaiPage, setPage: setPakaiPage, totalPages: pakaiTotalPages, paged: pakaiPaged, total: pakaiTotal } = usePagination(pemakaianTersaring, 10, `${selectedEmpId}|${saringPakai}`);
+            // Dari tombol "← Kembali ke Dana Operasional": buka lagi karyawan yang sama
+            useEffect(() => { if (pilihKaryawanReq && pilihKaryawanReq.empId) setSelectedEmpId(String(pilihKaryawanReq.empId)); }, [pilihKaryawanReq && pilihKaryawanReq.t]);
 
             return (
                 <div className="space-y-6">
@@ -11065,15 +11108,15 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-2">
                                     <div className="w-1 h-4 rounded-full bg-blue-500"></div>
-                                    <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Riwayat Dana Operasional — {selectedEmp.name}</span>
+                                    <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Riwayat Dana Operasional — {selectedEmp.name}{empDana.length > 0 ? ` (${empDana.length})` : ''}</span>
                                 </div>
                                 {bolehKelola && <button onClick={() => { setEditId(null); setForm(emptyTransferForm); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-100">+ Transfer Baru</button>}
                             </div>
                             {empDana.length === 0 ? (
                                 <p className="text-sm text-gray-400 italic text-center py-4">Belum ada transfer dana untuk {selectedEmp.name}.</p>
                             ) : (
-                                <div className="space-y-2">
-                                    {empDana.map(d => {
+                                <div className="space-y-2" data-dana-masuk>
+                                    {masukPaged.map(d => {
                                         const isPenyelesaian = d.type === 'penyelesaian';
                                         const isTalangan = d.type === 'talangan';
                                         const bgBorder = isPenyelesaian ? 'bg-amber-50 border-amber-200' : isTalangan ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200';
@@ -11101,51 +11144,49 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     })}
                                 </div>
                             )}
+                            <Paginator page={masukPage} setPage={setMasukPage} totalPages={masukTotalPages} total={masukTotal} pageSize={10} label="catatan" />
                         </Card>
-                        {(linkedPN.length > 0 || linkedExp.length > 0 || linkedRekap.length > 0 || linkedBHP.length > 0) && (
+                        {pemakaianDana.length > 0 && (
                             <Card>
-                                <div className="flex items-center gap-2 mb-4">
+                                <div className="flex items-center gap-2 mb-3">
                                     <div className="w-1 h-4 rounded-full bg-red-400"></div>
-                                    <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Penggunaan Dana — {selectedEmp.name}</span>
+                                    <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Penggunaan Dana — {selectedEmp.name} ({pemakaianDana.length})</span>
                                 </div>
-                                <div className="space-y-2">
-                                    {linkedPN.map(p => (
-                                        <div key={p.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
-                                            <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-700 font-black text-sm flex-shrink-0">↑</div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-red-800 text-sm">{formatRupiah(p.amount)}</div>
-                                                <div className="text-xs text-gray-500">Pembelian Bahan · {p.date} · {p.vendor || '-'} · <span className="font-mono text-gray-400 text-[10px]">{p.notaId}</span></div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {linkedExp.map(p => (
-                                        <div key={p.id} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
-                                            <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-700 font-black text-sm flex-shrink-0">↑</div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-red-800 text-sm">{formatRupiah(p.amount)}</div>
-                                                <div className="text-xs text-gray-500">Biaya · {p.date} · {p.category || '-'} · <span className="font-mono text-gray-400 text-[10px]">{p.expId}</span></div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {linkedRekap.map(p => (
-                                        <div key={p.id} className="flex items-center gap-3 px-4 py-3 bg-purple-50 border border-purple-200 rounded-xl">
-                                            <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center text-purple-700 font-black text-sm flex-shrink-0">↑</div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-purple-800 text-sm">{formatRupiah(p.amount)}</div>
-                                                <div className="text-xs text-gray-500">Bayar Gaji · {p.date} · {p.empName || '-'} · <span className="font-mono text-gray-400 text-[10px]">{p.rekapId}</span></div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {linkedBHP.map(p => (
-                                        <div key={p.id} className="flex items-center gap-3 px-4 py-3 bg-teal-50 border border-teal-200 rounded-xl">
-                                            <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center text-teal-700 font-black text-sm flex-shrink-0">↑</div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-teal-800 text-sm">{formatRupiah(p.amount)}</div>
-                                                <div className="text-xs text-gray-500">Bagi Hasil Promosi · {p.date} · {p.bhpNama || '-'} · <span className="font-mono text-gray-400 text-[10px]">{p.bhpId}</span></div>
-                                            </div>
-                                        </div>
-                                    ))}
+                                <div className="flex flex-wrap gap-1.5 mb-3" data-dana-saring>
+                                    {['semua', 'nota', 'biaya', 'gaji', 'bh'].map(j => {
+                                        const isi = j === 'semua' ? pemakaianDana : pemakaianDana.filter(x => x.jenis === j);
+                                        if (j !== 'semua' && isi.length === 0) return null;
+                                        const aktif = saringPakai === j;
+                                        return (
+                                            <button key={j} type="button" data-dana-saring-jenis={j} onClick={() => setSaringPakai(j)} className={`px-3 py-1 rounded-full border text-xs font-bold ${aktif ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-gray-200 text-slate-700 hover:bg-gray-50'}`}>
+                                                {j === 'semua' ? 'Semua' : DANA_PAKAI_JENIS[j].label} <span className={`font-semibold ${aktif ? 'text-slate-300' : 'text-gray-500'}`}>{isi.length} · {formatRupiah(isi.reduce((s, x) => s + safeMoney(x.amount), 0))}</span>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
+                                <div className="space-y-2" data-dana-pakai>
+                                    {pakaiPaged.map(x => {
+                                        const J = DANA_PAKAI_JENIS[x.jenis];
+                                        const bisaAkses = !bisaBukaMenu || bisaBukaMenu(x.jenis);
+                                        return (
+                                            <div key={x.key} data-dana-pakai-baris={x.jenis} className={`flex flex-wrap sm:flex-nowrap items-center gap-3 px-4 py-3 border rounded-xl ${J.bg}`}>
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${J.ic}`}>↑</div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`font-bold text-sm ${J.amt}`}>{formatRupiah(x.amount)}</div>
+                                                    <div className="text-xs text-gray-500">{J.label} · {x.tgl || '-'} · <b className="font-semibold text-gray-700">{x.judul}</b>{x.ket ? ` · ${x.ket}` : ''}</div>
+                                                    {x.refId && <div className="font-mono text-gray-400 text-[10px]">{x.refId}</div>}
+                                                </div>
+                                                <div className="ml-11 sm:ml-0 shrink-0 text-right">
+                                                    {x.disembunyikan ? <span className="text-[11px] text-gray-400">rincian disembunyikan</span>
+                                                        : !onLihatPemakaian || !x.refId ? null
+                                                        : bisaAkses ? <button type="button" data-dana-lihat onClick={() => onLihatPemakaian(x.jenis, x.refId, selectedEmp)} className="px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold whitespace-nowrap">Lihat ›</button>
+                                                        : <span data-dana-lihat-tanpa-akses className="inline-flex flex-col items-end"><span className="px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-100 text-gray-400 text-xs font-bold cursor-not-allowed">Lihat ›</span><span className="text-[10px] text-gray-400 mt-0.5">Tidak ada akses menu {J.menu}</span></span>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <Paginator page={pakaiPage} setPage={setPakaiPage} totalPages={pakaiTotalPages} total={pakaiTotal} pageSize={10} label="pemakaian" />
                             </Card>
                         )}
                         </>
@@ -11178,7 +11219,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes, rekapKinerja = [], bagiHasilPromosi = [] }) => {
+        const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes, rekapKinerja = [], bagiHasilPromosi = [], bukaBiayaDana = null }) => {
             const [biayaSubTab, setBiayaSubTab] = useState('biaya');
             const emptyItem = () => ({ id: genId('BI-'), desc: '', qty: '1', unit: 'pcs', price: '' });
             // payMode/payAmount/payDate/payMethod/payDana: isian pembayaran saat input (tidak ikut disimpan sebagai kolom)
@@ -11374,6 +11415,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setPayForm(prev => ({ ...prev, [item.id]: { ...emptyPayForm, amount: item.type !== 'Uang Masuk' && sisa > 0 ? String(sisa) : '' } }));
                 setDetailId(item.id);
             };
+            // Dari Dana Operasional → "Lihat ›": langsung buka rincian biaya itu
+            useEffect(() => {
+                if (!bukaBiayaDana || !bukaBiayaDana.id) return;
+                const item = allExpenses.find(i => String(i.id) === String(bukaBiayaDana.id));
+                setBiayaSubTab('biaya');
+                if (item) openDetail(item); else showToast('Catatan biaya tidak ditemukan (mungkin sudah dihapus).', 'error');
+            }, [bukaBiayaDana && bukaBiayaDana.t]);
 
             const handleDelete = (id) => {
                 const now = new Date().toISOString();
@@ -12499,13 +12547,21 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             return 'Dibayar Sebagian';
         };
 
-        const BagiHasilPromosiTab = ({ bagiHasilPromosi, updateBagiHasilPromosi, invoices, showToast, employees, danaOperasional, purchaseNotes, expenses, rekapKinerja, periodeTahun = '', periodeBulan = '', onSemuaPeriode = null }) => {
+        const BagiHasilPromosiTab = ({ bagiHasilPromosi, updateBagiHasilPromosi, invoices, showToast, employees, danaOperasional, purchaseNotes, expenses, rekapKinerja, periodeTahun = '', periodeBulan = '', onSemuaPeriode = null, bukaDetail = null }) => {
             const emptyBhpForm = { nama: '', tanggal: toLocalDateStr(), invoiceIds: [], bagiHasilType: '%', bagiHasilValue: '', note: '', payments: [] };
             const [form, setForm] = React.useState(emptyBhpForm);
             const [editId, setEditId] = React.useState(null);
             const [invSearch, setInvSearch] = React.useState('');
             const [showInvDropdown, setShowInvDropdown] = React.useState(false);
             const [detailId, setDetailId] = React.useState(null);
+            // Dari Dana Operasional → "Lihat ›": buka rincian bagi hasil itu
+            React.useEffect(() => {
+                if (!bukaDetail || !bukaDetail.id) return;
+                const ada = (Array.isArray(bagiHasilPromosi) ? bagiHasilPromosi : []).some(b => isVisibleRecord(b) && String(b.id) === String(bukaDetail.id));
+                if (!ada) { showToast('Bagi hasil tidak ditemukan (mungkin sudah dihapus).', 'error'); return; }
+                setDetailId(bukaDetail.id);
+                setTimeout(() => { const el = document.querySelector(`[data-bhp-kartu="${String(bukaDetail.id).replace(/"/g, '')}"]`); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' }); }, 200);
+            }, [bukaDetail && bukaDetail.t]);
             const [payForm, setPayForm] = React.useState({ amount: '', date: toLocalDateStr(), method: 'Transfer', note: '', operasionalKaryawanId: '' });
             const [shareModal, setShareModal] = React.useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = React.useState(null);
@@ -12818,7 +12874,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                 ? { bar:'#d97706', bg:'#fef3c7', text:'#b45309', stripe:'#f59e0b' }
                                 : { bar:'#dc2626', bg:'#fee2e2', text:'#b91c1c', stripe:'#ef4444' };
                             return (
-                                <div key={bhp.id} className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ border: '1px solid #f0f0f0', borderLeft: `4px solid ${statusColor.stripe}` }}>
+                                <div key={bhp.id} data-bhp-kartu={bhp.id} className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ border: '1px solid #f0f0f0', borderLeft: `4px solid ${statusColor.stripe}` }}>
                                     <div className="p-4">
                                         <div className="flex items-start gap-3">
                                             {/* Avatar */}
@@ -12998,7 +13054,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             );
         };
 
-        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi, danaOperasional, purchaseNotes, expenses, rekapKinerja, gajiSensitif = null }) => {
+        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi, danaOperasional, purchaseNotes, expenses, rekapKinerja, gajiSensitif = null, bukaBhpDana = null }) => {
             // Komisi marketing hanya untuk akun dengan akses "Lihat Gaji Direksi & Marketing"
             const canViewKomisi = gajiSensitif ? !!gajiSensitif.lihat : true;
             const newSize = () => ({ id: `SIZE-${Date.now()}-${Math.random()}`, size: '', qty: '', pricePerPcs: '', discountPerPcs: '', discountPercent: '' });
@@ -13052,6 +13108,12 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             // Filter periode (Tahun/Bulan) untuk tab Invoice, Komisi Marketing & Bagi Hasil Promosi. Bawaan: tahun ini, semua bulan.
             const [invTahun, setInvTahun] = useState(() => tahunIniStr());
             const [invBulan, setInvBulan] = useState('');
+            // Dari Dana Operasional → "Lihat ›": buka tab Bagi Hasil Promosi (semua tahun) dan rincian bagi hasil itu
+            useEffect(() => {
+                if (!bukaBhpDana || !bukaBhpDana.id) return;
+                setActiveInvoiceTab('bagi_hasil');
+                setInvTahun(''); setInvBulan('');
+            }, [bukaBhpDana && bukaBhpDana.t]);
             const safeInvoiceRows = Array.isArray(invoices) ? invoices : [];
             const safeClientRows = Array.isArray(clients) ? clients : [];
             const safeEmployeeRows = Array.isArray(employees) ? employees : [];
@@ -13995,7 +14057,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Marketing</h3><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th>{canViewKomisi && <th className="p-3 text-right">Total Komisi</th>}{canViewKomisi && <th className="p-3 text-center">Share Link</th>}</tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td>{canViewKomisi && <td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td>}{canViewKomisi && <td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td>}</tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div>{canViewKomisi && <div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)}</div>}</div>{canViewKomisi && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
                     }
                     {activeInvoiceTab === 'bagi_hasil' &&
-                    <BagiHasilPromosiTab periodeTahun={invTahun} periodeBulan={invBulan} onSemuaPeriode={() => setInvPeriode('', '')} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />
+                    <BagiHasilPromosiTab bukaDetail={bukaBhpDana} periodeTahun={invTahun} periodeBulan={invBulan} onSemuaPeriode={() => setInvPeriode('', '')} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />
                     }
                 </div>
                 {proofViewImg && (
@@ -18111,7 +18173,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null, absensiRawSync = 'idle', onRetryAbsensiRaw = null }) => {
+        const LaporanView = ({ orders, setOrders, employees, setEmployees, rekapKinerja, setRekapKinerja, invoices = [], setInvoices, showToast, templates, absensiRawLogs = [], absensiEdits = [], danaOperasional = [], purchaseNotes = [], expenses = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null, absensiRawSync = 'idle', onRetryAbsensiRaw = null, bukaRekapDana = null }) => {
             const [modalData, setModalData] = useState(null);
             const [deleteRekapConfirmId, setDeleteRekapConfirmId] = useState(null);
             const [restoreRekapConfirmId, setRestoreRekapConfirmId] = useState(null);
@@ -18120,6 +18182,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [showCancelledPaidDetail, setShowCancelledPaidDetail] = useState(false);
             const [detailRekapId, setDetailRekapId] = useState(null);
             const [detailRekapTab, setDetailRekapTab] = useState('rincian');
+            // Dari Dana Operasional → "Lihat ›": langsung buka rincian rekap gaji itu
+            useEffect(() => {
+                if (!bukaRekapDana || !bukaRekapDana.id) return;
+                const ada = safeArray(rekapKinerja).some(r => !r.isDeleted && String(r.id) === String(bukaRekapDana.id));
+                if (!ada) { showToast('Rekap gaji tidak ditemukan (mungkin sudah dihapus).', 'error'); return; }
+                setDetailRekapTab('rincian');
+                setDetailRekapId(bukaRekapDana.id);
+            }, [bukaRekapDana && bukaRekapDana.t]);
             const [payFormAmount, setPayFormAmount] = useState('');
             const [payFormMethod, setPayFormMethod] = useState('Transfer');
             const [payFormDate, setPayFormDate] = useState(toLocalDateStr());
@@ -29860,6 +29930,11 @@ ${getRekapShareLink(rekap)}
             const [mountedTabs, setMountedTabs] = React.useState(() => new Set(['dashboard']));
             // Data Master → Vendor → "Lihat nota vendor ini": buka Pembelian Bahan dengan pencarian nama vendor
             const [notaVendorReq, setNotaVendorReq] = React.useState(null);
+            // Dana Operasional → "Lihat ›": buka catatan pemakaian dana di menu asalnya, lalu tombol "← Kembali ke Dana Operasional"
+            const [danaBukaReq, setDanaBukaReq] = React.useState(null); // { jenis, id, empName, t }
+            const [danaKembali, setDanaKembali] = React.useState(null); // { empId, empName }
+            const [danaPilihReq, setDanaPilihReq] = React.useState(null); // { empId, t }
+            React.useEffect(() => { if (activeTab === 'dana_operasional') setDanaKembali(null); }, [activeTab]);
             React.useEffect(() => {
                 setMountedTabs(prev => {
                     if (prev.has(activeTab)) return prev;
@@ -33429,18 +33504,24 @@ ${getRekapShareLink(rekap)}
                                 <button onClick={() => setTroubleSnoozeUntil(0)} className="bg-white text-red-700 px-3 py-1 rounded-lg text-xs">Detail</button>
                             </div>
                         )}
+                        {danaKembali && activeTab !== 'dana_operasional' && canOpen('dana_operasional') && (
+                            <div data-dana-kembali className="fixed z-[95] left-3 bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] lg:left-auto lg:right-6 lg:bottom-24 flex items-center gap-0.5 bg-slate-800 text-white rounded-full shadow-xl p-1 print:hidden">
+                                <button type="button" data-dana-kembali-btn onClick={() => { setDanaPilihReq({ empId: danaKembali.empId, t: Date.now() }); setActiveTab('dana_operasional'); }} className="px-3 py-1.5 text-sm font-bold rounded-full hover:bg-slate-700">← Kembali ke Dana Operasional ({danaKembali.empName})</button>
+                                <button type="button" onClick={() => setDanaKembali(null)} className="w-7 h-7 rounded-full text-slate-300 hover:bg-slate-700 text-xs" title="Tutup">✕</button>
+                            </div>
+                        )}
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} templates={templates} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
-                                {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView bolehKelola={hasDanaOpsKelola(myLoginAccount)} namaPencatat={authUser?.name || authUser?.username || ''} employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
+                                {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView onLihatPemakaian={(jenis, id, emp) => { const J = DANA_PAKAI_JENIS[jenis]; if (!J || !canOpen(J.tab) || !emp) return; setDanaBukaReq({ jenis, id: String(id), empName: emp.name || '', t: Date.now() }); setDanaKembali({ empId: String(emp.id), empName: emp.name || '' }); setActiveTab(J.tab); }} bisaBukaMenu={(jenis) => !!DANA_PAKAI_JENIS[jenis] && canOpen(DANA_PAKAI_JENIS[jenis].tab)} pilihKaryawanReq={danaPilihReq} bolehKelola={hasDanaOpsKelola(myLoginAccount)} namaPencatat={authUser?.name || authUser?.username || ''} employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} /></div>}
-                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} stokBahan={stokBahan} setStokBahan={updateStokBahan} bukaNotaVendor={notaVendorReq} /></div>}
+                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} stokBahan={stokBahan} setStokBahan={updateStokBahan} bukaNotaVendor={notaVendorReq} bukaNotaDana={danaBukaReq && danaBukaReq.jenis === 'nota' ? danaBukaReq : null} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
-                                {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
-                                {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
+                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView bukaRekapDana={danaBukaReq && danaBukaReq.jenis === 'gaji' ? danaBukaReq : null} orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
+                                {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView bukaBiayaDana={danaBukaReq && danaBukaReq.jenis === 'biaya' ? danaBukaReq : null} expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
+                                {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView bukaBhpDana={danaBukaReq && danaBukaReq.jenis === 'bh' ? danaBukaReq : null} invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('data_master', canOpen('data_master')) && <div hidden={!tabVisible('data_master')}><DataMasterView izin={getAccountMenuAccess(authUser)} purchaseNotes={purchaseNotes}
                                     karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
