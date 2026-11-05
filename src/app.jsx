@@ -4632,6 +4632,8 @@ ${blocks}
                     else if (pilihanTahapDari(safeOrders, clients, editOrder.client, editOrder.id).some(o => o.id === tahapDiminta)) tahapDariAkhir = tahapDiminta;
                     else { showToast('Pesanan sebelumnya untuk "Tahap Pesanan" tidak ditemukan pada instansi ini. Pilih ulang atau pilih "Pesanan baru".', "error"); return; }
                     if (tahapDariAkhir && safeOrders.some(o => String(o.tahapDari || '') === String(editOrder.id))) { showToast('Order ini adalah Tahap 1 dari pesanan bertahap, jadi tidak bisa dijadikan lanjutan order lain.', "error"); return; }
+                } else if (tahapDariAkhir && kunciInstansi(clients, original?.client) !== kunciInstansi(clients, editOrder.client) && !pilihanTahapDari(safeOrders, clients, editOrder.client, editOrder.id).some(o => o.id === tahapDariAkhir)) {
+                    showToast('Nama instansi diganti, tetapi order ini masih tercatat sebagai lanjutan pesanan instansi lama. Pilih "Pesanan baru" atau pilih ulang pesanannya di "Tahap Pesanan".', "error"); return;
                 }
                 const editNow = new Date().toISOString();
                 const renameSize = (sz) => sizeRenames[sz] || sz;
@@ -6627,6 +6629,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 const { rencanaBahan: _rbDraft, tahapDari: tahapDariDraft, ...newOrderTanpaRencana } = newOrder;
                 // Tahap pesanan: hanya disimpan bila order induknya memang order instansi yang sama
                 const tahapDariBaru = tahapDariDraft && pilihanTahapDari(allOrders, clients, newOrder.client).some(o => o.id === String(tahapDariDraft)) ? String(tahapDariDraft) : '';
+                if (tahapDariDraft && !tahapDariBaru) { showToast('Pilihan "Lanjutan dari order sebelumnya" tidak cocok dengan instansi ini. Pilih ulang pesanannya atau pilih "Pesanan baru".', 'error'); return; }
                 const orderToAdd = {
                     ...newOrderTanpaRencana,
                     ...(rencanaBahanBaru.length > 0 ? { rencanaBahan: rencanaBahanBaru } : {}),
