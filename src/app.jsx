@@ -259,6 +259,9 @@
         const SENSITIVE_SALARY_DIVISIONS = ['Direktur', 'Komisaris', 'Marketing'];
         const hasGajiSensitifEdit = (account) => !!account && !account.isDeleted && (account.gajiSensitifEdit === true || (account.gajiSensitifEdit == null && account.role === 'Admin'));
         const hasGajiSensitifLihat = (account) => hasGajiSensitifEdit(account) || (!!account && !account.isDeleted && (account.gajiSensitifLihat === true || (account.gajiSensitifLihat == null && account.role === 'Admin')));
+        // Akses khusus "Kelola Dana Operasional": tambah/ubah/hapus transfer, talangan, penyesuaian & daftar karyawan.
+        // Admin otomatis (selama belum diatur), akun lain harus dicentang di Master Akun. Tanpa akses: menu Dana Operasional hanya lihat.
+        const hasDanaOpsKelola = (account) => !!account && !account.isDeleted && (account.danaOpsKelola === true || (account.danaOpsKelola == null && account.role === 'Admin'));
         const isSensitiveSalaryEmp = (emp) => !!emp && getEmployeeDivisions(emp).some(d => SENSITIVE_SALARY_DIVISIONS.includes(d));
         const GAJI_SENSITIF_LABEL = 'Gaji Direksi & Marketing (disembunyikan)';
 
@@ -10672,7 +10675,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast, gajiSensitif = null }) => {
+        const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast, gajiSensitif = null, bolehKelola = false, namaPencatat = '' }) => {
+            // Tanpa akses "Kelola Dana Operasional" menu ini hanya lihat: semua penyimpanan ditolak
+            const tolakTanpaAkses = () => { if (bolehKelola) return false; showToast('Hanya Admin (akses Kelola Dana Operasional) yang dapat menambah atau mengubah dana operasional.', 'error'); return true; };
             const canViewSensDana = gajiSensitif ? !!gajiSensitif.lihat : false;
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const [selectedEmpId, setSelectedEmpId] = useState('');
@@ -10709,6 +10714,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const handleSave = (e) => {
                 e.preventDefault();
+                if (tolakTanpaAkses()) return;
                 const nominal = safeMoney(form.nominal);
                 if (!selectedEmpId) { showToast('Pilih karyawan terlebih dahulu.', 'error'); return; }
                 if (nominal <= 0) { showToast('Nominal harus lebih dari 0.', 'error'); return; }
@@ -10724,8 +10730,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     type: isTalangan ? 'talangan' : 'keluar',
                     _syncUpdatedAt: now,
                 };
+                // Pencatat: isian baru → akun yang login; edit → pencatat asli tetap, pengubah dicatat terpisah
+                if (editId) record.diubahOleh = namaPencatat; else record.dicatatOleh = namaPencatat;
                 setDanaOperasional(prev => editId
-                    ? safeArray(prev).map(d => String(d.id) === editId ? record : d)
+                    ? safeArray(prev).map(d => String(d.id) === editId ? { ...(d.dicatatOleh ? { dicatatOleh: d.dicatatOleh } : {}), ...record } : d)
                     : [record, ...safeArray(prev)]);
                 setForm(emptyTransferForm);
                 setEditId(null);
@@ -10734,6 +10742,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const handleDelete = (id) => {
+                if (tolakTanpaAkses()) { setDeleteConfirmId(null); return; }
                 const now = new Date().toISOString();
                 setDanaOperasional(prev => safeArray(prev).map(d => String(d.id) === String(id) ? { ...d, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : d));
                 const deletedRec = safeArray(danaOperasional).find(d => String(d.id) === String(id));
@@ -10743,6 +10752,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
 
             const handleNolkanSaldo = (e) => {
                 e.preventDefault();
+                if (tolakTanpaAkses()) return;
                 const nominal = safeMoney(nolkanForm.nominal);
                 if (nominal <= 0) { showToast('Nominal harus lebih dari 0.', 'error'); return; }
                 if (!nolkanForm.keterangan.trim()) { showToast('Keterangan wajib diisi.', 'error'); return; }
@@ -10756,6 +10766,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     nominal,
                     keterangan: nolkanForm.keterangan.trim(),
                     type: 'penyelesaian',
+                    dicatatOleh: namaPencatat,
                     _syncUpdatedAt: now,
                 };
                 setDanaOperasional(prev => [record, ...safeArray(prev)]);
@@ -10765,6 +10776,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const handleToggleAktif = (empId) => {
+                if (tolakTanpaAkses()) return;
                 const eid = String(empId);
                 const existingAktif = safeDana.find(d => String(d.karyawanId) === eid && d.type === 'aktivasi');
                 const now = new Date().toISOString();
@@ -10773,7 +10785,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     showToast('Karyawan dikeluarkan dari daftar dana operasional.', 'success');
                 } else {
                     const emp = safeEmployees.find(e => String(e.id) === eid);
-                    const record = { id: genId('DO-'), karyawanId: eid, karyawanNama: emp?.name || '', tanggal: toLocalDateStr(now), nominal: 0, keterangan: 'Terdaftar dana operasional', type: 'aktivasi', _syncUpdatedAt: now };
+                    const record = { id: genId('DO-'), karyawanId: eid, karyawanNama: emp?.name || '', tanggal: toLocalDateStr(now), nominal: 0, keterangan: 'Terdaftar dana operasional', type: 'aktivasi', dicatatOleh: namaPencatat, _syncUpdatedAt: now };
                     setDanaOperasional(prev => [record, ...safeArray(prev)]);
                     showToast(`${emp?.name || 'Karyawan'} didaftarkan ke dana operasional.`, 'success');
                 }
@@ -10797,12 +10809,16 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             <h2 className="text-2xl font-bold text-gray-800">Dana Operasional Karyawan</h2>
                             <p className="text-sm text-gray-500 mt-1">Transfer dana perusahaan ke karyawan dan pantau penggunaannya di pembelian bahan &amp; biaya.</p>
                         </div>
-                        <button onClick={() => { setShowForm(f => !f); setForm(emptyTransferForm); setEditId(null); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">
-                            <span>+</span> Transfer Dana
-                        </button>
+                        {bolehKelola ? (
+                            <button onClick={() => { setShowForm(f => !f); setForm(emptyTransferForm); setEditId(null); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">
+                                <span>+</span> Transfer Dana
+                            </button>
+                        ) : (
+                            <div data-dana-terkunci className="flex items-center gap-2 bg-slate-100 border border-slate-300 text-slate-700 rounded-xl px-3 py-2 text-sm font-semibold">🔒 Hanya Admin (akses Kelola Dana Operasional) yang dapat menambah atau mengubah dana operasional.</div>
+                        )}
                     </div>
 
-                    {showForm && (
+                    {showForm && bolehKelola && (
                         <Card>
                             <div className="flex items-center gap-2 mb-4">
                                 <div className="w-1 h-4 rounded-full bg-blue-500"></div>
@@ -10890,13 +10906,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         {emp.name}
                                         {s.defisit > 0 && <span className="text-[10px] font-bold text-blue-600 bg-blue-200 px-1.5 py-0.5 rounded-full">Dana Sendiri</span>}
                                         {s.saldo > 0 && <span className="text-[10px] font-bold text-green-700 bg-green-200 px-1.5 py-0.5 rounded-full">{formatRupiah(s.saldo)}</span>}
-                                        <button type="button" onClick={() => handleToggleAktif(emp.id)} className="w-4 h-4 rounded-full bg-blue-200 hover:bg-red-200 text-blue-700 hover:text-red-700 flex items-center justify-center font-black text-[10px] transition-colors ml-0.5">×</button>
+                                        {bolehKelola && <button type="button" onClick={() => handleToggleAktif(emp.id)} className="w-4 h-4 rounded-full bg-blue-200 hover:bg-red-200 text-blue-700 hover:text-red-700 flex items-center justify-center font-black text-[10px] transition-colors ml-0.5">×</button>}
                                     </span>
                                 );
                             })}
                             {(() => {
                                 const unregistered = safeEmployees.filter(emp => !isAktifDana(emp.id, danaOperasional));
-                                if (unregistered.length === 0) return null;
+                                if (unregistered.length === 0 || !bolehKelola) return null;
                                 return (
                                     <select className="text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-3 py-1 cursor-pointer hover:bg-blue-100 transition-colors appearance-none" value="" onChange={e => { if (e.target.value) handleToggleAktif(e.target.value); }}>
                                         <option value="">+ Tambah Karyawan</option>
@@ -10908,7 +10924,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <span className="text-xs text-gray-400 italic">Semua karyawan sudah terdaftar.</span>
                             )}
                             {safeEmployees.length > 0 && safeEmployees.every(emp => !isAktifDana(emp.id, danaOperasional)) && (
-                                <p className="text-xs text-gray-400 italic w-full">Belum ada karyawan terdaftar. Klik "+ Tambah Karyawan" untuk mendaftarkan.</p>
+                                <p className="text-xs text-gray-400 italic w-full">{bolehKelola ? 'Belum ada karyawan terdaftar. Klik "+ Tambah Karyawan" untuk mendaftarkan.' : 'Belum ada karyawan terdaftar.'}</p>
                             )}
                         </div>
                         <p className="text-[10px] text-gray-400 mt-2">Karyawan terdaftar muncul sebagai pilihan sumber dana di Pembelian Bahan, Biaya &amp; Rekap Kinerja.</p>
@@ -10937,7 +10953,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 );
                             })}
                             {safeEmployees.every(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi); return s.totalIn === 0 && s.totalTalangan === 0 && s.defisit === 0 && !isAktifDana(emp.id, danaOperasional); }) && safeEmployees.length > 0 && (
-                                <p className="text-sm text-gray-400 italic">Daftarkan karyawan di atas lalu klik "+ Transfer Dana" untuk mulai.</p>
+                                <p className="text-sm text-gray-400 italic">{bolehKelola ? 'Daftarkan karyawan di atas lalu klik "+ Transfer Dana" untuk mulai.' : 'Belum ada dana operasional yang dicatat.'}</p>
                             )}
                         </div>
                     </Card>
@@ -10984,7 +11000,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             : <><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Sisa di Karyawan</h3><p className={`text-2xl font-black mt-2 ${stats.saldo > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{formatRupiah(stats.saldo)}</p></>
                                         }
                                     </div>
-                                    {stats.saldo > 0 && stats.hutang <= 0 && stats.defisit <= 0 && (
+                                    {bolehKelola && stats.saldo > 0 && stats.hutang <= 0 && stats.defisit <= 0 && (
                                         <button onClick={() => { setNolkanForm({ ...emptyNolkanForm, nominal: String(stats.saldo) }); setShowNolkanForm(true); }} className="mt-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-lg text-xs font-bold whitespace-nowrap">Penyesuaian Dana</button>
                                     )}
                                 </div>
@@ -10992,7 +11008,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </Card>
                         </div>
 
-                        {showNolkanForm && (
+                        {showNolkanForm && bolehKelola && (
                             <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
                                     <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-4 rounded-t-2xl">
@@ -11051,7 +11067,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     <div className="w-1 h-4 rounded-full bg-blue-500"></div>
                                     <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Riwayat Dana Operasional — {selectedEmp.name}</span>
                                 </div>
-                                <button onClick={() => { setEditId(null); setForm(emptyTransferForm); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-100">+ Transfer Baru</button>
+                                {bolehKelola && <button onClick={() => { setEditId(null); setForm(emptyTransferForm); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-100">+ Transfer Baru</button>}
                             </div>
                             {empDana.length === 0 ? (
                                 <p className="text-sm text-gray-400 italic text-center py-4">Belum ada transfer dana untuk {selectedEmp.name}.</p>
@@ -11074,11 +11090,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     {isTalangan && <span className="text-[10px] font-bold bg-red-200 text-red-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Talangan</span>}
                                                 </div>
                                                 <div className="text-xs text-gray-500">{d.tanggal}{d.keterangan ? ` · ${d.keterangan}` : ''}</div>
+                                                <div data-dana-pencatat className="text-[11px] text-gray-500 mt-0.5">✍ Dicatat oleh: <b className="font-semibold">{d.dicatatOleh || '—'}</b>{d.diubahOleh ? <span> · diubah oleh {d.diubahOleh}</span> : null}</div>
                                             </div>
-                                            <div className="flex gap-1 flex-shrink-0">
+                                            {bolehKelola && <div className="flex gap-1 flex-shrink-0">
                                                 {!isPenyelesaian && <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
                                                 <button onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
-                                            </div>
+                                            </div>}
                                         </div>
                                         );
                                     })}
@@ -11143,7 +11160,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     )}
 
 
-                    {deleteConfirmId && (
+                    {deleteConfirmId && bolehKelola && (
                         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
                                 <h3 className="font-black text-gray-800 text-lg mb-2">Hapus Catatan?</h3>
@@ -23333,16 +23350,19 @@ ${getRekapShareLink(rekap)}
             const bolehAturAkses = (has) => has(myAccount) || (!masihAdaPemegang(safeAccounts, has) && myAccount?.role === 'Admin');
             const canManageCekScan = bolehAturAkses(hasCekScanAccess);
             const canManageGaji = bolehAturAkses(hasGajiSensitifEdit);
+            const canManageDanaOps = bolehAturAkses(hasDanaOpsKelola);
             const AKSES_KHUSUS = [
                 { key: 'cekScanAsli', label: 'Cek Scan Asli', boleh: canManageCekScan },
                 { key: 'gajiSensitifLihat', label: 'Lihat Gaji Direksi & Marketing', boleh: canManageGaji },
                 { key: 'gajiSensitifEdit', label: 'Edit Gaji Direksi & Marketing', boleh: canManageGaji },
+                { key: 'danaOpsKelola', label: 'Kelola Dana Operasional', boleh: canManageDanaOps },
             ];
             // Nilai centang dibuat tegas saat form dibuka (akun Admin lama: tercentang)
-            const aksesKhususAwal = (acc) => ({ cekScanAsli: hasCekScanAccess(acc), gajiSensitifLihat: hasGajiSensitifLihat(acc), gajiSensitifEdit: hasGajiSensitifEdit(acc) });
+            const aksesKhususAwal = (acc) => ({ cekScanAsli: hasCekScanAccess(acc), gajiSensitifLihat: hasGajiSensitifLihat(acc), gajiSensitifEdit: hasGajiSensitifEdit(acc), danaOpsKelola: hasDanaOpsKelola(acc) });
             const AKSES_KUNCI = [
                 { has: hasCekScanAccess, pesan: 'Minimal satu akun harus tetap punya akses Cek Scan Asli.' },
                 { has: hasGajiSensitifEdit, pesan: 'Minimal satu akun harus tetap punya akses Edit Gaji Direksi & Marketing.' },
+                { has: hasDanaOpsKelola, pesan: 'Minimal satu akun harus tetap punya akses Kelola Dana Operasional.' },
             ];
             const cekPemegangTerakhir = (nextList) => {
                 for (const k of AKSES_KUNCI) if (masihAdaPemegang(safeAccounts, k.has) && !masihAdaPemegang(nextList, k.has)) return k.pesan;
@@ -23386,7 +23406,7 @@ ${getRekapShareLink(rekap)}
                             ))}
                             {renderAksesKhususItems(target, setTarget)}
                         </div>
-                        <p className="text-[11px] text-gray-500 mt-2">Cek Scan Asli dan Gaji Direksi & Marketing bisa diatur juga untuk Admin, dan hanya bisa diubah oleh akun yang punya akses tersebut. Edit gaji otomatis termasuk Lihat.</p>
+                        <p className="text-[11px] text-gray-500 mt-2">Cek Scan Asli, Gaji Direksi & Marketing, dan Kelola Dana Operasional bisa diatur juga untuk Admin, dan hanya bisa diubah oleh akun yang punya akses tersebut. Edit gaji otomatis termasuk Lihat. Tanpa Kelola Dana Operasional, menu Dana Operasional hanya bisa dilihat.</p>
                     </div>
                 );
             };
@@ -23408,6 +23428,7 @@ ${getRekapShareLink(rekap)}
                     cekScanAsli: canManageCekScan && newAcc.cekScanAsli === true,
                     gajiSensitifLihat: canManageGaji && (newAcc.gajiSensitifLihat === true || newAcc.gajiSensitifEdit === true),
                     gajiSensitifEdit: canManageGaji && newAcc.gajiSensitifEdit === true,
+                    danaOpsKelola: canManageDanaOps && newAcc.danaOpsKelola === true,
                 };
                 setAccounts(prev => [...(prev||[]), { ...newAccRest, ...aksesBaru, ...makePasswordFields(newPlainPassword), id: genId('ACC-'), _syncUpdatedAt: now }]);
                 setShowForm(false);
@@ -23432,6 +23453,7 @@ ${getRekapShareLink(rekap)}
                 const awalSebelum = aksesKhususAwal(accBefore);
                 if (!canManageCekScan) editRest.cekScanAsli = awalSebelum.cekScanAsli;
                 if (!canManageGaji) { editRest.gajiSensitifLihat = awalSebelum.gajiSensitifLihat; editRest.gajiSensitifEdit = awalSebelum.gajiSensitifEdit; }
+                if (!canManageDanaOps) editRest.danaOpsKelola = awalSebelum.danaOpsKelola;
                 if (editRest.gajiSensitifEdit === true) editRest.gajiSensitifLihat = true;
                 const pesanTerakhir = cekPemegangTerakhir(safeAccounts.map(a => String(a.id) === String(editAcc.id) ? { ...a, ...editRest } : a));
                 if (pesanTerakhir) { showToast(pesanTerakhir, "error"); return; }
@@ -33412,7 +33434,7 @@ ${getRekapShareLink(rekap)}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
                                 {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} templates={templates} /></div>}
                                 {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
-                                {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
+                                {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView bolehKelola={hasDanaOpsKelola(myLoginAccount)} namaPencatat={authUser?.name || authUser?.username || ''} employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} /></div>}
                                 {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} stokBahan={stokBahan} setStokBahan={updateStokBahan} bukaNotaVendor={notaVendorReq} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
