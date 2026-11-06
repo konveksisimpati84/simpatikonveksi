@@ -1127,16 +1127,18 @@
                 .filter(l => l && !l.isDeleted && !l.isReported && l.checkAfter && getWorkLogSubmittedQty(l) > 0)
                 .map(l => ({ ...l, stageId })));
 
-        const getCustomerTrackingClientFromHash = () => {
+        // #customer-tracking=<nama>[&juga=<nama lain>]… — nama lain = ejaan lain instansi yang sama (Data Master Klien / order)
+        const getCustomerTrackingNamesFromHash = () => {
             const hash = window.location.hash || '';
             const prefix = '#customer-tracking=';
-            if (!hash.startsWith(prefix)) return '';
+            if (!hash.startsWith(prefix)) return [];
             try {
-                return decodeURIComponent(hash.slice(prefix.length));
+                return hash.slice(prefix.length).split('&juga=').map(x => decodeURIComponent(x)).filter(x => String(x || '').trim());
             } catch (error) {
-                return '';
+                return [];
             }
         };
+        const getCustomerTrackingClientFromHash = () => getCustomerTrackingNamesFromHash()[0] || '';
 
         const getRekapGajiIdFromHash = () => {
             const hash = window.location.hash || '';
@@ -22495,7 +22497,7 @@ ${getRekapShareLink(rekap)}
         const BULAN_PENDEK_RP = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
         const tglRekapPesanan = (d, tahun = true) => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${parseInt(m[3], 10)} ${BULAN_PENDEK_RP[parseInt(m[2], 10) - 1]}${tahun ? ' ' + m[1] : ''}` : (d || '-'); };
         const ukuranKunciRP = (s) => String(s == null ? '' : s).trim().toUpperCase();
-        const RekapPesananPanel = ({ orders, clients = [], riwayatPengiriman = [], templates, showToast }) => {
+        const RekapPesananPanel = ({ orders, clients = [], riwayatPengiriman = [], templates, showToast, kunciTetap = '', namaTetap = '' }) => {
             const semuaOrder = React.useMemo(() => safeArray(orders).filter(isVisibleOrder), [orders]);
             const tahapInfo = React.useMemo(() => infoTahapOrders(semuaOrder), [semuaOrder]);
             const kunciOrder = React.useMemo(() => { const m = new Map(); semuaOrder.forEach(o => m.set(String(o.id), normBahanText(o.client) ? kunciInstansi(clients, o.client) : '')); return m; }, [semuaOrder, clients]);
@@ -22520,7 +22522,8 @@ ${getRekapShareLink(rekap)}
                 m.forEach(list => list.sort((a, b) => String(a.date).localeCompare(String(b.date))));
                 return m;
             }, [riwayatPengiriman]);
-            const [instKey, setInstKey] = useState('');
+            const [instKeyPilih, setInstKey] = useState('');
+            const instKey = kunciTetap || instKeyPilih;
             const [tahun, setTahun] = useState(() => tahunIniStr());
             const [jenis, setJenis] = useState('');
             const [kelompok, setKelompok] = useState('');
@@ -22562,7 +22565,7 @@ ${getRekapShareLink(rekap)}
                 .sort((a, b) => jenisNorm(a.type).localeCompare(jenisNorm(b.type)) || urutOrderTahap(a, b));
             const dipilih = daftar.filter(o => !lepas.has(String(o.id)));
             const daftarJenis = [...new Set(dipilih.map(o => jenisNorm(o.type)))];
-            const instNama = (daftarInstansi.find(i => i.key === instKey) || {}).nama || '';
+            const instNama = (daftarInstansi.find(i => i.key === instKey) || {}).nama || namaTetap || '';
             const labelPer = kelompokAktif ? `${(opsiKelompok.find(k => k.id === kelompokAktif) || {}).label || kelompokAktif} · semua tahap` : (tahun ? `Tahun ${tahun}` : 'Semua tahun');
             const labelStatus = statusKirim === 'ok' ? 'Sudah terkirim semua' : statusKirim === 'belum' ? 'Belum selesai dikirim' : '';
 
@@ -22637,14 +22640,15 @@ ${getRekapShareLink(rekap)}
             return (
                 <div className="space-y-4" data-rekap-pesanan>
                     <Card className="bg-indigo-50 border-indigo-100">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-                            <div className="sm:col-span-2 lg:col-span-2">
+                        {kunciTetap && <div data-rp-instansi-tetap className="text-sm text-indigo-900 mb-3">🏫 Rekap untuk <b>{instNama}</b> <span className="text-xs text-indigo-700/70">· semua order aktif & arsip</span></div>}
+                        <div className={`grid grid-cols-1 sm:grid-cols-2 ${kunciTetap ? 'lg:grid-cols-4' : 'lg:grid-cols-6'} gap-3`}>
+                            {!kunciTetap && <div className="sm:col-span-2 lg:col-span-2">
                                 <label className={lblKls}>Instansi</label>
                                 <select data-rp-instansi className={selKls} value={instKey} onChange={e => setInstKey(e.target.value)}>
                                     <option value="">-- Pilih Instansi --</option>
                                     {daftarInstansi.map(i => <option key={i.key} value={i.key}>{i.nama} ({i.jumlah} order)</option>)}
                                 </select>
-                            </div>
+                            </div>}
                             <div>
                                 <label className={lblKls}>Tahun</label>
                                 <select data-rp-tahun className={selKls} value={tahun} onChange={e => setTahun(e.target.value)} disabled={!!kelompokAktif}>
@@ -22764,43 +22768,166 @@ ${getRekapShareLink(rekap)}
                 </div>
             );
         };
+        // ===== Tracking Instansi: hitungan per order (rumus sama dengan link customer) =====
+        const TI_WARNA_TAHAP = { cutting: 'bg-blue-600', sablon: 'bg-yellow-500', jahit: 'bg-purple-600', kancing: 'bg-orange-500', finishing: 'bg-teal-600', terkirim: 'bg-green-600' };
+        const TI_KAT = {
+            produksi: { label: 'produksi', kls: 'bg-blue-100 text-blue-800' },
+            belum: { label: 'belum mulai', kls: 'bg-slate-100 text-slate-600' },
+            siap: { label: 'siap kirim', kls: 'bg-green-100 text-green-800' },
+            sebagian: { label: 'terkirim sebagian', kls: 'bg-amber-100 text-amber-800' },
+            terkirim: { label: 'terkirim', kls: 'bg-purple-100 text-purple-800' },
+        };
+        const TI_DL_KLS = { telat: 'bg-red-100 text-red-700', dekat: 'bg-amber-100 text-amber-800', aman: 'bg-gray-100 text-gray-600' };
+        const tiSelisihHari = (dari, ke) => Math.round((new Date(ke + 'T00:00:00') - new Date(dari + 'T00:00:00')) / 864e5);
+        const tiTeksSisaHari = (h) => h < 0 ? `Telat ${-h} hari` : h === 0 ? 'Hari ini' : `${h} hari lagi`;
+        const hitungProgresOrderTI = (order, hariIni) => {
+            const total = parseInt(order?.total) || 0;
+            const ukuran = new Set(Object.keys(safeObject(order?.sizes)));
+            const persen = (q) => total > 0 ? Math.min(100, Math.round((q / total) * 100)) : 0;
+            // Sama dengan menjumlah getCompletedPerStage untuk setiap ukuran order, tapi cukup satu kali lewat
+            const produksi = getActiveProductionStages(order).map(st => {
+                const qty = safeArray(order?.progress?.[st.id]?.workLogs).reduce((s, log) => s + (log && !log.isDeleted && log.checkAfter && ukuran.has(log.size) ? getWorkLogSubmittedQty(log) : 0), 0);
+                return { id: st.id, label: st.label, qty, pct: persen(qty) };
+            });
+            const kirimQty = Object.values(safeObject(order?.shipped)).reduce((s, q) => s + (parseInt(q) || 0), 0);
+            const tahap = [...produksi, { id: 'terkirim', label: 'Terkirim', qty: kirimQty, pct: persen(kirimQty) }];
+            const progres = order?.status === 'Terkirim' ? 100 : Math.min(100, Math.round(tahap.reduce((s, t) => s + t.pct, 0) / tahap.length));
+            const selesaiKirim = order?.status === 'Terkirim' || (total > 0 && kirimQty >= total);
+            const terakhir = produksi[produksi.length - 1];
+            const kat = selesaiKirim ? 'terkirim' : kirimQty > 0 ? 'sebagian' : (!terakhir || (total > 0 && terakhir.qty >= total)) ? 'siap' : produksi.every(t => t.qty === 0) ? 'belum' : 'produksi';
+            const dl = /^\d{4}-\d{2}-\d{2}/.test(String(order?.deadline || '')) ? String(order.deadline).slice(0, 10) : '';
+            const sisaHari = dl && !selesaiKirim ? tiSelisihHari(hariIni, dl) : null;
+            const dlKat = sisaHari === null ? '' : sisaHari < 0 ? 'telat' : sisaHari <= 3 ? 'dekat' : 'aman';
+            const hambat = (dlKat === 'telat' || dlKat === 'dekat') ? (produksi.find(t => t.pct < 100) || null) : null;
+            return { total, tahap, produksi, kirimQty, progres, kat, dl, sisaHari, dlKat, hambat };
+        };
+        // Tandai bagian teks yang cocok dengan pencarian
+        const TiSorot = ({ teks, q }) => {
+            const t = String(teks || '');
+            const i = q ? t.toLowerCase().indexOf(q) : -1;
+            if (i < 0) return t;
+            return <>{t.slice(0, i)}<mark className="bg-yellow-200 text-gray-900 rounded px-0.5">{t.slice(i, i + q.length)}</mark>{t.slice(i + q.length)}</>;
+        };
+
         const TrackingInstansiView = ({ orders, templates, showToast, klienMaster = [], riwayatPengiriman = [] }) => {
-            const [tiTab, setTiTab] = useState('tracking');
+            const [tiView, setTiView] = useState('list');
+            const [selKey, setSelKey] = useState('');
+            const [tiTab, setTiTab] = useState('aktif');
+            const [cari, setCari] = useState('');
+            const [saring, setSaring] = useState('aktif');
+            const [urut, setUrut] = useState('deadline');
+            const [bukaUkuran, setBukaUkuran] = useState(() => new Set());
+            const posGulirRef = React.useRef(0);
+            const hariIni = toLocalDateStr();
             const tahapInfoTI = React.useMemo(() => infoTahapOrders(orders), [orders]);
-            const [selectedClient, setSelectedClient] = useState('');
-            const safeOrders = (orders || []).filter(isVisibleOrder);
-            
-            const activeOrders = safeOrders.filter(o => !o?.isArchived);
-            const clients = [...new Set(activeOrders.map(o => o.client))];
+            const safeOrders = React.useMemo(() => safeArray(orders).filter(isVisibleOrder), [orders]);
 
-            const clientOrders = activeOrders.filter(o => o.client === selectedClient);
-            const customerTrackingLink = selectedClient ? `${window.location.href.split('#')[0]}#customer-tracking=${encodeURIComponent(selectedClient)}` : '';
+            // Kelompokkan order per instansi (kunci sama dengan Rekap Pesanan: klien Data Master + nama lain, selain itu nama yang dirapikan)
+            const kelompok = React.useMemo(() => {
+                const m = new Map();
+                safeOrders.forEach(o => {
+                    const nm = normBahanText(o.client); if (!nm) return;
+                    const k = kunciInstansi(klienMaster, o.client);
+                    let g = m.get(k);
+                    if (!g) {
+                        const klien = k.startsWith('cli:') ? safeArray(klienMaster).find(c => c && 'cli:' + c.id === k) : null;
+                        g = { key: k, klien, nama: klien ? (normBahanText(klien.name) || nm) : nm, namaOrder: [], orders: [], terakhir: '' };
+                        m.set(k, g);
+                    }
+                    g.namaOrder.push(nm); g.orders.push(o);
+                    const tgl = String(o.date || '');
+                    if (tgl >= g.terakhir) { g.terakhir = tgl; if (!g.klien) g.nama = nm; }
+                });
+                return [...m.values()].map(g => {
+                    const aktif = g.orders.filter(o => !o.isArchived).map(o => ({ o, p: hitungProgresOrderTI(o, hariIni) }))
+                        .sort((a, b) => (a.p.dl || '9999').localeCompare(b.p.dl || '9999') || String(a.o.id).localeCompare(String(b.o.id), undefined, { numeric: true }));
+                    const arsip = g.orders.filter(o => o.isArchived).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+                    const pcs = aktif.reduce((s, x) => s + x.p.total, 0);
+                    const progres = !aktif.length ? 0 : pcs > 0 ? Math.round(aktif.reduce((s, x) => s + x.p.progres * x.p.total, 0) / pcs) : Math.round(aktif.reduce((s, x) => s + x.p.progres, 0) / aktif.length);
+                    const terdekat = aktif.find(x => x.p.sisaHari !== null) || null;
+                    const jumlahKat = {}; aktif.forEach(x => { jumlahKat[x.p.kat] = (jumlahKat[x.p.kat] || 0) + 1; });
+                    const telat = aktif.filter(x => x.p.dlKat === 'telat').length;
+                    const utama = klienNorm(g.nama);
+                    const aliasMap = new Map();
+                    [...(g.klien ? safeArray(g.klien.namaLain).map(normBahanText) : []), ...g.namaOrder].forEach(n => { const k = klienNorm(n); if (n && k !== utama && !aliasMap.has(k)) aliasMap.set(k, n); });
+                    return { ...g, aktif, arsip, pcs, progres, terdekat, jumlahKat, telat, alias: [...aliasMap.values()] };
+                });
+            }, [safeOrders, klienMaster, hariIni]);
 
-            const copyCustomerTrackingLink = async () => {
-                if (!customerTrackingLink) return;
-                try {
-                    await navigator.clipboard.writeText(customerTrackingLink);
-                    showToast("Link customer berhasil disalin.", "success");
-                } catch (error) {
-                    window.prompt("Salin link tracking customer:", customerTrackingLink);
-                    showToast("Silakan salin link dari kotak yang muncul.", "success");
-                }
+            // ===== Daftar instansi: cari, saring, urut =====
+            const q = klienNorm(cari);
+            const qKanon = klienKanon(cari);
+            const cocokTeks = (t) => klienNorm(t).includes(q) || (!!qKanon && klienKanon(t).includes(qKanon));
+            const cocokCari = (g) => {
+                if (!q) return { ok: true };
+                if (cocokTeks(g.nama)) return { ok: true };
+                const a = g.alias.find(cocokTeks); if (a) return { ok: true, alias: a };
+                const o = g.orders.find(x => klienNorm(x.id).includes(q)); if (o) return { ok: true, order: String(o.id) };
+                return { ok: false };
             };
-
-            const getCompletedPerStage = (orderData, stageId, size) => {
-                let total = 0;
-                if (orderData.progress && orderData.progress[stageId] && orderData.progress[stageId].workLogs) {
-                    orderData.progress[stageId].workLogs.forEach(log => {
-                        if (!log.isDeleted && log.size === size && log.checkAfter) {
-                            total += getWorkLogSubmittedQty(log);
-                        }
-                    });
-                }
-                return total;
+            const lolosSaring = (g, f) => f === 'arsip' ? true : f === 'telat' ? g.telat > 0 : f === 'siap' ? (g.jumlahKat.siap || 0) > 0 : g.aktif.length > 0;
+            const semuaCocok = kelompok.map(g => ({ g, m: cocokCari(g) })).filter(x => x.m.ok);
+            const dlTerdekat = (g) => g.terdekat ? g.terdekat.p.dl : '9999';
+            const urutFn = {
+                deadline: (a, b) => dlTerdekat(a.g).localeCompare(dlTerdekat(b.g)) || a.g.nama.localeCompare(b.g.nama),
+                progres: (a, b) => (a.g.aktif.length ? a.g.progres : 101) - (b.g.aktif.length ? b.g.progres : 101) || a.g.nama.localeCompare(b.g.nama),
+                nama: (a, b) => a.g.nama.localeCompare(b.g.nama, 'id'),
+                baru: (a, b) => b.g.terakhir.localeCompare(a.g.terakhir) || a.g.nama.localeCompare(b.g.nama),
             };
+            const tampil = semuaCocok.filter(x => lolosSaring(x.g, saring)).sort(urutFn[urut] || urutFn.deadline);
+            const hanyaArsip = q && saring === 'aktif' ? semuaCocok.filter(x => !x.g.aktif.length).length : 0;
+            const hitungChip = { aktif: kelompok.filter(g => lolosSaring(g, 'aktif')).length, telat: kelompok.filter(g => lolosSaring(g, 'telat')).length, siap: kelompok.filter(g => lolosSaring(g, 'siap')).length, arsip: kelompok.length };
+            const pgKartu = usePagination(tampil, 24, `${q}|${saring}|${urut}`);
+
+            // ===== Detail instansi =====
+            const g = tiView === 'detail' ? (kelompok.find(k => k.key === selKey) || null) : null;
+            const linkCustomer = g ? `${window.location.href.split('#')[0]}#customer-tracking=${encodeURIComponent(g.nama)}${g.alias.map(a => '&juga=' + encodeURIComponent(a)).join('')}` : '';
+            const sjInstansi = React.useMemo(() => {
+                if (!g) return [];
+                const ids = new Set(g.orders.map(o => String(o.id)));
+                const out = [];
+                safeArray(riwayatPengiriman).filter(isVisibleRecord).forEach(r => safeArray(r.items).forEach((it, i) => {
+                    if (it && ids.has(String(it.orderId))) out.push({ key: `${r.id}-${i}`, id: r.id, date: r.date || '', orderId: String(it.orderId), type: it.type || '', details: it.details || '', total: it.total || 0 });
+                }));
+                return out.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id)));
+            }, [g, riwayatPengiriman]);
+            const pgArsip = usePagination(g ? g.arsip : [], 10, selKey);
+            const pgSJ = usePagination(sjInstansi, 10, selKey);
+
+            const wadahGulir = () => document.querySelector('main');
+            const bukaInstansi = (key) => {
+                const el = wadahGulir(); posGulirRef.current = el ? el.scrollTop : 0;
+                setSelKey(key); setTiTab('aktif'); setBukaUkuran(new Set()); setTiView('detail');
+                requestAnimationFrame(() => { const e = wadahGulir(); if (e) e.scrollTop = 0; });
+            };
+            const kembaliKeDaftar = () => {
+                const pos = posGulirRef.current;
+                setTiView('list');
+                requestAnimationFrame(() => { const e = wadahGulir(); if (e) e.scrollTop = pos; });
+            };
+            const salinTeks = async (teks, pesanOk, judulPrompt) => {
+                try { await navigator.clipboard.writeText(teks); showToast(pesanOk, 'success'); }
+                catch (error) { window.prompt(judulPrompt, teks); }
+            };
+            const copyCustomerTrackingLink = () => { if (linkCustomer) salinTeks(linkCustomer, 'Link customer berhasil disalin.', 'Salin link tracking customer:'); };
+            const teksWATracking = () => {
+                if (!g) return '';
+                let t = `*Update Produksi — ${g.nama}*\nPer ${tglRekapPesanan(hariIni)}\n`;
+                g.aktif.forEach(({ o, p }) => {
+                    t += `\n*${o.id} · ${normBahanText(o.type) || '-'}* (${p.total} pcs) — ${p.progres}%\n`;
+                    t += p.tahap.map(s => `${s.label} ${s.qty}/${p.total}`).join(' · ');
+                    if (p.dl) t += `\nDeadline: ${tglRekapPesanan(p.dl)}`;
+                    t += '\n';
+                });
+                t += `\nPantau langsung: ${linkCustomer}`;
+                return t.trim();
+            };
+            const salinWATracking = () => { if (g && g.aktif.length) salinTeks(teksWATracking(), 'Teks update produksi disalin. Tempel di WhatsApp.', 'Salin teks update produksi:'); };
 
             const printTracking = () => {
-                if (!selectedClient || clientOrders.length === 0) return;
+                if (!g || g.aktif.length === 0) return;
+                const clientOrders = g.aktif.map(x => x.o);
+                const namaInstansi = escapeHtmlText(g.nama);
 
                 const currentDate = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -22848,7 +22975,7 @@ ${getRekapShareLink(rekap)}
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Tracking Produksi - ${selectedClient}</title>
+                    <title>Tracking Produksi - ${namaInstansi}</title>
                     <style>
                         body { font-family: 'Arial', sans-serif; padding: 20px; color: #000; line-height: 1.5; }
                         .header { display: flex; align-items: center; justify-content: center; position: relative; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
@@ -22876,10 +23003,10 @@ ${getRekapShareLink(rekap)}
                             <p>Laporan Tracking Produksi per Instansi</p>
                         </div>
                     </div>
-                    
+
                     <div class="info">
                         <table>
-                            <tr><td class="font-bold">Nama Klien / Instansi</td><td>: ${selectedClient}</td></tr>
+                            <tr><td class="font-bold">Nama Klien / Instansi</td><td>: ${namaInstansi}</td></tr>
                             <tr><td class="font-bold">Total Order Aktif</td><td>: ${clientOrders.length} Pesanan</td></tr>
                             <tr><td class="font-bold">Tanggal Cetak</td><td>: ${currentDate}</td></tr>
                         </table>
@@ -22913,128 +23040,249 @@ ${getRekapShareLink(rekap)}
                 }
             };
 
-            return (
-                <div className="space-y-6">
-                    <h2 className="text-2xl font-bold text-gray-800">Tracking Detail Instansi</h2>
-                    <div className="flex gap-1 bg-gray-100 p-1 rounded-xl max-w-md" data-ti-tabs>
-                        <button type="button" data-ti-tab="tracking" onClick={() => setTiTab('tracking')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${tiTab === 'tracking' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Tracking Order</button>
-                        <button type="button" data-ti-tab="rekap" onClick={() => setTiTab('rekap')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-all ${tiTab === 'rekap' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Rekap Pesanan</button>
-                    </div>
-                    {tiTab === 'rekap' ? <RekapPesananPanel orders={orders} clients={klienMaster} riwayatPengiriman={riwayatPengiriman} templates={templates} showToast={showToast} /> : (<>
-                    <p className="text-gray-500 text-sm">Pantau jumlah barang yang telah selesai di masing-masing tahapan produksi secara *real-time* per ukuran.</p>
+            const PilKat = ({ kat, teks }) => <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${(TI_KAT[kat] || TI_KAT.produksi).kls}`}>{teks}</span>;
 
-                    <Card className="bg-indigo-50 border-indigo-100 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-                        <div className="w-full md:w-1/2">
-                            <label className="block text-sm font-bold text-indigo-900 mb-2">Pilih Instansi / Klien</label>
-                            <select className="w-full p-2 border border-indigo-300 rounded-lg focus:ring-indigo-500 outline-none" value={selectedClient} onChange={e => setSelectedClient(e.target.value)}>
-                                <option value="">-- Pilih Instansi --</option>
-                                {clients.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
+            // ===== Halaman detail instansi =====
+            if (tiView === 'detail') {
+                if (!g) return (
+                    <div className="space-y-4" data-ti-detail="">
+                        <button type="button" data-ti-kembali onClick={kembaliKeDaftar} className="bg-white border border-gray-200 hover:border-indigo-300 rounded-full px-4 py-2 text-sm font-bold text-indigo-700">← Semua instansi</button>
+                        <div className="p-8 text-center text-gray-500 bg-white rounded-xl border border-dashed border-gray-200 text-sm">Instansi ini tidak ditemukan lagi (ordernya mungkin sudah dihapus).</div>
+                    </div>
+                );
+                const tabKls = (k) => `flex-1 py-2 px-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${tiTab === k ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
+                const td = g.terdekat;
+                return (
+                    <div className="space-y-4" data-ti-detail={g.key}>
+                        <button type="button" data-ti-kembali onClick={kembaliKeDaftar} className="bg-white border border-gray-200 hover:border-indigo-300 rounded-full px-4 py-2 text-sm font-bold text-indigo-700">← Semua instansi</button>
+                        <Card className="space-y-4">
+                            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="text-[11px] font-bold text-indigo-700 uppercase tracking-wide">Instansi</div>
+                                    <h2 data-ti-nama className="text-2xl font-black text-gray-900 break-words">{g.nama}</h2>
+                                    {g.alias.length > 0 && <div className="text-xs text-gray-500 mt-0.5">juga tertulis: {g.alias.join(', ')}</div>}
+                                </div>
+                                <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 shrink-0">
+                                    <a data-ti-link-customer href={linkCustomer} target="_blank" rel="noopener noreferrer" className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-bold text-sm text-center whitespace-nowrap">🔗 Link Customer</a>
+                                    <button type="button" data-ti-salin-link onClick={copyCustomerTrackingLink} className="bg-green-100 hover:bg-green-200 text-green-800 px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap">Salin Link</button>
+                                    <button type="button" data-ti-cetak onClick={printTracking} disabled={!g.aktif.length} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-3 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5 whitespace-nowrap"><IconPrinter /> Cetak</button>
+                                    <button type="button" data-ti-wa onClick={salinWATracking} disabled={!g.aktif.length} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap">💬 Salin teks WA</button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2"><div className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wide">Order aktif</div><div className="text-lg font-black text-gray-900">{g.aktif.length}</div></div>
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2"><div className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wide">Total</div><div className="text-lg font-black text-gray-900">{g.pcs} pcs</div></div>
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2"><div className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wide">Progres</div><div data-ti-progres className="text-lg font-black text-indigo-700">{g.aktif.length ? `${g.progres}%` : '—'}</div></div>
+                                <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2"><div className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wide">Deadline terdekat</div><div className="mt-0.5">{td ? <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${TI_DL_KLS[td.p.dlKat]}`}>{tiTeksSisaHari(td.p.sisaHari)}</span> : <span className="text-lg font-black text-gray-400">—</span>}</div></div>
+                            </div>
+                        </Card>
+
+                        <div className="flex gap-1 bg-gray-200 p-1 rounded-xl max-w-lg" data-ti-tabs>
+                            <button type="button" data-ti-tab="aktif" onClick={() => setTiTab('aktif')} className={tabKls('aktif')}>Order Aktif ({g.aktif.length})</button>
+                            <button type="button" data-ti-tab="rekap" onClick={() => setTiTab('rekap')} className={tabKls('rekap')}>Rekap Pesanan</button>
+                            <button type="button" data-ti-tab="riwayat" onClick={() => setTiTab('riwayat')} className={tabKls('riwayat')}>Riwayat ({g.arsip.length})</button>
                         </div>
-                        {selectedClient && clientOrders.length > 0 && (
-                            <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-                                <a href={customerTrackingLink} target="_blank" className="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-sm text-sm">
-                                    Buka Link Customer
-                                </a>
-                                <button onClick={printTracking} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-sm text-sm">
-                                    <IconPrinter /> Cetak
-                                </button>
+
+                        {tiTab === 'rekap' && <RekapPesananPanel key={g.key} orders={orders} clients={klienMaster} riwayatPengiriman={riwayatPengiriman} templates={templates} showToast={showToast} kunciTetap={g.key} namaTetap={g.nama} />}
+
+                        {tiTab === 'riwayat' && (
+                            <div className="space-y-4" data-ti-riwayat>
+                                <Card>
+                                    <div className="font-bold text-gray-800 mb-2">Order arsip <span className="text-gray-400 font-normal text-sm">({g.arsip.length})</span></div>
+                                    {g.arsip.length === 0 ? <div className="text-sm text-gray-400 italic">Belum ada order yang diarsip.</div> : (
+                                        <div className="divide-y divide-gray-100">
+                                            {pgArsip.paged.map(o => (
+                                                <div key={o.id} data-ti-arsip={o.id} className="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+                                                    <div className="min-w-0"><b>{o.id}</b> <span className="text-gray-500">· {o.type}</span><TahapPill info={tahapInfoTI.get(String(o.id))} /></div>
+                                                    <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2"><span>{o.total} pcs · order {tglRekapPesanan(o.date)}</span><Badge status={o.status} /></div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <Paginator page={pgArsip.page} setPage={pgArsip.setPage} totalPages={pgArsip.totalPages} total={pgArsip.total} pageSize={10} label="order" />
+                                </Card>
+                                <Card>
+                                    <div className="font-bold text-gray-800 mb-2">Surat Jalan <span className="text-gray-400 font-normal text-sm">({sjInstansi.length})</span></div>
+                                    {sjInstansi.length === 0 ? <div className="text-sm text-gray-400 italic">Belum ada pengiriman.</div> : (
+                                        <div className="divide-y divide-gray-100">
+                                            {pgSJ.paged.map(s => (
+                                                <div key={s.key} data-ti-sj={s.id} className="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+                                                    <div className="min-w-0">🚚 <span className="font-mono font-bold">{s.id}</span> <span className="text-gray-500">· {s.orderId} {s.type}</span></div>
+                                                    <div className="text-xs text-gray-500">{s.details || `${s.total} pcs`} · {tglRekapPesanan(s.date)}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <Paginator page={pgSJ.page} setPage={pgSJ.setPage} totalPages={pgSJ.totalPages} total={pgSJ.total} pageSize={10} label="surat jalan" />
+                                </Card>
                             </div>
                         )}
-                    </Card>
 
-                    {selectedClient && clientOrders.length > 0 && (
-                        <Card className="border-green-100 bg-green-50">
-                            <div className="flex flex-col lg:flex-row lg:items-end gap-4">
-                                <div className="flex-1">
-                                    <label className="block text-sm font-bold text-green-900 mb-2">Link Tracking untuk Customer</label>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        className="w-full p-3 border border-green-200 rounded-lg bg-white text-sm text-gray-700"
-                                        value={customerTrackingLink}
-                                        onFocus={e => e.target.select()}
-                                    />
-                                </div>
-                                <button onClick={copyCustomerTrackingLink} className="bg-green-700 hover:bg-green-800 text-white px-5 py-3 rounded-lg font-bold text-sm">
-                                    Salin Link
-                                </button>
-                            </div>
-                            <p className="text-xs text-green-800 mt-3">Kirim link ini ke customer agar mereka bisa melihat update detail status order tanpa login admin.</p>
-                        </Card>
-                    )}
-
-                    {selectedClient && clientOrders.length > 0 && (
-                        <div className="space-y-6">
-                            {clientOrders.map(order => {
-                                const activeStages = getActiveProductionStages(order);
-                                return (
-                                <Card key={order.id} className="border-l-4 border-l-indigo-500">
-                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 border-b border-gray-100 pb-4">
-                                        <div>
-                                            <h3 className="text-xl font-bold text-gray-800">{order.id} - {order.type}<TahapPill info={tahapInfoTI.get(String(order.id))} className="text-xs" /></h3>
-                                            <p className="text-sm text-gray-500 mt-1">Deadline: <span className="font-bold text-red-600">{order.deadline}</span></p>
-                                        </div>
-                                        <div className="mt-2 md:mt-0">
-                                            <Badge status={order.status} />
-                                            <span className="ml-2 font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">Target: {order.total} pcs</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm text-center border border-gray-200">
-                                            <thead className="bg-gray-100 border-b border-gray-200 text-gray-700">
-                                                <tr>
-                                                    <th className="p-3 border-r border-gray-200 w-24">Ukuran</th>
-                                                    <th className="p-3 border-r border-gray-200 font-black">Target</th>
-                                                    {activeStages.map(stage => (
-                                                        <th key={stage.id} className="p-3 border-r border-gray-200 text-blue-700">{stage.label}</th>
-                                                    ))}
-                                                    <th className="p-3 bg-green-50 text-green-700 font-bold">Terkirim</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {sortSizeKeys(Object.keys(order.sizes || {})).map(size => {
-                                                    const targetQty = order.sizes[size] || 0;
-                                                    const shippedQty = (order.shipped && order.shipped[size]) || 0;
-
-                                                    const getBgColor = (qty) => qty >= targetQty ? 'bg-green-50 font-bold text-green-700' : (qty > 0 ? 'text-gray-800 font-semibold' : 'text-gray-400');
-
+                        {tiTab === 'aktif' && (g.aktif.length === 0 ? (
+                            <div className="p-8 text-center text-gray-500 bg-white rounded-xl border border-dashed border-gray-200 text-sm">Tidak ada order aktif untuk instansi ini. Lihat tab <b>Riwayat</b>.</div>
+                        ) : (
+                            <div className="space-y-3" data-ti-orders>
+                                {g.aktif.map(({ o: order, p }) => {
+                                    const activeStages = getActiveProductionStages(order);
+                                    const buka = bukaUkuran.has(String(order.id));
+                                    const garis = p.dlKat === 'telat' ? 'border-l-red-600' : p.dlKat === 'dekat' ? 'border-l-amber-500' : p.kat === 'siap' ? 'border-l-green-600' : 'border-l-indigo-500';
+                                    const katTeks = p.kat === 'sebagian' ? `Terkirim sebagian ${p.kirimQty}/${p.total}` : (TI_KAT[p.kat] || TI_KAT.produksi).label;
+                                    return (
+                                        <div key={order.id} data-ti-order={order.id} className={`bg-white border border-gray-200 border-l-4 ${garis} rounded-xl p-4 shadow-sm`}>
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <h3 className="text-base font-black text-gray-900">{order.id} · {order.type}<TahapPill info={tahapInfoTI.get(String(order.id))} className="text-xs" /></h3>
+                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                    <span data-ti-kat={p.kat}><PilKat kat={p.kat} teks={katTeks.charAt(0).toUpperCase() + katTeks.slice(1)} /></span>
+                                                    {p.dl && <span data-ti-deadline className={`text-xs font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${TI_DL_KLS[p.dlKat || 'aman']}`}>📅 {tglRekapPesanan(p.dl)}{p.sisaHari !== null ? ` · ${tiTeksSisaHari(p.sisaHari)}` : ''}</span>}
+                                                    <b className="text-sm text-gray-800">{p.total} pcs</b>
+                                                </div>
+                                            </div>
+                                            <div className={`grid grid-cols-1 sm:grid-cols-3 ${p.tahap.length >= 6 ? 'lg:grid-cols-6' : p.tahap.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-x-3 gap-y-1.5 mt-3`}>
+                                                {p.tahap.map(s => {
+                                                    const hambat = p.hambat && p.hambat.id === s.id;
                                                     return (
-                                                        <tr key={size} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                                                            <td className="p-3 border-r border-gray-200 font-bold text-gray-800 bg-gray-50">{size}</td>
-                                                            <td className="p-3 border-r border-gray-200 font-black text-gray-900 bg-gray-100">{targetQty}</td>
-                                                            {activeStages.map(stage => {
-                                                                const stageQty = getCompletedPerStage(order, stage.id, size);
-                                                                return <td key={stage.id} className={`p-3 border-r border-gray-200 ${getBgColor(stageQty)}`}>{stageQty}</td>;
-                                                            })}
-                                                            <td className={`p-3 border-l-2 border-green-200 ${getBgColor(shippedQty)}`}>{shippedQty}</td>
-                                                        </tr>
-                                                    )
+                                                        <div key={s.id} data-ti-tahap={s.id} className="flex items-center gap-2 sm:block min-w-0">
+                                                            <div className="flex justify-between gap-1 text-[11.5px] font-bold w-28 shrink-0 sm:w-auto">
+                                                                <span className={`truncate ${hambat ? 'text-red-700' : 'text-gray-600'}`}>{s.label}</span>
+                                                                <span className="hidden sm:inline text-gray-900 tabular-nums">{s.qty}/{p.total}</span>
+                                                            </div>
+                                                            <div className={`flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden sm:mt-1 ${hambat ? 'ring-2 ring-red-300' : ''}`}>
+                                                                <div className={`h-full rounded-full ${TI_WARNA_TAHAP[s.id] || 'bg-blue-600'}`} style={{ width: `${s.pct}%` }}></div>
+                                                            </div>
+                                                            <span className="sm:hidden text-xs font-bold text-gray-900 w-16 text-right tabular-nums shrink-0">{s.qty}/{p.total}</span>
+                                                        </div>
+                                                    );
                                                 })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div className="mt-3 text-xs text-gray-500 italic text-right">
-                                        * Angka menunjukkan jumlah barang yang sudah disetor melalui checklist "Setor" oleh karyawan di tahap tersebut.
-                                    </div>
-                                </Card>
+                                            </div>
+                                            {p.hambat ? (
+                                                <div data-ti-hambat className="mt-3 text-xs font-bold text-red-700 bg-red-50 rounded-lg px-3 py-2">⚠ Tertahan di {p.hambat.label}: {Math.max(0, p.total - p.hambat.qty)} pcs belum selesai, deadline {tiTeksSisaHari(p.sisaHari).toLowerCase()}</div>
+                                            ) : p.kat === 'siap' ? (
+                                                <div data-ti-siap className="mt-3 text-xs font-bold text-green-800 bg-green-50 rounded-lg px-3 py-2">📦 Produksi selesai, siap dibuatkan Surat Jalan</div>
+                                            ) : null}
+                                            <button type="button" data-ti-rincian={order.id} onClick={() => setBukaUkuran(prev => { const n = new Set(prev); n.has(String(order.id)) ? n.delete(String(order.id)) : n.add(String(order.id)); return n; })} className="mt-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold">{buka ? '▴ Tutup rincian ukuran' : '▾ Rincian ukuran'}</button>
+                                            {buka && (
+                                                <div className="mt-3">
+                                                    <div className="overflow-x-auto">
+                                                        <table className="w-full text-sm text-center border border-gray-200" data-ti-tabel-ukuran={order.id}>
+                                                            <thead className="bg-gray-100 border-b border-gray-200 text-gray-700">
+                                                                <tr>
+                                                                    <th className="p-3 border-r border-gray-200 w-24">Ukuran</th>
+                                                                    <th className="p-3 border-r border-gray-200 font-black">Target</th>
+                                                                    {activeStages.map(stage => (
+                                                                        <th key={stage.id} className="p-3 border-r border-gray-200 text-blue-700">{stage.label}</th>
+                                                                    ))}
+                                                                    <th className="p-3 bg-green-50 text-green-700 font-bold">Terkirim</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {sortSizeKeys(Object.keys(order.sizes || {})).map(size => {
+                                                                    const targetQty = order.sizes[size] || 0;
+                                                                    const shippedQty = (order.shipped && order.shipped[size]) || 0;
+
+                                                                    const getBgColor = (qty) => qty >= targetQty ? 'bg-green-50 font-bold text-green-700' : (qty > 0 ? 'text-gray-800 font-semibold' : 'text-gray-400');
+
+                                                                    return (
+                                                                        <tr key={size} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
+                                                                            <td className="p-3 border-r border-gray-200 font-bold text-gray-800 bg-gray-50">{size}</td>
+                                                                            <td className="p-3 border-r border-gray-200 font-black text-gray-900 bg-gray-100">{targetQty}</td>
+                                                                            {activeStages.map(stage => {
+                                                                                const stageQty = getCompletedPerStage(order, stage.id, size);
+                                                                                return <td key={stage.id} className={`p-3 border-r border-gray-200 ${getBgColor(stageQty)}`}>{stageQty}</td>;
+                                                                            })}
+                                                                            <td className={`p-3 border-l-2 border-green-200 ${getBgColor(shippedQty)}`}>{shippedQty}</td>
+                                                                        </tr>
+                                                                    )
+                                                                })}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                    <div className="mt-2 text-xs text-gray-500 italic text-right">
+                                                        * Angka menunjukkan jumlah barang yang sudah disetor melalui checklist "Setor" oleh karyawan di tahap tersebut.
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ))}
+                    </div>
+                );
+            }
+
+            // ===== Halaman daftar instansi =====
+            const chip = (k, label) => (
+                <button key={k} type="button" data-ti-saring={k} onClick={() => setSaring(k)} className={`border rounded-full px-3 py-1.5 text-xs font-bold whitespace-nowrap transition-colors ${saring === k ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300'}`}>{label} <span className="opacity-75">({hitungChip[k]})</span></button>
+            );
+            return (
+                <div className="space-y-4" data-ti-daftar>
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-800">Tracking Instansi</h2>
+                        <p className="text-gray-500 text-sm">Pantau progres produksi semua instansi. Klik kartu untuk melihat detail, rekap pesanan, dan riwayat.</p>
+                    </div>
+                    <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none">🔍</span>
+                        <input data-ti-cari type="text" value={cari} onChange={e => setCari(e.target.value)} placeholder="Cari nama instansi atau no. order…" autoComplete="off" className="w-full pl-11 pr-11 py-3 border-2 border-indigo-200 rounded-xl text-base bg-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
+                        {cari && <button type="button" data-ti-cari-hapus onClick={() => setCari('')} aria-label="Hapus pencarian" className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 font-black text-sm">✕</button>}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap gap-1.5">
+                            {chip('aktif', 'Semua aktif')}{chip('telat', '⚠ Ada yang telat')}{chip('siap', '📦 Siap kirim')}{chip('arsip', 'Termasuk arsip')}
+                        </div>
+                        <select data-ti-urut value={urut} onChange={e => setUrut(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm bg-white">
+                            <option value="deadline">Urut: deadline terdekat</option>
+                            <option value="progres">Urut: progres terendah</option>
+                            <option value="nama">Urut: nama A–Z</option>
+                            <option value="baru">Urut: order terbaru</option>
+                        </select>
+                    </div>
+                    <div className="text-xs text-gray-500" data-ti-jumlah>
+                        {tampil.length} instansi{q ? <> cocok dengan "<b>{cari.trim()}</b>"</> : null}
+                        {hanyaArsip > 0 && <> · <button type="button" data-ti-ke-arsip onClick={() => setSaring('arsip')} className="text-indigo-700 font-bold underline">+{hanyaArsip} instansi lain hanya ada di arsip</button></>}
+                    </div>
+                    {tampil.length === 0 ? (
+                        <div data-ti-kosong className="p-8 text-center text-gray-500 bg-white rounded-xl border border-dashed border-gray-200 text-sm">
+                            {kelompok.length === 0 ? 'Belum ada order.' : <>Tidak ada instansi yang cocok.{saring !== 'arsip' && <> Coba pilih <b>Termasuk arsip</b>.</>}</>}
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                            {pgKartu.paged.map(({ g: k, m }) => {
+                                const td = k.terdekat;
+                                const tepi = td && td.p.dlKat === 'telat' ? 'border-l-4 border-l-red-600' : td && td.p.dlKat === 'dekat' ? 'border-l-4 border-l-amber-500' : '';
+                                const pil = [
+                                    ['telat', k.telat ? `⚠ ${k.telat} telat` : '', 'bg-red-100 text-red-700'],
+                                    ...['produksi', 'belum', 'siap', 'sebagian', 'terkirim'].map(kat => [kat, k.jumlahKat[kat] ? `${k.jumlahKat[kat]} ${TI_KAT[kat].label}` : '', TI_KAT[kat].kls]),
+                                    ['arsip', saring === 'arsip' && k.arsip.length ? `${k.arsip.length} arsip` : '', 'bg-gray-200 text-gray-700'],
+                                ].filter(x => x[1]);
+                                return (
+                                    <button type="button" key={k.key} data-ti-kartu={k.key} onClick={() => bukaInstansi(k.key)} className={`text-left bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-2.5 hover:border-indigo-300 hover:shadow-md transition-all min-w-0 ${tepi}`}>
+                                        <div className="flex items-start justify-between gap-2 w-full">
+                                            <div className="min-w-0">
+                                                <div data-ti-kartu-nama className="font-black text-gray-900 break-words"><TiSorot teks={k.nama} q={q} /></div>
+                                                {m.alias && <div className="text-[11.5px] text-gray-500">juga tertulis: <TiSorot teks={m.alias} q={q} /></div>}
+                                                {m.order && <div className="text-[11.5px] text-gray-500">berisi order <TiSorot teks={m.order} q={q} /></div>}
+                                            </div>
+                                            <div data-ti-kartu-progres className="text-xl font-black text-indigo-700 tabular-nums whitespace-nowrap">{k.aktif.length ? `${k.progres}%` : '—'}</div>
+                                        </div>
+                                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden w-full"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${k.aktif.length ? k.progres : 0}%` }}></div></div>
+                                        <div className="text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
+                                            <span><b className="text-gray-900">{k.aktif.length}</b> order aktif</span>
+                                            <span><b className="text-gray-900">{k.pcs}</b> pcs</span>
+                                            {!k.aktif.length && <span>semua order sudah diarsip</span>}
+                                        </div>
+                                        {td && <div className="text-xs"><span data-ti-kartu-deadline className={`font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${TI_DL_KLS[td.p.dlKat]}`}>📅 {tglRekapPesanan(td.p.dl)} · {tiTeksSisaHari(td.p.sisaHari)}</span> <span className="text-gray-400 ml-1">{td.o.id}</span></div>}
+                                        {pil.length > 0 && <div className="flex flex-wrap gap-1">{pil.map(([kk, t, kls]) => <span key={kk} className={`text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${kls}`}>{t}</span>)}</div>}
+                                    </button>
                                 );
                             })}
                         </div>
                     )}
-                    
-                    {selectedClient && clientOrders.length === 0 && (
-                        <div className="p-8 text-center text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">
-                            Tidak ada pesanan aktif untuk instansi ini.
-                        </div>
-                    )}
-                    </>)}
+                    <Paginator page={pgKartu.page} setPage={pgKartu.setPage} totalPages={pgKartu.totalPages} total={pgKartu.total} pageSize={24} label="instansi" />
                 </div>
             );
         };
 
-        const CustomerTrackingView = ({ client, orders, templates }) => {
+        const CustomerTrackingView = ({ client, namaJuga = [], orders, templates }) => {
             const stageColorMap = {
                 cutting: 'bg-blue-600',
                 sablon: 'bg-yellow-500',
@@ -23044,8 +23292,9 @@ ${getRekapShareLink(rekap)}
                 terkirim: 'bg-green-600'
             };
 
+            const namaCocok = new Set([client, ...safeArray(namaJuga)].map(klienNorm).filter(Boolean));
             const clientOrders = (orders || []).filter(isVisibleOrder)
-                .filter(o => !o?.isArchived && String(o?.client || '') === String(client || ''))
+                .filter(o => !o?.isArchived && namaCocok.has(klienNorm(o?.client)))
                 .sort((a, b) => new Date(a.deadline || 0) - new Date(b.deadline || 0));
 
             const getStageTotal = (order, stageId) => {
@@ -33591,6 +33840,7 @@ ${getRekapShareLink(rekap)}
                     <>
                         <CustomerTrackingView
                             client={customerTrackingClient}
+                            namaJuga={getCustomerTrackingNamesFromHash().slice(1)}
                             orders={orders}
                             templates={templates}
                         />
