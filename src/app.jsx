@@ -750,6 +750,191 @@
             return <div className={`${placeholderClassName || className} flex items-center justify-center bg-gray-100 text-gray-400 text-[10px] ${r.status === 'loading' ? 'animate-pulse' : ''}`} style={style} onClick={onClick} title={r.status === 'missing' ? 'Gambar tidak ditemukan' : 'Memuat gambar...'}>{r.status === 'missing' ? '🖼' : ''}</div>;
         };
 
+        // ===== Penampil gambar layar penuh (zoom: cubit, ketuk/klik dua kali, scroll, tombol +/−; geser saat diperbesar) =====
+        // Satu penampil untuk seluruh aplikasi: panggil bukaPenampilGambar({ gambar: [{ label, src }], awal, judul }).
+        const penampilPendengar = new Set();
+        const bukaPenampilGambar = (data) => { penampilPendengar.forEach(fn => fn(data)); };
+        const gambarDesainOrder = (o) => [
+            o && o.designImage1 ? { label: 'Depan', src: o.designImage1 } : null,
+            o && o.designImage2 ? { label: 'Belakang', src: o.designImage2 } : null,
+        ].filter(Boolean);
+        // mulai: indeks (0 = depan, 1 = belakang) atau src gambar yang diketuk
+        const bukaDesainOrder = (o, mulai = 0) => {
+            const gambar = gambarDesainOrder(o);
+            if (!gambar.length) return;
+            const awal = typeof mulai === 'string' ? Math.max(0, gambar.findIndex(g => g.src === mulai)) : (mulai === 1 && o.designImage1 && o.designImage2 ? 1 : 0);
+            bukaPenampilGambar({ gambar, awal, judul: [o.id, normBahanText(o.client)].filter(Boolean).join(' · ') || 'Desain order' });
+        };
+        const PenampilGambar = ({ data, onClose }) => {
+            const gambar = safeArray(data && data.gambar);
+            const [idx, setIdx] = useState(() => Math.min(Math.max(0, parseInt(data && data.awal) || 0), Math.max(0, gambar.length - 1)));
+            const aktif = gambar[idx] || null;
+            const r = useStoredImage(aktif ? aktif.src : '');
+            const stageRef = React.useRef(null);
+            const imgRef = React.useRef(null);
+            const st = React.useRef({ s: 1, tx: 0, ty: 0, fw: 0, fh: 0 });
+            const [pct, setPct] = useState(100);
+            const [petunjuk, setPetunjuk] = useState(true);
+            const jari = React.useRef(new Map());
+            const cubit = React.useRef(null);
+            const ketuk = React.useRef({ waktu: 0, timer: null, gerak: 0 });
+
+            const terapkan = () => {
+                const el = imgRef.current, stage = stageRef.current; if (!el || !stage) return;
+                const v = st.current, W = stage.clientWidth, H = stage.clientHeight;
+                const mx = Math.max(0, (v.fw * v.s - W) / 2), my = Math.max(0, (v.fh * v.s - H) / 2);
+                v.tx = Math.min(mx, Math.max(-mx, v.tx)); v.ty = Math.min(my, Math.max(-my, v.ty));
+                el.style.transform = `translate(${v.tx}px, ${v.ty}px) scale(${v.s})`;
+                setPct(Math.round(v.s * 100));
+            };
+            const ukurPas = () => {
+                const el = imgRef.current, stage = stageRef.current; if (!el || !stage || !el.naturalWidth) return;
+                const W = stage.clientWidth, H = stage.clientHeight;
+                const rasio = Math.min(W / el.naturalWidth, H / el.naturalHeight);
+                const v = st.current; v.fw = el.naturalWidth * rasio; v.fh = el.naturalHeight * rasio;
+                el.style.width = v.fw + 'px'; el.style.height = v.fh + 'px';
+                el.style.marginLeft = (-v.fw / 2) + 'px'; el.style.marginTop = (-v.fh / 2) + 'px';
+            };
+            const pasLayar = () => { const v = st.current; v.s = 1; v.tx = 0; v.ty = 0; terapkan(); };
+            const zoomDi = (s2, cx = 0, cy = 0) => {
+                const v = st.current; s2 = Math.min(8, Math.max(1, s2));
+                const px = (cx - v.tx) / v.s, py = (cy - v.ty) / v.s;
+                v.tx = cx - s2 * px; v.ty = cy - s2 * py; v.s = s2; terapkan();
+            };
+            const titikTengah = (x, y) => { const b = stageRef.current.getBoundingClientRect(); return [x - b.left - b.width / 2, y - b.top - b.height / 2]; };
+            const pindah = (i) => { if (i < 0 || i >= gambar.length || i === idx) return; st.current = { s: 1, tx: 0, ty: 0, fw: 0, fh: 0 }; setPct(100); setIdx(i); };
+
+            React.useEffect(() => { const t = setTimeout(() => setPetunjuk(false), 2600); return () => clearTimeout(t); }, []);
+            React.useEffect(() => {
+                // Esc / panah / + − ; dipasang di fase capture agar tidak ikut menutup jendela lain di belakangnya
+                const tombol = (e) => {
+                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); }
+                    else if (e.key === 'ArrowRight') { e.stopPropagation(); pindah(idx + 1); }
+                    else if (e.key === 'ArrowLeft') { e.stopPropagation(); pindah(idx - 1); }
+                    else if (e.key === '+' || e.key === '=') { e.stopPropagation(); zoomDi(st.current.s * 1.5); }
+                    else if (e.key === '-') { e.stopPropagation(); zoomDi(st.current.s / 1.5); }
+                };
+                const ubahUkuran = () => { ukurPas(); terapkan(); };
+                window.addEventListener('keydown', tombol, true);
+                window.addEventListener('resize', ubahUkuran);
+                return () => { window.removeEventListener('keydown', tombol, true); window.removeEventListener('resize', ubahUkuran); };
+            }, [idx, onClose]);
+            React.useEffect(() => {
+                const stage = stageRef.current; if (!stage) return;
+                const roda = (e) => { e.preventDefault(); const [cx, cy] = titikTengah(e.clientX, e.clientY); zoomDi(st.current.s * Math.exp(-e.deltaY * 0.0018), cx, cy); };
+                stage.addEventListener('wheel', roda, { passive: false });
+                return () => stage.removeEventListener('wheel', roda);
+            }, []);
+            React.useEffect(() => () => clearTimeout(ketuk.current.timer), []);
+
+            const turun = (e) => {
+                try { stageRef.current.setPointerCapture(e.pointerId); } catch (err) {}
+                jari.current.set(e.pointerId, [e.clientX, e.clientY]);
+                ketuk.current.gerak = jari.current.size > 1 ? 99 : 0;
+                if (jari.current.size === 2) { const [a, b] = [...jari.current.values()]; cubit.current = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, s: st.current.s }; }
+            };
+            const geser = (e) => {
+                if (!jari.current.has(e.pointerId)) return;
+                const lama = jari.current.get(e.pointerId); jari.current.set(e.pointerId, [e.clientX, e.clientY]);
+                if (jari.current.size >= 2 && cubit.current) {
+                    const [a, b] = [...jari.current.values()];
+                    const [cx, cy] = titikTengah((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+                    zoomDi(cubit.current.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / cubit.current.d, cx, cy);
+                    return;
+                }
+                const dx = e.clientX - lama[0], dy = e.clientY - lama[1];
+                ketuk.current.gerak += Math.abs(dx) + Math.abs(dy);
+                if (st.current.s > 1) { st.current.tx += dx; st.current.ty += dy; terapkan(); }
+            };
+            const angkat = (e) => {
+                const ada = jari.current.has(e.pointerId);
+                jari.current.delete(e.pointerId);
+                if (jari.current.size < 2) cubit.current = null;
+                if (!ada || e.type !== 'pointerup' || jari.current.size > 0 || ketuk.current.gerak >= 8) return;
+                const kini = Date.now(); const [cx, cy] = titikTengah(e.clientX, e.clientY);
+                clearTimeout(ketuk.current.timer);
+                if (kini - ketuk.current.waktu < 320) {
+                    // ketuk dua kali: perbesar di titik itu / kembali pas layar
+                    ketuk.current.waktu = 0;
+                    if (st.current.s > 1.05) pasLayar(); else zoomDi(2.5, cx, cy);
+                    return;
+                }
+                ketuk.current.waktu = kini;
+                const v = st.current;
+                const diLuar = Math.abs(cx - v.tx) > v.fw * v.s / 2 || Math.abs(cy - v.ty) > v.fh * v.s / 2;
+                if (diLuar && v.s <= 1.05) ketuk.current.timer = setTimeout(() => { if (ketuk.current.waktu === kini) onClose(); }, 320);
+            };
+
+            const tombolBawah = 'bg-white/15 hover:bg-white/25 text-white font-black rounded-xl h-10 min-w-[44px] px-3';
+            return (
+                <div data-penampil role="dialog" aria-modal="true" aria-label="Lihat gambar" className="fixed inset-0 z-[300] bg-slate-950 flex flex-col text-white select-none">
+                    <div className="flex items-center gap-2 px-3 pb-2 flex-wrap" style={{ paddingTop: 'calc(0.6rem + env(safe-area-inset-top, 0px))' }}>
+                        <div data-penampil-judul className="font-bold text-sm flex-1 min-w-0 truncate">{data && data.judul}</div>
+                        {gambar.length > 1 && (
+                            <div className="flex bg-white/15 rounded-full p-0.5">
+                                {gambar.map((g, i) => (
+                                    <button key={i} type="button" data-penampil-sisi={i} onClick={() => pindah(i)} className={`px-3.5 py-1.5 rounded-full text-sm font-bold ${i === idx ? 'bg-white text-slate-900' : 'text-slate-200'}`}>{g.label}</button>
+                                ))}
+                            </div>
+                        )}
+                        <button type="button" data-penampil-tutup onClick={onClose} className="bg-white text-slate-900 font-black rounded-full px-4 py-1.5 text-sm">✕ Tutup</button>
+                    </div>
+                    <div ref={stageRef} data-penampil-panggung className="flex-1 relative overflow-hidden cursor-grab active:cursor-grabbing" style={{ touchAction: 'none' }}
+                        onPointerDown={turun} onPointerMove={geser} onPointerUp={angkat} onPointerCancel={angkat}>
+                        {r.status === 'ok' ? (
+                            <img ref={imgRef} key={r.src} data-penampil-img src={r.src} alt={aktif ? aktif.label : ''} draggable={false}
+                                onLoad={() => { ukurPas(); pasLayar(); }}
+                                className="absolute left-1/2 top-1/2 max-w-none pointer-events-none" style={{ transformOrigin: 'center center', willChange: 'transform' }} />
+                        ) : (
+                            <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-sm">{r.status === 'missing' ? 'Gambar tidak ditemukan.' : 'Memuat gambar…'}</div>
+                        )}
+                        {petunjuk && r.status === 'ok' && <div className="absolute left-1/2 bottom-3 -translate-x-1/2 bg-slate-900/80 text-slate-200 text-xs rounded-full px-3 py-1.5 pointer-events-none whitespace-nowrap">Cubit / ketuk dua kali untuk memperbesar</div>}
+                    </div>
+                    <div className="flex items-center justify-center gap-2 px-3 pt-2" style={{ paddingBottom: 'calc(0.6rem + env(safe-area-inset-bottom, 0px))' }}>
+                        <button type="button" data-penampil-kecil onClick={() => zoomDi(st.current.s / 1.5)} aria-label="Perkecil" className={`${tombolBawah} text-lg`}>−</button>
+                        <span data-penampil-pct className="min-w-[64px] text-center font-bold tabular-nums">{pct}%</span>
+                        <button type="button" data-penampil-besar onClick={() => zoomDi(st.current.s * 1.5)} aria-label="Perbesar" className={`${tombolBawah} text-lg`}>+</button>
+                        <button type="button" data-penampil-pas onClick={pasLayar} className={`${tombolBawah} text-sm`}>Pas layar</button>
+                    </div>
+                </div>
+            );
+        };
+        const PenampilGambarHost = () => {
+            const [data, setData] = useState(null);
+            React.useEffect(() => { const fn = (d) => setData(d ? { ...d, _t: Date.now() } : null); penampilPendengar.add(fn); return () => { penampilPendengar.delete(fn); }; }, []);
+            const tutup = React.useCallback(() => setData(null), []);
+            return data && safeArray(data.gambar).length ? <PenampilGambar key={data._t} data={data} onClose={tutup} /> : null;
+        };
+        // Kotak gambar desain di Input Order & Edit Order: ketuk gambar = perbesar; Ganti & Hapus punya tombol sendiri
+        const KotakGambarDesain = ({ label, src, labelUnggah, onUpload, onHapus, onLihat, kecil = false, sisi = '' }) => (
+            <div data-gambar-kotak={sisi}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                {src ? (
+                    <div className="border border-gray-200 p-2 rounded-lg text-center bg-white">
+                        <button type="button" data-gambar-perbesar onClick={onLihat} title="Ketuk untuk memperbesar" className="relative inline-block max-w-full cursor-zoom-in align-top">
+                            <StoredImg src={src} alt={label} className={`${kecil ? 'max-h-24' : 'max-h-32'} max-w-full rounded object-contain mx-auto`} placeholderClassName="w-24 h-24 rounded" />
+                            <span className="absolute right-1 bottom-1 bg-slate-900/75 text-white text-[10px] font-bold rounded-full px-2 py-0.5">🔍 Perbesar</span>
+                        </button>
+                        <div className="grid grid-cols-3 gap-1.5 mt-2">
+                            <button type="button" data-gambar-lihat onClick={onLihat} className="border border-gray-200 bg-gray-50 hover:bg-gray-100 rounded-lg py-1.5 text-xs font-bold text-gray-700">🔍 Lihat</button>
+                            <label data-gambar-ganti className="border border-gray-200 bg-gray-50 hover:bg-gray-100 rounded-lg py-1.5 text-xs font-bold text-gray-700 cursor-pointer">🔄 Ganti
+                                <input type="file" accept="image/*" className="hidden" onChange={(e) => { onUpload(e); e.target.value = ''; }} />
+                            </label>
+                            <button type="button" data-gambar-hapus onClick={onHapus} className="border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg py-1.5 text-xs font-bold text-red-700">🗑 Hapus</button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="border border-dashed border-gray-300 p-2 rounded-lg text-center relative hover:bg-gray-50 transition-colors">
+                        <div className={kecil ? 'py-2' : 'py-4'}>
+                            <IconImage className="mx-auto text-gray-400 mb-1" />
+                            <span className={`${kecil ? 'text-xs' : 'text-sm'} text-blue-600 font-medium`}>{labelUnggah}</span>
+                        </div>
+                        <input type="file" accept="image/*" data-gambar-unggah onChange={onUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" title="Klik untuk unggah gambar" />
+                    </div>
+                )}
+            </div>
+        );
+
         // Membandingkan dua data tanpa peduli urutan kunci objek. Database (Postgres jsonb) menyimpan objek dengan
         // urutan kunci yang disusun ulang, jadi data yang isinya sama bisa berbeda bila dibandingkan sebagai teks biasa.
         const canonicalJson = (v) => JSON.stringify(v, function (k, val) {
@@ -5065,34 +5250,8 @@ ${blocks}
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Ganti Desain Depan</label>
-                                            <div className="border border-dashed border-gray-300 p-2 rounded text-center relative hover:bg-gray-50">
-                                                {editOrder.designImage1 ? (
-                                                    <div className="relative inline-block">
-                                                        <StoredImg src={editOrder.designImage1} className="max-h-24 rounded object-contain mx-auto" />
-                                                        <button type="button" onClick={() => setEditOrder({...editOrder, designImage1: ''})} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md">&times;</button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="py-2"><IconImage className="mx-auto text-gray-400 mb-1" /><span className="text-xs text-blue-600 font-medium">Unggah Desain 1</span></div>
-                                                )}
-                                                <input type="file" accept="image/*" onChange={(e) => handleImageUploadEdit(e, 'designImage1')} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Ganti Desain Belakang</label>
-                                            <div className="border border-dashed border-gray-300 p-2 rounded text-center relative hover:bg-gray-50">
-                                                {editOrder.designImage2 ? (
-                                                    <div className="relative inline-block">
-                                                        <StoredImg src={editOrder.designImage2} className="max-h-24 rounded object-contain mx-auto" />
-                                                        <button type="button" onClick={() => setEditOrder({...editOrder, designImage2: ''})} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md">&times;</button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="py-2"><IconImage className="mx-auto text-gray-400 mb-1" /><span className="text-xs text-blue-600 font-medium">Unggah Desain 2</span></div>
-                                                )}
-                                                <input type="file" accept="image/*" onChange={(e) => handleImageUploadEdit(e, 'designImage2')} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                                            </div>
-                                        </div>
+                                        <KotakGambarDesain kecil sisi="depan" label="Desain Depan" src={editOrder.designImage1} labelUnggah="Unggah Desain 1" onUpload={(e) => handleImageUploadEdit(e, 'designImage1')} onHapus={() => setEditOrder(prev => ({ ...prev, designImage1: '' }))} onLihat={() => bukaDesainOrder(editOrder, editOrder.designImage1)} />
+                                        <KotakGambarDesain kecil sisi="belakang" label="Desain Belakang" src={editOrder.designImage2} labelUnggah="Unggah Desain 2" onUpload={(e) => handleImageUploadEdit(e, 'designImage2')} onHapus={() => setEditOrder(prev => ({ ...prev, designImage2: '' }))} onLihat={() => bukaDesainOrder(editOrder, editOrder.designImage2)} />
                                     </div>
 
                                     {getOrderProcessFlow(editOrder).materials === false
@@ -5274,7 +5433,7 @@ ${blocks}
                         <div key={order.id} className={`p-4 rounded-xl border-2 shadow-sm flex flex-col md:flex-row gap-4 items-start md:items-center transition-all ${urgencyClass}`}>
                             <div className={`text-4xl font-black opacity-30 w-12 text-center shrink-0 ${isDark ? 'text-white' : 'text-gray-900'}`}>#{index + 1}</div>
                             
-                            <div className={`w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-lg border-2 flex items-center justify-center overflow-hidden bg-white ${isDark ? 'border-slate-600' : 'border-gray-200'}`}>
+                            <div data-desain-buka={(order.designImage1 || order.designImage2) ? order.id : undefined} onClick={(order.designImage1 || order.designImage2) ? () => bukaDesainOrder(order, 0) : undefined} title={(order.designImage1 || order.designImage2) ? 'Ketuk untuk memperbesar desain' : undefined} className={`w-20 h-20 md:w-24 md:h-24 shrink-0 rounded-lg border-2 flex items-center justify-center overflow-hidden bg-white ${(order.designImage1 || order.designImage2) ? 'cursor-zoom-in' : ''} ${isDark ? 'border-slate-600' : 'border-gray-200'}`}>
                                 {order.designImage1 ? (
                                     <StoredImg src={order.designImage1} alt="Desain" className="w-full h-full object-cover" />
                                 ) : order.designImage2 ? (
@@ -6656,40 +6815,8 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Gambar Desain Depan (Opsional)</label>
-                                    <div className="border border-dashed border-gray-300 p-2 rounded-lg text-center relative hover:bg-gray-50 transition-colors">
-                                        {newOrder.designImage1 ? (
-                                            <div className="relative inline-block">
-                                                <StoredImg src={newOrder.designImage1} className="max-h-32 rounded object-contain mx-auto" />
-                                                <button type="button" onClick={() => setNewOrder({...newOrder, designImage1: ''})} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md">&times;</button>
-                                            </div>
-                                        ) : (
-                                            <div className="py-4">
-                                                <IconImage className="mx-auto text-gray-400 mb-1" />
-                                                <span className="text-sm text-blue-600 font-medium">Unggah Desain 1</span>
-                                            </div>
-                                        )}
-                                        <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'designImage1')} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" title="Klik untuk unggah gambar" />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Gambar Desain Belakang (Opsional)</label>
-                                    <div className="border border-dashed border-gray-300 p-2 rounded-lg text-center relative hover:bg-gray-50 transition-colors">
-                                        {newOrder.designImage2 ? (
-                                            <div className="relative inline-block">
-                                                <StoredImg src={newOrder.designImage2} className="max-h-32 rounded object-contain mx-auto" />
-                                                <button type="button" onClick={() => setNewOrder({...newOrder, designImage2: ''})} className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-md">&times;</button>
-                                            </div>
-                                        ) : (
-                                            <div className="py-4">
-                                                <IconImage className="mx-auto text-gray-400 mb-1" />
-                                                <span className="text-sm text-blue-600 font-medium">Unggah Desain 2</span>
-                                            </div>
-                                        )}
-                                        <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'designImage2')} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" title="Klik untuk unggah gambar" />
-                                    </div>
-                                </div>
+                                <KotakGambarDesain sisi="depan" label="Gambar Desain Depan (Opsional)" src={newOrder.designImage1} labelUnggah="Unggah Desain 1" onUpload={(e) => handleImageUpload(e, 'designImage1')} onHapus={() => setNewOrder(prev => ({ ...prev, designImage1: '' }))} onLihat={() => bukaDesainOrder({ ...newOrder, id: '' }, newOrder.designImage1)} />
+                                <KotakGambarDesain sisi="belakang" label="Gambar Desain Belakang (Opsional)" src={newOrder.designImage2} labelUnggah="Unggah Desain 2" onUpload={(e) => handleImageUpload(e, 'designImage2')} onHapus={() => setNewOrder(prev => ({ ...prev, designImage2: '' }))} onLihat={() => bukaDesainOrder({ ...newOrder, id: '' }, newOrder.designImage2)} />
                             </div>
 
                             {getOrderProcessFlow(newOrder).materials === false
@@ -7876,12 +8003,13 @@ window.addEventListener('load',function(){
                                     )}
                                     
                                     {mainImage ? (
-                                        <div className="w-full h-32 bg-gray-100 border-b border-gray-200 relative overflow-hidden">
+                                        <button type="button" data-desain-buka={order.id} onClick={() => bukaDesainOrder(order, mainImage)} title="Ketuk untuk memperbesar desain" className="block w-full h-32 bg-gray-100 border-b border-gray-200 relative overflow-hidden cursor-zoom-in">
                                             <StoredImg src={mainImage} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" alt="Desain Order" />
-                                            {order.designImage2 && order.designImage1 && (
-                                                <div className="absolute bottom-2 right-2 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded font-bold">+1 Gambar</div>
-                                            )}
-                                        </div>
+                                            <div className="absolute bottom-2 right-2 flex gap-1">
+                                                {order.designImage2 && order.designImage1 && <span className="bg-black/50 text-white text-[10px] px-2 py-0.5 rounded font-bold">+1 Gambar</span>}
+                                                <span className="bg-black/50 text-white text-[10px] px-2 py-0.5 rounded font-bold">🔍 Perbesar</span>
+                                            </div>
+                                        </button>
                                     ) : (
                                         <div className="w-full h-8 bg-gray-50 border-b border-gray-100"></div> 
                                     )}
@@ -9140,7 +9268,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         };
 
         const PembelianBahanView = ({ orders, setOrders, showToast, templates, purchaseNotes, setPurchaseNotes, employees, danaOperasional, expenses, rekapKinerja = [], bagiHasilPromosi = [], masterBahan = [], setMasterBahan, stokBahan = [], setStokBahan, bukaNotaVendor = null, bukaNotaDana = null }) => {
-            const [previewImage, setPreviewImage] = useState(null);
             const [bahanTab, setBahanTab] = useState('nota');
             const [showArchivedOrders, setShowArchivedOrders] = useState(false);
             const [orderComboState, setOrderComboState] = useState({});
@@ -9422,7 +9549,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 return (
                     <div className={`grid ${images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-1`}>
                         {images.map((src, index) => (
-                            <button key={index} type="button" onClick={() => setPreviewImage(src)} className={`${boxClass} rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm relative`}>
+                            <button key={index} type="button" data-desain-buka={order?.id} onClick={() => bukaDesainOrder(order, src)} className={`${boxClass} rounded-lg overflow-hidden border border-gray-200 bg-white shadow-sm relative`}>
                                 <StoredImg src={src} alt={`Desain ${order?.id || ''}`} className="w-full h-full object-cover" />
                                 <span className={`absolute left-1 bottom-1 bg-black/60 text-white text-[9px] px-1 py-0.5 rounded font-bold`}>{index === 0 ? 'Dpn' : 'Blk'}</span>
                             </button>
@@ -9615,7 +9742,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 return (
                                                     <div key={it.id || i} className="flex items-center gap-2.5 px-3 py-2 rounded-xl" style={{ background: i % 2 === 0 ? '#F8FAFC' : 'white' }}>
                                                         {img ? (
-                                                            <button type="button" onClick={() => setPreviewImage(img)} className="w-9 h-9 rounded-lg overflow-hidden border border-gray-200 shrink-0 shadow-sm hover:shadow-md transition-shadow">
+                                                            <button type="button" data-desain-buka={linkedOrder.id} onClick={() => bukaDesainOrder(linkedOrder, img)} className="w-9 h-9 rounded-lg overflow-hidden border border-gray-200 shrink-0 shadow-sm hover:shadow-md transition-shadow">
                                                                 <StoredImg src={img} alt="desain" className="w-full h-full object-cover" />
                                                             </button>
                                                         ) : linkedOrder ? (
@@ -10337,14 +10464,6 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         ? <DaftarBelanjaPanel orders={orders} purchaseNotes={purchaseNotes} templates={templates} showToast={showToast} />
                         : renderInputPembelian()}
 
-                    {previewImage && (
-                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
-                            <div className="relative bg-white p-3 rounded-2xl max-w-4xl max-h-[92vh] shadow-2xl">
-                                <button type="button" data-preview-tutup onClick={() => setPreviewImage(null)} className="absolute -top-3 -right-3 z-10 px-3 py-1.5 rounded-full bg-white text-gray-800 font-bold text-sm shadow-lg border border-gray-200">✕ Tutup</button>
-                                <StoredImg src={previewImage} alt="Preview desain" className="max-w-full max-h-[84vh] object-contain rounded-lg" placeholderClassName="w-64 h-64 rounded-lg" />
-                            </div>
-                        </div>
-                    )}
                 </div>
             );
         };
@@ -34161,6 +34280,7 @@ ${getRekapShareLink(rekap)}
                             </div>
                         );
                     })()}
+                    <PenampilGambarHost />
                     {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                 </div>
             );
