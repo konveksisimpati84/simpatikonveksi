@@ -24199,7 +24199,46 @@ ${getRekapShareLink(rekap)}
             );
         };
 
-        const TemplateView = ({ templates, setTemplates, showToast, getDataSizeReport = null }) => {
+        // Kartu Pengaturan (Admin): arsip order lama
+        const ArsipOrderCard = ({ arsip, showToast }) => {
+            const [sibuk, setSibuk] = React.useState(false);
+            const info = arsip.info || { jumlah: 0, perTahun: {}, lastRun: '', umurBulan: 3 };
+            const tgl = (iso) => { const d = new Date(iso); return isNaN(d) ? '-' : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
+            const rapikan = async () => {
+                setSibuk(true);
+                const r = await arsip.jalankan();
+                setSibuk(false);
+                if (r && r.ok) showToast(r.pindah > 0 ? `${r.pindah} order lama dipindah ke arsip.` : 'Tidak ada order yang perlu diarsipkan saat ini.', 'success');
+                else showToast((r && r.pesan) || 'Gagal merapikan arsip.', 'error');
+            };
+            const ubah = async (e) => {
+                const b = parseInt(e.target.value, 10);
+                setSibuk(true);
+                const ok = await arsip.ubahUmur(b);
+                setSibuk(false);
+                showToast(ok ? `Batas arsip diubah menjadi ${b} bulan.` : 'Gagal mengubah batas arsip. Periksa koneksi.', ok ? 'success' : 'error');
+            };
+            const tahun = Object.entries(info.perTahun || {}).sort((a, b) => a[0].localeCompare(b[0]));
+            return (
+                <div data-arsip-kartu className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                    <div className="font-bold text-sm text-slate-800">📦 Arsip Order Otomatis</div>
+                    <p className="text-xs text-gray-500 mt-1">Order di Riwayat yang tidak berubah lebih dari batas waktu disimpan terpisah agar sinkron lebih hemat kuota. Semua menu & laporan tetap menampilkannya.</p>
+                    <div className="flex flex-wrap items-center gap-2 mt-3 text-sm">
+                        <span className="text-gray-700">Pindahkan ke arsip setelah</span>
+                        <select data-arsip-umur value={info.umurBulan || 3} onChange={ubah} disabled={sibuk} className="p-1.5 border border-gray-300 rounded-lg text-sm bg-white">
+                            <option value={3}>3 bulan</option><option value={6}>6 bulan</option><option value={12}>12 bulan</option>
+                        </select>
+                    </div>
+                    <div data-arsip-info className="text-xs text-gray-600 mt-3">
+                        Data aktif <b>{arsip.jumlahUtama}</b> order · Arsip <b>{info.jumlah}</b> order{tahun.length ? ` (${tahun.map(([t, n]) => `${t}: ${n}`).join(' · ')})` : ''}
+                        <br />Terakhir dirapikan: {info.lastRun ? `${tgl(info.lastRun)}${info.by ? ' oleh ' + info.by : ''}` : 'belum pernah'}
+                    </div>
+                    <button data-arsip-rapikan onClick={rapikan} disabled={sibuk} className="mt-3 px-4 py-2 rounded-lg text-sm font-bold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60">{sibuk ? 'Memproses…' : 'Rapikan sekarang'}</button>
+                </div>
+            );
+        };
+
+        const TemplateView = ({ templates, setTemplates, showToast, getDataSizeReport = null, arsipOrder = null }) => {
             const [localTemplates, setLocalTemplates] = useState(templates || initialTemplates);
             const [devicePrintMode, setDevicePrintModeState] = useState(() => getDevicePrintMode());
             const LOGO_MAX_HEIGHT = 300, LOGO_MAX_WIDTH = 1200;
@@ -24438,6 +24477,7 @@ ${getRekapShareLink(rekap)}
                         <div className="flex justify-end"><button type="submit" className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold">Simpan Pengaturan</button></div>
                     </form>
                     {getDataSizeReport && <DataSizeCard getReport={getDataSizeReport} />}
+                    {arsipOrder && <ArsipOrderCard arsip={arsipOrder} showToast={showToast} />}
                 </div>
             );
         };
@@ -31108,6 +31148,14 @@ ${getRekapShareLink(rekap)}
             const [earlyLogin, setEarlyLogin] = useState(null); // { accounts, templates }
             const [loadProgress, setLoadProgress] = useState({ done: 0, total: 0 });
             const [orders, setOrders] = useState([]);
+            // ===== Arsip order lama =====
+            // Order Riwayat yang lama tidak berubah disimpan terpisah per tahun ('ordersArsip:2025', ...) dan dicatat di
+            // daftar arsip ('ordersArsipIndex'). Data order utama jadi kecil sehingga setiap sinkron lebih hemat kuota.
+            const [arsipOrders, setArsipOrders] = useState([]);
+            const arsipRef = useRef({ index: {}, ids: new Map(), meta: {} });
+            const [arsipInfo, setArsipInfo] = useState(null);
+            const ordersUtamaRef = useRef([]);
+            ordersUtamaRef.current = orders;
             const [employees, setEmployees] = useState([]);
             const [rekapKinerja, setRekapKinerja] = useState([]); 
             const [riwayatPengiriman, setRiwayatPengiriman] = useState([]);
@@ -31587,7 +31635,7 @@ ${getRekapShareLink(rekap)}
                     const verifiedAt = getVerifiedMap()[key];
                     if (localCopyExists(localKey) && verifiedAt && Date.now() - verifiedAt < CACHE_TRUST_MS) {
                         // Salinan di perangkat persis versi cloud: jadi dasar "simpan tanpa unduh" untuk tab ini
-                        if (SAVE_SKIP_FETCH_KEYS.has(key) && localTs === remoteTs) tsBaseRef.current[key] = remoteTs;
+                        if ((SAVE_SKIP_FETCH_KEYS.has(key) || key === 'orders') && localTs === remoteTs) tsBaseRef.current[key] = remoteTs;
                         return loadLocalData(localKey, defaultVal);
                     }
                 }
@@ -32097,6 +32145,105 @@ ${getRekapShareLink(rekap)}
                 return patchOrders([...mergedById.values()]);
             };
 
+            // ===== Arsip order lama: pembantu =====
+            const ARSIP_PREFIX = 'ordersArsip:';
+            const ARSIP_INDEX_KEY = 'ordersArsipIndex';
+            const ARSIP_LOCAL_KEY = 'simpati_orders_arsip_sync';
+            const ARSIP_INDEX_LOCAL_KEY = 'simpati_orders_arsip_index_sync';
+            // Order boleh dikeluarkan dari data utama HANYA bila: tercatat di daftar arsip, salinan arsipnya sudah ada di
+            // perangkat ini, dan order itu tidak berubah sejak diarsipkan (bila berubah → order kembali aktif).
+            const sudahDiArsip = (o) => {
+                if (!o || o.id == null) return false;
+                const key = String(o.id);
+                const e = (arsipRef.current.index || {})[key];
+                if (!e || !arsipRef.current.ids.has(key)) return false;
+                return getOrderSyncTime(o) <= safeMoney(e.u);
+            };
+            const rapikanOrderUtama = (list) => {
+                const arr = Array.isArray(list) ? list : [];
+                if (!arsipRef.current.ids.size || !arr.some(sudahDiArsip)) return arr;
+                return arr.filter(o => !sudahDiArsip(o));
+            };
+            // Untuk tampilan & pengubahan: order utama + order arsip yang tidak ada di data utama
+            const gabungArsip = (main, arsipList) => {
+                const m = Array.isArray(main) ? main : [];
+                const a = Array.isArray(arsipList) ? arsipList : [];
+                if (!a.length) return m;
+                const ada = new Set(m.map(o => String(o?.id)));
+                const tambahan = a.filter(o => o && o.id != null && !ada.has(String(o.id)));
+                return tambahan.length ? [...m, ...tambahan] : m;
+            };
+            const tahunArsip = (o) => {
+                const m = String(o?.date || o?.createdAt || '').match(/^(\d{4})-/);
+                if (m) return m[1];
+                const t = getOrderSyncTime(o);
+                return t > 0 ? String(new Date(t).getFullYear()) : 'lain';
+            };
+            const ringkasArsip = () => {
+                const meta = arsipRef.current.meta || {};
+                const perTahun = {};
+                arsipRef.current.ids.forEach(o => { if (isVisibleRecord(o)) { const th = tahunArsip(o); perTahun[th] = (perTahun[th] || 0) + 1; } });
+                setArsipInfo({ jumlah: [...arsipRef.current.ids.values()].filter(isVisibleRecord).length, perTahun, lastRun: meta.lastRun || '', by: meta.by || '', umurBulan: [3, 6, 12].includes(meta.umurBulan) ? meta.umurBulan : 3 });
+            };
+            // Pasang daftar arsip & isi arsip (dari salinan perangkat / unduhan) ke memori
+            const terapkanArsip = (index, lokal) => {
+                const versi = (index && index.meta && index.meta.versi) || {};
+                const ids = new Map();
+                Object.entries(lokal || {}).forEach(([key, v]) => {
+                    if (!versi[key]) return;
+                    safeArray(v && v.data).forEach(o => {
+                        if (!o || o.id == null) return;
+                        const k = String(o.id);
+                        const lama = ids.get(k);
+                        if (!lama || getOrderSyncTime(o) > getOrderSyncTime(lama)) ids.set(k, o);
+                    });
+                });
+                arsipRef.current = { index: (index && index.entries && typeof index.entries === 'object') ? index.entries : {}, ids, meta: (index && index.meta) || {} };
+                // Urut terbaru → terlama (seperti urutan order di data utama: order baru selalu di atas)
+                const list = patchOrders([...ids.values()].sort((x, y) => String(y.date || '').localeCompare(String(x.date || '')) || String(y.id).localeCompare(String(x.id), undefined, { numeric: true })));
+                setArsipOrders(prev => (prev.length === list.length && prev.every((o, i) => o === list[i])) ? prev : list);
+                ringkasArsip();
+            };
+            const muatArsipDariPerangkat = () => {
+                const simpan = loadLocalData(ARSIP_INDEX_LOCAL_KEY, null);
+                const index = simpan && simpan.data && typeof simpan.data === 'object' ? simpan.data : null;
+                if (index) terapkanArsip(index, loadLocalData(ARSIP_LOCAL_KEY, {}) || {});
+            };
+            // Unduh daftar arsip bila versinya berubah, lalu unduh tahun arsip yang versinya berubah (jarang).
+            const indexSesiRef = useRef(false);
+            const muatArsip = async (tsMap) => {
+                if (!supabaseClient || !tsMap || cloudHealth.isBlocked()) return;
+                const simpan = loadLocalData(ARSIP_INDEX_LOCAL_KEY, null);
+                let index = simpan && simpan.data && typeof simpan.data === 'object' ? simpan.data : null;
+                const rts = tsMap[ARSIP_INDEX_KEY] || '';
+                const perluIndex = rts ? (!simpan || simpan.ts !== rts) : !indexSesiRef.current;
+                if (perluIndex) {
+                    indexSesiRef.current = true;
+                    try {
+                        const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', ARSIP_INDEX_KEY).maybeSingle();
+                        if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); }
+                        else if (data && data.data && typeof data.data === 'object') { index = data.data; safeLocalSet(ARSIP_INDEX_LOCAL_KEY, JSON.stringify({ ts: rts, data: index })); }
+                    } catch (e) {}
+                }
+                if (!index) return;
+                const versi = (index.meta && index.meta.versi) || {};
+                const lokal = loadLocalData(ARSIP_LOCAL_KEY, {}) || {};
+                let berubah = false;
+                for (const key of Object.keys(versi)) {
+                    if (!key.startsWith(ARSIP_PREFIX)) continue;
+                    if (lokal[key] && lokal[key].v === versi[key]) continue;
+                    try {
+                        const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', key).maybeSingle();
+                        if (error) { if (isCloudServerTrouble(error, status)) cloudHealth.fail(); continue; }
+                        if (data && Array.isArray(data.data)) { lokal[key] = { v: versi[key], data: data.data }; berubah = true; }
+                    } catch (e) {}
+                }
+                if (berubah) safeLocalSet(ARSIP_LOCAL_KEY, JSON.stringify(lokal));
+                terapkanArsip(index, lokal);
+            };
+            // Semua menu memakai order utama + arsip, jadi tampilan & laporan tetap lengkap
+            const ordersTampil = React.useMemo(() => gabungArsip(orders, arsipOrders), [orders, arsipOrders]);
+
             // Merge dua payment dict ({batchKey: [{id, amount, ...}]})
             // Union by id per batchKey — remote menang jika id duplikat.
             // Mencegah kehilangan pembayaran offline saat real-time sync overwrite.
@@ -32145,6 +32292,8 @@ ${getRekapShareLink(rekap)}
                 const remoteTsMap = await fetchRemoteTimestamps();
                 if (remoteTsMap === null) { needsCloudRefreshRef.current = true; return; }
                 needsCloudRefreshRef.current = false;
+                // Daftar & isi arsip order (hanya diunduh bila versinya berubah) — dipasang sebelum order digabung
+                await muatArsip(remoteTsMap).catch(() => {});
                 const [remoteAccounts, remoteEmployees, remoteOrders, remoteRekaps, remoteRiwayats, remoteExpenses, remoteInvoices, remoteClients, remoteTemplates, remoteManualPurchases, remoteInvestors, remoteInvestorBagiHasil, remoteDrivers, remoteDriverTarifs, remoteDriverTrx, remoteDriverRekapGaji, remoteDriverKasbon, remoteStockItems, remoteAbsensiEdits, remoteAbsensiRawLogs, remoteKartuKredit, remoteTransaksiKartu, remotePurchaseNotes, remoteDanaOperasional, remoteBagiHasilPromosi, remoteLabelTemplates] = await Promise.all([
                     fetchStoreDataCached('accounts', [], remoteTsMap),
                     fetchStoreDataCached('employees', initialEmployees, remoteTsMap),
@@ -32194,7 +32343,7 @@ ${getRekapShareLink(rekap)}
                 }
                 if (Array.isArray(remoteOrders)) {
                     setOrders(prevOrders => {
-                        const merged = mergeOrderLists(prevOrders, remoteOrders);
+                        const merged = rapikanOrderUtama(mergeOrderLists(prevOrders, remoteOrders));
                         safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
                         if (!sameJson(merged, patchOrders(remoteOrders))) {
                             setTimeout(() => saveToSupabase('orders', merged), 0);
@@ -32408,7 +32557,7 @@ ${getRekapShareLink(rekap)}
                     if (e.key === 'simpati_orders_sync' && e.newValue) {
                         try {
                             const incomingOrders = JSON.parse(e.newValue);
-                            setOrders(prevOrders => mergeOrderLists(prevOrders, incomingOrders));
+                            setOrders(prevOrders => rapikanOrderUtama(mergeOrderLists(prevOrders, incomingOrders)));
                         } catch(err) {}
                     }
                     if (e.key === 'simpati_employees_sync' && e.newValue) {
@@ -32528,7 +32677,10 @@ ${getRekapShareLink(rekap)}
                                     shareRpc('share_order_instansi', { nama }).then(r => r || fetchStoreData('orders', [])),
                                     ambilPengaturanShare(['companyName']).then(t => ({ ...initialTemplates, ...t })).catch(() => fetchStoreData('templates', initialTemplates)),
                                 ]);
-                                setOrders(patchOrders(Array.isArray(ords) ? ords : []));
+                                // Fungsi Supabase juga membaca arsip order: order yang sama bisa muncul dua kali → pakai yang terbaru
+                                const perId = new Map();
+                                safeArray(ords).forEach(o => { if (!o || o.id == null) return; const k = String(o.id); const ada = perId.get(k); if (!ada || getOrderSyncTime(o) > getOrderSyncTime(ada)) perId.set(k, o); });
+                                setOrders(patchOrders([...perId.values()]));
                                 setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
                             } catch (e) {
                                 console.error('Gagal fetch data tracking:', e);
@@ -32598,6 +32750,9 @@ ${getRekapShareLink(rekap)}
                             const _fetchTimeout = new Promise((_, reject) =>
                                 setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), isMobile ? 25000 : 10000)
                             );
+                            // Arsip order lama: pasang salinan perangkat dulu, lalu cek versi terbaru bersamaan dengan data lain
+                            muatArsipDariPerangkat();
+                            const arsipP = muatArsip(initTsMap).catch(() => {});
                             const [accs, emps, ords, rekaps, riwayats, exps, invs, cls, tmpls, manPurs, remInvestors, remInvestorBH, remDrivers, remDriverTarifs, remDriverTrx, remDriverRekap, remDriverKasbonInit, remStockItems, remAbsensiEdits, remAbsensiRawLogs, initKartuKredit, initTransaksiKartu, remPurchaseNotes, remDanaOp, remBagiHasilPromosi, remLabelTemplates] = await Promise.race([
                                 (() => {
                                     const parts = [
@@ -32640,7 +32795,8 @@ ${getRekapShareLink(rekap)}
                             const nextAccounts = mergeRecordLists(localAccounts, Array.isArray(accs) ? accs : []);
                             const nextEmployees = mergeRecordLists(sanitizeEmployees(localEmployees), sanitizeEmployees(Array.isArray(emps) ? emps : []));
                             const localOrders = loadLocalData('simpati_orders_sync', initialOrders);
-                            const nextOrders = mergeOrderLists(localOrders, Array.isArray(ords) ? ords : []);
+                            await Promise.race([arsipP, new Promise(r => setTimeout(r, 8000))]);
+                            const nextOrders = rapikanOrderUtama(mergeOrderLists(localOrders, Array.isArray(ords) ? ords : []));
                             const localRekaps = loadLocalData('simpati_rekap_sync', []);
                             const nextRekaps = mergeRecordLists(localRekaps, Array.isArray(rekaps) ? rekaps : []);
                             const localRiwayats = loadLocalData('simpati_riwayat_sj_sync', []);
@@ -32815,7 +32971,8 @@ ${getRekapShareLink(rekap)}
                     const cachedAccounts = loadLocalData('simpati_accounts_sync', null);
                     const nextAccounts = cachedAccounts || [];
                     const localOrders = loadLocalData('simpati_orders_sync', initialOrders);
-                    const nextOrders = patchOrders(localOrders);
+                    muatArsipDariPerangkat();
+                    const nextOrders = rapikanOrderUtama(patchOrders(localOrders));
                     setAccounts(nextAccounts);
                     setEmployees(sanitizeEmployees(loadLocalData('simpati_employees_sync', initialEmployees)));
                     setOrders(nextOrders);
@@ -33011,6 +33168,16 @@ ${getRekapShareLink(rekap)}
                 if (!supabaseClient) return patchedLocal;
 
                 if (cloudHealth.isBlocked()) return patchedLocal;
+                // Hemat kuota (sama dengan invoice & nota): bila catatan perubahan order di cloud PERSIS sama dengan versi
+                // terakhir yang tab ini ketahui, tidak ada perangkat lain yang menyimpan sejak itu → tidak perlu mengunduh
+                // seluruh order sebelum menyimpan. Setelah simpan, dicek lagi bahwa perubahan ini benar-benar ada di cloud.
+                const base = tsBaseRef.current.orders;
+                const verifiedAt = getVerifiedMap().orders;
+                if (base && !skipFetchDisabledRef.current && verifiedAt && Date.now() - verifiedAt < CACHE_TRUST_MS) {
+                    const remoteTs = await fetchRemoteTimestamps();
+                    if (remoteTs === null) return patchedLocal;
+                    if (remoteTs.orders === base) return patchedLocal;
+                }
                 try {
                     const { data, error, status } = await supabaseClient.from('app_data').select('data').eq('id', 'orders').single();
                     if (error && isCloudServerTrouble(error, status)) cloudHealth.fail();
@@ -33094,18 +33261,27 @@ ${getRekapShareLink(rekap)}
                 }
             };
 
+            const ordersSaveSeqRef = useRef(0);
             const flushOrdersSync = async (patched) => {
                 // Hitung sebagai "sedang menyimpan" sejak ambil data cloud sampai simpan selesai
                 beginSync('orders');
+                const urutan = ++ordersSaveSeqRef.current;
+                const sejak = new Date(Date.now() - 10 * 60 * 1000).toISOString();
                 try {
-                    const merged = await mergeRemoteOrdersForSave(patched);
+                    // Kirim isi TERBARU: perubahan dari perangkat lain yang masuk lewat sinkron selama jeda simpan ikut terkirim,
+                    // sehingga tidak tertimpa walau unduhan sebelum simpan dilewati
+                    const terbaru = mergeOrderLists(patched, safeArray(ordersUtamaRef.current));
+                    const merged = rapikanOrderUtama(await mergeRemoteOrdersForSave(terbaru));
                     safeLocalSet('simpati_orders_sync', JSON.stringify(merged));
                     const savePromise = saveToSupabase('orders', merged);
                     setOrders(current => {
-                        const currentMerged = mergeOrderLists(current || [], merged);
+                        const currentMerged = rapikanOrderUtama(mergeOrderLists(current || [], merged));
                         return JSON.stringify(currentMerged) !== JSON.stringify(current || []) ? currentMerged : current;
                     });
                     await savePromise;
+                    // Pengecekan: perubahan order dari tab ini benar-benar ada di cloud (bisa tertimpa perangkat lain yang
+                    // menyimpan pada detik yang hampir sama). Bila tidak, data cloud diunduh, digabung, dan dikirim ulang.
+                    [4000, 15000].forEach(jeda => setTimeout(() => { if (ordersSaveSeqRef.current === urutan) cekPerubahanAdaDiCloud('orders', merged, sejak).catch(() => {}); }, jeda));
                 } finally {
                     endSync('orders');
                 }
@@ -33168,8 +33344,10 @@ ${getRekapShareLink(rekap)}
 
             const updateOrders = (updater) => {
                 setOrders(prev => {
-                    const nextVal = typeof updater === 'function' ? updater(prev) : updater;
-                    const patched = patchOrders(stampChangedOrders(prev || [], nextVal));
+                    // Menu melihat order utama + arsip; order arsip yang diubah otomatis kembali ke data utama
+                    const base = gabungArsip(prev || [], [...arsipRef.current.ids.values()]);
+                    const nextVal = typeof updater === 'function' ? updater(base) : updater;
+                    const patched = rapikanOrderUtama(patchOrders(stampChangedOrders(base, nextVal)));
                     safeLocalSet('simpati_orders_sync', JSON.stringify(patched));
                     // Simpan versi terbaru agar debounce selalu pakai data paling baru
                     ordersPendingRef.current = patched;
@@ -33186,6 +33364,120 @@ ${getRekapShareLink(rekap)}
                 });
             };
             
+            // ===== Arsip order lama: pemindahan otomatis (hanya di perangkat Admin) =====
+            // Urutan aman: cadangan data utama → tulis arsip per tahun & periksa → tulis daftar arsip & periksa →
+            // baru order dikeluarkan dari data utama (lewat simpan biasa). Bila satu langkah gagal, berhenti tanpa
+            // mengubah data utama.
+            const arsipJalanRef = useRef(false);
+            const jalankanArsipOrder = async ({ paksa = false } = {}) => {
+                if (!supabaseClient || authUser?.role !== 'Admin') return { ok: false, pesan: 'Hanya Admin.' };
+                if (arsipJalanRef.current) return { ok: false, pesan: 'Perapian arsip sedang berjalan.' };
+                if (cloudHealth.isBlocked()) return { ok: false, pesan: 'Server cloud sedang bermasalah. Coba lagi nanti.' };
+                arsipJalanRef.current = true;
+                try {
+                    // 1. Kirim dulu perubahan order yang tertunda, lalu ambil data terbaru
+                    flushPendingOrdersNow();
+                    for (let i = 0; i < 60 && (syncPendingRef.current.has('orders') || ordersSyncTimerRef.current || syncFailedRef.current.has('orders')); i++) await new Promise(r => setTimeout(r, 500));
+                    if (syncPendingRef.current.has('orders') || ordersSyncTimerRef.current || syncFailedRef.current.has('orders')) return { ok: false, pesan: 'Masih ada perubahan order yang belum terkirim. Coba lagi nanti.' };
+                    await applyRemoteDataSnapshot();
+                    const meta = arsipRef.current.meta || {};
+                    const umurBulan = [3, 6, 12].includes(meta.umurBulan) ? meta.umurBulan : 3;
+                    const batas = Date.now() - umurBulan * 30.44 * 864e5;
+                    const utama = safeArray(ordersUtamaRef.current);
+                    const calon = utama.filter(o => o && o.id != null && (o.isArchived || o.isDeleted) && getOrderSyncTime(o) > 0 && getOrderSyncTime(o) < batas);
+                    const lastRun = Date.parse(meta.lastRun || '') || 0;
+                    if (!paksa) {
+                        if (calon.length === 0 || Date.now() - lastRun < 864e5) return { ok: true, pindah: 0 };
+                        if (calon.length < 20 && Date.now() - lastRun < 7 * 864e5) return { ok: true, pindah: 0 };
+                    }
+                    if (calon.length === 0) return { ok: true, pindah: 0 };
+                    const oleh = authUser?.name || authUser?.username || 'Admin';
+                    const mulai = new Date().toISOString();
+                    // 2. Cadangan data order utama sebelum dirapikan
+                    { const { error } = await supabaseClient.from('app_data').upsert({ id: 'ordersCadangan', data: { at: mulai, by: oleh, orders: utama } }); if (error) throw error; }
+                    // 3. Arsip per tahun: gabung dengan isi cloud terbaru, simpan, lalu periksa semua order ada
+                    const perTahun = new Map();
+                    calon.forEach(o => { const th = tahunArsip(o); if (!perTahun.has(th)) perTahun.set(th, []); perTahun.get(th).push(o); });
+                    const versiBaru = {};
+                    const lokal = loadLocalData(ARSIP_LOCAL_KEY, {}) || {};
+                    for (const [th, list] of perTahun) {
+                        const key = ARSIP_PREFIX + th;
+                        const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', key).maybeSingle();
+                        if (error) throw error;
+                        const isi = mergeOrderLists(list, safeArray(data && data.data));
+                        const { error: eUp } = await supabaseClient.from('app_data').upsert({ id: key, data: isi });
+                        if (eUp) throw eUp;
+                        for (let i = 0; i < list.length; i += 100) {
+                            const contoh = list.slice(i, i + 100).map(o => (typeof o._syncUpdatedAt === 'string' ? { id: o.id, _syncUpdatedAt: o._syncUpdatedAt } : { id: o.id }));
+                            const { data: cek, error: eCek } = await supabaseClient.from('app_data').select('id').eq('id', key).filter('data', 'cs', JSON.stringify(contoh));
+                            if (eCek || !Array.isArray(cek) || cek.length === 0) throw new Error('Pemeriksaan arsip ' + th + ' gagal');
+                        }
+                        versiBaru[key] = new Date().toISOString();
+                        lokal[key] = { v: versiBaru[key], data: isi };
+                    }
+                    // 4. Daftar arsip: gabung dengan isi cloud terbaru, simpan, periksa
+                    const { data: idxData, error: eIdx } = await supabaseClient.from('app_data').select('data').eq('id', ARSIP_INDEX_KEY).maybeSingle();
+                    if (eIdx) throw eIdx;
+                    const lamaIdx = (idxData && idxData.data && typeof idxData.data === 'object') ? idxData.data : {};
+                    const entries = { ...(lamaIdx.entries || {}) };
+                    const sekarang = new Date().toISOString();
+                    calon.forEach(o => { entries[String(o.id)] = { y: tahunArsip(o), u: getOrderSyncTime(o), at: sekarang }; });
+                    const index = { entries, meta: { ...(lamaIdx.meta || {}), umurBulan, lastRun: sekarang, by: oleh, versi: { ...((lamaIdx.meta && lamaIdx.meta.versi) || {}), ...versiBaru } } };
+                    { const { error } = await supabaseClient.from('app_data').upsert({ id: ARSIP_INDEX_KEY, data: index }); if (error) throw error; }
+                    { const { data: cek, error } = await supabaseClient.from('app_data').select('data').eq('id', ARSIP_INDEX_KEY).maybeSingle();
+                      const ce = cek && cek.data && cek.data.entries;
+                      if (error || !ce || calon.some(o => !ce[String(o.id)])) throw new Error('Pemeriksaan daftar arsip gagal'); }
+                    const tsIdx = new Date().toISOString();
+                    await updateRemoteTimestamp(ARSIP_INDEX_KEY, tsIdx);
+                    // 5. Pasang di perangkat ini, lalu rapikan data utama (tersimpan seperti perubahan biasa)
+                    safeLocalSet(ARSIP_LOCAL_KEY, JSON.stringify(lokal));
+                    safeLocalSet(ARSIP_INDEX_LOCAL_KEY, JSON.stringify({ ts: tsIdx, data: index }));
+                    terapkanArsip(index, lokal);
+                    updateOrders(prev => prev);
+                    return { ok: true, pindah: calon.length };
+                } catch (e) {
+                    console.error('[arsip] gagal merapikan arsip order:', e);
+                    return { ok: false, pesan: 'Gagal merapikan arsip (data tidak diubah). ' + (e && e.message ? e.message : '') };
+                } finally {
+                    arsipJalanRef.current = false;
+                }
+            };
+            // Ubah batas umur arsip (disimpan di daftar arsip agar sama untuk semua Admin)
+            const ubahUmurArsip = async (bulan) => {
+                if (!supabaseClient || authUser?.role !== 'Admin' || ![3, 6, 12].includes(bulan)) return false;
+                try {
+                    const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', ARSIP_INDEX_KEY).maybeSingle();
+                    if (error) throw error;
+                    const lama = (data && data.data && typeof data.data === 'object') ? data.data : {};
+                    const index = { entries: lama.entries || {}, meta: { ...(lama.meta || {}), umurBulan: bulan } };
+                    const { error: eUp } = await supabaseClient.from('app_data').upsert({ id: ARSIP_INDEX_KEY, data: index });
+                    if (eUp) throw eUp;
+                    const ts = new Date().toISOString();
+                    await updateRemoteTimestamp(ARSIP_INDEX_KEY, ts);
+                    safeLocalSet(ARSIP_INDEX_LOCAL_KEY, JSON.stringify({ ts, data: index }));
+                    terapkanArsip(index, loadLocalData(ARSIP_LOCAL_KEY, {}) || {});
+                    return true;
+                } catch (e) { console.error('[arsip] gagal mengubah batas umur:', e); return false; }
+            };
+
+            // Jalankan perapian arsip otomatis: 90 detik setelah dibuka, lalu dicek tiap 6 jam (hanya saat tab terlihat)
+            const jalankanArsipRef = useRef(jalankanArsipOrder);
+            jalankanArsipRef.current = jalankanArsipOrder;
+            useEffect(() => {
+                if (!isReady || !supabaseClient || authUser?.role !== 'Admin') return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                let batal = false;
+                const coba = () => {
+                    if (batal || document.hidden) return;
+                    jalankanArsipRef.current().then(r => {
+                        if (!batal && r && r.ok && r.pindah > 0) showToast(`${r.pindah} order lama dipindah ke arsip agar hemat kuota. Semua menu tetap menampilkannya.`, 'success');
+                    }).catch(() => {});
+                };
+                const t = setTimeout(coba, 90000);
+                const iv = setInterval(coba, 6 * 3600000);
+                return () => { batal = true; clearTimeout(t); clearInterval(iv); };
+            }, [isReady, authUser?.role]);
+
             const updateEmployees = (updater) => { 
                 setEmployees(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
@@ -34405,7 +34697,7 @@ ${getRekapShareLink(rekap)}
                         <CustomerTrackingView
                             client={customerTrackingClient}
                             namaJuga={getCustomerTrackingNamesFromHash().slice(1)}
-                            orders={orders}
+                            orders={ordersTampil}
                             templates={templates}
                         />
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -34501,7 +34793,7 @@ ${getRekapShareLink(rekap)}
             if (isTVMode) {
                 return (
                     <React.Fragment>
-                        <AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />
+                        <AntreanProduksiView orders={ordersTampil} isTVMode={isTVMode} setIsTVMode={setIsTVMode} />
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     </React.Fragment>
                 );
@@ -34704,26 +34996,26 @@ ${getRekapShareLink(rekap)}
                         <main className={`flex-1 overflow-x-hidden print:p-0 print:bg-white print:overflow-visible ${activeTab === 'label_maker' ? 'pt-0 px-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0 bg-gray-100 overflow-hidden' : 'p-4 pb-20 md:px-8 md:pt-8 lg:pb-8 bg-gray-50/50 overflow-y-auto'}`}>
                             {tabMounted('label_maker', canOpen('label_maker')) && <div hidden={!tabVisible('label_maker')} className="h-full min-h-0"><LabelMakerView templates={templates} setTemplates={updateTemplates} /></div>}
                             <div className={`max-w-6xl mx-auto print:max-w-none print:mx-0 pb-12 ${activeTab === 'label_maker' ? 'hidden' : ''}`}>
-                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView clients={clients} orders={orders} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} templates={templates} /></div>}
-                                {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={orders} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
+                                {tabMounted('dashboard', canOpen('dashboard')) && <div hidden={!tabVisible('dashboard')}><DashboardView clients={clients} orders={ordersTampil} setOrders={updateOrders} showToast={showToast} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} templates={templates} /></div>}
+                                {tabMounted('antrean', canOpen('antrean')) && <div hidden={!tabVisible('antrean')}><AntreanProduksiView orders={ordersTampil} isTVMode={isTVMode} setIsTVMode={setIsTVMode} /></div>}
                                 {tabMounted('dana_operasional', canOpen('dana_operasional')) && <div hidden={!tabVisible('dana_operasional')}><DanaOperasionalView onLihatPemakaian={(jenis, id, emp) => { const J = DANA_PAKAI_JENIS[jenis]; if (!J || !canOpen(J.tab) || !emp) return; setDanaBukaReq({ jenis, id: String(id), empName: emp.name || '', t: Date.now() }); setDanaKembali({ empId: String(emp.id), empName: emp.name || '' }); setActiveTab(J.tab); }} bisaBukaMenu={(jenis) => !!DANA_PAKAI_JENIS[jenis] && canOpen(DANA_PAKAI_JENIS[jenis].tab)} pilihKaryawanReq={danaPilihReq} bolehKelola={hasDanaOpsKelola(myLoginAccount)} namaPencatat={authUser?.name || authUser?.username || ''} employees={employees} danaOperasional={danaOperasional} setDanaOperasional={updateDanaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} showToast={showToast} gajiSensitif={gajiSensitif} /></div>}
-                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView clients={clients} orders={orders} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} /></div>}
-                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} stokBahan={stokBahan} setStokBahan={updateStokBahan} bukaNotaVendor={notaVendorReq} bukaNotaDana={danaBukaReq && danaBukaReq.jenis === 'nota' ? danaBukaReq : null} /></div>}
-                                {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={orders} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView bukaRekapDana={danaBukaReq && danaBukaReq.jenis === 'gaji' ? danaBukaReq : null} orders={orders} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
+                                {tabMounted('input_order', canOpen('input_order')) && <div hidden={!tabVisible('input_order')}><InputOrderView clients={clients} orders={ordersTampil} setOrders={updateOrders} setActiveTab={setActiveTab} showToast={showToast} purchaseNotes={purchaseNotes} masterBahan={masterBahan} stokBahan={stokBahan} /></div>}
+                                {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={ordersTampil} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} stokBahan={stokBahan} setStokBahan={updateStokBahan} bukaNotaVendor={notaVendorReq} bukaNotaDana={danaBukaReq && danaBukaReq.jenis === 'nota' ? danaBukaReq : null} /></div>}
+                                {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={ordersTampil} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
+                                {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView bukaRekapDana={danaBukaReq && danaBukaReq.jenis === 'gaji' ? danaBukaReq : null} orders={ordersTampil} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView bukaBiayaDana={danaBukaReq && danaBukaReq.jenis === 'biaya' ? danaBukaReq : null} expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView bukaBhpDana={danaBukaReq && danaBukaReq.jenis === 'bh' ? danaBukaReq : null} invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('data_master', canOpen('data_master')) && <div hidden={!tabVisible('data_master')}><DataMasterView izin={getAccountMenuAccess(authUser)} purchaseNotes={purchaseNotes}
                                     karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
                                     onLihatNotaVendor={canOpen('pembelian_bahan') ? (vendor) => { setNotaVendorReq({ vendor, t: Date.now() }); setActiveTab('pembelian_bahan'); } : null} /></div>}
-                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={orders} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></MenuBeku></div>}
-                                {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={orders} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
+                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={ordersTampil} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></MenuBeku></div>}
+                                {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={ordersTampil} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></MenuBeku></div>}
-                                {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={orders} templates={templates} showToast={showToast} klienMaster={clients} riwayatPengiriman={riwayatPengiriman} /></div>}
-                                {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={orders} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
-                                {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} getDataSizeReport={authUser?.role === 'Admin' ? getDataSizeReport : null} /></div>}
+                                {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={ordersTampil} templates={templates} showToast={showToast} klienMaster={clients} riwayatPengiriman={riwayatPengiriman} /></div>}
+                                {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={ordersTampil} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
+                                {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} getDataSizeReport={authUser?.role === 'Admin' ? getDataSizeReport : null} arsipOrder={authUser?.role === 'Admin' ? { info: arsipInfo, jumlahUtama: orders.filter(isVisibleRecord).length, jalankan: () => jalankanArsipRef.current({ paksa: true }), ubahUmur: ubahUmurArsip } : null} /></div>}
                                 {tabMounted('master_akun', canOpen('master_akun')) && <div hidden={!tabVisible('master_akun')}><MasterAkunView accounts={accounts} setAccounts={updateAccounts} employees={employees} showToast={showToast} authUser={authUser} maintenance={maintenance} onSetMaintenance={setMaintenanceMode} /></div>}
                                 {tabMounted('stock_barang', canOpen('stock_barang')) && <div hidden={!tabVisible('stock_barang')}><StockBarangView stockItems={stockItems} setStockItems={updateStockItems} clients={clients} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('absensi_finger', canOpen('absensi_finger')) && <div hidden={!tabVisible('absensi_finger')}><AbsensiFingerView employees={employees} setEmployees={updateEmployees} absensiEdits={absensiEdits} setAbsensiEdits={updateAbsensiEdits} absensiRawLogs={absensiRawLogs} refreshAbsensiRawLogs={refreshAbsensiRawLogs} showToast={showToast} templates={templates} setTemplates={updateTemplates} authUser={authUser} accounts={accounts} /></div>}

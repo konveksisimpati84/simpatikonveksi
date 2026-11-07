@@ -245,8 +245,15 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
 
 ## Catatan Teknis
 
-- **Sync**: Data otomatis tersync setiap 15 detik dan saat tab browser aktif kembali
-- **Offline**: Aplikasi tetap bisa digunakan saat offline; data tersimpan di localStorage dan sync saat kembali online
+- **Sync**: Perubahan dari perangkat lain diterima lewat Supabase Realtime (catatan `_timestamps`). Beberapa perubahan
+  beruntun digabung menjadi satu unduhan (±5 detik); tab yang tersembunyi/diminimalkan tidak mengunduh dan langsung
+  memperbarui datanya saat dibuka lagi.
+- **Simpan order hemat kuota**: bila versi order di cloud sama dengan yang dipegang perangkat, order langsung disimpan
+  tanpa diunduh dulu; beberapa detik kemudian dicek bahwa perubahan benar-benar ada di cloud (bila tidak, digabung ulang).
+- **Arsip order lama**: order Riwayat yang tidak berubah lebih dari 3 bulan (bisa diubah di Pengaturan) dipindah otomatis
+  oleh perangkat Admin ke baris `ordersArsip:<tahun>`, dicatat di `ordersArsipIndex`, dengan cadangan terakhir di
+  `ordersCadangan`. Semua menu tetap menampilkan order arsip. **Jangan menghapus baris-baris ini di Supabase.**
+- **Offline**: Aplikasi tetap bisa digunakan saat offline; data tersimpan di perangkat (IndexedDB) dan sync saat kembali online
 - **Print**: Fitur cetak menggunakan `window.open()` — pastikan browser mengizinkan pop-up dari domain Netlify Anda
 - **Browser**: Chrome/Edge 90+, Firefox 88+, Safari 14+. Tidak mendukung Internet Explorer
 
