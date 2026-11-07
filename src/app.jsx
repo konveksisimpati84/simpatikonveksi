@@ -2743,6 +2743,10 @@
             return hasil.sort((a, b) => b.date.localeCompare(a.date));
         };
 
+        // Jenis produksi tanpa kata putra/putri/pria/wanita/PA/PI dsb., untuk mencari "jenis serupa" di rekomendasi bahan
+        const KATA_GENDER_JENIS = new Set(['putra', 'putri', 'pria', 'wanita', 'laki', 'perempuan', 'pa', 'pi', 'cowok', 'cewek', 'cowo', 'cewe']);
+        const jenisIntiProduksi = (t) => kunciTeksBahan(t).split(' ').filter(w => w && !KATA_GENDER_JENIS.has(w)).join(' ');
+        const jenisIntiLabel = (t) => normBahanText(t).replace(/[\/\-]+/g, ' ').split(/\s+/).filter(w => w && !KATA_GENDER_JENIS.has(w.toLowerCase().replace(/[.,]/g, ''))).join(' ');
         // Pengganti bagian "Bahan / Kain" bila "Pembelian Bahan" di Alur Proses Order tidak dicentang.
         // Isian kain yang sudah ada TIDAK dihapus: tetap disimpan dan muncul lagi bila dicentang.
         const BahanNonaktifInfo = ({ value }) => {
@@ -2825,10 +2829,23 @@
             }, [saran, sudahKey, stokSaran, abaikanMirip]);
             const [bukaVariasi, setBukaVariasi] = useState(null);
             // Bahan yang pernah dipakai untuk jenis produksi yang sama ditaruh di atas
+            // Jenis serupa: sama setelah kata putra/putri/pria/wanita/PA/PI dsb. diabaikan (mis. Kemeja Putih Putri ↔ Kemeja Putih Putra)
             const jenisKey = normBahanText(jenis).toLowerCase();
-            const cocokJenis = (r) => !!jenisKey && r.types.some(t => t.toLowerCase() === jenisKey);
-            const saranCocok = saranGrup.filter(cocokJenis).slice(0, 8);
-            const saranLain = saranGrup.filter(g => !cocokJenis(g)).slice(0, 8);
+            const jenisInti = jenisIntiProduksi(jenis);
+            const persisJenis = (r) => !!jenisKey && r.types.some(t => t.toLowerCase() === jenisKey);
+            const serupaJenis = (r) => !!jenisInti && r.types.some(t => jenisIntiProduksi(t) === jenisInti);
+            const cocokJenis = (r) => persisJenis(r) || serupaJenis(r);
+            const saranCocokSemua = saranGrup.filter(cocokJenis);
+            const saranLainSemua = saranGrup.filter(g => !cocokJenis(g));
+            const [saranSemua, setSaranSemua] = useState({ cocok: false, lain: false });
+            const SARAN_MAKS = 8;
+            const saranCocok = saranSemua.cocok ? saranCocokSemua : saranCocokSemua.slice(0, SARAN_MAKS);
+            const saranLain = saranSemua.lain ? saranLainSemua : saranLainSemua.slice(0, SARAN_MAKS);
+            const adaPersis = saranCocokSemua.some(persisJenis), adaSerupa = saranCocokSemua.some(g => !persisJenis(g));
+            const judulCocok = adaPersis && !adaSerupa ? normBahanText(jenis) : adaPersis ? `${normBahanText(jenis)} / jenis serupa` : `jenis serupa (${jenisIntiLabel(jenis)})`;
+            const tombolSemua = (bagian, jumlah) => jumlah <= SARAN_MAKS ? null : (
+                <button type="button" data-saran-semua={bagian} onClick={() => setSaranSemua(p => ({ ...p, [bagian]: !p[bagian] }))} className="text-xs font-bold text-teal-700 bg-white border border-dashed border-teal-500 rounded-full px-3 py-1 hover:bg-teal-50">{saranSemua[bagian] ? 'Tampilkan lebih sedikit ▴' : `Tampilkan semua (${jumlah}) ▾`}</button>
+            );
             const labelBahan = (r) => [r.name, r.code, r.color].filter(Boolean).join(' · ');
             const lencanaStok = (r) => { const st = stokDari(r); return st ? <span data-saran-stok className="text-[10px] font-bold rounded-full px-1.5 whitespace-nowrap bg-green-100 text-green-800">stok {fmtBelanjaQty(st.saldo)}{st.unit ? ' ' + st.unit : ''}</span> : null; };
             const chipSaran = (g, i, grup) => {
@@ -3060,15 +3077,15 @@
                     </div>
                     {saranCocok.length > 0 && (
                         <div>
-                            <div className="text-[11px] font-bold text-teal-800 mb-1">✓ Pernah dipakai “{normBahanText(client)}” untuk {normBahanText(jenis)}:</div>
-                            <div className="flex flex-wrap gap-1.5">{saranCocok.map((r, i) => chipSaran(r, i, 'cocok'))}</div>
+                            <div className="text-[11px] font-bold text-teal-800 mb-1">✓ Pernah dipakai “{normBahanText(client)}” untuk {judulCocok}:</div>
+                            <div className="flex flex-wrap gap-1.5">{saranCocok.map((r, i) => chipSaran(r, i, 'cocok'))}{tombolSemua('cocok', saranCocokSemua.length)}</div>
                             {panelVariasi(saranCocok)}
                         </div>
                     )}
                     {saranLain.length > 0 && (
                         <div>
                             <div className={`text-[11px] font-bold mb-1 ${saranCocok.length > 0 ? 'text-gray-600' : 'text-teal-800'}`}>{saranCocok.length > 0 ? `Bahan lain yang pernah dipakai “${normBahanText(client)}”:` : `Pernah dipakai “${normBahanText(client)}”:`}</div>
-                            <div className="flex flex-wrap gap-1.5">{saranLain.map((r, i) => chipSaran(r, i, saranCocok.length > 0 ? 'lain' : 'semua'))}</div>
+                            <div className="flex flex-wrap gap-1.5">{saranLain.map((r, i) => chipSaran(r, i, saranCocok.length > 0 ? 'lain' : 'semua'))}{tombolSemua('lain', saranLainSemua.length)}</div>
                             {panelVariasi(saranLain)}
                         </div>
                     )}
