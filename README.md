@@ -46,7 +46,7 @@ Aplikasi web manajemen operasional pabrik konveksi, dibangun sebagai Single-Page
 Setelah mengubah salah satu file di atas, rakit ulang:
 
 ```bash
-npm install --no-save @babel/core@8 @babel/preset-react@8 tailwindcss@3.4.17   # sekali saja
+npm install --no-save @babel/core@8 @babel/preset-react@8 tailwindcss@3.4.17 terser@5.31.6   # sekali saja
 node scripts/build.cjs
 ```
 
@@ -97,6 +97,61 @@ Cari dan ganti dua baris ini di bagian atas `index.html`:
 const SUPABASE_URL = 'https://XXXXX.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJ...';
 ```
+
+### 4. Fungsi untuk Link Share (agar cepat dibuka di HP)
+
+Link share (tracking customer, invoice, slip gaji, link driver, laporan marketing/investor/promosi) memakai fungsi kecil
+ini supaya hanya mengunduh data yang diperlukan, bukan seluruh daftar. Jalankan **sekali** di Supabase → **SQL Editor** →
+tempel semua teks di bawah → **Run**. Aman dijalankan ulang. Sebelum fungsi ini dipasang, link share tetap berjalan
+dengan cara lama (lebih lambat).
+
+```sql
+-- Isi daftar <koleksi> yang kolom <kolom> = <nilai>
+create or replace function public.share_cocok(koleksi text, kolom text, nilai text)
+returns jsonb language sql stable security invoker set search_path = public as $$
+  select coalesce(jsonb_agg(e), '[]'::jsonb)
+  from app_data a
+  cross join lateral jsonb_array_elements(case when jsonb_typeof(a.data) = 'array' then a.data else '[]'::jsonb end) e
+  where a.id = koleksi and e ->> kolom = nilai;
+$$;
+
+-- Isi daftar <koleksi> dengan id tertentu
+create or replace function public.share_ids(koleksi text, ids text[])
+returns jsonb language sql stable security invoker set search_path = public as $$
+  select coalesce(jsonb_agg(e), '[]'::jsonb)
+  from app_data a
+  cross join lateral jsonb_array_elements(case when jsonb_typeof(a.data) = 'array' then a.data else '[]'::jsonb end) e
+  where a.id = koleksi and e ->> 'id' = any(ids);
+$$;
+
+-- Order satu instansi (nama sudah huruf kecil & spasi dirapikan)
+create or replace function public.share_order_instansi(nama text[])
+returns jsonb language sql stable security invoker set search_path = public as $$
+  select coalesce(jsonb_agg(e), '[]'::jsonb)
+  from app_data a
+  cross join lateral jsonb_array_elements(case when jsonb_typeof(a.data) = 'array' then a.data else '[]'::jsonb end) e
+  where a.id = 'orders'
+    and btrim(regexp_replace(lower(coalesce(e ->> 'client', '')), '\s+', ' ', 'g')) = any(nama);
+$$;
+
+-- Invoice milik seorang marketing (id karyawan atau nama)
+create or replace function public.share_invoice_marketing(emp_id text, nama text)
+returns jsonb language sql stable security invoker set search_path = public as $$
+  select coalesce(jsonb_agg(e), '[]'::jsonb)
+  from app_data a
+  cross join lateral jsonb_array_elements(case when jsonb_typeof(a.data) = 'array' then a.data else '[]'::jsonb end) e
+  where a.id = 'invoices'
+    and (e ->> 'marketingEmpId' = emp_id
+         or lower(regexp_replace(coalesce(e ->> 'marketing', ''), '^\s+|\s+$', '', 'g')) = nama);
+$$;
+
+grant execute on function public.share_cocok(text, text, text) to anon, authenticated;
+grant execute on function public.share_ids(text, text[]) to anon, authenticated;
+grant execute on function public.share_order_instansi(text[]) to anon, authenticated;
+grant execute on function public.share_invoice_marketing(text, text) to anon, authenticated;
+```
+
+Hasil fungsi tetap disaring ulang oleh aplikasi dengan aturan yang sama seperti sebelumnya, jadi isi halaman share tidak berubah.
 
 ---
 

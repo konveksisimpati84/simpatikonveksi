@@ -1325,6 +1325,59 @@
         };
         const getCustomerTrackingClientFromHash = () => getCustomerTrackingNamesFromHash()[0] || '';
 
+        // ===== Link share: ambil hanya data yang diperlukan (lebih cepat dibuka di HP, data lain tidak ikut terunduh) =====
+        // Memakai fungsi kecil di Supabase: share_cocok, share_ids, share_order_instansi, share_invoice_marketing
+        // (teks SQL-nya ada di README.md, dijalankan sekali di Supabase > SQL Editor). Bila fungsinya belum dipasang
+        // atau gagal, otomatis kembali ke cara lama: mengunduh satu daftar penuh lalu menyaringnya di HP.
+        const shareRpcTidakAda = new Set();
+        const shareRpc = async (fn, args) => {
+            if (!supabaseClient || shareRpcTidakAda.has(fn)) return null;
+            try {
+                const { data, error } = await supabaseClient.rpc(fn, args);
+                if (error) {
+                    if (error.code === 'PGRST202' || /could not find the function|does not exist/i.test(String(error.message || ''))) shareRpcTidakAda.add(fn);
+                    return null;
+                }
+                return Array.isArray(data) ? data : null;
+            } catch (e) { return null; }
+        };
+        const ambilDaftarPenuhShare = async (koleksi) => {
+            const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', koleksi).maybeSingle();
+            if (error) throw error;
+            return safeArray(data && data.data);
+        };
+        // Isi daftar `koleksi` yang kolom-nya bernilai `nilai` (yang terhapus ikut; penyaringan lain tetap di tampilan)
+        const ambilShareCocok = async (koleksi, kolom, nilai) => {
+            const r = await shareRpc('share_cocok', { koleksi, kolom, nilai: String(nilai) });
+            if (r) return r;
+            return (await ambilDaftarPenuhShare(koleksi)).filter(x => x && String(x[kolom]) === String(nilai));
+        };
+        // Isi daftar `koleksi` dengan id tertentu
+        const ambilShareIds = async (koleksi, ids) => {
+            const daftar = [...new Set(safeArray(ids).map(String))];
+            if (!daftar.length) return [];
+            const r = await shareRpc('share_ids', { koleksi, ids: daftar });
+            if (r) return r;
+            const set = new Set(daftar);
+            return (await ambilDaftarPenuhShare(koleksi)).filter(x => x && set.has(String(x.id)));
+        };
+        // Pengaturan untuk halaman share: hanya kolom yang dipakai. Logo memakai versi kecil (logo cetak, tanda tangan
+        // & stempel ukuran asli tidak ikut diunduh kecuali diminta); bila logo kecil belum ada, pakai logo asli.
+        const ambilPengaturanShare = async (kolom) => {
+            const pilih = [...new Set(['companyLogoMini', ...kolom])];
+            const sel = (ks) => ks.map(k => `${k}:data->${k}`).join(',');
+            const { data, error } = await supabaseClient.from('app_data').select(sel(pilih)).eq('id', 'templates').maybeSingle();
+            if (error) throw error;
+            const out = {};
+            pilih.forEach(k => { if (data && data[k] !== null && data[k] !== undefined) out[k] = data[k]; });
+            if (!out.companyLogoMini && !kolom.includes('companyLogo')) {
+                const big = await supabaseClient.from('app_data').select('companyLogo:data->companyLogo').eq('id', 'templates').maybeSingle();
+                if (!big.error && big.data && big.data.companyLogo) out.companyLogo = big.data.companyLogo;
+            }
+            if (out.companyLogoMini && !kolom.includes('companyLogo')) out.companyLogo = out.companyLogoMini;
+            return out;
+        };
+
         const getRekapGajiIdFromHash = () => {
             const hash = window.location.hash || '';
             const prefix = '#rekap-gaji=';
@@ -14547,9 +14600,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setLoading(true);
                     try {
                         if (!supabaseClient) { setError('Koneksi database tidak tersedia.'); setLoading(false); return; }
-                        const { data, error: err } = await supabaseClient.from('app_data').select('data').eq('id', 'invoices').single();
-                        if (err) throw err;
-                        const all = Array.isArray(data?.data) ? data.data : [];
+                        const all = await ambilShareCocok('invoices', 'invoiceShareToken', token);
                         const found = all.find(i => !i.isDeleted && i.invoiceShareToken === token);
                         if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
                         setInv(found);
@@ -14746,16 +14797,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setLoading(true);
                     try {
                         if (!supabaseClient) { setError('Koneksi database tidak tersedia.'); setLoading(false); return; }
-                        const [bhpRes, invRes] = await Promise.all([
-                            supabaseClient.from('app_data').select('data').eq('id', 'bagiHasilPromosi').single(),
-                            supabaseClient.from('app_data').select('data').eq('id', 'invoices').single(),
-                        ]);
-                        if (bhpRes.error && bhpRes.error.code !== 'PGRST116') { setError('Gagal memuat data. Silakan coba lagi.'); setLoading(false); return; }
-                        if (invRes.error && invRes.error.code !== 'PGRST116') { setError('Gagal memuat data invoice. Silakan coba lagi.'); setLoading(false); return; }
-                        const allBhp = Array.isArray(bhpRes.data?.data) ? bhpRes.data.data : [];
-                        const allInv = Array.isArray(invRes.data?.data) ? invRes.data.data : [];
+                        let allBhp, allInv;
+                        try { allBhp = await ambilShareCocok('bagiHasilPromosi', 'shareToken', token); }
+                        catch (e) { setError('Gagal memuat data. Silakan coba lagi.'); setLoading(false); return; }
                         const found = allBhp.find(b => !b.isDeleted && b.shareToken === token);
                         if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
+                        try { allInv = await ambilShareIds('invoices', found.invoiceIds); }
+                        catch (e) { setError('Gagal memuat data invoice. Silakan coba lagi.'); setLoading(false); return; }
                         // Hitungan sama dengan menu Bagi Hasil Promosi (basis tanpa ongkir)
                         const { invs, totalNilai, totalPcs, nominal, termasukOngkir } = calcBagiHasil(found, allInv);
                         const paid = safeArray(found.payments).reduce((s, p) => s + safeMoney(p.amount), 0);
@@ -15229,12 +15277,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     let investorsList = [];
                     let bhList = [];
                     if (supabaseClient) {
-                        const [invRes, bhRes] = await Promise.all([
-                            supabaseClient.from('app_data').select('data').eq('id', 'investors').single(),
-                            supabaseClient.from('app_data').select('data').eq('id', 'investorBagiHasil').single()
-                        ]);
-                        investorsList = invRes.data?.data || [];
-                        bhList = bhRes.data?.data || [];
+                        investorsList = await ambilShareCocok('investors', 'shareToken', token);
+                        const calon = investorsList.find(inv => !inv.isDeleted && inv.shareToken === token);
+                        bhList = calon ? await ambilShareCocok('investorBagiHasil', 'investorId', calon.id) : [];
                     }
                     const found = investorsList.find(inv => !inv.isDeleted && inv.shareToken === token);
                     if (!found) { setError('Link tidak valid atau laporan tidak ditemukan.'); setLoading(false); return; }
@@ -15350,12 +15395,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     let empList = [];
                     let rawInvoices = [];
                     if (supabaseClient) {
-                        const [empRes, invRes] = await Promise.all([
-                            supabaseClient.from('app_data').select('data').eq('id', 'employees').single(),
-                            supabaseClient.from('app_data').select('data').eq('id', 'invoices').single()
-                        ]);
-                        empList = empRes.data?.data || [];
-                        rawInvoices = invRes.data?.data || [];
+                        empList = await ambilShareCocok('employees', 'marketingShareToken', token);
+                        const calon = empList.find(emp => !emp.isDeleted && emp.marketingShareToken === token);
+                        if (calon) {
+                            rawInvoices = await shareRpc('share_invoice_marketing', { emp_id: String(calon.id), nama: normalizeText(calon.name) });
+                            if (!rawInvoices) rawInvoices = await ambilDaftarPenuhShare('invoices');
+                        }
                     }
                     const found = empList.find(emp => !emp.isDeleted && emp.marketingShareToken === token);
                     if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
@@ -26871,13 +26916,12 @@ ${getRekapShareLink(rekap)}
 
             // Data terbaru dari server: transaksi ini + catatan perjalanannya
             const ambilData = async () => {
-                const [trxRes, progRes] = await Promise.all([
-                    supabaseClient.from('app_data').select('data').eq('id', 'driverTransactions').maybeSingle(),
+                const [trxList, progRes] = await Promise.all([
+                    ambilShareCocok('driverTransactions', 'id', trxId),
                     supabaseClient.from('app_data').select('data').eq('id', `drvp:${trxId}`).maybeSingle(),
                 ]);
-                if (trxRes.error) throw trxRes.error;
                 if (progRes.error) throw progRes.error;
-                const found = safeArray(trxRes.data?.data).find(t => t && String(t.id) === String(trxId) && !t.isDeleted) || null;
+                const found = safeArray(trxList).find(t => t && String(t.id) === String(trxId) && !t.isDeleted) || null;
                 const p = progRes.data?.data && typeof progRes.data.data === 'object' ? progRes.data.data : null;
                 return { trx: found, prog: p };
             };
@@ -27260,19 +27304,21 @@ ${getRekapShareLink(rekap)}
                             setLoading(false);
                         }
                         if (supabaseClient) {
-                            const [rRes, tRes, dRes, tplRes, trfRes, kbRes] = await Promise.all([
-                                supabaseClient.from('app_data').select('data').eq('id','driverRekapGaji').single(),
-                                supabaseClient.from('app_data').select('data').eq('id','driverTransactions').single(),
+                            // Hanya rekap ini, perjalanannya & kasbon driver ini (bukan semua data driver)
+                            const [allRekap, dRes, tpl, trfRes] = await Promise.all([
+                                ambilShareCocok('driverRekapGaji', 'id', rekapId),
                                 supabaseClient.from('app_data').select('data').eq('id','drivers').single(),
-                                supabaseClient.from('app_data').select('data').eq('id','templates').single(),
+                                ambilPengaturanShare(['companyName', 'printMode', 'logoSize']).catch(() => ({})),
                                 supabaseClient.from('app_data').select('data').eq('id','driverTarifs').single(),
-                                supabaseClient.from('app_data').select('data').eq('id','driverKasbon').maybeSingle(),
                             ]);
-                            const allRekap = rRes.data?.data || [];
                             const found = allRekap.find(r => r.id === rekapId && !r.isDeleted);
-                            const tpl = tplRes.data?.data || {};
+                            const [tripList, kbList] = found ? await Promise.all([
+                                ambilShareIds('driverTransactions', found.tripIds),
+                                ambilShareCocok('driverKasbon', 'driverId', found.driverId).catch(() => []),
+                            ]) : [[], []];
+                            const kbRes = { data: { data: kbList } };
                             const allTarifs = trfRes.data?.data || [];
-                            const foundTrips = found ? (tRes.data?.data || []).filter(t => (found.tripIds||[]).includes(t.id)) : [];
+                            const foundTrips = found ? tripList.filter(t => (found.tripIds||[]).includes(t.id)) : [];
                             const foundDriver = found ? (dRes.data?.data || []).find(d => d.id === found.driverId) || null : null;
                             setRekap(found || null);
                             setTrips(foundTrips);
@@ -32037,7 +32083,12 @@ ${getRekapShareLink(rekap)}
                     if (customerTrackingClient) {
                         if (supabaseClient) {
                             try {
-                                const [ords, tmpls] = await Promise.all([fetchStoreData('orders', []), fetchStoreData('templates', initialTemplates)]);
+                                // Hanya order instansi ini (bukan semua order) + nama & logo kecil usaha
+                                const nama = [...new Set(getCustomerTrackingNamesFromHash().map(klienNorm).filter(Boolean))];
+                                const [ords, tmpls] = await Promise.all([
+                                    shareRpc('share_order_instansi', { nama }).then(r => r || fetchStoreData('orders', [])),
+                                    ambilPengaturanShare(['companyName']).then(t => ({ ...initialTemplates, ...t })).catch(() => fetchStoreData('templates', initialTemplates)),
+                                ]);
                                 setOrders(patchOrders(Array.isArray(ords) ? ords : []));
                                 setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
                             } catch (e) {
@@ -32058,8 +32109,9 @@ ${getRekapShareLink(rekap)}
                         }
                         try {
                             const [rekaps, tmpls] = await Promise.all([
-                                fetchStoreData('rekapKinerja', []),
-                                fetchStoreData('templates', initialTemplates),
+                                ambilShareCocok('rekapKinerja', 'id', rekapGajiShareId).catch(() => fetchStoreData('rekapKinerja', [])),
+                                ambilPengaturanShare(['companyName', 'companyAddress', 'companyPhone', 'showSignatureOnPrint', 'signatureImage', 'signatureSize', 'printMode', 'logoSize'])
+                                    .then(t => ({ ...initialTemplates, ...t })).catch(() => fetchStoreData('templates', initialTemplates)),
                             ]);
                             const rekapList = Array.isArray(rekaps) ? rekaps : [];
                             const thisRekap = rekapList.find(r => String(r.id) === String(rekapGajiShareId));
@@ -32067,7 +32119,7 @@ ${getRekapShareLink(rekap)}
                             setRekapKinerja(thisRekap ? [thisRekap] : []);
                             setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
                             if (thisRekap && safeArray(thisRekap.marketingInvoiceIds).length > 0) {
-                                const invs = await fetchStoreData('invoices', []);
+                                const invs = await ambilShareIds('invoices', thisRekap.marketingInvoiceIds).catch(() => fetchStoreData('invoices', []));
                                 const ids = new Set(safeArray(thisRekap.marketingInvoiceIds).map(String));
                                 setInvoices(safeArray(invs).filter(inv => ids.has(String(inv.id))));
                             }

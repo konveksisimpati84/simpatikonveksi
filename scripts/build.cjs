@@ -1,17 +1,19 @@
 // Merakit index.html dari src/app.jsx + src/index.template.html.
 // JSX diterjemahkan sekali di sini, sehingga browser tidak perlu memuat Babel (±2,3 MB) dan menerjemahkan ulang tiap kali aplikasi dibuka.
+// Hasilnya diperkecil (minify, Terser) agar lebih cepat diunduh & dibuka di HP.
 // Jalankan: node scripts/build.cjs
 const fs = require('fs');
 const path = require('path');
 
-let babel;
+let babel, terser;
 try {
     babel = require('@babel/core');
+    terser = require('terser');
     require.resolve('@babel/preset-react');
     require.resolve('tailwindcss/lib/lib/expandTailwindAtRules.js');
     require.resolve('postcss');
 } catch (e) {
-    console.error('Babel/Tailwind belum terpasang. Jalankan dulu:\n  npm install --no-save @babel/core@8 @babel/preset-react@8 tailwindcss@3.4.17');
+    console.error('Babel/Tailwind/Terser belum terpasang. Jalankan dulu:\n  npm install --no-save @babel/core@8 @babel/preset-react@8 tailwindcss@3.4.17 terser@5.31.6');
     process.exit(1);
 }
 
@@ -34,7 +36,7 @@ const buildTailwindCss = async () => {
     const Module = require('module');
     const expPath = require.resolve('tailwindcss/lib/lib/expandTailwindAtRules.js');
     const twVersion = require('tailwindcss/package.json').version;
-    if (twVersion !== '3.4.17') fail(`Tailwind harus versi 3.4.17 (terpasang ${twVersion}). Jalankan: npm install --no-save @babel/core@8 @babel/preset-react@8 tailwindcss@3.4.17`);
+    if (twVersion !== '3.4.17') fail(`Tailwind harus versi 3.4.17 (terpasang ${twVersion}). Jalankan: npm install --no-save @babel/core@8 @babel/preset-react@8 tailwindcss@3.4.17 terser@5.31.6`);
     const sortRx = /let sortedCandidates = new Set\(\[\s*\.\.\.candidates\s*\]\.sort\(\(a, z\)=>\{[\s\S]*?\}\)\);/;
     let expSrc = fs.readFileSync(expPath, 'utf8');
     if (!sortRx.test(expSrc)) fail('bagian pengurutan kelas Tailwind tidak ditemukan (versi Tailwind berubah?)');
@@ -58,7 +60,7 @@ const twCss = await buildTailwindCss();
 if (twCss.length < 5000) fail('CSS Tailwind terlalu kecil, kemungkinan kelas tidak terbaca');
 if (/<\/style/i.test(twCss)) fail('CSS Tailwind mengandung "</style"');
 
-const { code } = babel.transformSync(source, {
+const { code: jsBabel } = babel.transformSync(source, {
     filename: 'app.jsx',
     babelrc: false,
     configFile: false,
@@ -67,6 +69,12 @@ const { code } = babel.transformSync(source, {
     comments: false,
     compact: true,
 });
+
+// Perkecil: nama variabel dipendekkan & bagian yang tidak terpakai dibuang (isi teks/tampilan tidak berubah).
+// "inline_script" menjaga agar tidak muncul "</script" di hasil.
+const minified = await terser.minify(jsBabel, { compress: true, mangle: true, format: { comments: false, inline_script: true } });
+if (!minified || typeof minified.code !== 'string' || minified.code.length < jsBabel.length * 0.5) fail('hasil minify tidak wajar');
+const code = minified.code;
 
 // "</script" di dalam kode akan memotong tag <script> di HTML
 if (/<\/script/i.test(code)) fail('hasil terjemahan mengandung "</script" — tulis sebagai "<\\/script" di src/app.jsx');
