@@ -1329,13 +1329,14 @@
         // Memakai fungsi kecil di Supabase: share_cocok, share_ids, share_order_instansi, share_invoice_marketing
         // (teks SQL-nya ada di README.md, dijalankan sekali di Supabase > SQL Editor). Bila fungsinya belum dipasang
         // atau gagal, otomatis kembali ke cara lama: mengunduh satu daftar penuh lalu menyaringnya di HP.
-        const shareRpcTidakAda = new Set();
+        // Keempat fungsi dipasang bersamaan: bila satu belum ada, langsung pakai cara lama untuk semuanya (tanpa mencoba lagi)
+        let shareRpcBelumAda = false;
         const shareRpc = async (fn, args) => {
-            if (!supabaseClient || shareRpcTidakAda.has(fn)) return null;
+            if (!supabaseClient || shareRpcBelumAda) return null;
             try {
                 const { data, error } = await supabaseClient.rpc(fn, args);
                 if (error) {
-                    if (error.code === 'PGRST202' || /could not find the function|does not exist/i.test(String(error.message || ''))) shareRpcTidakAda.add(fn);
+                    if (error.code === 'PGRST202' || /could not find the function|does not exist/i.test(String(error.message || ''))) shareRpcBelumAda = true;
                     return null;
                 }
                 return Array.isArray(data) ? data : null;
@@ -1363,6 +1364,8 @@
         };
         // Pengaturan untuk halaman share: hanya kolom yang dipakai. Logo memakai versi kecil (logo cetak, tanda tangan
         // & stempel ukuran asli tidak ikut diunduh kecuali diminta); bila logo kecil belum ada, pakai logo asli.
+        // Kolom Pengaturan yang dipakai cetakan struk/slip (kepala, logo, tanda tangan, mode cetak) — sama dengan cetakan admin
+        const KOLOM_CETAK_SLIP = ['companyName', 'companySubtitle', 'companyContact', 'companyAddress', 'companyLogo', 'showSignatureOnPrint', 'signatureImage', 'signatureSize', 'printMode', 'logoSize'];
         const ambilPengaturanShare = async (kolom) => {
             const pilih = [...new Set(['companyLogoMini', ...kolom])];
             const sel = (ks) => ks.map(k => `${k}:data->${k}`).join(',');
@@ -27308,7 +27311,7 @@ ${getRekapShareLink(rekap)}
                             const [allRekap, dRes, tpl, trfRes] = await Promise.all([
                                 ambilShareCocok('driverRekapGaji', 'id', rekapId),
                                 supabaseClient.from('app_data').select('data').eq('id','drivers').single(),
-                                ambilPengaturanShare(['companyName', 'printMode', 'logoSize']).catch(() => ({})),
+                                ambilPengaturanShare(['companyName', 'companySubtitle', 'printMode', 'logoSize']).catch(() => ({})),
                                 supabaseClient.from('app_data').select('data').eq('id','driverTarifs').single(),
                             ]);
                             const found = allRekap.find(r => r.id === rekapId && !r.isDeleted);
@@ -27324,6 +27327,12 @@ ${getRekapShareLink(rekap)}
                             setTrips(foundTrips);
                             setDriver(foundDriver);
                             setTpl(tpl); applyPrintSettingsFromTemplates(tpl);
+                            // Setelah tampil: muat pengaturan cetak lengkap (logo asli & tanda tangan) agar cetakan sama dengan cetakan admin
+                            ambilPengaturanShare(KOLOM_CETAK_SLIP).then(full => {
+                                const gabung = { ...tpl, ...full };
+                                setTpl(gabung); applyPrintSettingsFromTemplates(gabung);
+                                try { const c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null'); if (c) sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ...c, tpl: gabung })); } catch (e) {}
+                            }).catch(() => {});
                             setTarifs(allTarifs);
                             // Kasbon driver ini saja (untuk "sisa kasbon per hari ini" pada rekap lama)
                             const kasbonDriver = found ? safeArray(kbRes?.data?.data).filter(k => k && k.driverId === found.driverId) : [];
@@ -32110,7 +32119,7 @@ ${getRekapShareLink(rekap)}
                         try {
                             const [rekaps, tmpls] = await Promise.all([
                                 ambilShareCocok('rekapKinerja', 'id', rekapGajiShareId).catch(() => fetchStoreData('rekapKinerja', [])),
-                                ambilPengaturanShare(['companyName', 'companyAddress', 'companyPhone', 'showSignatureOnPrint', 'signatureImage', 'signatureSize', 'printMode', 'logoSize'])
+                                ambilPengaturanShare(['companyName', 'companySubtitle', 'companyContact', 'companyAddress', 'showSignatureOnPrint', 'signatureSize', 'printMode', 'logoSize'])
                                     .then(t => ({ ...initialTemplates, ...t })).catch(() => fetchStoreData('templates', initialTemplates)),
                             ]);
                             const rekapList = Array.isArray(rekaps) ? rekaps : [];
@@ -32118,6 +32127,8 @@ ${getRekapShareLink(rekap)}
                             // Data karyawan lain tidak diunduh; nama & divisi diambil dari rekap itu sendiri
                             setRekapKinerja(thisRekap ? [thisRekap] : []);
                             setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
+                            // Setelah tampil: logo asli & tanda tangan dimuat di belakang (sama dengan slip dari admin)
+                            ambilPengaturanShare(KOLOM_CETAK_SLIP).then(full => setTemplates(prev => ({ ...(prev || initialTemplates), ...full }))).catch(() => {});
                             if (thisRekap && safeArray(thisRekap.marketingInvoiceIds).length > 0) {
                                 const invs = await ambilShareIds('invoices', thisRekap.marketingInvoiceIds).catch(() => fetchStoreData('invoices', []));
                                 const ids = new Set(safeArray(thisRekap.marketingInvoiceIds).map(String));
