@@ -245,9 +245,14 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
 
 ## Catatan Teknis
 
-- **Sync**: Perubahan dari perangkat lain diterima lewat Supabase Realtime (catatan `_timestamps`). Beberapa perubahan
-  beruntun digabung menjadi satu unduhan (±5 detik); tab yang tersembunyi/diminimalkan tidak mengunduh dan langsung
-  memperbarui datanya saat dibuka lagi.
+- **Sync**: Perubahan dari perangkat lain diterima lewat Supabase Realtime (catatan `_timestamps`). Kabar pertama diproses
+  ±1 detik; kabar beruntun sesudahnya digabung menjadi satu unduhan (±5 detik); tab yang tersembunyi/diminimalkan tidak
+  mengunduh dan langsung memperbarui datanya saat dibuka lagi. Simpan order / nota pembelian langsung dikirim (tanpa jeda).
+- **Cetak data terbaru**: sebelum mencetak SPK/Lembar Kerja, Surat Pesanan Bahan, dan Checklist Belanja, aplikasi mengecek
+  `_timestamps`; bila ada data lebih baru dari perangkat lain, data dimuat dulu baru dicetak.
+- **Samakan nama bahan**: aturan nama baku (Admin, di Database Bahan) disimpan di `masterBahan` sebagai catatan
+  `jenis: 'aliasNama'` (dan `aliasAbaikan` untuk "bukan bahan sama"). Data order, nota & stok asli tidak diubah; aturan
+  dipakai saat menghitung stok, rekomendasi bahan, dan Daftar Belanja, dan bisa dibatalkan.
 - **Simpan order hemat kuota**: bila versi order di cloud sama dengan yang dipegang perangkat, order langsung disimpan
   tanpa diunduh dulu; beberapa detik kemudian dicek bahwa perubahan benar-benar ada di cloud (bila tidak, digabung ulang).
 - **Arsip order lama**: order Riwayat yang tidak berubah lebih dari 3 bulan (bisa diubah di Pengaturan) dipindah otomatis

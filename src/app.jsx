@@ -2445,6 +2445,64 @@
         const BAHAN_UNITS = ['kg', 'meter', 'yard', 'roll', 'pcs'];
         const normBahanText = (v) => String(v || '').trim().replace(/\s+/g, ' ');
         const normBahanKey = (name, code) => `${normBahanText(name).toLowerCase()}|${normBahanText(code).toLowerCase()}`;
+        // ===== Samakan nama bahan (aturan nama, khusus Admin) =====
+        // Aturan disimpan di data 'masterBahan' sebagai catatan { jenis: 'aliasNama', baku: {name, code, color}, dari: [{name, code, color}] }.
+        // Data asli (order, nota, stok) TIDAK diubah: aturan dipakai saat menampilkan & menghitung (stok, rekomendasi, Daftar Belanja).
+        const kunciTeksBahan = (v) => normBahanText(v).toLowerCase().replace(/[.,·•_\/\\\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+        const kunciVarianBahan = (name, code, color) => [name, code, color].map(kunciTeksBahan).join('|');
+        // Kunci "mirip": kata-kata nama + warna (urutan, huruf besar/kecil, tanda baca diabaikan; warna di nama dikenali), kode tidak ikut
+        const kunciMiripBahan = (name, color) => [...new Set(`${kunciTeksBahan(name)} ${kunciTeksBahan(color)}`.split(' ').filter(Boolean))].sort().join(' ');
+        const isAliasBahan = (m) => !!m && m.jenis === 'aliasNama' && !m.isDeleted && !!m.baku && !!normBahanText(m.baku.name);
+        const petaAliasCache = new WeakMap();
+        const PETA_ALIAS_KOSONG = new Map();
+        const petaAliasDari = (masterBahan) => {
+            if (!Array.isArray(masterBahan)) return PETA_ALIAS_KOSONG;
+            let peta = petaAliasCache.get(masterBahan);
+            if (peta) return peta;
+            peta = new Map();
+            // Aturan diproses dari yang terlama; nama baku aturan yang lebih baru tidak pernah dialihkan lagi oleh aturan lama
+            masterBahan.filter(isAliasBahan).sort((a, b) => String(a.at || '').localeCompare(String(b.at || ''))).forEach(m => {
+                const baku = { name: normBahanText(m.baku.name), code: normBahanText(m.baku.code), color: normBahanText(m.baku.color), aturanId: m.id };
+                const kb = kunciVarianBahan(baku.name, baku.code, baku.color);
+                peta.delete(kb);
+                safeArray(m.dari).forEach(d => { if (!d || !normBahanText(d.name)) return; const k = kunciVarianBahan(d.name, d.code, d.color); if (k !== kb) peta.set(k, baku); });
+            });
+            // Rantai (A → B, lalu B → C) langsung ke nama baku terakhir (C)
+            peta.forEach((b, k) => {
+                let cur = b; const lewat = new Set([k]);
+                for (let i = 0; i < 10; i++) {
+                    const kc = kunciVarianBahan(cur.name, cur.code, cur.color);
+                    const next = peta.get(kc);
+                    if (!next || lewat.has(kc)) break;
+                    lewat.add(kc); cur = next;
+                }
+                if (cur !== b) peta.set(k, cur);
+            });
+            if (!peta.size) peta = PETA_ALIAS_KOSONG;
+            petaAliasCache.set(masterBahan, peta);
+            return peta;
+        };
+        // Bahan dibaca sebagai nama baku bila ada aturannya (satuan & isian lain tetap)
+        const bahanBaku = (peta, r) => {
+            if (!r || !peta || !peta.size) return r;
+            const b = peta.get(kunciVarianBahan(r.name, r.code, r.color));
+            return b ? { ...r, name: b.name, code: b.code, color: b.color } : r;
+        };
+        // "Bukan bahan sama" (Admin): kelompok mirip yang tidak perlu disarankan/digabung lagi. kunci (mirip) → Set kunci varian
+        const isAbaikanBahan = (m) => !!m && m.jenis === 'aliasAbaikan' && !m.isDeleted && !!m.kunci;
+        const abaikanCache = new WeakMap();
+        const abaikanDari = (masterBahan) => {
+            if (!Array.isArray(masterBahan)) return new Map();
+            let m = abaikanCache.get(masterBahan);
+            if (m) return m;
+            m = new Map();
+            masterBahan.filter(isAbaikanBahan).forEach(x => { if (!m.has(x.kunci)) m.set(x.kunci, new Set()); safeArray(x.varian).forEach(v => m.get(x.kunci).add(String(v))); });
+            abaikanCache.set(masterBahan, m);
+            return m;
+        };
+        const kelompokDiabaikan = (abaikan, kunci, varianKeys) => { const s = abaikan.get(kunci); return !!s && varianKeys.every(k => s.has(k)); };
+        // Diisi aplikasi utama: apakah Admin & fungsi menyimpan aturan baru (Samakan sekarang dari rekomendasi bahan)
+        const appBahan = { isAdmin: false, samakan: null };
         const normBahanUnit = (u) => {
             const x = String(u || '').trim().toLowerCase();
             if (!x) return '';
@@ -2492,7 +2550,8 @@
         const stokOrderDihitung = (o) => !!o && !o.isDeleted && getOrderProcessFlow(o).materials !== false;
         const stokDelta = (s) => { const q = stokAngka(s && s.qty); return s && s.jenis === 'koreksi' && s.arah === 'kurang' ? -q : q; };
         // Saldo per stok: masuk ± koreksi − pemakaian order (excludeOrderId: order yang sedang diedit tidak dihitung)
-        const hitungStokBahan = (stokBahan, orders, excludeOrderId) => {
+        // peta: aturan nama bahan (Samakan nama bahan) → stok varian penulisan dijumlahkan ke nama baku
+        const hitungStokBahan = (stokBahan, orders, excludeOrderId, peta = null) => {
             const map = new Map();
             const item = (name, code, color, unit) => {
                 const key = stokKey(name, code, color, unit);
@@ -2503,7 +2562,8 @@
                 if (!s || s.isDeleted || !normBahanText(s.name)) return;
                 const d = stokDelta(s);
                 if (!d) return;
-                const e = item(s.name, s.code, s.color, s.unit);
+                const b = bahanBaku(peta, s);
+                const e = item(b.name, b.code, b.color, s.unit);
                 e.masuk += d;
                 e.riwayat.push(s);
             });
@@ -2513,7 +2573,8 @@
                     if (!r || !normBahanText(r.name)) return;
                     const p = rbPakaiStok(r);
                     if (!p) return;
-                    const e = item(r.name, r.code, r.color, r.unit);
+                    const b = bahanBaku(peta, r);
+                    const e = item(b.name, b.code, b.color, r.unit);
                     e.dipakai += p;
                     e.pemakaian.push({ order: o, qty: p });
                 });
@@ -2529,10 +2590,18 @@
         const buildDatabaseBahan = (purchaseNotes, orders, masterBahan) => {
             const map = new Map();
             const ordersById = new Map(safeArray(orders).filter(o => o && !o.isDeleted).map(o => [String(o.id), o]));
-            const entry = (name, code) => {
+            const peta = petaAliasDari(masterBahan);
+            const entryDasar = (name, code) => {
                 const key = normBahanKey(name, code);
-                if (!map.has(key)) map.set(key, { key, name: normBahanText(name), code: normBahanText(code), colors: new Set(), vendors: new Set(), lastPrice: null, lastUnit: '', lastBuyDate: '', lastVendor: '', buyCount: 0, usedBy: new Map(), lastUsedDate: '', manual: null });
+                if (!map.has(key)) map.set(key, { key, name: normBahanText(name), code: normBahanText(code), colors: new Set(), vendors: new Set(), lastPrice: null, lastUnit: '', lastBuyDate: '', lastVendor: '', buyCount: 0, usedBy: new Map(), lastUsedDate: '', manual: null, varianLama: new Map() });
                 return map.get(key);
+            };
+            // Penulisan lama yang sudah disamakan Admin dibaca sebagai nama baku (warna ikut nama baku)
+            const baca = (x) => {
+                const b = bahanBaku(peta, x);
+                const e = entryDasar(b.name, b.code);
+                if (b !== x) e.varianLama.set(kunciVarianBahan(x.name, x.code, x.color), [x.name, x.code, x.color].map(normBahanText).filter(Boolean).join(' · '));
+                return { e, color: normBahanText(b.color) };
             };
             const addUse = (e, order, date) => {
                 if (!order) return;
@@ -2547,8 +2616,8 @@
             safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => {
                 safeArray(n.items).forEach(it => {
                     if (!it || !normBahanText(it.name)) return;
-                    const e = entry(it.name, it.code);
-                    if (normBahanText(it.color)) e.colors.add(normBahanText(it.color));
+                    const { e, color } = baca(it);
+                    if (color) e.colors.add(color);
                     if (n.vendor) e.vendors.add(normBahanText(n.vendor));
                     e.buyCount++;
                     const d = String(n.date || '');
@@ -2560,14 +2629,14 @@
             ordersById.forEach(o => {
                 safeArray(o.rencanaBahan).forEach(r => {
                     if (!r || !normBahanText(r.name)) return;
-                    const e = entry(r.name, r.code);
-                    if (normBahanText(r.color)) e.colors.add(normBahanText(r.color));
+                    const { e, color } = baca(r);
+                    if (color) e.colors.add(color);
                     if (!e.lastUnit && r.unit) e.lastUnit = normBahanUnit(r.unit);
                     addUse(e, o, o.date);
                 });
             });
             safeArray(masterBahan).filter(m => m && !m.isDeleted && normBahanText(m.name)).forEach(m => {
-                const e = entry(m.name, m.code);
+                const e = entryDasar(m.name, m.code);
                 e.manual = m;
                 if (normBahanText(m.color)) normBahanText(m.color).split(',').map(normBahanText).filter(Boolean).forEach(c => e.colors.add(c));
                 if (normBahanText(m.vendor)) e.vendors.add(normBahanText(m.vendor));
@@ -2626,19 +2695,23 @@
 
         // Saran bahan untuk satu instansi: dari rencana bahan order-order sebelumnya + nota yang terhubung ke order instansi itu
         // atau item nota yang diisi "Untuk Instansi" (dibeli sebelum ordernya ada)
-        const getSaranBahanInstansi = (client, orders, purchaseNotes, excludeOrderId) => {
+        const getSaranBahanInstansi = (client, orders, purchaseNotes, excludeOrderId, peta = null) => {
             const target = normBahanText(client).toLowerCase();
             if (!target) return [];
             const byKey = new Map();
             const clientOrders = safeArray(orders).filter(o => o && !o.isDeleted && normBahanText(o.client).toLowerCase() === target && String(o.id) !== String(excludeOrderId || ''))
                 .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
             // Bahan yang sama (nama+kode+warna) digabung; jenis produksinya dikumpulkan untuk label & pengelompokan
-            const push = (r, date, type, fromNota) => {
+            const push = (r0, date, type, fromNota) => {
+                if (!r0 || !normBahanText(r0.name)) return;
+                const r = bahanBaku(peta, r0);
+                const baku = r !== r0;
                 const name = normBahanText(r.name); if (!name) return;
                 const k = normBahanKey(name, r.code) + '|' + normBahanText(r.color).toLowerCase();
                 let e = byKey.get(k);
-                if (!e) { e = { name, code: normBahanText(r.code), color: normBahanText(r.color), unit: normBahanUnit(r.unit), date: String(date || ''), types: [], fromNota: false }; byKey.set(k, e); }
+                if (!e) { e = { name, code: normBahanText(r.code), color: normBahanText(r.color), unit: normBahanUnit(r.unit), date: String(date || ''), types: [], fromNota: false, baku: false }; byKey.set(k, e); }
                 else if (String(date || '') > e.date) e.date = String(date || '');
+                if (baku) e.baku = true;
                 const t = normBahanText(type);
                 if (t && !e.types.some(x => x.toLowerCase() === t.toLowerCase())) e.types.push(t);
                 if (fromNota) e.fromNota = true;
@@ -2663,6 +2736,7 @@
                 if (!c) return true;
                 e.types.forEach(t => { if (!c.types.some(x => x.toLowerCase() === t.toLowerCase())) c.types.push(t); });
                 if (e.fromNota) c.fromNota = true;
+                if (e.baku) c.baku = true;
                 if (e.date > c.date) c.date = e.date;
                 return false;
             });
@@ -2691,10 +2765,13 @@
             const rows = safeArray(value);
             const [cari, setCari] = useState('');
             // Stok sisa (order yang sedang diedit tidak dihitung: pemakaiannya diambil dari isian di form ini)
-            const stokMap = useMemo(() => hitungStokBahan(stokBahan, orders, excludeOrderId), [stokBahan, orders, excludeOrderId]);
+            const petaAlias = petaAliasDari(masterBahan);
+            const stokMap = useMemo(() => hitungStokBahan(stokBahan, orders, excludeOrderId, petaAlias), [stokBahan, orders, excludeOrderId, petaAlias]);
+            // Kunci stok baris (dibaca sebagai nama baku bila ada aturan nama)
+            const kunciStokBaris = (x) => { const b = bahanBaku(petaAlias, x); return stokKey(b.name, b.code, b.color, b.unit); };
             const [stokPesan, setStokPesan] = useState({}); // id baris -> pesan "melebihi stok"
             const db = useMemo(() => buildDatabaseBahan(purchaseNotes, orders, masterBahan), [purchaseNotes, orders, masterBahan]);
-            const saran = useMemo(() => getSaranBahanInstansi(client, orders, purchaseNotes, excludeOrderId), [client, orders, purchaseNotes, excludeOrderId]);
+            const saran = useMemo(() => getSaranBahanInstansi(client, orders, purchaseNotes, excludeOrderId, petaAlias), [client, orders, purchaseNotes, excludeOrderId, petaAlias]);
             // Dropdown nama / kode / warna + satuan otomatis dari pembelian terakhir. Satuan hanya diisi otomatis untuk baris baru
             // yang satuannya belum diubah admin; baris yang sudah tersimpan di order tidak pernah diubah otomatis.
             const ddId = 'rb' + React.useId().replace(/[^a-zA-Z0-9]/g, '');
@@ -2715,21 +2792,89 @@
                 onChange(rows.map((x, i) => i === idx ? lepasPakaiStok({ ...x, unit: u }) : x));
                 setUnitOtomatis(prev => new Set(prev).add(r.id));
             };
-            const sudahAda = (r) => rows.some(x => normBahanKey(x.name, x.code) === normBahanKey(r.name, r.code) && normBahanText(x.color).toLowerCase() === normBahanText(r.color).toLowerCase());
-            const saranTampil = saran.filter(r => !sudahAda(r));
+            const sudahAda = (r) => rows.some(x0 => { const x = bahanBaku(petaAlias, x0); return normBahanKey(x.name, x.code) === normBahanKey(r.name, r.code) && normBahanText(x.color).toLowerCase() === normBahanText(r.color).toLowerCase(); });
+            // Stok terbesar per bahan (nama + kode + warna, satuan apa pun) untuk label & memilih yang ditampilkan
+            const stokSaran = useMemo(() => {
+                const m = new Map();
+                stokMap.forEach(st => { if (st.saldo <= 1e-9) return; const k = stokKey(st.name, st.code, st.color, ''); const c = m.get(k); if (!c || st.saldo > c.saldo) m.set(k, st); });
+                return m;
+            }, [stokMap]);
+            const stokDari = (r) => stokSaran.get(stokKey(r.name, r.code, r.color, '')) || null;
+            // Penulisan mirip (huruf besar/kecil, tanda baca, urutan kata; kode diabaikan) dikelompokkan: yang ditampilkan
+            // yang ada stoknya (terbanyak), bila tidak ada stok nama baku, lalu yang paling baru dipakai. Lainnya di "+N variasi".
+            // Stok tiap penulisan tetap sendiri-sendiri (dijumlahkan hanya lewat "Samakan nama bahan" oleh Admin).
+            const abaikanMirip = abaikanDari(masterBahan);
+            // Kelompok yang salah satu penulisannya sudah ada di isian tidak disarankan lagi
+            const sudahKey = rows.map(x0 => { const x = bahanBaku(petaAlias, x0 || {}); return kunciVarianBahan(x.name, x.code, x.color); }).join('\n');
+            const saranGrup = useMemo(() => {
+                const per = new Map();
+                saran.forEach(r => { const k = kunciMiripBahan(r.name, r.color) || ('#' + kunciVarianBahan(r.name, r.code, r.color)); if (!per.has(k)) per.set(k, []); per.get(k).push(r); });
+                const out = [];
+                per.forEach((arr, k) => {
+                    const pisah = arr.length > 1 && kelompokDiabaikan(abaikanMirip, k, arr.map(r => kunciVarianBahan(r.name, r.code, r.color)));
+                    const urut = (a, b) => ((stokDari(b) || {}).saldo || 0) - ((stokDari(a) || {}).saldo || 0) || (b.baku ? 1 : 0) - (a.baku ? 1 : 0) || b.date.localeCompare(a.date);
+                    if (pisah) arr.filter(r => !sudahAda(r)).forEach(r => out.push({ id: kunciVarianBahan(r.name, r.code, r.color), utama: r, lain: [], date: r.date, types: r.types }));
+                    else if (!arr.some(sudahAda)) {
+                        const s = [...arr].sort(urut);
+                        const types = [];
+                        arr.forEach(r => r.types.forEach(t => { if (!types.some(x => x.toLowerCase() === t.toLowerCase())) types.push(t); }));
+                        out.push({ id: k, utama: s[0], lain: s.slice(1), date: arr.reduce((d, r) => r.date > d ? r.date : d, ''), types });
+                    }
+                });
+                return out.sort((a, b) => b.date.localeCompare(a.date));
+            }, [saran, sudahKey, stokSaran, abaikanMirip]);
+            const [bukaVariasi, setBukaVariasi] = useState(null);
             // Bahan yang pernah dipakai untuk jenis produksi yang sama ditaruh di atas
             const jenisKey = normBahanText(jenis).toLowerCase();
             const cocokJenis = (r) => !!jenisKey && r.types.some(t => t.toLowerCase() === jenisKey);
-            const saranCocok = saranTampil.filter(cocokJenis).slice(0, 8);
-            const saranLain = saranTampil.filter(r => !cocokJenis(r)).slice(0, 8);
-            const chipSaran = (r, i, grup) => (
-                <button key={grup + i} type="button" data-saran-bahan data-saran-grup={grup} onClick={() => tambah(r)} className={`text-xs bg-white border rounded-full px-2.5 py-1 text-left inline-flex items-center gap-1.5 ${grup === 'cocok' ? 'border-teal-300 text-teal-900 hover:bg-teal-100' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}>
-                    <span>+ {[r.name, r.code, r.color].filter(Boolean).join(' · ')}</span>
-                    {r.types.length > 0
-                        ? <span className={`text-[10px] font-bold rounded-full px-1.5 whitespace-nowrap ${grup === 'cocok' ? 'bg-teal-100 text-teal-700' : 'bg-gray-100 text-gray-600'}`}>{r.types.join(', ')}</span>
-                        : r.fromNota && <span className="text-[10px] font-bold rounded-full px-1.5 whitespace-nowrap bg-amber-100 text-amber-800">nota, tanpa order</span>}
-                </button>
-            );
+            const saranCocok = saranGrup.filter(cocokJenis).slice(0, 8);
+            const saranLain = saranGrup.filter(g => !cocokJenis(g)).slice(0, 8);
+            const labelBahan = (r) => [r.name, r.code, r.color].filter(Boolean).join(' · ');
+            const lencanaStok = (r) => { const st = stokDari(r); return st ? <span data-saran-stok className="text-[10px] font-bold rounded-full px-1.5 whitespace-nowrap bg-green-100 text-green-800">stok {fmtBelanjaQty(st.saldo)}{st.unit ? ' ' + st.unit : ''}</span> : null; };
+            const chipSaran = (g, i, grup) => {
+                const r = g.utama;
+                return (
+                    <span key={g.id} className="inline-flex items-stretch">
+                        <button type="button" data-saran-bahan data-saran-grup={grup} onClick={() => tambah(r)} className={`text-xs bg-white border px-2.5 py-1 text-left inline-flex items-center gap-1.5 ${g.lain.length ? 'rounded-l-full border-r-0' : 'rounded-full'} ${grup === 'cocok' ? 'border-teal-300 text-teal-900 hover:bg-teal-100' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}>
+                            <span>+ {labelBahan(r)}</span>
+                            {lencanaStok(r)}
+                            {r.types.length > 0
+                                ? <span className={`text-[10px] font-bold rounded-full px-1.5 whitespace-nowrap ${grup === 'cocok' ? 'bg-teal-100 text-teal-700' : 'bg-gray-100 text-gray-600'}`}>{r.types.join(', ')}</span>
+                                : r.fromNota && <span className="text-[10px] font-bold rounded-full px-1.5 whitespace-nowrap bg-amber-100 text-amber-800">nota, tanpa order</span>}
+                        </button>
+                        {g.lain.length > 0 && <button type="button" data-saran-variasi={g.lain.length} onClick={() => setBukaVariasi(v => v === g.id ? null : g.id)} title="Penulisan lain yang mirip" className={`text-[10.5px] font-bold border rounded-r-full px-2 py-1 whitespace-nowrap ${bukaVariasi === g.id ? 'bg-teal-600 border-teal-600 text-white' : 'bg-teal-50 border-teal-300 text-teal-800 hover:bg-teal-100'}`}>+{g.lain.length} variasi {bukaVariasi === g.id ? '▴' : '▾'}</button>}
+                    </span>
+                );
+            };
+            const samakanSekarang = (g) => {
+                if (!appBahan.samakan) return;
+                const baku = { name: g.utama.name, code: g.utama.code, color: g.utama.color };
+                const dari = g.lain.map(r => ({ name: r.name, code: r.code, color: r.color }));
+                if (!window.confirm(`Samakan ${dari.length + 1} penulisan menjadi "${labelBahan(baku)}"?\n\n${dari.map(labelBahan).join('\n')}\n\nStoknya dijumlahkan. Data order & nota tidak diubah; aturan bisa dibatalkan di Database Bahan.`)) return;
+                appBahan.samakan(baku, dari);
+                setBukaVariasi(null);
+            };
+            const panelVariasi = (list) => {
+                const g = list.find(x => x.id === bukaVariasi && x.lain.length);
+                if (!g) return null;
+                return (
+                    <div data-saran-variasi-panel className="mt-1.5 border border-teal-300 bg-white rounded-lg p-2 text-xs space-y-1">
+                        <div className="text-[11px] text-gray-500">Penulisan lain yang mirip “{labelBahan(g.utama)}” — ketuk untuk memakai:</div>
+                        {g.lain.map(r => (
+                            <button key={kunciVarianBahan(r.name, r.code, r.color)} type="button" data-saran-variasi-item onClick={() => { tambah(r); setBukaVariasi(null); }} className="w-full flex items-center justify-between gap-2 text-left px-2 py-1 rounded-md hover:bg-teal-50 border-t border-dashed border-teal-100 first:border-t-0">
+                                <span>+ {labelBahan(r)}</span>
+                                {lencanaStok(r) || <span className="text-[10px] text-gray-400 whitespace-nowrap">tanpa stok</span>}
+                            </button>
+                        ))}
+                        {appBahan.isAdmin && appBahan.samakan && (
+                            <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-teal-100">
+                                <span className="text-[11px] text-gray-500">Semua penulisan ini bahan yang sama?</span>
+                                <button type="button" data-saran-samakan onClick={() => samakanSekarang(g)} className="px-2.5 py-1 rounded-lg font-bold bg-teal-600 text-white hover:bg-teal-700">🧹 Samakan sekarang</button>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
             const q = normBahanText(cari).toLowerCase();
             const hasilCari = q ? db.filter(e => [e.name, e.code, ...e.colors, ...e.vendors, ...[...e.usedBy.values()].map(u => u.client)].join(' ').toLowerCase().includes(q)).slice(0, 8) : [];
             const setRows = (next) => onChange(next);
@@ -2751,9 +2896,9 @@
             const stokBaris = (idx) => {
                 const r = rows[idx];
                 if (!r || !normBahanText(r.name)) return null;
-                const key = stokKey(r.name, r.code, r.color, r.unit);
+                const key = kunciStokBaris(r);
                 const st = stokMap.get(key) || null;
-                const lain = rows.reduce((s, x, i) => i !== idx && x && normBahanText(x.name) && stokKey(x.name, x.code, x.color, x.unit) === key ? s + rbPakaiStok(x) : s, 0);
+                const lain = rows.reduce((s, x, i) => i !== idx && x && normBahanText(x.name) && kunciStokBaris(x) === key ? s + rbPakaiStok(x) : s, 0);
                 const tersedia = stokBulat((st ? st.saldo : 0) - lain);
                 const need = parseBelanjaQty(r.qty);
                 const maks = Math.max(0, need != null ? Math.min(tersedia, stokBulat(need)) : tersedia);
@@ -2783,12 +2928,13 @@
             const stokBahanLain = (idx) => {
                 const r = rows[idx];
                 if (!r || !normBahanText(r.name)) return [];
-                const kb = normBahanKey(r.name, r.code);
-                const key = stokKey(r.name, r.code, r.color, r.unit);
+                const rb = bahanBaku(petaAlias, r);
+                const kb = normBahanKey(rb.name, rb.code);
+                const key = kunciStokBaris(r);
                 const out = [];
                 stokMap.forEach(st => {
                     if (st.key === key || normBahanKey(st.name, st.code) !== kb) return;
-                    const lain = rows.reduce((acc, x, i) => i !== idx && x && normBahanText(x.name) && stokKey(x.name, x.code, x.color, x.unit) === st.key ? acc + rbPakaiStok(x) : acc, 0);
+                    const lain = rows.reduce((acc, x, i) => i !== idx && x && normBahanText(x.name) && kunciStokBaris(x) === st.key ? acc + rbPakaiStok(x) : acc, 0);
                     const tersedia = stokBulat(st.saldo - lain);
                     if (tersedia > 1e-9) out.push({ st, tersedia });
                 });
@@ -2806,7 +2952,8 @@
                 const m = new Map();
                 saranDd.warna(r.name, r.code).forEach(w => m.set(w.toLowerCase(), { w, label: undefined }));
                 if (normBahanText(r.name)) {
-                    const kb = normBahanKey(r.name, r.code);
+                    const rb = bahanBaku(petaAlias, r);
+                    const kb = normBahanKey(rb.name, rb.code);
                     stokMap.forEach(st => {
                         if (!st.color || st.saldo <= 1e-9 || normBahanKey(st.name, st.code) !== kb) return;
                         const k = st.color.toLowerCase();
@@ -2915,12 +3062,14 @@
                         <div>
                             <div className="text-[11px] font-bold text-teal-800 mb-1">✓ Pernah dipakai “{normBahanText(client)}” untuk {normBahanText(jenis)}:</div>
                             <div className="flex flex-wrap gap-1.5">{saranCocok.map((r, i) => chipSaran(r, i, 'cocok'))}</div>
+                            {panelVariasi(saranCocok)}
                         </div>
                     )}
                     {saranLain.length > 0 && (
                         <div>
                             <div className={`text-[11px] font-bold mb-1 ${saranCocok.length > 0 ? 'text-gray-600' : 'text-teal-800'}`}>{saranCocok.length > 0 ? `Bahan lain yang pernah dipakai “${normBahanText(client)}”:` : `Pernah dipakai “${normBahanText(client)}”:`}</div>
                             <div className="flex flex-wrap gap-1.5">{saranLain.map((r, i) => chipSaran(r, i, saranCocok.length > 0 ? 'lain' : 'semua'))}</div>
+                            {panelVariasi(saranLain)}
                         </div>
                     )}
                     <div>
@@ -3085,6 +3234,170 @@
         };
 
         // Tab "Database Bahan" di menu Pembelian Bahan (nota hanya dibaca)
+        // ===== Samakan nama bahan: kelompok penulisan mirip yang belum disamakan (untuk Admin di Database Bahan) =====
+        const cariKelompokMirip = (purchaseNotes, orders, stokBahan, masterBahan) => {
+            const peta = petaAliasDari(masterBahan);
+            const abaikan = abaikanDari(masterBahan);
+            const varian = new Map();
+            const tambah = (x, jenis, ref) => {
+                if (!x || !normBahanText(x.name)) return;
+                const b = bahanBaku(peta, x);
+                const k = kunciVarianBahan(b.name, b.code, b.color);
+                if (!varian.has(k)) varian.set(k, { kunci: k, name: normBahanText(b.name), code: normBahanText(b.code), color: normBahanText(b.color), orders: new Set(), beli: 0, baku: false });
+                const v = varian.get(k);
+                if (b !== x) v.baku = true;
+                if (jenis === 'order') v.orders.add(ref); else if (jenis === 'nota') v.beli++;
+            };
+            safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => safeArray(n.items).forEach(it => tambah(it, 'nota')));
+            safeArray(orders).filter(o => o && !o.isDeleted).forEach(o => safeArray(o.rencanaBahan).forEach(r => tambah(r, 'order', String(o.id))));
+            safeArray(stokBahan).filter(st => st && !st.isDeleted).forEach(st => tambah(st, 'stok'));
+            safeArray(masterBahan).filter(m => m && !m.isDeleted && normBahanText(m.name)).forEach(m => {
+                const ws = normBahanText(m.color).split(',').map(normBahanText).filter(Boolean);
+                (ws.length ? ws : ['']).forEach(w => tambah({ name: m.name, code: m.code, color: w }, 'manual'));
+            });
+            const per = new Map();
+            varian.forEach(v => { const k = kunciMiripBahan(v.name, v.color); if (!k) return; if (!per.has(k)) per.set(k, []); per.get(k).push(v); });
+            const pakai = (v) => v.orders.size + v.beli;
+            const out = [];
+            per.forEach((arr, k) => {
+                if (arr.length < 2 || kelompokDiabaikan(abaikan, k, arr.map(v => v.kunci))) return;
+                arr.sort((a, b) => (b.baku ? 1 : 0) - (a.baku ? 1 : 0) || pakai(b) - pakai(a) || a.name.localeCompare(b.name));
+                out.push({ kunci: k, varian: arr, pakai: arr.reduce((s2, v) => s2 + pakai(v), 0) });
+            });
+            return out.sort((a, b) => b.pakai - a.pakai || a.kunci.localeCompare(b.kunci));
+        };
+        const labelVarianBahan = (x) => [x.name, x.code, x.color].map(normBahanText).filter(Boolean).join(' · ');
+        const SamakanBahanPanel = ({ kelompok, stokMap, masterBahan, setMasterBahan, showToast, onClose }) => {
+            const [buang, setBuang] = useState({}); // kunci kelompok -> { kunci varian: true } (tidak dicentang)
+            const [baku, setBaku] = useState({}); // kunci kelompok -> { name, code, color }
+            const [semua, setSemua] = useState(false);
+            const [konfirmasi, setKonfirmasi] = useState(null); // { g, b, dari, sisa }
+            const stokVarian = (v) => {
+                const per = new Map();
+                stokMap.forEach(st => { if (stokKey(st.name, st.code, st.color, '') === stokKey(v.name, v.code, v.color, '') && Math.abs(st.saldo) > 1e-9) per.set(st.unit, (per.get(st.unit) || 0) + st.saldo); });
+                return [...per.entries()].map(([u, n]) => `${fmtBelanjaQty(stokBulat(n))}${u ? ' ' + u : ''}`).join(' + ');
+            };
+            const bakuDari = (g) => baku[g.kunci] || { name: g.varian[0].name, code: g.varian[0].code, color: g.varian[0].color };
+            const ubahBaku = (g, f, v) => setBaku(p => ({ ...p, [g.kunci]: { ...bakuDari(g), [f]: v } }));
+            const toggle = (g, k) => setBuang(p => { const cur = { ...(p[g.kunci] || {}) }; if (cur[k]) delete cur[k]; else cur[k] = true; return { ...p, [g.kunci]: cur }; });
+            const siapkan = (g) => {
+                const b = bakuDari(g);
+                if (!normBahanText(b.name)) { showToast('Nama baku wajib diisi.', 'error'); return; }
+                const kb = kunciVarianBahan(b.name, b.code, b.color);
+                const dipilih = g.varian.filter(v => !(buang[g.kunci] || {})[v.kunci]);
+                const dari = dipilih.filter(v => v.kunci !== kb);
+                if (dipilih.length < 2 && dari.length < 1) { showToast('Centang minimal 2 penulisan yang sama.', 'error'); return; }
+                if (!dari.length) { showToast('Semua penulisan yang dicentang sudah sama dengan nama baku.', 'error'); return; }
+                const sisa = g.varian.filter(v => (buang[g.kunci] || {})[v.kunci]);
+                setKonfirmasi({ g, b, dari, sisa });
+            };
+            const lakukan = () => {
+                const { g, b, dari, sisa } = konfirmasi;
+                if (!appBahan.samakan) return;
+                // Penulisan yang tidak dicentang ditandai "bukan bahan sama" agar kelompok ini tidak disarankan lagi
+                const kb = kunciVarianBahan(b.name, b.code, b.color);
+                const abaikan = sisa.length ? { kunci: g.kunci, varian: [...new Set([kb, ...sisa.map(v => v.kunci)])] } : null;
+                appBahan.samakan(b, dari, abaikan);
+                setKonfirmasi(null);
+            };
+            const bukanSama = (g) => {
+                const now = new Date().toISOString();
+                setMasterBahan(prev => [...safeArray(prev), { id: genId('ALB-'), jenis: 'aliasAbaikan', kunci: g.kunci, varian: g.varian.map(v => v.kunci), contoh: g.varian.map(labelVarianBahan).slice(0, 6), at: now, _syncUpdatedAt: now, isDeleted: false }]);
+                showToast('Ditandai bukan bahan yang sama. Tidak akan disarankan lagi.', 'success');
+            };
+            const batalkan = (m) => {
+                const now = new Date().toISOString();
+                setMasterBahan(prev => safeArray(prev).map(x => x && x.id === m.id ? { ...x, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : x));
+                showToast(m.jenis === 'aliasNama' ? 'Aturan nama dibatalkan. Penulisan lama kembali terpisah.' : 'Tanda "bukan bahan sama" dibatalkan.', 'success');
+            };
+            const aturan = safeArray(masterBahan).filter(isAliasBahan).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+            const abaikanList = safeArray(masterBahan).filter(isAbaikanBahan).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+            const tampil = semua ? kelompok : kelompok.slice(0, 5);
+            const tgl = (iso) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
+            return (
+                <div data-samakan-bahan className="bg-white rounded-2xl border border-teal-200 overflow-hidden">
+                    <div className="bg-teal-700 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <div className="font-black">🧹 Samakan nama bahan</div>
+                            <div className="text-xs text-teal-100">{kelompok.length ? `${kelompok.length} kelompok kemungkinan sama ditemukan` : 'Tidak ada penulisan mirip yang perlu disamakan'} · data order, nota & stok asli tidak diubah</div>
+                        </div>
+                        <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-white text-teal-800">Tutup</button>
+                    </div>
+                    <div className="p-3 sm:p-4 space-y-3">
+                        {tampil.map((g, gi) => {
+                            const b = bakuDari(g);
+                            const bu = buang[g.kunci] || {};
+                            const jml = g.varian.filter(v => !bu[v.kunci]).length;
+                            return (
+                                <div key={g.kunci} data-samakan-kelompok={g.kunci} className="border border-teal-200 bg-teal-50 rounded-xl p-3 space-y-2">
+                                    <div className="font-black text-sm text-teal-900">Kelompok {gi + 1} · kemungkinan “{labelVarianBahan(g.varian[0])}”</div>
+                                    <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
+                                        <table className="w-full text-xs">
+                                            <thead><tr className="bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500 text-left"><th className="p-2 w-8"></th><th className="p-2">Penulisan</th><th className="p-2">Kode</th><th className="p-2">Warna</th><th className="p-2">Dipakai</th><th className="p-2 text-right">Stok</th></tr></thead>
+                                            <tbody>
+                                                {g.varian.map(v => (
+                                                    <tr key={v.kunci} data-samakan-varian={labelVarianBahan(v)} className="border-t border-gray-100">
+                                                        <td className="p-2"><input type="checkbox" checked={!bu[v.kunci]} onChange={() => toggle(g, v.kunci)} /></td>
+                                                        <td className="p-2 font-bold text-gray-800">{v.name}{v.baku && <span className="ml-1 text-[10px] font-bold text-teal-700 bg-teal-100 rounded px-1">nama baku</span>}</td>
+                                                        <td className="p-2">{v.code || '–'}</td>
+                                                        <td className="p-2">{v.color || '–'}</td>
+                                                        <td className="p-2 whitespace-nowrap">{[v.orders.size ? `${v.orders.size} order` : '', v.beli ? `dibeli ${v.beli}×` : ''].filter(Boolean).join(' · ') || '–'}</td>
+                                                        <td className="p-2 text-right whitespace-nowrap">{stokVarian(v) || <span className="text-gray-400">0</span>}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="text-[11px] font-bold text-gray-700">Nama baku (bisa diubah)</div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-1.5">
+                                        <input type="text" data-samakan-baku="name" value={b.name} onChange={e => ubahBaku(g, 'name', e.target.value)} placeholder="Nama kain *" className="sm:col-span-2 p-2 border rounded text-sm bg-white" />
+                                        <input type="text" data-samakan-baku="code" value={b.code} onChange={e => ubahBaku(g, 'code', e.target.value)} placeholder="Kode" className="p-2 border rounded text-sm bg-white" />
+                                        <input type="text" data-samakan-baku="color" value={b.color} onChange={e => ubahBaku(g, 'color', e.target.value)} placeholder="Warna" className="p-2 border rounded text-sm bg-white" />
+                                    </div>
+                                    <div className="text-[11px] text-gray-500">Hapus centang bila salah satu ternyata bahan berbeda (mis. kode lain memang jenis lain). Stok penulisan yang dicentang dijumlahkan.</div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button type="button" data-samakan-ya onClick={() => siapkan(g)} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white">✓ Samakan ({jml} penulisan → 1)</button>
+                                        <button type="button" data-samakan-bukan onClick={() => bukanSama(g)} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-white border border-gray-300 text-gray-700">Bukan bahan sama</button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {kelompok.length > 5 && <button type="button" onClick={() => setSemua(v => !v)} className="text-sm font-bold text-teal-700">{semua ? 'Tampilkan 5 saja' : `Tampilkan semua (${kelompok.length} kelompok)`}</button>}
+                        {(aturan.length > 0 || abaikanList.length > 0) && (
+                            <div data-samakan-aturan className="border border-gray-200 rounded-xl overflow-hidden">
+                                <div className="bg-gray-50 px-3 py-2 text-xs font-black text-gray-700">Aturan nama bahan <span className="font-normal text-gray-500">(penulisan lama → nama baku; bisa dibatalkan)</span></div>
+                                {aturan.map(m => (
+                                    <div key={m.id} data-samakan-aturan-item className="px-3 py-2 border-t border-gray-100 text-xs flex flex-wrap items-center justify-between gap-2">
+                                        <span className="min-w-0">{safeArray(m.dari).map(labelVarianBahan).join(' · ')} → <b>{labelVarianBahan(m.baku)}</b> <span className="text-gray-400">· {m.by || '-'} · {tgl(m.at)}</span></span>
+                                        <button type="button" data-samakan-batal={m.id} onClick={() => batalkan(m)} className="px-2 py-1 rounded-md font-bold bg-white border border-red-200 text-red-700">Batalkan</button>
+                                    </div>
+                                ))}
+                                {abaikanList.map(m => (
+                                    <div key={m.id} data-samakan-abaikan-item className="px-3 py-2 border-t border-gray-100 text-xs flex flex-wrap items-center justify-between gap-2 text-gray-500">
+                                        <span className="min-w-0">Bukan bahan sama: {safeArray(m.contoh).join(' · ') || m.kunci}</span>
+                                        <button type="button" data-samakan-batal={m.id} onClick={() => batalkan(m)} className="px-2 py-1 rounded-md font-bold bg-white border border-gray-300 text-gray-700">Batalkan</button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    {konfirmasi && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[130] p-4">
+                            <div data-samakan-konfirmasi className="bg-white rounded-xl p-5 max-w-md w-full shadow-xl space-y-3">
+                                <h3 className="font-bold text-gray-800">Samakan menjadi “{labelVarianBahan(konfirmasi.b)}”?</h3>
+                                <div className="text-sm text-gray-600">Penulisan berikut akan dibaca sebagai nama baku:</div>
+                                <ul className="text-sm list-disc pl-5 text-gray-800">{konfirmasi.dari.map(v => <li key={v.kunci}>{labelVarianBahan(v)}</li>)}</ul>
+                                <div className="text-xs text-gray-500">Stoknya dijumlahkan. Data order, nota & stok asli tidak diubah. Aturan bisa dibatalkan kapan saja.</div>
+                                <div className="flex justify-end gap-2">
+                                    <button type="button" onClick={() => setKonfirmasi(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
+                                    <button type="button" data-samakan-konfirmasi-ya onClick={lakukan} className="px-4 py-2 bg-teal-600 text-white rounded-lg font-bold">Samakan</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
         const DatabaseBahanPanel = ({ purchaseNotes, orders, masterBahan, setMasterBahan, stokBahan = [], setStokBahan, showToast }) => {
             const [cari, setCari] = useState('');
             const kosong = { name: '', code: '', color: '', vendor: '', unit: 'kg', note: '' };
@@ -3100,7 +3413,11 @@
             const [koreksiKey, setKoreksiKey] = useState(null);
             const [riwayatKey, setRiwayatKey] = useState(null);
             const [hapusStokId, setHapusStokId] = useState(null);
-            const stokMap = useMemo(() => hitungStokBahan(stokBahan, orders), [stokBahan, orders]);
+            const petaAlias = petaAliasDari(masterBahan);
+            const stokMap = useMemo(() => hitungStokBahan(stokBahan, orders, null, petaAlias), [stokBahan, orders, petaAlias]);
+            const isAdmin = appBahan.isAdmin;
+            const [samakanOpen, setSamakanOpen] = useState(false);
+            const kelompokMirip = useMemo(() => isAdmin ? cariKelompokMirip(purchaseNotes, orders, stokBahan, masterBahan) : [], [isAdmin, purchaseNotes, orders, stokBahan, masterBahan]);
             const stokPerBahan = useMemo(() => {
                 const m = new Map();
                 stokMap.forEach(st => { const k = normBahanKey(st.name, st.code); if (!m.has(k)) m.set(k, []); m.get(k).push(st); });
@@ -3128,9 +3445,12 @@
             const kandidatOrder = (key) => {
                 const per = new Map();
                 const tambah = (o, color) => { if (!o || o.isDeleted) return; const id = String(o.id); if (!per.has(id)) per.set(id, { order: o, colors: new Set() }); per.get(id).colors.add(normBahanText(color).toLowerCase()); };
-                safeArray(orders).forEach(o => safeArray(o && o.rencanaBahan).forEach(r => { if (r && normBahanKey(r.name, r.code) === key) tambah(o, r.color); }));
+                const kunciBaku = (x) => { const b = bahanBaku(petaAlias, x); return { k: normBahanKey(b.name, b.code), color: b.color }; };
+                safeArray(orders).forEach(o => safeArray(o && o.rencanaBahan).forEach(r => { if (!r) return; const b = kunciBaku(r); if (b.k === key) tambah(o, b.color); }));
                 safeArray(purchaseNotes).filter(n => n && !n.isDeleted).forEach(n => safeArray(n.items).forEach(it => {
-                    if (it && it.orderId && normBahanKey(it.name, it.code) === key) tambah(orderById.get(String(it.orderId)), it.color);
+                    if (!it || !it.orderId) return;
+                    const b = kunciBaku(it);
+                    if (b.k === key) tambah(orderById.get(String(it.orderId)), b.color);
                 }));
                 return [...per.values()].sort((a, b) => orderInputSeq(b.order) - orderInputSeq(a.order) || String(b.order.date || '').localeCompare(String(a.order.date || '')));
             };
@@ -3159,7 +3479,8 @@
             const cekHapusStok = (id) => {
                 const s = safeArray(stokBahan).find(x => x && x.id === id);
                 if (!s) return null;
-                const st = stokMap.get(stokKey(s.name, s.code, s.color, s.unit));
+                const sb = bahanBaku(petaAlias, s);
+                const st = stokMap.get(stokKey(sb.name, sb.code, sb.color, s.unit));
                 const sesudah = st ? stokBulat(st.saldo - stokDelta(s)) : 0;
                 return { s, st, sesudah, bisa: sesudah > -1e-9 };
             };
@@ -3263,6 +3584,7 @@
                                 <div className="text-xs text-gray-500">Terkumpul otomatis dari nota pembelian & rencana bahan order. Bisa ditambah manual.</div>
                             </div>
                             <div className="flex flex-wrap gap-2">
+                                {isAdmin && <button type="button" data-samakan-buka onClick={() => setSamakanOpen(v => !v)} className={`text-sm font-bold px-4 py-2 rounded-lg border ${samakanOpen ? 'bg-teal-700 border-teal-700 text-white' : 'bg-white border-teal-300 text-teal-800 hover:bg-teal-50'}`}>🧹 Samakan nama bahan{kelompokMirip.length > 0 && <span data-samakan-jumlah className="ml-1.5 text-[11px] font-black bg-amber-400 text-amber-950 rounded-full px-1.5">{kelompokMirip.length}</span>}</button>}
                                 <button type="button" onClick={bukaTambah} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">+ Tambah Bahan</button>
                             </div>
                         </div>
@@ -3272,6 +3594,7 @@
                             <button type="button" data-stok-filter="stok" onClick={() => setFStok('stok')} className={`px-3 py-1.5 rounded-full text-sm font-bold border ${fStok === 'stok' ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white border-gray-300 text-gray-700'}`}>📦 Hanya yang ada stok</button>
                         </div>
                     </div>
+                    {isAdmin && samakanOpen && <SamakanBahanPanel kelompok={kelompokMirip} stokMap={stokMap} masterBahan={masterBahan} setMasterBahan={setMasterBahan} showToast={showToast} onClose={() => setSamakanOpen(false)} />}
                     {formOpen && (
                         <div data-form-bahan className="bg-teal-50 border border-teal-200 rounded-2xl p-4 space-y-3">
                             <div className="font-bold text-teal-900">{editId ? 'Edit Bahan (manual)' : 'Tambah Bahan (manual)'}</div>
@@ -3316,7 +3639,7 @@
                                 <div key={e.key} data-baris-db-bahan className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4">
                                     <div className="flex flex-wrap items-start justify-between gap-2">
                                         <div className="min-w-0">
-                                            <div className="font-bold text-gray-900">{e.name}{e.code && <span className="ml-2 text-xs font-black text-teal-800 bg-teal-50 border border-teal-200 rounded px-1.5 py-0.5">{e.code}</span>}{e.manual && <span className="ml-1.5 text-[10px] font-bold text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">✎ manual</span>}</div>
+                                            <div className="font-bold text-gray-900">{e.name}{e.code && <span className="ml-2 text-xs font-black text-teal-800 bg-teal-50 border border-teal-200 rounded px-1.5 py-0.5">{e.code}</span>}{e.manual && <span className="ml-1.5 text-[10px] font-bold text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">✎ manual</span>}{e.varianLama && e.varianLama.size > 0 && <span data-penulisan-lama={e.varianLama.size} title={'Penulisan lama: ' + [...e.varianLama.values()].join('; ')} className="ml-1.5 text-[10px] font-bold text-teal-800 bg-teal-50 border border-teal-200 rounded px-1.5 py-0.5">+{e.varianLama.size} penulisan lama</span>}</div>
                                             <div className="text-xs text-gray-600 mt-1 space-x-2">
                                                 {e.colors.size > 0 && <span>Warna: <b>{[...e.colors].join(', ')}</b></span>}
                                                 {e.vendors.size > 0 && <span>· {[...e.vendors].join(', ')}</span>}
@@ -3663,7 +3986,9 @@
 
         // Hitung baris belanja per bahan per order beserta statusnya dari jumlah yang dicatat di Daftar Belanja
         // (tanpa membaca nota, tanpa mengubah apa pun).
-        const buildDaftarBelanja = (orders, marks) => {
+        // peta: aturan nama bahan (Samakan nama bahan) → ditampilkan & digabung dengan nama baku.
+        // l.key tetap dari tulisan asli (catatan jumlah/vendor Daftar Belanja tersimpan dengan kunci ini).
+        const buildDaftarBelanja = (orders, marks, peta = null) => {
             const aktif = safeArray(orders).filter(belanjaOrderAktif);
             const lines = [];
             const kosong = [];
@@ -3681,7 +4006,8 @@
                     const pakai = rbPakaiStok(r);
                     const cur = byLine.get(id);
                     if (cur) { cur.need = (cur.need == null || qty == null) ? null : cur.need + qty; if (qty == null) cur.qtyKosong = true; cur.stok += pakai; return; }
-                    byLine.set(id, { id, orderId: oid, order: o, key, name: r.name, code: r.code, color: r.color, unit, need: qty, qtyKosong: qty == null, stok: pakai });
+                    const b = bahanBaku(peta, r);
+                    byLine.set(id, { id, orderId: oid, order: o, key, kunciBaku: belanjaLineKey(b.name, b.code, b.color), name: b.name, code: b.code, color: b.color, ...(b !== r ? { namaAsli: [r.name, r.code, r.color].filter(Boolean).join(' · ') } : {}), unit, need: qty, qtyKosong: qty == null, stok: pakai });
                 });
                 byLine.forEach(l => {
                     // Yang perlu dibeli = kebutuhan − pakai stok sisa (lihat Database Bahan)
@@ -3715,8 +4041,9 @@
         const gabungBelanja = (lines) => {
             const map = new Map();
             lines.forEach(l => {
-                const gk = `${l.key}\u0001${l.unit}`;
-                if (!map.has(gk)) map.set(gk, { id: gk, key: l.key, name: l.name, code: l.code, color: l.color, unit: l.unit, lines: [] });
+                const kb = l.kunciBaku || l.key;
+                const gk = `${kb}\u0001${l.unit}`;
+                if (!map.has(gk)) map.set(gk, { id: gk, key: kb, name: l.name, code: l.code, color: l.color, unit: l.unit, lines: [] });
                 map.get(gk).lines.push(l);
             });
             return [...map.values()].map(g => {
@@ -3741,8 +4068,9 @@
         const cariSatuanBeda = (lines) => {
             const map = new Map();
             safeArray(lines).forEach(l => {
-                if (!map.has(l.key)) map.set(l.key, { key: l.key, name: l.name, code: l.code, color: l.color, units: new Map() });
-                const u = map.get(l.key).units;
+                const kb = l.kunciBaku || l.key;
+                if (!map.has(kb)) map.set(kb, { key: kb, name: l.name, code: l.code, color: l.color, units: new Map() });
+                const u = map.get(kb).units;
                 if (!u.has(l.unit)) u.set(l.unit, []);
                 if (!u.get(l.unit).includes(l.orderId)) u.get(l.unit).push(l.orderId);
             });
@@ -3818,8 +4146,24 @@
             const sub = `${templates?.companySubtitle ? `<div class="bs">${safe(templates.companySubtitle)}</div>` : ''}${templates?.companyContact ? `<div class="bs">${safe(templates.companyContact)}</div>` : ''}`;
             return { nama, html: `${logo}<div class="bn">${safe(nama)}</div>${sub}` };
         };
-        const bukaJendelaCetak = (html, showToast) => {
-            const pw = window.open('', '_blank');
+        // ===== Cetak selalu memakai data terbaru =====
+        // Diisi oleh aplikasi utama: cek(onPerbarui) → true bila ada data lebih baru dari perangkat lain (lalu sudah dimuat);
+        // ambilOrder(id) → order terbaru (termasuk arsip).
+        const appSinkron = { cek: null, ambilOrder: null };
+        const tulisJendela = (w, teks) => { try { if (w && w.document && !w.closed) { w.document.open(); w.document.write('<p style="font-family:Arial,sans-serif;padding:24px;color:#475569">' + teks + '</p>'); } } catch (e) {} };
+        const cekSebelumCetak = async (w) => {
+            if (!appSinkron.cek) return false;
+            tulisJendela(w, 'Memeriksa data terbaru…');
+            try {
+                return await Promise.race([
+                    appSinkron.cek(() => tulisJendela(w, 'Memperbarui data dari perangkat lain…')),
+                    new Promise(r => setTimeout(() => r(false), 10000)),
+                ]);
+            } catch (e) { return false; }
+        };
+        // wAda: jendela yang sudah dibuka saat tombol diklik (agar tidak diblokir browser)
+        const bukaJendelaCetak = (html, showToast, wAda) => {
+            const pw = wAda && !wAda.closed ? wAda : window.open('', '_blank');
             if (pw) { pw.document.open(); pw.document.write(html); pw.document.close(); pw.focus(); }
             else showToast('Gagal mencetak. Harap izinkan Pop-up di browser Anda!', 'error');
         };
@@ -3832,7 +4176,7 @@ body{font-family:'Arial',Helvetica,sans-serif;color:#111;background:#fff;-webkit
 .meta{text-align:right;font-size:11px;line-height:1.6}`;
 
         // A. Surat Pesanan: satu halaman per vendor, tanpa nama klien / nomor order
-        const printSuratPesanan = (pilihan, { templates, showToast, butuh }) => {
+        const printSuratPesanan = (pilihan, { templates, showToast, butuh, w = null }) => {
             const groups = susunBelanjaVendor(pilihan);
             if (!groups.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
             const safe = escapeHtmlText;
@@ -3891,11 +4235,11 @@ tr{page-break-inside:avoid}
 .sig-ttd .sl{border-bottom:1px solid #111;margin:0 4mm 1.5mm}.sig-ttd .sv{font-weight:700}
 .sig{break-inside:avoid;page-break-inside:avoid}
 </style></head><body>${pages}<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script></body></html>`;
-            bukaJendelaCetak(html, showToast);
+            bukaJendelaCetak(html, showToast, w);
         };
 
         // B. Checklist belanja (internal): semua vendor dalam satu lembar, kotak centang & jumlah besar
-        const printChecklistBelanja = (pilihan, { templates, showToast }) => {
+        const printChecklistBelanja = (pilihan, { templates, showToast, w = null }) => {
             const groups = susunBelanjaVendor(pilihan);
             if (!groups.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
             const safe = escapeHtmlText;
@@ -3932,7 +4276,7 @@ tr{page-break-inside:avoid}
 <div class="ttl">CHECKLIST BELANJA BAHAN</div>
 ${blocks}
 </div><script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});<\/script></body></html>`;
-            bukaJendelaCetak(html, showToast);
+            bukaJendelaCetak(html, showToast, w);
         };
 
         // C. Teks pesanan untuk ditempel ke chat WhatsApp vendor (*tebal* sesuai format WhatsApp)
@@ -3961,6 +4305,7 @@ ${blocks}
 
         // Pilihan cetak / kirim: A Surat Pesanan, B Checklist, C Pesan WhatsApp. Hanya membaca daftar belanja.
         const BelanjaCetakModal = ({ pilihan, sumber, templates, showToast, onClose, vendorOptions = [], vendorSaran = [], onSimpanVendor }) => {
+            const isiCetakRef = React.useRef({}); // isi terbaru untuk dicetak (diperbarui tiap tampil)
             const [mode, setMode] = useState('A');
             const [butuh, setButuh] = useState(() => belanjaTglBawaan(pilihan));
             const [vKey, setVKey] = useState(null); // vendor yang dipilih di Pesan WA ('' = belum ditentukan)
@@ -4011,13 +4356,20 @@ ${blocks}
                     showToast(ok ? 'Pesan disalin. Tempel di chat WhatsApp vendor.' + ekor : 'Tidak bisa menyalin otomatis. Tekan lama teks lalu pilih Salin.' + ekor, ok ? 'success' : 'error');
                 }
             };
-            const cetak = () => {
+            isiCetakRef.current = { pilihan, pilihanA, butuh };
+            // Cetak memakai data terbaru: jendela dibuka saat klik, cek perubahan dari perangkat lain, lalu isi dicetak
+            const cetak = async () => {
                 if (mode === 'A') {
                     const tersimpan = simpanVendorBaru();
                     if (tersimpan) showToast(`Vendor "${namaBaru}" disimpan untuk ${tersimpan} bahan.`, 'success');
-                    printSuratPesanan(pilihanA, { templates, showToast, butuh });
                 }
-                else printChecklistBelanja(pilihan, { templates, showToast });
+                const w = window.open('', '_blank');
+                if (!w) { showToast('Gagal mencetak. Harap izinkan Pop-up di browser Anda!', 'error'); return; }
+                await cekSebelumCetak(w);
+                if (w.closed) return;
+                const p = isiCetakRef.current;
+                if (mode === 'A') printSuratPesanan(p.pilihanA, { templates, showToast, butuh: p.butuh, w });
+                else printChecklistBelanja(p.pilihan, { templates, showToast, w });
             };
             const kotakVendorBaru = (judul, catatan) => (
                 <div data-vendor-baru-box className="border-2 border-orange-300 bg-orange-50 rounded-xl p-3 space-y-2">
@@ -4217,7 +4569,7 @@ ${blocks}
                 </div>
             );
         };
-        const DaftarBelanjaPanel = ({ orders, purchaseNotes, templates, showToast }) => {
+        const DaftarBelanjaPanel = ({ orders, purchaseNotes, masterBahan = [], templates, showToast }) => {
             const { marks, setField, setMany } = useBelanjaMarks();
             const VIEW_KEY = 'simpati_belanja_view';
             const [view, setView] = useState(() => { try { return localStorage.getItem(VIEW_KEY) === 'order' ? 'order' : 'bahan'; } catch (e) { return 'bahan'; } });
@@ -4236,7 +4588,14 @@ ${blocks}
                 if (!pilihan.length) { showToast('Tidak ada bahan untuk dicetak.', 'error'); return; }
                 setCetakDialog({ pilihan, sumber });
             };
-            const { lines, kosong } = useMemo(() => buildDaftarBelanja(orders, marks), [orders, marks]);
+            const petaAlias = petaAliasDari(masterBahan);
+            const { lines, kosong } = useMemo(() => buildDaftarBelanja(orders, marks, petaAlias), [orders, marks, petaAlias]);
+            // Bahan yang dipilih untuk dicetak selalu memakai isi terbaru (bila order diubah perangkat lain saat jendela cetak terbuka)
+            const pilihanCetak = useMemo(() => {
+                if (!cetakDialog) return null;
+                const byId = new Map(lines.map(l => [l.id, l]));
+                return cetakDialog.pilihan.map(l => byId.get(l.id)).filter(Boolean);
+            }, [cetakDialog, lines]);
             const satuanBeda = useMemo(() => cariSatuanBeda(lines), [lines]);
             const satuanBedaKeys = useMemo(() => new Set(satuanBeda.map(x => x.key)), [satuanBeda]);
             const tagSatuanBeda = (key) => satuanBedaKeys.has(key) ? <div><span data-satuan-beda-tag className="inline-block mt-1 px-1.5 py-0.5 rounded-md border border-orange-300 bg-orange-50 text-orange-700 text-[11px] font-bold">⚠ satuan berbeda</span></div> : null;
@@ -4424,7 +4783,7 @@ ${blocks}
                                             {og.lines.map(l => (
                                                 <tr key={l.id} data-belanja-row className={`border-t border-gray-100 align-top ${checked.has(l.id) ? 'bg-teal-50/60' : ''}`}>
                                                     <td className="p-3"><input type="checkbox" checked={checked.has(l.id)} onChange={e => toggleIds([l.id], e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
-                                                    <td className="p-3">{bahanCell(l.name, l.code)}{tagSatuanBeda(l.key)}</td>
+                                                    <td className="p-3">{bahanCell(l.name, l.code)}{tagSatuanBeda(l.kunciBaku || l.key)}</td>
                                                     <td className="p-3 text-gray-700">{l.color || '-'}</td>
                                                     <td className="p-3 text-right whitespace-nowrap">{l.need != null ? `${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : <span className="text-xs text-gray-400">jumlah belum diisi</span>}{stokKet(l)}</td>
                                                     <td className="p-3"><BelanjaVendorInput value={l.vendor} listId="belanja-vendor-list" onCommit={(v) => setVendor([l], v)} />{catatanTxt(l.catatan ? [l.catatan] : [])}</td>
@@ -4466,7 +4825,7 @@ ${blocks}
                         </div>
                     )}
                     {catatDialog && <BelanjaCatatModal lines={catatDialog} onSave={simpanCatat} onClose={() => setCatatDialog(null)} />}
-                    {cetakDialog && <BelanjaCetakModal pilihan={cetakDialog.pilihan} sumber={cetakDialog.sumber} templates={templates} showToast={showToast} onClose={() => setCetakDialog(null)} vendorOptions={vendorOptions} vendorSaran={vendorSaran} onSimpanVendor={(ls, v) => setVendor(ls, v)} />}
+                    {cetakDialog && <BelanjaCetakModal pilihan={pilihanCetak || cetakDialog.pilihan} sumber={cetakDialog.sumber} templates={templates} showToast={showToast} onClose={() => setCetakDialog(null)} vendorOptions={vendorOptions} vendorSaran={vendorSaran} onSimpanVendor={(ls, v) => setVendor(ls, v)} />}
                 </div>
             );
         };
@@ -4906,7 +5265,7 @@ ${blocks}
                         });
                     }
                     return o;
-                }));
+                }), { segera: true });
 
                 // Surat Jalan lama mencatat ukuran dalam teks "L (5), M (3)" — ikut diganti agar pembatalan SJ tetap mengurangi ukuran yang benar
                 if (Object.keys(sizeRenames).length > 0 && setRiwayatPengiriman) {
@@ -6858,7 +7217,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                     }
                 };
                 
-                setOrders(prev => [orderToAdd, ...(prev||[])]);
+                setOrders(prev => [orderToAdd, ...(prev||[])], { segera: true });
                 const selectedProcessLabels = orderProcessOptions.filter(opt => orderToAdd.processFlow[opt.id] !== false).map(opt => opt.label).join(', ');
                 showToast("Order ditambahkan ke antrean!", "success");
                 setNewOrder({ client: '', type: '', date: toLocalDateStr(), deadline: '', notes: '', designImage1: '', designImage2: '', marketing: '', processFlow: getDefaultOrderProcessFlow(), productionPrices: getDefaultProductionPrices() });
@@ -7012,6 +7371,12 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 // Jendela dibuka langsung saat tombol diklik (agar tidak diblokir pop-up), gambar desain dimuat setelahnya
                 const printWindow = window.open('', '_blank');
                 if (!printWindow) { showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); return; }
+                // Ada perubahan dari perangkat lain? Muat dulu, lalu pakai versi terbaru order ini
+                if (await cekSebelumCetak(printWindow) && appSinkron.ambilOrder) {
+                    const terbaru = appSinkron.ambilOrder(orderIn.id);
+                    if (terbaru) orderIn = terbaru;
+                }
+                if (printWindow.closed) return;
                 const imgRefs = [orderIn.designImage1, orderIn.designImage2].filter(isImgRef);
                 if (imgRefs.some(r => !imgMem.has(r))) {
                     try { printWindow.document.write('<p style="font-family:Arial,sans-serif;padding:24px;color:#475569">Memuat gambar desain...</p>'); } catch (e) {}
@@ -9609,7 +9974,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const nextNotes = editNoteId
                     ? currentNotes.map(n => n.id === editNoteId ? note : n)
                     : [note, ...currentNotes];
-                setPurchaseNotes(editNoteId ? prev => prev.map(n => n.id === editNoteId ? note : n) : prev => [note, ...prev]);
+                setPurchaseNotes(editNoteId ? prev => prev.map(n => n.id === editNoteId ? note : n) : prev => [note, ...prev], { segera: true });
 
                 const newLinkedOrderIds = new Set(fc.validItems.map(it => String(it.orderId || '').trim()).filter(Boolean));
 
@@ -10596,7 +10961,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     {bahanTab === 'database'
                         ? <DatabaseBahanPanel purchaseNotes={purchaseNotes} orders={orders} masterBahan={masterBahan} setMasterBahan={setMasterBahan} stokBahan={stokBahan} setStokBahan={setStokBahan} showToast={showToast} />
                         : bahanTab === 'belanja'
-                        ? <DaftarBelanjaPanel orders={orders} purchaseNotes={purchaseNotes} templates={templates} showToast={showToast} />
+                        ? <DaftarBelanjaPanel orders={orders} purchaseNotes={purchaseNotes} masterBahan={masterBahan} templates={templates} showToast={showToast} />
                         : renderInputPembelian()}
 
                 </div>
@@ -33027,17 +33392,22 @@ ${getRekapShareLink(rekap)}
                 // (B) beberapa perubahan beruntun dari perangkat lain digabung menjadi satu unduhan (±5 detik)
                 let tertunda = false;
                 let timerGabung = null;
+                let terakhirGabung = 0;
                 const JEDA_GABUNG_MS = 5000;
+                const JEDA_PERTAMA_MS = 800;
                 const jalankanGabungan = () => {
                     timerGabung = null;
                     if (document.hidden) { tertunda = true; return; }
                     // Sinkron sebelumnya masih berjalan: coba lagi sebentar lagi agar perubahan ini tidak terlewat
                     if (syncInFlightRef.current) { timerGabung = setTimeout(jalankanGabungan, 2000); return; }
+                    terakhirGabung = Date.now();
                     refresh();
                 };
+                // Perubahan pertama (setelah tenang) diproses cepat (±0,8 detik); perubahan beruntun sesudahnya digabung tiap 5 detik
                 const adaPerubahan = () => {
                     if (document.hidden) { tertunda = true; return; }
-                    if (!timerGabung) timerGabung = setTimeout(jalankanGabungan, JEDA_GABUNG_MS);
+                    if (timerGabung) return;
+                    timerGabung = setTimeout(jalankanGabungan, Date.now() - terakhirGabung >= JEDA_GABUNG_MS ? JEDA_PERTAMA_MS : JEDA_GABUNG_MS);
                 };
 
                 // Realtime: sync saat _timestamps berubah (ada data baru dari PC lain)
@@ -33342,7 +33712,9 @@ ${getRekapShareLink(rekap)}
             };
             const flushAllPendingRecordSaves = () => { Object.keys(recordSaveTimersRef.current).forEach(flushRecordSave); };
 
-            const updateOrders = (updater) => {
+            // opsi.segera: tombol Simpan (Input/Edit Order) — langsung dikirim tanpa jeda 3 detik
+            const updateOrders = (updater, opsi) => {
+                const segera = !!(opsi && opsi.segera);
                 setOrders(prev => {
                     // Menu melihat order utama + arsip; order arsip yang diubah otomatis kembali ke data utama
                     const base = gabungArsip(prev || [], [...arsipRef.current.ids.values()]);
@@ -33358,7 +33730,7 @@ ${getRekapShareLink(rekap)}
                         const latest = ordersPendingRef.current;
                         if (latest) flushOrdersSync(latest);
                         else publishSyncState();
-                    }, 3000);
+                    }, segera ? 0 : 3000);
                     setTimeout(() => { invalidateTsCacheKey('orders'); publishSyncState(); }, 0);
                     return patched;
                 });
@@ -33664,13 +34036,15 @@ ${getRekapShareLink(rekap)}
                 });
             };
 
-            const updatePurchaseNotes = (updater) => {
+            const updatePurchaseNotes = (updater, opsi) => {
+                const segera = !!(opsi && opsi.segera);
                 setPurchaseNotes(prev => {
                     const nextVal = typeof updater === 'function' ? updater(prev) : updater;
                     const valid = stampChangedRecords(prev || [], Array.isArray(nextVal) ? nextVal : []);
                     // Simpan ke perangkat seketika, jangan tunggu data cloud (bisa lama saat sinyal jelek)
                     safeLocalSet('simpati_purchase_notes_sync', JSON.stringify(valid));
-                    scheduleRecordSave('purchaseNotes', 'simpati_purchase_notes_sync', valid, setPurchaseNotes);
+                    // Tombol Simpan nota: langsung dikirim; perubahan lain (centang, beruntun) tetap digabung 3 detik
+                    scheduleRecordSave('purchaseNotes', 'simpati_purchase_notes_sync', valid, setPurchaseNotes, segera ? 0 : RECORD_SAVE_DELAY_MS);
                     return valid;
                 });
             };
@@ -34300,6 +34674,40 @@ ${getRekapShareLink(rekap)}
             retryFailedSavesRef.current = retryFailedSaves;
             const applyRemoteDataSnapshotRef = React.useRef(applyRemoteDataSnapshot);
             applyRemoteDataSnapshotRef.current = applyRemoteDataSnapshot;
+            // Cetak (SPK, Surat Pesanan Bahan, Checklist Belanja) selalu memakai data terbaru: sebelum mencetak, catatan
+            // perubahan di cloud dicek (permintaan kecil); bila ada data lebih baru dari perangkat lain, dimuat dulu.
+            appSinkron.cek = async (onPerbarui) => {
+                if (!supabaseClient || cloudHealth.isBlocked() || navigator.onLine === false) return false;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return false;
+                const remote = await fetchRemoteTimestamps();
+                if (!remote) return false;
+                const lokal = getTsCache();
+                const lebihBaru = (k) => !!remote[k] && remote[k] !== lokal[k] && !(lokal[k] && lokal[k] > remote[k]);
+                const idxLokal = ((loadLocalData(ARSIP_INDEX_LOCAL_KEY, null) || {}).ts) || '';
+                const ada = ['orders', 'purchaseNotes', 'masterBahan', 'stokBahan', 'templates', 'clients'].some(lebihBaru)
+                    || (!!remote[ARSIP_INDEX_KEY] && remote[ARSIP_INDEX_KEY] !== idxLokal);
+                if (!ada) return false;
+                if (onPerbarui) onPerbarui();
+                for (let i = 0; i < 40 && syncInFlightRef.current; i++) await new Promise(r => setTimeout(r, 250));
+                await applyRemoteDataSnapshotRef.current();
+                await new Promise(r => setTimeout(r, 350)); // tunggu tampilan memakai data baru
+                return true;
+            };
+            appSinkron.ambilOrder = (id) => {
+                const k = String(id);
+                return safeArray(ordersUtamaRef.current).find(o => o && String(o.id) === k) || arsipRef.current.ids.get(k) || null;
+            };
+            // Samakan nama bahan (khusus Admin): aturan disimpan di Database Bahan (masterBahan)
+            appBahan.isAdmin = authUser?.role === 'Admin';
+            appBahan.samakan = appBahan.isAdmin ? (baku, dari, abaikan = null) => {
+                const now = new Date().toISOString();
+                const by = authUser?.name || authUser?.username || '-';
+                const bersih = (x) => ({ name: normBahanText(x && x.name), code: normBahanText(x && x.code), color: normBahanText(x && x.color) });
+                const aturan = { id: genId('ALB-'), jenis: 'aliasNama', baku: bersih(baku), dari: safeArray(dari).map(bersih).filter(d => d.name), by, at: now, _syncUpdatedAt: now, isDeleted: false };
+                updateMasterBahan(prev => [...safeArray(prev), aturan, ...(abaikan ? [{ id: genId('ALB-'), jenis: 'aliasAbaikan', kunci: abaikan.kunci, varian: abaikan.varian, by, at: now, _syncUpdatedAt: now, isDeleted: false }] : [])]);
+                showToast(`${aturan.dari.length + 1} penulisan disamakan menjadi "${[aturan.baku.name, aturan.baku.code, aturan.baku.color].filter(Boolean).join(' · ')}".`, 'success');
+                return aturan;
+            } : null;
             const flushPendingOrdersRef = React.useRef(flushPendingOrdersNow);
             flushPendingOrdersRef.current = () => { flushPendingOrdersNow(); flushAllPendingRecordSaves(); };
 
