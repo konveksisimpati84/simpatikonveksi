@@ -13347,13 +13347,30 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const invPiutangLuar = invLuarPeriode.filter(inv => getInvoiceTotals(inv).total - getInvoicePaidTotal(inv) > 0.5);
             const invPiutangLuarTotal = invPiutangLuar.reduce((s, inv) => s + Math.max(0, getInvoiceTotals(inv).total - getInvoicePaidTotal(inv)), 0);
             const invCariLuar = String(searchTerm || '').trim() ? invLuarPeriode.filter(invCocokFilter).length : 0;
-            const visibleInvoices = React.useMemo(() => safeInvoiceRows.filter(isVisibleRecord).filter(inv => cocokPeriode(inv.date, invTahun, invBulan)).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(invCocokFilter).sort((a, b) => {
-                if (invSortBy === 'terlama')       return (a.date || '').localeCompare(b.date || '');
-                if (invSortBy === 'terbesar')      return getInvoiceTotals(b).total - getInvoiceTotals(a).total;
-                if (invSortBy === 'terkecil')      return getInvoiceTotals(a).total - getInvoiceTotals(b).total;
-                if (invSortBy === 'sisa_terbesar') return Math.max(0, getInvoiceTotals(b).total - getInvoicePaidTotal(b)) - Math.max(0, getInvoiceTotals(a).total - getInvoicePaidTotal(a));
-                return new Date(b.date || 0) - new Date(a.date || 0);
-            }), [invoices, statusFilter, searchTerm, invSortBy, invTahun, invBulan]);
+            const visibleInvoices = React.useMemo(() => {
+                const tglInv = (inv) => String(inv.date || '');
+                // Tanggal sama → urut nomor invoice agar urutan selalu tetap
+                const urutNoInv = (a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+                // "Tagihan Terlama/Terbaru": yang belum lunas (Belum Dibayar & Termin) di atas, yang Lunas tetap di bawah
+                const lunasDulu = (inv) => inv.paymentStatus === 'Lunas' ? 1 : 0;
+                return safeInvoiceRows.filter(isVisibleRecord).filter(inv => cocokPeriode(inv.date, invTahun, invBulan)).map(inv => ({ ...inv, paymentStatus: getInvoicePaymentStatus(inv) })).filter(invCocokFilter).sort((a, b) => {
+                    if (invSortBy === 'terlama')       return tglInv(a).localeCompare(tglInv(b)) || urutNoInv(a, b);
+                    if (invSortBy === 'terbesar')      return getInvoiceTotals(b).total - getInvoiceTotals(a).total;
+                    if (invSortBy === 'terkecil')      return getInvoiceTotals(a).total - getInvoiceTotals(b).total;
+                    if (invSortBy === 'sisa_terbesar') return Math.max(0, getInvoiceTotals(b).total - getInvoicePaidTotal(b)) - Math.max(0, getInvoiceTotals(a).total - getInvoicePaidTotal(a));
+                    if (invSortBy === 'tagihan_lama')  return lunasDulu(a) - lunasDulu(b) || (lunasDulu(a) ? (tglInv(b).localeCompare(tglInv(a)) || urutNoInv(b, a)) : (tglInv(a).localeCompare(tglInv(b)) || urutNoInv(a, b)));
+                    if (invSortBy === 'tagihan_baru')  return lunasDulu(a) - lunasDulu(b) || tglInv(b).localeCompare(tglInv(a)) || urutNoInv(b, a);
+                    return (new Date(b.date || 0) - new Date(a.date || 0)) || urutNoInv(b, a);
+                });
+            }, [invoices, statusFilter, searchTerm, invSortBy, invTahun, invBulan]);
+            // Umur tagihan (hari sejak tanggal invoice) untuk invoice yang belum lunas
+            const hariIniInv = toLocalDateStr();
+            const umurTagihan = (inv) => {
+                const m = String(inv && inv.date || '').match(/^(\d{4}-\d{2}-\d{2})/);
+                if (!m) return null;
+                const h = Math.floor((Date.parse(hariIniInv + 'T00:00:00') - Date.parse(m[1] + 'T00:00:00')) / 864e5);
+                return Number.isFinite(h) && h >= 0 ? h : null;
+            };
             const { page: invPage, setPage: setInvPage, totalPages: invTotalPages, paged: pagedInvoices, total: invTotal } = usePagination(visibleInvoices, 20);
             const totalInvoice = visibleInvoices.reduce((sum, inv) => sum + getInvoiceTotals(inv).total, 0);
             const totalPaid = visibleInvoices.reduce((sum, inv) => sum + getInvoicePaidTotal(inv), 0);
@@ -13843,7 +13860,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <PeriodeBar kunci="invoice" tahun={invTahun} bulan={invBulan} setTahun={(v) => setInvPeriode(v, invBulan)} setBulan={(v) => setInvPeriode(invTahun, v)} opsiTahun={invOpsiTahun}
                             info={`${invoicesPeriode.length} invoice · ${invTahun && !invBulan ? `Jan–Des ${invTahun}` : invLabelPeriode}`} />
                         {invPiutangLuar.length > 0 && (
-                            <PeriodeLuarBanner kunci="invoice" onLihat={() => { setInvPeriode('', ''); setStatusFilter('Semua'); setInvSortBy('sisa_terbesar'); setActiveInvoiceTab('invoice'); }}>
+                            <PeriodeLuarBanner kunci="invoice" onLihat={() => { setInvPeriode('', ''); setStatusFilter('Semua'); setInvSortBy('tagihan_lama'); setActiveInvoiceTab('invoice'); }}>
                                 Masih ada piutang di luar periode ini: <b>{invPiutangLuar.length} invoice · {formatRupiah(invPiutangLuarTotal)}</b>
                             </PeriodeLuarBanner>
                         )}
@@ -14075,7 +14092,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     );
                                 })()}
 
-                                <input list="invoice-note-list" className="w-full p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Catatan invoice" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/>
+                                <input list="invoice-note-list" className="w-full p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Catatan invoice (terlihat pelanggan di link & cetakan)" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/>
                                 <datalist id="invoice-note-list">{[...new Set(safeInvoiceRows.filter(isVisibleRecord).map(inv=>String(inv.note||'').trim()).filter(Boolean))].sort().map((n,i)=><option key={i} value={n}/>)}</datalist>
 
                                 {/* Diskon Global Invoice */}
@@ -14155,6 +14172,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <option value="terbesar">↓ Nominal Terbesar</option>
                                     <option value="terkecil">↑ Nominal Terkecil</option>
                                     <option value="sisa_terbesar">↓ Sisa Tagihan Terbesar</option>
+                                    <option value="tagihan_lama">⏳ Tagihan Terlama (belum lunas)</option>
+                                    <option value="tagihan_baru">🆕 Tagihan Terbaru (belum lunas)</option>
                                 </select>
                             </div>
                         </div>
@@ -14200,6 +14219,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         <div className="text-xs text-gray-500 mt-0.5 flex gap-1.5 flex-wrap items-center">
                                                             <span>{inv.date}</span>
                                                             {inv.marketing && <><span>·</span><span className="text-indigo-600">{inv.marketing}</span></>}
+                                                            {status !== 'Lunas' && umurTagihan(inv) !== null && (() => { const u = umurTagihan(inv); return <><span>·</span><span data-inv-umur={u} title="Umur tagihan sejak tanggal invoice" className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-px whitespace-nowrap ${u > 60 ? 'bg-slate-800 text-white font-black' : 'bg-slate-200 text-slate-700 font-bold'}`}>{u > 60 ? '⚠' : '⏳'} {u} hari</span></>; })()}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -14594,18 +14614,24 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
         const InvoicePublicView = ({ token }) => {
             const [inv, setInv] = React.useState(null);
+            const [tpl, setTpl] = React.useState({});
             const [loading, setLoading] = React.useState(true);
             const [error, setError] = React.useState('');
-            const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
-            const fmtDate = (d) => { if (!d) return '-'; const parts = d.split('-'); return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d; };
+            const [disalin, setDisalin] = React.useState('');
+            const fmtDate = (d) => { if (!d) return '-'; const parts = String(d).split('-'); return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d; };
             React.useEffect(() => {
                 (async () => {
                     setLoading(true);
                     try {
                         if (!supabaseClient) { setError('Koneksi database tidak tersedia.'); setLoading(false); return; }
-                        const all = await ambilShareCocok('invoices', 'invoiceShareToken', token);
+                        // Nama usaha & rekening pembayaran (tanpa gambar) diambil bersamaan dengan invoice
+                        const kolomTpl = ['companyName', 'paymentBank1', 'paymentBank1No', 'paymentBank1Name', 'paymentBank2', 'paymentBank2No', 'paymentBank2Name'];
+                        const tplP = supabaseClient.from('app_data').select(kolomTpl.map(k => `${k}:data->${k}`).join(',')).eq('id', 'templates').maybeSingle()
+                            .then(({ data }) => (data && typeof data === 'object' ? data : {})).catch(() => ({}));
+                        const [all, t] = await Promise.all([ambilShareCocok('invoices', 'invoiceShareToken', token), tplP]);
                         const found = all.find(i => !i.isDeleted && i.invoiceShareToken === token);
                         if (!found) { setError('Link tidak valid atau sudah tidak aktif.'); setLoading(false); return; }
+                        setTpl(t || {});
                         setInv(found);
                     } catch(e) {
                         setError('Gagal memuat data. Silakan refresh halaman.');
@@ -14630,147 +14656,171 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 </div>
             );
             if (!inv) return null;
+            // Hitungan & tampilan sama dengan "Rincian" invoice di admin (tanpa tombol cetak kwitansi & komisi)
             const totals = getInvoiceTotals(inv);
             const paid = getInvoicePaidTotal(inv);
             const remaining = Math.max(0, totals.total - paid);
             const pct = totals.total > 0 ? Math.min(100, Math.round(paid / totals.total * 100)) : 0;
             const status = getInvoicePaymentStatus(inv);
             const statusColor = status === 'Lunas'
-                ? { bar: '#22C55E', bg: '#DCFCE7', text: '#166534', label: '✓ LUNAS' }
+                ? { bg: '#DCFCE7', text: '#166534', label: '✓ LUNAS' }
                 : status === 'Termin'
-                ? { bar: '#F59E0B', bg: '#FEF3C7', text: '#92400E', label: '◑ TERMIN' }
-                : { bar: '#EF4444', bg: '#FEE2E2', text: '#991B1B', label: '✗ BELUM BAYAR' };
+                ? { bg: '#FEF3C7', text: '#92400E', label: '◑ TERMIN' }
+                : { bg: '#FEE2E2', text: '#991B1B', label: '✗ BELUM BAYAR' };
             const invItems = getInvoiceItems(inv);
             const totalPcs = getInvoicePcsTotal(inv);
             const dpAmt = getInvoiceDpAmount(inv);
+            const dpObj = getInvoiceDp(inv);
             const linkedDp = getInvoiceLinkedDpAmount(inv);
             const termins = getInvoicePayments(inv);
+            const namaUsaha = normBahanText(tpl.companyName) || 'Simpati Konveksi';
+            const fmtNum = (n) => formatRupiah(n).replace(/^Rp\s*/, '');
+            const bigNum = (n) => Math.abs(safeMoney(n)) >= 100000000 ? 'text-[13px] sm:text-[15px]' : '';
+            const rekening = [1, 2].map(i => ({ bank: normBahanText(tpl[`paymentBank${i}`]), no: normBahanText(tpl[`paymentBank${i}No`]), nama: normBahanText(tpl[`paymentBank${i}Name`]) })).filter(r => r.bank);
+            const salinRekening = async (no) => {
+                const teks = String(no || '').replace(/[^\d]/g, '') || String(no || '');
+                try { await navigator.clipboard.writeText(teks); } catch (e) { window.prompt('Salin nomor rekening:', teks); }
+                setDisalin(no); setTimeout(() => setDisalin(''), 1800);
+            };
             return (
                 <div className="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50 py-6 px-4">
                     <div className="max-w-lg mx-auto">
                         <div className="text-center mb-5">
                             <div className="inline-flex items-center gap-2 bg-white rounded-2xl px-5 py-3 shadow-sm border border-blue-100">
                                 <span className="text-2xl">🧵</span>
-                                <span className="font-black text-gray-800 text-lg">Simpati Konveksi</span>
+                                <span data-inv-usaha className="font-black text-gray-800 text-lg">{namaUsaha}</span>
                             </div>
                             <p className="text-xs text-gray-400 mt-2">Halaman Tagihan Invoice</p>
                         </div>
                         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
                             <div className="px-5 py-4" style={{ background: 'linear-gradient(135deg,#1B4F72 0%,#1a6a7a 100%)' }}>
-                                <div className="font-black text-white text-xl leading-tight">{inv.customer}</div>
+                                <div className="font-black text-white text-xl leading-tight break-words">{inv.customer}</div>
                                 <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                    <span className="font-mono text-blue-200 text-xs font-semibold">{inv.id}</span>
+                                    <span className="font-mono text-blue-200 text-xs font-semibold break-all">{inv.id}</span>
                                     <span className="text-white/40 text-xs">·</span>
                                     <span className="text-white/70 text-xs">Tgl: {fmtDate(inv.date)}</span>
                                 </div>
-                                <span className="inline-block mt-2 text-[11px] font-black px-2.5 py-0.5 rounded-full" style={{ background: statusColor.bg, color: statusColor.text }}>{statusColor.label}</span>
+                                <span data-inv-status className="inline-block mt-2 text-[11px] font-black px-2.5 py-0.5 rounded-full" style={{ background: statusColor.bg, color: statusColor.text }}>{statusColor.label}{status === 'Termin' ? ` · ${pct}% terbayar` : ''}</span>
                             </div>
-                            <div className="p-5 space-y-5">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-2.5">
-                                        <div className="w-1 h-4 rounded-full bg-teal-500"></div>
-                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Rincian Produksi</span>
-                                        <span className="text-[10px] text-gray-400 font-bold">{totalPcs} pcs</span>
-                                    </div>
-                                    <div className="space-y-2">
-                                        {invItems.map((item, i) => {
-                                            const itemSizes = (item.sizes || []).filter(s => s.qty > 0 || s.size);
-                                            const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
-                                            const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
-                                            return (
-                                                <div key={i} className="rounded-xl border border-gray-100 overflow-hidden">
-                                                    <div className="flex items-center justify-between px-3 py-2 bg-blue-50 border-b border-blue-100">
-                                                        <span className="font-black text-blue-800 text-sm">{item.productionType || '-'}</span>
-                                                        <div className="text-right">
-                                                            <span className="text-xs font-black text-blue-700">{fmtRp(itemTotal)}</span>
-                                                            <span className="text-[10px] text-blue-400 ml-1">({itemPcs} pcs)</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="px-3 py-2 flex flex-wrap gap-1.5">
-                                                        {itemSizes.map((s, si) => {
-                                                            const st = getInvoiceSizeTotal(s);
-                                                            return (
-                                                                <div key={si} className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-center min-w-[56px]">
-                                                                    <div className="text-[10px] font-black text-gray-700">{s.size || '-'}</div>
-                                                                    <div className="text-[10px] text-gray-500">{safeMoney(s.qty)} pcs</div>
-                                                                    <div className="text-[10px] font-bold text-blue-700">{fmtRp(st.total)}</div>
+                            <div className="p-4 sm:p-5 space-y-5">
+                                {/* Tampilan nota: setiap ukuran satu baris (sama dengan Rincian di admin) */}
+                                <div className="-mx-1">
+                                    <table data-inv-nota className="w-full table-fixed tabular-nums">
+                                        <colgroup>
+                                            <col className="w-[30%] sm:w-[40%]" />
+                                            <col className="w-[13%] sm:w-[12%]" />
+                                            <col className="w-[26%] sm:w-[23%]" />
+                                            <col className="w-[31%] sm:w-[25%]" />
+                                        </colgroup>
+                                        <thead>
+                                            <tr className="border-b-2 border-gray-300 text-[12px] uppercase tracking-wide text-gray-600">
+                                                <th className="text-left font-bold px-1.5 py-2">Produk / Ukuran</th>
+                                                <th className="text-right font-bold px-1.5 py-2">Qty</th>
+                                                <th className="text-right font-bold px-1.5 py-2">Harga</th>
+                                                <th className="text-right font-bold px-1.5 py-2">Subtotal</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {invItems.map((item, i) => {
+                                                const itemSizes = (item.sizes || []).filter(s => safeMoney(s.qty) > 0 || getInvoiceSizeTotal(s).total > 0);
+                                                const itemTotal = itemSizes.reduce((sum, s) => sum + getInvoiceSizeTotal(s).total, 0);
+                                                const itemPcs = itemSizes.reduce((sum, s) => sum + safeMoney(s.qty), 0);
+                                                if (itemSizes.length === 0 && itemTotal === 0) return null;
+                                                return (
+                                                    <React.Fragment key={i}>
+                                                        <tr data-inv-produk className={i > 0 ? 'border-t border-gray-200' : ''}>
+                                                            <td colSpan={4} className="px-1.5 pt-3.5 pb-1.5">
+                                                                <div className="flex items-start justify-between gap-3">
+                                                                    <span className="text-[16px] font-extrabold text-gray-900 leading-snug min-w-0 break-words">{item.productionType || '-'}</span>
+                                                                    <span className="shrink-0 text-right whitespace-nowrap"><span className="text-[13px] font-bold text-gray-500">{itemPcs} pcs</span> <span className="text-[16px] font-extrabold text-gray-900">{fmtNum(itemTotal)}</span></span>
                                                                 </div>
+                                                            </td>
+                                                        </tr>
+                                                        {itemSizes.map((sz, si) => {
+                                                            const st = getInvoiceSizeTotal(sz);
+                                                            return (
+                                                                <tr key={`${i}-${si}`} data-inv-ukuran className={`align-top text-[15px] text-gray-800 ${si % 2 === 1 ? 'bg-slate-50' : ''}`}>
+                                                                    <td className="pl-5 pr-1.5 py-2 font-bold text-gray-900 break-words">{sz.size || '-'}</td>
+                                                                    <td className="px-1.5 py-2 text-right">{safeMoney(sz.qty)}</td>
+                                                                    <td className={`px-1.5 py-2 text-right whitespace-nowrap ${bigNum(sz.pricePerPcs)}`}>{fmtNum(sz.pricePerPcs)}</td>
+                                                                    <td className={`px-1.5 py-2 text-right whitespace-nowrap ${bigNum(st.total)}`}>
+                                                                        {fmtNum(st.total)}
+                                                                        {st.discount > 0 && <div className="text-[11.5px] text-amber-700 whitespace-normal leading-tight">diskon −{fmtNum(st.discount)}</div>}
+                                                                    </td>
+                                                                </tr>
                                                             );
                                                         })}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
                                 </div>
-                                <div>
-                                    <div className="flex items-center gap-2 mb-2.5">
-                                        <div className="w-1 h-4 rounded-full bg-blue-500"></div>
-                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Ringkasan Tagihan</span>
-                                    </div>
-                                    <div className="rounded-xl border border-gray-100 overflow-hidden">
-                                        {totals.subtotal !== totals.total && (
-                                            <div className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
-                                                <span className="text-sm text-gray-500">Subtotal ({totalPcs} pcs)</span>
-                                                <span className="text-sm font-bold text-gray-700">{fmtRp(totals.subtotal)}</span>
-                                            </div>
-                                        )}
-                                        {totals.discount > 0 && (
-                                            <div className="flex justify-between items-center px-4 py-2.5 bg-amber-50 border-b border-amber-100">
-                                                <span className="text-sm text-amber-700 font-semibold">🏷 Diskon</span>
-                                                <span className="text-sm font-bold text-amber-700">- {fmtRp(totals.discount)}</span>
-                                            </div>
-                                        )}
-                                        <div className="flex justify-between items-center px-4 py-3 bg-blue-50 border-b border-blue-100">
-                                            <span className="text-sm font-black text-blue-800">Total Invoice</span>
-                                            <span className="text-base font-black text-blue-900">{fmtRp(totals.total)}</span>
+
+                                <div className="space-y-0.5" data-inv-hitung>
+                                    {(totals.globalDiscount > 0 || totals.shippingCost > 0) && (
+                                        <div className="flex justify-between px-1.5 py-2 text-[15px] text-gray-600">
+                                            <span>Jumlah produk</span>
+                                            <span className="tabular-nums whitespace-nowrap">{formatRupiah(totals.subtotal - totals.lineDiscount)}</span>
                                         </div>
-                                        {dpAmt > 0 && (
-                                            <div className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
-                                                <span className="text-sm text-gray-500">DP / Uang Muka</span>
-                                                <span className="text-sm font-bold text-green-700">- {fmtRp(dpAmt)}</span>
-                                            </div>
-                                        )}
-                                        {linkedDp > 0 && (
-                                            <div className="flex justify-between items-center px-4 py-2.5 bg-emerald-50 border-b border-emerald-100">
-                                                <span className="text-sm text-emerald-700 font-semibold">💳 Saldo Dipakai</span>
-                                                <span className="text-sm font-bold text-emerald-700">- {fmtRp(linkedDp)}</span>
-                                            </div>
-                                        )}
-                                        {termins.map((pay, pi) => (
-                                            <div key={pay.id || pi} className="flex justify-between items-center px-4 py-2.5 border-b border-gray-50">
-                                                <div>
-                                                    <span className="text-sm text-gray-500">Termin {pi + 1}</span>
-                                                    <span className="text-[10px] text-gray-400 ml-2">{fmtDate(pay.date)} · {pay.method || 'Transfer'}</span>
+                                    )}
+                                    {totals.globalDiscount > 0 && (
+                                        <div className="flex justify-between px-1.5 py-2 text-[15px] text-amber-700">
+                                            <span>Diskon{inv.globalDiscountType === '%' ? ` (${safeMoney(inv.globalDiscountValue)}%)` : ''}</span>
+                                            <span className="tabular-nums whitespace-nowrap">− {formatRupiah(totals.globalDiscount)}</span>
+                                        </div>
+                                    )}
+                                    {totals.shippingCost > 0 && (
+                                        <div className="flex justify-between px-1.5 py-2 text-[15px] text-gray-600">
+                                            <span>Ongkos kirim</span>
+                                            <span className="tabular-nums whitespace-nowrap">+ {formatRupiah(totals.shippingCost)}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between items-baseline px-1.5 pt-3 pb-2 border-t-2 border-gray-900 mt-1">
+                                        <span className="font-black text-gray-900 text-[18px]">Total Invoice <span className="block sm:inline text-[13px] font-bold text-gray-500 whitespace-nowrap">({totalPcs} pcs)</span></span>
+                                        <span data-inv-total className="font-black text-gray-900 text-[18px] tabular-nums whitespace-nowrap">{formatRupiah(totals.total)}</span>
+                                    </div>
+                                    {dpAmt > 0 && (
+                                        <div className="flex justify-between items-center px-1.5 py-2 text-[15px] text-emerald-700">
+                                            <span className="min-w-0">DP Awal <span className="block sm:inline text-[12.5px] text-gray-500">{dpObj.date ? fmtDate(dpObj.date) : ''}{dpObj.method ? ` · ${dpObj.method}` : ''}</span></span>
+                                            <span className="tabular-nums whitespace-nowrap">− {formatRupiah(dpAmt)}</span>
+                                        </div>
+                                    )}
+                                    {linkedDp > 0 && (
+                                        <div className="flex justify-between items-center px-1.5 py-2 text-[15px] text-emerald-700">
+                                            <span>Saldo dipakai</span>
+                                            <span className="tabular-nums whitespace-nowrap">− {formatRupiah(linkedDp)}</span>
+                                        </div>
+                                    )}
+                                    {termins.map((pay, pi) => (
+                                        <div key={pay.id || pi} className="flex justify-between items-center px-1.5 py-2 text-[15px] text-emerald-700">
+                                            <span className="min-w-0">Termin {pi + 1} <span className="block sm:inline text-[12.5px] text-gray-500">{fmtDate(pay.date)} · {pay.method || 'Transfer'}</span></span>
+                                            <span className="tabular-nums whitespace-nowrap">− {formatRupiah(safeMoney(pay.amount))}</span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div data-inv-sisa className={`flex justify-between items-center rounded-xl px-4 py-3 ${remaining > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+                                    <span className={`text-[17px] font-black ${remaining > 0 ? 'text-red-800' : 'text-green-800'}`}>{remaining > 0 ? 'Sisa Tagihan' : '✓ Lunas'}</span>
+                                    <span className={`text-[22px] font-black tabular-nums ${remaining > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatRupiah(remaining)}</span>
+                                </div>
+
+                                {rekening.length > 0 && remaining > 0 && (
+                                    <div data-inv-rekening className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+                                        <div className="text-[11px] font-black text-sky-700 uppercase tracking-widest mb-1">Pembayaran ke rekening</div>
+                                        {rekening.map((r, ri) => (
+                                            <div key={ri} className="flex items-center gap-3 mt-2">
+                                                <span className="bg-sky-700 text-white font-extrabold text-[11px] px-2.5 py-1 rounded whitespace-nowrap">{r.bank}</span>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="font-extrabold text-sky-900 tracking-wide tabular-nums break-all">{r.no || '-'}</div>
+                                                    {r.nama && <div className="text-[11.5px] text-slate-600">a.n. {r.nama}</div>}
                                                 </div>
-                                                <span className="text-sm font-bold text-green-700">- {fmtRp(safeMoney(pay.amount))}</span>
+                                                {r.no && <button type="button" data-inv-salin={ri} onClick={() => salinRekening(r.no)} className="shrink-0 border border-sky-300 bg-white text-sky-700 rounded-lg px-2.5 py-1 text-xs font-bold">{disalin === r.no ? '✓ Disalin' : 'Salin'}</button>}
                                             </div>
                                         ))}
-                                        <div className={`flex justify-between items-center px-4 py-3 ${remaining > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-                                            <span className={`text-sm font-black ${remaining > 0 ? 'text-red-700' : 'text-green-700'}`}>{remaining > 0 ? '⚠ Sisa Tagihan' : '✓ Lunas'}</span>
-                                            <span className={`text-base font-black ${remaining > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmtRp(remaining)}</span>
-                                        </div>
                                     </div>
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2 mb-2.5">
-                                        <div className="w-1 h-4 rounded-full bg-green-500"></div>
-                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">Progress Pembayaran</span>
-                                    </div>
-                                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                                        <div className="flex items-center justify-between mb-1.5">
-                                            <span className="text-[11px] font-bold text-gray-500">{pct}% terbayar</span>
-                                            <span className="text-[11px] font-black" style={{ color: statusColor.text }}>{statusColor.label}</span>
-                                        </div>
-                                        <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                                            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: statusColor.bar }}></div>
-                                        </div>
-                                        <div className="flex justify-between mt-1.5">
-                                            <span className="text-[10px] text-green-600 font-bold">Terbayar: {fmtRp(paid)}</span>
-                                            {remaining > 0 && <span className="text-[10px] text-red-500 font-bold">Sisa: {fmtRp(remaining)}</span>}
-                                        </div>
-                                    </div>
-                                </div>
+                                )}
+
                                 {inv.note && (
                                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                                         <div className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Catatan</div>
@@ -14779,7 +14829,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 )}
                                 <div className="text-center pt-2 border-t border-gray-100">
                                     <div className="text-xs text-gray-400">Dokumen ini diterbitkan oleh</div>
-                                    <div className="font-black text-gray-700 text-sm mt-0.5">🧵 Simpati Konveksi</div>
+                                    <div className="font-black text-gray-700 text-sm mt-0.5">🧵 {namaUsaha}</div>
                                     <div className="text-[10px] text-gray-400 mt-1">Informasi lebih lanjut silakan hubungi tim kami</div>
                                 </div>
                             </div>
