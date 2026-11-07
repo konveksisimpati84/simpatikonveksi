@@ -3481,7 +3481,8 @@
                 const onFocus = () => { if (document.visibilityState !== 'hidden' && Date.now() - lastSyncRef.current > 15000) syncRef.current(); };
                 const onRemote = () => schedule(300);
                 const onStorage = (e) => { if (e.key === listKey || e.key === opsKey) setPinIds(applyPinOps(readPinList(listKey), readPinList(opsKey))); };
-                const iv = setInterval(() => syncRef.current(), PIN_REFRESH_MS);
+                // Tarik berkala hanya saat tab terlihat (tab tersembunyi disinkronkan saat dibuka lagi lewat onFocus)
+                const iv = setInterval(() => { if (document.visibilityState !== 'hidden') syncRef.current(); }, PIN_REFRESH_MS);
                 window.addEventListener('focus', onFocus);
                 document.addEventListener('visibilitychange', onFocus);
                 window.addEventListener('online', onRemote);
@@ -3592,7 +3593,8 @@
                 const onFocus = () => { if (document.visibilityState !== 'hidden' && Date.now() - lastSyncRef.current > 15000) syncRef.current(); };
                 const onRemote = () => schedule(300);
                 const onStorage = (e) => { if (e.key === BELANJA_CACHE_KEY || e.key === BELANJA_OPS_KEY) setRows(applyBelanjaOps(readBelanjaCache(), readPinList(BELANJA_OPS_KEY))); };
-                const iv = setInterval(() => syncRef.current(), PIN_REFRESH_MS);
+                // Tarik berkala hanya saat tab terlihat (tab tersembunyi disinkronkan saat dibuka lagi lewat onFocus)
+                const iv = setInterval(() => { if (document.visibilityState !== 'hidden') syncRef.current(); }, PIN_REFRESH_MS);
                 window.addEventListener('focus', onFocus);
                 document.addEventListener('visibilitychange', onFocus);
                 window.addEventListener('online', onRemote);
@@ -6112,6 +6114,10 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                 if (!activeCashAdvanceEmp) return;
                 if (tolakGajiTerkunci(activeCashAdvanceEmp)) return;
                 const target = getEmployeeCashAdvances(activeCashAdvanceEmp).find(item => String(item.id) === String(cashAdvanceId));
+                if (isKasbonLebihBayar(target)) {
+                    showToast("Kasbon ini dari lebih bayar komisi. Hapus lewat rincian rekap gaji asalnya (Laporan Kinerja → Rekap Kinerja) agar rekapnya ikut diperbarui.", "error");
+                    return;
+                }
                 if (getCashAdvanceDeducted(target) > 0) {
                     showToast("Kasbon ini sudah dipotong dari gaji, tidak bisa dihapus. Batalkan dulu rekap gaji yang memotongnya.", "error");
                     return;
@@ -20206,7 +20212,8 @@ ${getRekapShareLink(rekap)}
                     createdAt: now, updatedAt: now, _syncUpdatedAt: now,
                 };
                 setEmployees(prev => (prev || []).map(e => String(e.id) === String(emp.id) ? { ...e, cashAdvances: [...safeArray(e.cashAdvances), kasbon], _syncUpdatedAt: now } : e));
-                setRekapKinerja(prev => (prev || []).map(item => String(item.id) === String(rekap.id) ? { ...item, paymentStatus: 'lunas', _syncUpdatedAt: now } : item));
+                // Dicatat juga di rekap: link slip di HP karyawan tidak punya data kasbon
+                setRekapKinerja(prev => (prev || []).map(item => String(item.id) === String(rekap.id) ? { ...item, paymentStatus: 'lunas', kasbonLebihBayar: [...safeArray(item.kasbonLebihBayar), { id: kasbon.id, amount: lebih, date: kasbon.date }], _syncUpdatedAt: now } : item));
                 setKomisiKonfirm(null);
                 showToast(`Kelebihan ${formatRupiah(lebih)} dicatat sebagai kasbon ${emp.name || ''}. Akan terisi otomatis di rekap berikutnya.`, "success");
             };
@@ -20223,6 +20230,7 @@ ${getRekapShareLink(rekap)}
                     cashAdvances: safeArray(e.cashAdvances).map(k => String(k.id) === String(kasbonId) ? { ...k, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : k),
                     _syncUpdatedAt: now,
                 }));
+                setRekapKinerja(prev => (prev || []).map(item => String(item.id) === String(rekap.id) ? { ...item, kasbonLebihBayar: safeArray(item.kasbonLebihBayar).filter(k => String(k.id) !== String(kasbonId)), _syncUpdatedAt: now } : item));
                 setKomisiKonfirm(null);
                 showToast("Kasbon dari lebih bayar dihapus.", "success");
             };
@@ -23883,7 +23891,21 @@ ${getRekapShareLink(rekap)}
             );
         };
 
-        const RekapGajiShareView = ({ rekapId, employees, rekapKinerja, templates, invoices }) => {
+        const RekapGajiShareView = ({ rekapId, employees, rekapKinerja, templates, invoices, onSiapkanCetak = null }) => {
+            const [menyiapkanCetak, setMenyiapkanCetak] = React.useState(false);
+            // Cetak: muat dulu logo asli & tanda tangan (bila belum), tunggu gambarnya tampil, lalu buka dialog cetak
+            const cetakSlip = async () => {
+                if (menyiapkanCetak) return;
+                setMenyiapkanCetak(true);
+                try {
+                    if (onSiapkanCetak) await onSiapkanCetak();
+                    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+                    const imgs = [...document.querySelectorAll('.share-receipt img')].filter(i => !i.complete);
+                    await Promise.race([Promise.all(imgs.map(i => new Promise(r => { i.onload = i.onerror = r; }))), new Promise(r => setTimeout(r, 4000))]);
+                } catch (e) {}
+                setMenyiapkanCetak(false);
+                window.print();
+            };
             const rekap = (rekapKinerja || []).filter(isVisibleRecord).find(r => String(r.id) === String(rekapId));
             const employee = (employees || []).filter(isVisibleRecord).find(emp => String(emp.id) === String(rekap?.empId));
             const formatReceiptMoney = (num) => formatRupiah(num || 0).replace(/\s/g, '');
@@ -23911,7 +23933,11 @@ ${getRekapShareLink(rekap)}
             // Penyesuaian komisi setelah rekap dibuat (invoice berubah)
             const penyesuaianSlip = getRekapKomisiPenyesuaian(rekap).flatMap(p => safeArray(p.items).map(it => ({ invId: it.invId, dihapus: !!it.dihapus, v: Math.round(safeMoney(it.selisih)), tgl: String(p.date || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1') }))).filter(r => r.v !== 0);
             // Kelebihan bayar yang dijadikan kasbon
-            const dikasbonSlip = getRekapKasbonLebihBayar(rekap, employees).reduce((t, k) => t + getCashAdvanceAmount(k), 0);
+            // Di perangkat admin dari data kasbon; di HP karyawan (tanpa data kasbon) dari catatan di rekap
+            const kasbonDiPerangkat = getRekapKasbonLebihBayar(rekap, employees);
+            const dikasbonSlip = kasbonDiPerangkat.length > 0
+                ? kasbonDiPerangkat.reduce((t, k) => t + getCashAdvanceAmount(k), 0)
+                : safeArray(rekap.kasbonLebihBayar).reduce((t, k) => t + safeMoney(k && k.amount), 0);
 
             const SectionTitle = ({ title }) => (
                 <div className="mt-2 pt-1 pb-0.5 border-t border-b border-dashed border-black text-[10px] font-black uppercase">{title}</div>
@@ -23943,8 +23969,8 @@ ${getRekapShareLink(rekap)}
                             <h1 className="text-xl font-black text-gray-900">Preview Rekap Gaji</h1>
                             <p className="text-sm text-gray-500">Karyawan hanya dapat melihat rekap gaji dari link ini.</p>
                         </div>
-                        <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 text-sm">
-                            <IconPrinter /> Cetak / Simpan PDF
+                        <button data-rg-cetak onClick={cetakSlip} disabled={menyiapkanCetak} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-5 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 text-sm">
+                            <IconPrinter /> {menyiapkanCetak ? 'Menyiapkan…' : 'Cetak / Simpan PDF'}
                         </button>
                     </div>
 
@@ -25206,9 +25232,11 @@ ${getRekapShareLink(rekap)}
                 </div></body></html>`;
         };
         // Buka jendela cetak struk 80 mm (tinggi kertas mengikuti isi)
-        const cetakStruk80 = (html) => {
-            const w = window.open('', '_blank', 'width=420,height=700');
+        // wAda: jendela yang sudah dibuka lebih dulu (saat klik) bila isi cetakan perlu diunduh dulu — agar tidak diblokir browser
+        const cetakStruk80 = (html, wAda) => {
+            const w = wAda || window.open('', '_blank', 'width=420,height=700');
             if (!w) return false;
+            if (wAda) { try { w.document.open(); } catch (e) {} }
             w.document.write(html);
             w.document.close();
             const cetak = () => { const h = w.document.body.scrollHeight; const s = w.document.createElement('style'); s.textContent = `@page{size:80mm ${h + 12}px !important;margin:4mm;}`; w.document.head.appendChild(s); w.print(); w.close(); };
@@ -27677,6 +27705,7 @@ ${getRekapShareLink(rekap)}
             const [kasbon, setKasbon] = React.useState([]);
             const [loading, setLoading] = React.useState(true);
             const [popupDiblokir, setPopupDiblokir] = React.useState(false);
+            const tplLengkapRef = React.useRef(null); // pengaturan cetak lengkap, diunduh saat pertama kali dicetak
 
             React.useEffect(() => {
                 const CACHE_KEY = `simpati_drg_cache_${rekapId}`;
@@ -27714,12 +27743,7 @@ ${getRekapShareLink(rekap)}
                             setTrips(foundTrips);
                             setDriver(foundDriver);
                             setTpl(tpl); applyPrintSettingsFromTemplates(tpl);
-                            // Setelah tampil: muat pengaturan cetak lengkap (logo asli & tanda tangan) agar cetakan sama dengan cetakan admin
-                            ambilPengaturanShare(KOLOM_CETAK_SLIP).then(full => {
-                                const gabung = { ...tpl, ...full };
-                                setTpl(gabung); applyPrintSettingsFromTemplates(gabung);
-                                try { const c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null'); if (c) sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ...c, tpl: gabung })); } catch (e) {}
-                            }).catch(() => {});
+                            // Logo asli & tanda tangan baru diunduh saat tombol Cetak ditekan (hemat kuota; layar memakai logo kecil)
                             setTarifs(allTarifs);
                             // Kasbon driver ini saja (untuk "sisa kasbon per hari ini" pada rekap lama)
                             const kasbonDriver = found ? safeArray(kbRes?.data?.data).filter(k => k && k.driverId === found.driverId) : [];
@@ -27755,7 +27779,16 @@ ${getRekapShareLink(rekap)}
             const apr = safeMoney(rekap.apresiasi);
             const diterima = safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir);
             // Cetak memakai nota yang sama persis dengan cetakan admin
-            const printRekap = () => { setPopupDiblokir(!cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl, sisaSekarang }))); };
+            // Cetak: pengaturan cetak lengkap (logo asli & tanda tangan) diunduh sekali saat pertama kali dicetak.
+            // Jendela cetak dibuka lebih dulu saat klik agar tidak diblokir browser, lalu diisi setelah unduhan selesai.
+            const printRekap = async () => {
+                if (tplLengkapRef.current || !supabaseClient) { setPopupDiblokir(!cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl: tplLengkapRef.current || tpl, sisaSekarang }))); return; }
+                const w = window.open('', '_blank', 'width=420,height=700');
+                if (!w) { setPopupDiblokir(true); return; }
+                let gabung = tpl;
+                try { const full = await ambilPengaturanShare(KOLOM_CETAK_SLIP); gabung = { ...tpl, ...full }; tplLengkapRef.current = gabung; setTpl(gabung); applyPrintSettingsFromTemplates(gabung); } catch (e) {}
+                setPopupDiblokir(!cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl: gabung, sisaSekarang }), w));
+            };
             return (
                 <div className="min-h-screen bg-gray-50 py-8 px-4">
                     <div className="max-w-lg mx-auto">
@@ -31110,6 +31143,16 @@ ${getRekapShareLink(rekap)}
             const [danaOperasional, setDanaOperasional] = useState([]);
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
+            // Link slip gaji: pengaturan cetak lengkap (logo asli & tanda tangan) diunduh sekali, saat pertama kali dicetak
+            const cetakSlipLengkapRef = React.useRef(null);
+            const siapkanCetakSlipShare = () => {
+                if (!cetakSlipLengkapRef.current) {
+                    cetakSlipLengkapRef.current = ambilPengaturanShare(KOLOM_CETAK_SLIP)
+                        .then(full => { setTemplates(prev => ({ ...(prev || initialTemplates), ...full })); })
+                        .catch(() => { cetakSlipLengkapRef.current = null; });
+                }
+                return cetakSlipLengkapRef.current;
+            };
             const [investorShareToken, setInvestorShareToken] = useState(getInvestorShareTokenFromHash());
             const [marketingShareToken] = useState(getMarketingShareTokenFromHash());
             const [invoiceShareToken] = useState(getInvoiceShareFromHash());
@@ -32514,8 +32557,7 @@ ${getRekapShareLink(rekap)}
                             // Data karyawan lain tidak diunduh; nama & divisi diambil dari rekap itu sendiri
                             setRekapKinerja(thisRekap ? [thisRekap] : []);
                             setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
-                            // Setelah tampil: logo asli & tanda tangan dimuat di belakang (sama dengan slip dari admin)
-                            ambilPengaturanShare(KOLOM_CETAK_SLIP).then(full => setTemplates(prev => ({ ...(prev || initialTemplates), ...full }))).catch(() => {});
+                            // Logo asli & tanda tangan baru diunduh saat tombol Cetak ditekan (hemat kuota; layar memakai logo kecil)
                             if (thisRekap && safeArray(thisRekap.marketingInvoiceIds).length > 0) {
                                 const invs = await ambilShareIds('invoices', thisRekap.marketingInvoiceIds).catch(() => fetchStoreData('invoices', []));
                                 const ids = new Set(safeArray(thisRekap.marketingInvoiceIds).map(String));
@@ -32823,25 +32865,42 @@ ${getRekapShareLink(rekap)}
                         .then(() => { setLastSyncTime(Date.now()); try { window.dispatchEvent(new Event('simpati-driver-remote')); } catch (e) {} })
                         .catch(err => console.error('Gagal refresh data Supabase:', err));
                 };
+                // Hemat kuota:
+                // (A) tab yang tersembunyi/diminimalkan tidak mengunduh — cukup ditandai, lalu diunduh SEGERA saat tab dibuka lagi
+                // (B) beberapa perubahan beruntun dari perangkat lain digabung menjadi satu unduhan (±5 detik)
+                let tertunda = false;
+                let timerGabung = null;
+                const JEDA_GABUNG_MS = 5000;
+                const jalankanGabungan = () => {
+                    timerGabung = null;
+                    if (document.hidden) { tertunda = true; return; }
+                    // Sinkron sebelumnya masih berjalan: coba lagi sebentar lagi agar perubahan ini tidak terlewat
+                    if (syncInFlightRef.current) { timerGabung = setTimeout(jalankanGabungan, 2000); return; }
+                    refresh();
+                };
+                const adaPerubahan = () => {
+                    if (document.hidden) { tertunda = true; return; }
+                    if (!timerGabung) timerGabung = setTimeout(jalankanGabungan, JEDA_GABUNG_MS);
+                };
 
-                // Realtime: sync langsung saat _timestamps berubah (ada data baru dari PC lain)
+                // Realtime: sync saat _timestamps berubah (ada data baru dari PC lain)
                 const channel = supabaseClient
                     .channel('app-timestamps-sync')
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'app_data', filter: "id=eq._timestamps" }, () => {
-                        refresh();
+                        adaPerubahan();
                     })
                     .subscribe();
 
-                // Fallback polling 60 menit (jika Realtime terputus)
-                const intervalId = setInterval(refresh, 3600000);
+                // Fallback polling 60 menit (jika Realtime terputus); tab tersembunyi menunggu sampai dibuka lagi
+                const intervalId = setInterval(() => { if (document.hidden) tertunda = true; else refresh(); }, 3600000);
 
-                const handleFocus = () => {
+                const saatTerlihat = () => {
                     const now = Date.now();
+                    if (tertunda) { tertunda = false; if (timerGabung) { clearTimeout(timerGabung); timerGabung = null; } lastRefreshRef.current = now; refresh(); return; }
                     if (now - lastRefreshRef.current > 60000) { lastRefreshRef.current = now; refresh(); }
                 };
-                const handleVisibility = () => {
-                    if (!document.hidden) { const now = Date.now(); if (now - lastRefreshRef.current > 60000) { lastRefreshRef.current = now; refresh(); } }
-                };
+                const handleFocus = () => { if (!document.hidden) saatTerlihat(); };
+                const handleVisibility = () => { if (!document.hidden) saatTerlihat(); };
 
                 window.addEventListener('focus', handleFocus);
                 document.addEventListener('visibilitychange', handleVisibility);
@@ -32849,6 +32908,7 @@ ${getRekapShareLink(rekap)}
                 return () => {
                     supabaseClient.removeChannel(channel);
                     clearInterval(intervalId);
+                    if (timerGabung) clearTimeout(timerGabung);
                     window.removeEventListener('focus', handleFocus);
                     document.removeEventListener('visibilitychange', handleVisibility);
                 };
@@ -34357,6 +34417,7 @@ ${getRekapShareLink(rekap)}
                 return (
                     <>
                         <RekapGajiShareView
+                            onSiapkanCetak={siapkanCetakSlipShare}
                             rekapId={rekapGajiShareId}
                             employees={employees}
                             rekapKinerja={rekapKinerja}
