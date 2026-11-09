@@ -4756,11 +4756,8 @@ ${blocks}
             useEffect(() => { try { localStorage.setItem(VIEW_KEY, view); } catch (e) {} }, [view]);
             const [fStatus, setFStatus] = useState('kurang');
             const [fVendor, setFVendor] = useState('');
-            // Tanda cetak: semua / belum dicetak (baru + berubah) / sudah dicetak. Urutan Per bahan: terbaru masuk / bahan A–Z
+            // Tampilkan: semua / hanya bahan BARU (belum pernah dicetak)
             const [fCetak, setFCetak] = useState('semua');
-            const URUT_KEY = 'simpati_belanja_urut';
-            const [urut, setUrut] = useState(() => { try { return localStorage.getItem(URUT_KEY) === 'az' ? 'az' : 'terbaru'; } catch (e) { return 'terbaru'; } });
-            useEffect(() => { try { localStorage.setItem(URUT_KEY, urut); } catch (e) {} }, [urut]);
             const [cariInput, setCariInput] = useState('');
             const [cari, setCari] = useState('');
             useEffect(() => { const t = setTimeout(() => setCari(cariInput), 250); return () => clearTimeout(t); }, [cariInput]);
@@ -4805,8 +4802,7 @@ ${blocks}
             const cocokStatus = (st, done) => fStatus === 'semua' || (fStatus === 'kurang' ? !done : fStatus === 'selesai' ? done : st === fStatus);
             const cocokVendor = (v) => !fVendor || (fVendor === '__none' ? !v : v === fVendor);
             const cocokCari = (l) => !q || [l.name, l.code, l.color, l.orderId, l.order.client, l.order.type, l.vendor].join(' ').toLowerCase().includes(q);
-            const perluCetak = (l) => l.cetakState === 'baru' || l.cetakState === 'berubah';
-            const cocokCetak = (l) => fCetak === 'semua' || (fCetak === 'belum' ? perluCetak(l) : !perluCetak(l));
+            const cocokCetak = (l) => fCetak === 'semua' || l.cetakState === 'baru';
             const shownLines = useMemo(() => lines.filter(l => cocokStatus(l.status, l.done) && cocokVendor(l.vendor) && cocokCari(l) && cocokCetak(l)), [lines, fStatus, fVendor, q, fCetak]);
             const semuaGroups = useMemo(() => gabungBelanja(lines), [lines]);
             const jumlahBaru = useMemo(() => semuaGroups.filter(g => g.baruCount > 0).length, [semuaGroups]);
@@ -4814,34 +4810,24 @@ ${blocks}
                 if (view !== 'bahan') return [];
                 // Status & vendor baris gabungan dinilai dari semua order-nya; cari cukup cocok salah satu order
                 const list = semuaGroups.filter(g => cocokStatus(g.status, g.done) && g.lines.some(l => cocokVendor(l.vendor)) && (!q || g.lines.some(cocokCari))
-                    && (fCetak === 'semua' || (fCetak === 'belum' ? g.baruCount + g.berubahCount > 0 : g.baruCount + g.berubahCount === 0)));
-                // Bagian BARU (ada order yang belum dicetak) di atas; lalu terbaru masuk (bahan dari order yang sama berdekatan) atau A–Z
-                const az = (a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code) || a.color.localeCompare(b.color) || a.unit.localeCompare(b.unit);
-                return list.map(g => ({ ...g, bagian: g.baruCount > 0 ? 'baru' : 'cetak' }))
-                    .sort((a, b) => (a.bagian === 'baru' ? 0 : 1) - (b.bagian === 'baru' ? 0 : 1) || (urut === 'az' ? az(a, b) : (b.seq - a.seq) || az(a, b)));
-            }, [semuaGroups, view, fStatus, fVendor, q, fCetak, urut]);
-            // Per instansi: Instansi → Order → Bahan. Instansi yang punya bahan BARU di atas, lalu deadline terdekat.
+                    && (fCetak === 'semua' || g.baruCount > 0));
+                // Bahan BARU (ada order yang belum pernah dicetak) di atas, dari order terbaru (bahan satu order berdekatan);
+                // sisanya urut nama bahan A–Z seperti biasa
+                const baru = list.filter(g => g.baruCount > 0).sort((a, b) => (b.seq - a.seq) || 0);
+                const lain = list.filter(g => !(g.baruCount > 0));
+                return [...baru, ...lain];
+            }, [semuaGroups, view, fStatus, fVendor, q, fCetak]);
             const orderGroups = useMemo(() => {
                 if (view !== 'order') return [];
                 const map = new Map();
                 shownLines.forEach(l => { if (!map.has(l.orderId)) map.set(l.orderId, { order: l.order, lines: [] }); map.get(l.orderId).lines.push(l); });
                 const totalPer = new Map();
                 lines.forEach(l => { const t = totalPer.get(l.orderId) || { n: 0, done: 0 }; t.n++; if (l.done) t.done++; totalPer.set(l.orderId, t); });
-                const dl = (o) => String(o.deadline || '9999');
-                const orderList = [...map.values()].map(g => ({ ...g, total: totalPer.get(String(g.order.id)), instKey: klienNorm(g.order.client) || '-', baru: g.lines.filter(l => l.cetakState === 'baru').length }));
-                const inst = new Map();
-                orderList.forEach(g => {
-                    if (!inst.has(g.instKey)) inst.set(g.instKey, { key: g.instKey, nama: normBahanText(g.order.client) || '-', orders: [], baru: 0, bahan: 0, dl: '9999' });
-                    const x = inst.get(g.instKey);
-                    x.orders.push(g); x.baru += g.baru; x.bahan += g.lines.length; if (dl(g.order) < x.dl) x.dl = dl(g.order);
-                });
-                return [...inst.values()]
-                    .sort((a, b) => (b.baru > 0 ? 1 : 0) - (a.baru > 0 ? 1 : 0) || a.dl.localeCompare(b.dl) || a.nama.localeCompare(b.nama))
-                    .flatMap(x => x.orders.sort((a, b) => dl(a.order).localeCompare(dl(b.order)) || String(a.order.id).localeCompare(String(b.order.id))).map(g => ({ ...g, inst: x })));
+                return [...map.values()].map(g => ({ ...g, total: totalPer.get(String(g.order.id)) })).sort((a, b) => String(a.order.deadline || '9999').localeCompare(String(b.order.deadline || '9999')) || String(a.order.id).localeCompare(String(b.order.id)));
             }, [shownLines, lines, view]);
             const lineById = useMemo(() => new Map(lines.map(l => [l.id, l])), [lines]);
             // Dibagi per halaman agar ringan walau order aktif sangat banyak
-            const pageReset = `${view}|${fStatus}|${fVendor}|${q}|${fCetak}|${urut}`;
+            const pageReset = `${view}|${fStatus}|${fVendor}|${q}|${fCetak}`;
             const pgBahan = usePagination(shownGroups, 30, pageReset);
             const pgOrder = usePagination(orderGroups, 15, pageReset);
             const filteredIds = view === 'bahan' ? shownGroups.flatMap(g => g.lines.map(l => l.id)) : shownLines.map(l => l.id);
@@ -4894,41 +4880,16 @@ ${blocks}
                 <span><span className="font-bold text-gray-800">{name || '-'}</span>{code ? <span className="ml-1.5 px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[11px] font-mono">{code}</span> : null}</span>
             );
             const totalKurang = lines.filter(l => !l.done).length;
-            // ===== Tanda cetak =====
-            const JENIS_CETAK = { A: 'Surat Pesanan', B: 'Checklist' };
-            const waktuCetak = (iso, pendek) => { const d = new Date(iso); if (isNaN(d.getTime())) return ''; const tg = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }); return pendek ? tg : `${tg} ${d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`; };
-            const teksBerubah = (l) => {
-                if (l.selisihCetak != null) return `${fmtBelanjaQty(l.cetak.qty)} → ${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}`;
-                if ((l.cetak.qty == null) !== (l.need == null)) return 'jumlah berubah';
-                return `vendor ${l.cetak.vendor || '-'} → ${l.vendor || '-'}`;
-            };
-            const tandaCetakGrup = (g) => {
-                if (g.baruCount > 0) return <div><span data-belanja-tanda="baru" className="inline-block mt-1 px-1.5 py-0.5 rounded-md bg-orange-500 text-white text-[10.5px] font-black tracking-wide">{g.baruCount === g.lines.length ? '🆕 BARU' : `🆕 ${g.baruCount} order baru`}</span></div>;
-                if (g.berubahCount > 0) {
-                    const l = g.lines.find(x => x.cetakState === 'berubah');
-                    return <div><span data-belanja-tanda="berubah" className="inline-block mt-1 px-1.5 py-0.5 rounded-md bg-red-100 border border-red-300 text-red-800 text-[10.5px] font-black">{g.berubahCount === 1 ? `⚠ Berubah sejak dicetak: ${teksBerubah(l)}` : `⚠ ${g.berubahCount} order berubah sejak dicetak`}</span></div>;
-                }
-                if (g.cetakTerakhir) { const c = g.cetakTerakhir; return <div><span data-belanja-tanda="dicetak" className="inline-block mt-1 px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-600 text-[10.5px] font-bold">🖨 Dicetak {waktuCetak(c.at)} · {JENIS_CETAK[c.jenis] || 'Surat Pesanan'}{c.by ? ` · ${c.by}` : ''}</span></div>; }
-                return null;
-            };
-            const tandaCetakLine = (l) => l.cetakState === 'baru' ? <span data-belanja-tanda-order="baru" className="ml-1 px-1 rounded bg-orange-500 text-white text-[9.5px] font-black align-middle">BARU</span>
-                : l.cetakState === 'berubah' ? <span data-belanja-tanda-order="berubah" className="ml-1 px-1 rounded bg-red-100 text-red-800 text-[9.5px] font-black align-middle">⚠ {teksBerubah(l)}</span>
-                : l.cetak ? <span data-belanja-tanda-order="dicetak" className="ml-1 text-[10.5px] text-slate-500 whitespace-nowrap">🖨 {waktuCetak(l.cetak.at, true)}</span> : null;
-            const garisCetak = (st) => st === 'baru' ? 'border-l-4 border-l-orange-500' : st === 'berubah' ? 'border-l-4 border-l-red-500' : st === 'dicetak' ? 'border-l-4 border-l-slate-300' : 'border-l-4 border-l-transparent';
-            const stGrup = (g) => g.baruCount > 0 ? 'baru' : g.berubahCount > 0 ? 'berubah' : g.cetakTerakhir ? 'dicetak' : '';
-            const jumlahBagian = useMemo(() => ({ baru: shownGroups.filter(g => g.bagian === 'baru').length, cetak: shownGroups.filter(g => g.bagian !== 'baru').length }), [shownGroups]);
-            const statusOrderBelanja = (og) => {
-                if (!orderBelumDikerjakan(og.order) || !og.total) return null;
-                const sudah = og.total.done === og.total.n;
-                return <span data-belanja-order-status={sudah ? 'dibeli' : 'beli'} className="ml-2"><Badge status={sudah ? STATUS_BAHAN_DIBELI : STATUS_PEMBELIAN_BAHAN} ket={!sudah ? `${og.total.done}/${og.total.n}` : ''} /></span>;
-            };
+            // ===== Tanda BARU: bahan yang belum pernah dicetak (Surat Pesanan / Checklist) =====
+            const tandaBaru = (sebaris) => <span data-belanja-tanda="baru" className={`${sebaris ? 'ml-1.5 align-middle' : 'mt-1.5'} inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 text-white text-[10.5px] font-black tracking-wider pl-1.5 pr-2 py-0.5 shadow-sm shadow-pink-200`}><span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />BARU</span>;
+            const garisBaru = (baru) => baru ? 'shadow-[inset_4px_0_0_#f97316]' : '';
             return (
                 <div data-daftar-belanja className="space-y-4">
                     <datalist id="belanja-vendor-list">{vendorOptions.map(v => <option key={v} value={v} />)}</datalist>
                     <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                                <div className="font-black text-gray-800">🛒 Daftar Belanja <span className="text-xs font-bold text-gray-500">({totalKurang} bahan belum lengkap dari {lines.length})</span>{jumlahBaru > 0 && <button type="button" data-belanja-jumlah-baru onClick={() => setFCetak('belum')} className="ml-2 align-middle px-2.5 py-0.5 rounded-full bg-orange-500 text-white text-xs font-black">🆕 {jumlahBaru} bahan baru belum dicetak</button>}</div>
+                                <div className="font-black text-gray-800">🛒 Daftar Belanja <span className="text-xs font-bold text-gray-500">({totalKurang} bahan belum lengkap dari {lines.length})</span>{jumlahBaru > 0 && <button type="button" data-belanja-jumlah-baru onClick={() => setFCetak(f => f === 'baru' ? 'semua' : 'baru')} title="Tampilkan bahan BARU saja" className="ml-2 align-middle px-2.5 py-0.5 rounded-full bg-gradient-to-r from-orange-500 to-pink-500 text-white text-xs font-black shadow-sm">{jumlahBaru} bahan BARU belum dicetak</button>}</div>
                                 <div className="text-xs text-gray-500">Dari isian Bahan / Kain di order aktif. Status dari jumlah yang dicatat di sini lewat "Catat pembelian" (nota pembelian tidak dibaca).</div>
                             </div>
                             <button type="button" data-belanja-cetak-semua onClick={() => bukaCetak(view === 'bahan' ? shownGroups.flatMap(g => g.lines) : shownLines, 'Semua yang tampil')} className="text-sm font-bold bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg">🖨 Cetak / Kirim ke vendor</button>
@@ -4936,7 +4897,7 @@ ${blocks}
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm font-bold">
                                 <button type="button" data-belanja-view="bahan" onClick={() => setView('bahan')} className={`px-3 py-1.5 ${view === 'bahan' ? 'bg-teal-50 text-teal-800' : 'bg-white text-gray-600'}`}>Per bahan (digabung)</button>
-                                <button type="button" data-belanja-view="order" onClick={() => setView('order')} className={`px-3 py-1.5 border-l border-gray-200 ${view === 'order' ? 'bg-teal-50 text-teal-800' : 'bg-white text-gray-600'}`}>Per instansi</button>
+                                <button type="button" data-belanja-view="order" onClick={() => setView('order')} className={`px-3 py-1.5 border-l border-gray-200 ${view === 'order' ? 'bg-teal-50 text-teal-800' : 'bg-white text-gray-600'}`}>Per order</button>
                             </div>
                             <select data-belanja-fstatus value={fStatus} onChange={e => setFStatus(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm bg-white">
                                 <option value="kurang">Status: Belum lengkap</option>
@@ -4946,16 +4907,9 @@ ${blocks}
                                 <option value="selesai">Sudah dibeli</option>
                             </select>
                             <select data-belanja-fcetak value={fCetak} onChange={e => setFCetak(e.target.value)} className={`p-2 border rounded-lg text-sm bg-white ${fCetak !== 'semua' ? 'border-orange-400 text-orange-800 font-bold' : 'border-gray-300'}`}>
-                                <option value="semua">Cetak: Semua</option>
-                                <option value="belum">🆕 Belum dicetak</option>
-                                <option value="sudah">🖨 Sudah dicetak</option>
+                                <option value="semua">Tampilkan: Semua</option>
+                                <option value="baru">Tampilkan: BARU saja</option>
                             </select>
-                            {view === 'bahan' && (
-                                <select data-belanja-urut value={urut} onChange={e => setUrut(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm bg-white">
-                                    <option value="terbaru">Urutkan: Terbaru masuk</option>
-                                    <option value="az">Urutkan: Bahan A–Z</option>
-                                </select>
-                            )}
                             <select data-belanja-fvendor value={fVendor} onChange={e => setFVendor(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm bg-white max-w-[200px]">
                                 <option value="">Vendor: Semua</option>
                                 <option value="__none">Vendor belum ditentukan</option>
@@ -4987,30 +4941,26 @@ ${blocks}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {view === 'bahan' && pgBahan.paged.map((g, gi) => {
+                                    {view === 'bahan' && pgBahan.paged.map(g => {
                                         const ids = g.lines.map(l => l.id);
-                                        const pita = gi === 0 || pgBahan.paged[gi - 1].bagian !== g.bagian;
+                                        const baru = g.baruCount > 0;
                                         const on = ids.every(id => checked.has(id));
                                         // Angka x/y bila semua order punya jumlah kebutuhan; selain itu cukup jumlah order yang sudah dibeli
                                         const extra = g.need != null && g.bought > 0 ? `${fmtBelanjaQty(g.bought)}/${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : (g.status === 'sebagian' && g.lines.length > 1 ? `${g.doneCount}/${g.lines.length} order` : '');
                                         return (
-                                            <React.Fragment key={g.id}>
-                                            {pita && (g.bagian === 'baru'
-                                                ? <tr data-belanja-pita="baru"><td colSpan={7} className="px-3 py-2 bg-orange-50 border-t-2 border-orange-400 text-orange-800 text-xs font-black tracking-wide">🆕 BARU — BELUM DICETAK ({jumlahBagian.baru} bahan)</td></tr>
-                                                : <tr data-belanja-pita="cetak"><td colSpan={7} className="px-3 py-2 bg-slate-100 border-t-2 border-slate-400 text-slate-600 text-xs font-black tracking-wide">🖨 SUDAH DICETAK / TIDAK PERLU DICETAK ({jumlahBagian.cetak} bahan)</td></tr>)}
-                                            <tr data-belanja-row data-belanja-cetak-state={stGrup(g) || 'kosong'} className={`border-t border-gray-100 align-top ${on ? 'bg-teal-50/60' : ''}`}>
-                                                <td className={`p-3 ${garisCetak(stGrup(g))}`}><input type="checkbox" checked={on} onChange={e => toggleIds(ids, e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
-                                                <td className="p-3">{bahanCell(g.name, g.code)}{tandaCetakGrup(g)}</td>
+                                            <tr key={g.id} data-belanja-row data-belanja-baru={baru ? '1' : '0'} className={`border-t border-gray-100 align-top ${on ? 'bg-teal-50/60' : baru ? 'bg-orange-50/60' : ''}`}>
+                                                <td className={`p-3 ${garisBaru(baru)}`}><input type="checkbox" checked={on} onChange={e => toggleIds(ids, e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
+                                                <td className="p-3">{bahanCell(g.name, g.code)}{baru && <div>{tandaBaru()}</div>}</td>
                                                 <td className="p-3 text-gray-700">{g.color || '-'}</td>
-                                                <td className="p-3 text-right font-bold whitespace-nowrap">{g.need != null ? `${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : <span className="text-xs font-normal text-gray-400">jumlah belum diisi</span>}{stokKet(g)}{g.jumlahBaru != null && <div data-belanja-rincian-cetak className="text-[11px] font-semibold text-gray-600 mt-0.5"><b className="text-orange-700">{fmtBelanjaQty(g.jumlahBaru)}</b> 🆕 baru + <b>{fmtBelanjaQty(g.jumlahLama)}</b> 🖨 dicetak</div>}</td>
+                                                <td className="p-3 text-right font-bold whitespace-nowrap">{g.need != null ? `${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : <span className="text-xs font-normal text-gray-400">jumlah belum diisi</span>}{stokKet(g)}</td>
                                                 <td className="p-3">
                                                     {g.lines.map(l => (
                                                         <div key={l.id} className="text-xs text-gray-700 leading-5">
-                                                            <span className="font-bold text-blue-700">{l.orderId}</span> {l.order.client || ''}{l.order.type ? ` · ${l.order.type}` : ''}{l.needTotal != null ? ` — ${fmtBelanjaQty(l.needTotal)}${unitTxt(l.unit)}` : ''}{g.lines.length > 1 && tandaCetakLine(l)}
+                                                            <span className="font-bold text-blue-700">{l.orderId}</span> {l.order.client || ''}{l.order.type ? ` · ${l.order.type}` : ''}{l.needTotal != null ? ` — ${fmtBelanjaQty(l.needTotal)}${unitTxt(l.unit)}` : ''}
                                                             {l.stok > 0 && <span data-belanja-stok-pill className="ml-1 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-bold whitespace-nowrap">📦 stok {fmtBelanjaQty(l.stok)}{unitTxt(l.unit)}</span>}
-                                                            {g.lines.length > 1 && (l.done ? <span className="text-green-700 font-bold"> ✓</span>
+                                                            {g.lines.length > 1 && (l.done ? <span data-belanja-order-dibeli className="text-green-700 font-bold"> ✓ sudah dibeli</span>
                                                                 : l.bought > 0 && l.need != null ? <span className="text-amber-700 font-bold"> · {fmtBelanjaQty(l.bought)}/{fmtBelanjaQty(l.need)}, kurang {fmtBelanjaQty(l.kurang)}</span>
-                                                                : <span className="text-red-600"> · belum</span>)}
+                                                                : null)}
                                                         </div>
                                                     ))}
                                                     {tagSatuanBeda(g.key)}
@@ -5018,25 +4968,21 @@ ${blocks}
                                                 <td className="p-3"><BelanjaVendorInput value={g.vendor || ''} mixed={g.vendor == null} listId="belanja-vendor-list" onCommit={(v) => setVendor(g.lines, v)} />{catatanTxt(g.catatan)}</td>
                                                 <td className="p-3">{statusBadge(g.status, extra, g.dariStok)}{g.status === 'sebagian' && kurangLebih(g.kurang, 0, g.unit)}{g.status === 'lengkap' && g.need != null && kurangLebih(0, g.bought - g.need, g.unit)}{catatBtn(g.lines, g.done)}</td>
                                             </tr>
-                                            </React.Fragment>
                                         );
                                     })}
-                                    {view === 'order' && pgOrder.paged.map((og, oi) => (
+                                    {view === 'order' && pgOrder.paged.map(og => (
                                         <React.Fragment key={og.order.id}>
-                                            {(oi === 0 || pgOrder.paged[oi - 1].instKey !== og.instKey) && (
-                                                <tr data-belanja-instansi={og.inst.nama}><td colSpan={6} className="px-3 py-2 bg-indigo-50 border-t-2 border-indigo-200 text-indigo-900 text-sm font-black">🏫 {og.inst.nama} <span className="font-semibold text-indigo-700 text-xs">· {og.inst.orders.length} order · {og.inst.bahan} bahan</span>{og.inst.baru > 0 && <span className="ml-2 px-1.5 py-0.5 rounded bg-orange-500 text-white text-[10.5px] font-black">🆕 {og.inst.baru} baru</span>}</td></tr>
-                                            )}
                                             <tr data-belanja-order-head className="bg-gray-50 border-t border-gray-200">
                                                 <td className="p-3"><input type="checkbox" checked={og.lines.every(l => checked.has(l.id))} onChange={e => toggleIds(og.lines.map(l => l.id), e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
                                                 <td colSpan={5} className="p-3 font-black text-gray-800">
-                                                    📋 {og.order.id}{og.order.type ? ` · ${og.order.type}` : ''}{og.order.deadline ? ` · DL ${og.order.deadline}` : ''}{statusOrderBelanja(og)}
+                                                    📋 {og.order.id} · {og.order.client || '-'}{og.order.type ? ` · ${og.order.type}` : ''}{og.order.deadline ? ` · DL ${og.order.deadline}` : ''}
                                                     {og.total && <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${og.total.done === og.total.n ? 'bg-green-100 text-green-800' : og.total.done > 0 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}>{og.total.done} dari {og.total.n} bahan lengkap</span>}
                                                 </td>
                                             </tr>
                                             {og.lines.map(l => (
-                                                <tr key={l.id} data-belanja-row data-belanja-cetak-state={l.cetakState} className={`border-t border-gray-100 align-top ${checked.has(l.id) ? 'bg-teal-50/60' : ''}`}>
-                                                    <td className={`p-3 ${garisCetak(l.cetakState)}`}><input type="checkbox" checked={checked.has(l.id)} onChange={e => toggleIds([l.id], e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
-                                                    <td className="p-3">{bahanCell(l.name, l.code)}{tandaCetakLine(l)}{tagSatuanBeda(l.kunciBaku || l.key)}</td>
+                                                <tr key={l.id} data-belanja-row data-belanja-baru={l.cetakState === 'baru' ? '1' : '0'} className={`border-t border-gray-100 align-top ${checked.has(l.id) ? 'bg-teal-50/60' : l.cetakState === 'baru' ? 'bg-orange-50/60' : ''}`}>
+                                                    <td className={`p-3 ${garisBaru(l.cetakState === 'baru')}`}><input type="checkbox" checked={checked.has(l.id)} onChange={e => toggleIds([l.id], e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
+                                                    <td className="p-3">{bahanCell(l.name, l.code)}{l.cetakState === 'baru' && tandaBaru(true)}{tagSatuanBeda(l.kunciBaku || l.key)}</td>
                                                     <td className="p-3 text-gray-700">{l.color || '-'}</td>
                                                     <td className="p-3 text-right whitespace-nowrap">{l.need != null ? `${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : <span className="text-xs text-gray-400">jumlah belum diisi</span>}{stokKet(l)}</td>
                                                     <td className="p-3"><BelanjaVendorInput value={l.vendor} listId="belanja-vendor-list" onCommit={(v) => setVendor([l], v)} />{catatanTxt(l.catatan ? [l.catatan] : [])}</td>
