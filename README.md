@@ -250,6 +250,12 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   mengunduh dan langsung memperbarui datanya saat dibuka lagi. Simpan order / nota pembelian langsung dikirim (tanpa jeda).
 - **Cetak data terbaru**: sebelum mencetak SPK/Lembar Kerja, Surat Pesanan Bahan, dan Checklist Belanja, aplikasi mengecek
   `_timestamps`; bila ada data lebih baru dari perangkat lain, data dimuat dulu baru dicetak.
+- **Daftar Belanja**: isian (vendor, jumlah dibeli, catatan, tanda dicetak) disimpan per bahan per order sebagai baris kecil
+  `belanja:<isian>:<order>:<kunci>`. Semua tampilan memakai satu sinkronisasi bersama: unduhan penuh paling sering 6 jam
+  sekali, di antaranya hanya isian yang berubah. Tanda `belanja:p:` (dicetak) dipakai untuk 🆕 BARU / 🖨 Dicetak / ⚠ Berubah
+  dan mencegah dobel pesan saat mencetak.
+- **Status bahan order** ("Pembelian Bahan" / "Bahan Sudah Dibeli") hanya tampilan, dihitung dari Daftar Belanja selama
+  produksi belum mulai; status di data order tidak diubah. Link customer membaca isian Daftar Belanja order instansi itu saja.
 - **Samakan nama bahan**: aturan nama baku (Admin, di Database Bahan) disimpan di `masterBahan` sebagai catatan
   `jenis: 'aliasNama'` (dan `aliasAbaikan` untuk "bukan bahan sama"). Data order, nota & stok asli tidak diubah; aturan
   dipakai saat menghitung stok, rekomendasi bahan, dan Daftar Belanja, dan bisa dibatalkan.
