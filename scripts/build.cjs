@@ -85,7 +85,15 @@ const sbKey = (source.match(/const SUPABASE_ANON_KEY = '([^']+)'/) || [])[1];
 if (!sbUrl || !sbKey) fail('SUPABASE_URL / SUPABASE_ANON_KEY tidak ditemukan di src/app.jsx');
 if (template.split("'__SB_URL__'").length !== 2 || template.split("'__SB_KEY__'").length !== 2) fail("template harus berisi tepat satu '__SB_URL__' dan '__SB_KEY__'");
 const templateSb = template.replace("'__SB_URL__'", () => JSON.stringify(sbUrl).replace(/"/g, "'")).replace("'__SB_KEY__'", () => JSON.stringify(sbKey).replace(/"/g, "'"));
-const out = templateSb.replace(PLACEHOLDER, () => `<script>\n${code}\n</script>`).replace(TW_PLACEHOLDER, () => twCss);
+// Ikon tab & layar HP (logo Simpati): gambar di src/ disematkan sebagai data URI
+const ikon = { __IKON_16__: ['ikon-16.png', 'image/png'], __IKON_32__: ['ikon-32.png', 'image/png'], __IKON_192__: ['ikon-192.jpg', 'image/jpeg'] };
+let templateIkon = templateSb;
+for (const [ph, [file, mime]] of Object.entries(ikon)) {
+    if (!templateIkon.includes(ph)) fail(`template harus berisi ${ph}`);
+    const buf = fs.readFileSync(path.join(root, 'src', file));
+    templateIkon = templateIkon.split(ph).join(`data:${mime};base64,${buf.toString('base64')}`);
+}
+const out = templateIkon.replace(PLACEHOLDER, () => `<script>\n${code}\n</script>`).replace(TW_PLACEHOLDER, () => twCss);
 fs.writeFileSync(path.join(root, 'index.html'), out);
 console.log(`index.html dibuat: ${(out.length / 1048576).toFixed(2)} MB (kode sumber ${(source.length / 1048576).toFixed(2)} MB, CSS Tailwind ${(twCss.length / 1024).toFixed(0)} KB)`);
 })().catch(e => fail(e && e.stack || String(e)));
