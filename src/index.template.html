@@ -11,6 +11,31 @@
     <!-- Sambungan ke server dibuka lebih awal (sambil halaman diunduh) -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="preconnect" href="https://rnmbsjntfdamuhkejpxx.supabase.co" crossorigin>
+    <!-- Link slip gaji (karyawan & driver): data rekap & pengaturan mulai diunduh sejak awal, bersamaan dengan aplikasi,
+         agar halaman lebih cepat tampil di HP. Aplikasi memakai hasil ini bila cocok; bila gagal, aplikasi mengunduh sendiri seperti biasa.
+         Alamat & kunci publik Supabase diisi otomatis saat build dari src/app.jsx. -->
+    <script>
+    (function () {
+        try {
+            var h = location.hash || '', U = '__SB_URL__', K = '__SB_KEY__', koleksi = '', id = '';
+            if (h.indexOf('#rekap-gaji=') === 0) { koleksi = 'rekapKinerja'; id = h.slice(12); }
+            else if (h.indexOf('#driver-rekap-gaji=') === 0) { koleksi = 'driverRekapGaji'; id = h.slice(19); }
+            if (!koleksi || !window.fetch || !window.Promise) return;
+            id = decodeURIComponent(id);
+            if (!id) return;
+            var hd = { apikey: K, Authorization: 'Bearer ' + K, 'Content-Type': 'application/json' };
+            var json = function (r) { return r.ok ? r.json() : null; };
+            // Fungsi share belum dipasang di Supabase: beri tahu aplikasi agar langsung memakai cara lama (tanpa mencoba lagi)
+            var jsonRpc = function (r) { return r.ok ? r.json() : (r.status === 404 ? 'RPC_TIDAK_ADA' : null); };
+            var kosong = function () { return null; };
+            var kolom = ['companyLogoMini', 'companyName', 'companySubtitle', 'companyContact', 'companyAddress', 'showSignatureOnPrint', 'signatureSize', 'printMode', 'logoSize'];
+            window.__shareAwal = {
+                cocok: { kunci: koleksi + '|id|' + id, p: fetch(U + '/rest/v1/rpc/share_cocok', { method: 'POST', headers: hd, body: JSON.stringify({ koleksi: koleksi, kolom: 'id', nilai: id }) }).then(jsonRpc).catch(kosong) },
+                tpl: { kunci: 'templates', kolom: kolom, p: fetch(U + '/rest/v1/app_data?id=eq.templates&select=' + kolom.map(function (k) { return k + ':data->' + k; }).join(','), { headers: hd }).then(json).then(function (d) { return Array.isArray(d) && d[0] ? d[0] : null; }).catch(kosong) }
+            };
+        } catch (e) {}
+    })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Font Inter dimuat tanpa menahan tampilan (sementara memakai font bawaan) -->

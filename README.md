@@ -264,6 +264,12 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
 - **Arsip order lama**: order Riwayat yang tidak berubah lebih dari 3 bulan (bisa diubah di Pengaturan) dipindah otomatis
   oleh perangkat Admin ke baris `ordersArsip:<tahun>`, dicatat di `ordersArsipIndex`, dengan cadangan terakhir di
   `ordersCadangan`. Semua menu tetap menampilkan order arsip. **Jangan menghapus baris-baris ini di Supabase.**
+- **Link slip gaji (karyawan & driver)**: tampilan kartu berwarna dengan urutan sama seperti nota, status bayar
+  (Belum dibayar / Dibayar sebagian / Lunas) dan satu tombol **Simpan PDF**. PDF berisi nota struk yang sama dengan cetakan
+  admin (fungsi `htmlSlipGajiKaryawan` / `htmlStrukRekapGaji`), dibuat di HP dengan jsPDF + html2canvas yang baru diunduh
+  saat tombol ditekan. Skrip kecil di `<head>` (src/index.template.html) mulai mengambil data rekap & pengaturan sejak
+  halaman dibuka; alamat & kunci publik Supabase diisi otomatis saat build. Salinan kecil link terakhir (maks. 6, 30 hari)
+  disimpan di HP agar dibuka ulang langsung tampil, lalu diperbarui dari server.
 - **Offline**: Aplikasi tetap bisa digunakan saat offline; data tersimpan di perangkat (IndexedDB) dan sync saat kembali online
 - **Print**: Fitur cetak menggunakan `window.open()` — pastikan browser mengizinkan pop-up dari domain Netlify Anda
 - **Browser**: Chrome/Edge 90+, Firefox 88+, Safari 14+. Tidak mendukung Internet Explorer

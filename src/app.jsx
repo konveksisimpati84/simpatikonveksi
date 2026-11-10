@@ -289,6 +289,7 @@
             document.head.appendChild(el);
         };
         const loadJsPdf = () => window.jspdf ? Promise.resolve() : loadScriptOnce('jspdf', ['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js']);
+        const loadHtml2Canvas = () => window.html2canvas ? Promise.resolve() : loadScriptOnce('html2canvas', ['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js']);
         const loadChartJs = () => window.Chart ? Promise.resolve() : loadScriptOnce('chartjs', ['https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js', 'https://unpkg.com/chart.js@4.4.0/dist/chart.umd.min.js']);
         const loadFontAwesome = () => loadCssOnce('fontawesome', 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
 
@@ -1342,6 +1343,38 @@
                 return Array.isArray(data) ? data : null;
             } catch (e) { return null; }
         };
+        // Data link share yang sudah mulai diunduh sejak halaman dibuka (skrip kecil di index.template.html), dipakai sekali.
+        // Bila tidak ada / gagal, aplikasi mengunduh sendiri seperti biasa.
+        const ambilAwalShare = (jenis, kunci, kolom = null) => {
+            const a = window.__shareAwal;
+            const x = a && a[jenis];
+            if (!x || x.kunci !== kunci || !x.p) return null;
+            if (kolom && !kolom.every(k => safeArray(x.kolom).includes(k))) return null;
+            delete a[jenis];
+            return x.p;
+        };
+        // Unduhan awal yang tidak selesai dalam 12 detik diabaikan (aplikasi mengunduh sendiri)
+        const batasWaktuAwal = (p) => Promise.race([Promise.resolve(p).catch(() => null), new Promise(r => setTimeout(() => r(null), 12000))]);
+        // Salinan kecil data link share di HP: dibuka ulang langsung tampil, lalu diperbarui dari server. Maks. 6 link, 30 hari.
+        const CACHE_SHARE_IDX = 'simpati_share_cache_idx';
+        const bacaCacheShare = (key) => {
+            try {
+                const v = JSON.parse(localStorage.getItem(key) || 'null');
+                if (!v || !v.at || Date.now() - v.at > 30 * 864e5) return null;
+                return v.isi || null;
+            } catch (e) { return null; }
+        };
+        const simpanCacheShare = (key, isi) => {
+            try {
+                let idx = [];
+                try { idx = JSON.parse(localStorage.getItem(CACHE_SHARE_IDX) || '[]'); } catch (e) {}
+                idx = [key, ...safeArray(idx).filter(k => k !== key)];
+                idx.slice(6).forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+                localStorage.setItem(key, JSON.stringify({ at: Date.now(), isi }));
+                localStorage.setItem(CACHE_SHARE_IDX, JSON.stringify(idx.slice(0, 6)));
+            } catch (e) {}
+        };
+        const hapusCacheShare = (key) => { try { localStorage.removeItem(key); } catch (e) {} };
         const ambilDaftarPenuhShare = async (koleksi) => {
             const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', koleksi).maybeSingle();
             if (error) throw error;
@@ -1349,6 +1382,12 @@
         };
         // Isi daftar `koleksi` yang kolom-nya bernilai `nilai` (yang terhapus ikut; penyaringan lain tetap di tampilan)
         const ambilShareCocok = async (koleksi, kolom, nilai) => {
+            const awal = ambilAwalShare('cocok', `${koleksi}|${kolom}|${nilai}`);
+            if (awal) {
+                const ra = await batasWaktuAwal(awal);
+                if (Array.isArray(ra)) return ra;
+                if (ra === 'RPC_TIDAK_ADA') shareRpcBelumAda = true;
+            }
             const r = await shareRpc('share_cocok', { koleksi, kolom, nilai: String(nilai) });
             if (r) return r;
             return (await ambilDaftarPenuhShare(koleksi)).filter(x => x && String(x[kolom]) === String(nilai));
@@ -1369,8 +1408,17 @@
         const ambilPengaturanShare = async (kolom) => {
             const pilih = [...new Set(['companyLogoMini', ...kolom])];
             const sel = (ks) => ks.map(k => `${k}:data->${k}`).join(',');
-            const { data, error } = await supabaseClient.from('app_data').select(sel(pilih)).eq('id', 'templates').maybeSingle();
-            if (error) throw error;
+            let data = null;
+            const awal = ambilAwalShare('tpl', 'templates', pilih);
+            if (awal) {
+                const ra = await batasWaktuAwal(awal);
+                if (ra && typeof ra === 'object' && pilih.every(k => Object.prototype.hasOwnProperty.call(ra, k))) data = ra;
+            }
+            if (!data) {
+                const res = await supabaseClient.from('app_data').select(sel(pilih)).eq('id', 'templates').maybeSingle();
+                if (res.error) throw res.error;
+                data = res.data;
+            }
             const out = {};
             pilih.forEach(k => { if (data && data[k] !== null && data[k] !== undefined) out[k] = data[k]; });
             if (!out.companyLogoMini && !kolom.includes('companyLogo')) {
@@ -19596,193 +19644,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
 
             const triggerPrint = (data) => {
-                const formatReceiptMoney = (num) => formatRupiah(num || 0).replace(/\s/g, '');
-                const allInvoicesForPrint = safeInvoicesForReport;
-                const relatedInvoices = allInvoicesForPrint.filter(inv => (data.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
-
-                const dailyLogs = Array.isArray(data.dailySalaryLogs) ? data.dailySalaryLogs : [];
-                const dailyOnlyLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
-                const overtimeLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
-                const sectionRows = (title, rows, emptyText = 'Tidak ada data.') => `
-                    <div class="section-title">${title}</div>
-                    <div class="section-list">
-                        ${rows.length ? rows.join('') : `<div class="item-row muted"><span>${emptyText}</span><span>-</span></div>`}
-                    </div>
-                `;
-                const marketingRows = relatedInvoices.map(inv => {
-                    const storedAmt = data.marketingInvoiceAmounts?.[String(inv.id)];
-                    const commAmt = storedAmt != null ? storedAmt : getInvoiceCommissionTotal(inv);
-                    return `
-                    <div class="item-row${inv.isDeleted ? ' muted' : ''}">
-                        <span><b>${inv.id || '-'}${inv.isDeleted ? ' (dihapus)' : ''}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small></span>
-                        <span>${formatReceiptMoney(commAmt)}</span>
-                    </div>
-                `});
-                // Penyesuaian komisi yang diterapkan setelah rekap dibuat
-                getRekapKomisiPenyesuaian(data).forEach(p => safeArray(p.items).forEach(it => {
-                    const v = Math.round(safeMoney(it.selisih));
-                    const tglP = String(p.date || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1');
-                    marketingRows.push(`
-                    <div class="item-row" style="background:${v > 0 ? '#f0fdf4' : '#f5f3ff'}">
-                        <span><b>Penyesuaian komisi</b><small>${it.invId || 'total'}${it.dihapus ? ' (dihapus)' : ''} · ${tglP}</small></span>
-                        <span>${v > 0 ? '+' : '-'}${formatReceiptMoney(Math.abs(v))}</span>
-                    </div>`);
-                }));
-                const productionRows = (data.items || []).map(item => `
-                    <div class="item-row">
-                        <span><b>${item.orderId || '-'} - ${item.stageLabel || item.stage || '-'}</b><small>${item.client ? `${item.client} &middot; ` : ''}${item.type || '-'} | ${item.qty || 0} x ${formatReceiptMoney(item.unitPrice || 0)}</small></span>
-                        <span>${formatReceiptMoney(item.wageTotal || 0)}</span>
-                    </div>
-                `);
-                const susunanHarian = susunGajiHarianNota(dailyLogs);
-                const escNota = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-                const uangBertanda = (n) => `${n > 0 ? '+' : '−'}${formatReceiptMoney(Math.abs(n))}`;
-                const dailyRows = [
-                    ...susunanHarian.grup.map(g => `
-                    <div class="item-row" style="border-left:2px solid #86efac;padding-left:6px;background:#f0fdf4">
-                        <span>
-                            <b>Gaji Harian (${g.hari} hari)</b>
-                            <small style="color:#555">${g.hari} hari × ${formatReceiptMoney(g.rate)}/hari</small>
-                            ${g.barisTanggal.map((line, i) => `<small style="color:#374151">${i === 0 ? 'Tgl: ' : '       '}${line}</small>`).join('')}
-                        </span>
-                        <span>${formatReceiptMoney(g.total)}</span>
-                    </div>`),
-                    ...susunanHarian.khusus.map(k => {
-                        const alasan = k.selisih === 0 ? '' : (k.rincian.length > 0
-                            ? k.rincian.map(d => `<small style="color:${d.amount > 0 ? '#15803d' : '#dc2626'}">${k.rincian.length > 1 && d.date ? `${escNota(d.date)} ` : ''}${escNota(d.text)}: ${uangBertanda(d.amount)}</small>`).join('')
-                            : `<small style="color:${k.selisih > 0 ? '#15803d' : '#dc2626'}">Penyesuaian jam kerja: ${uangBertanda(k.selisih)}</small>`);
-                        const nilai = k.selisih === 0 ? formatReceiptMoney(k.daily)
-                            : `<s style="color:#9ca3af;font-weight:normal;font-size:10px">${formatReceiptMoney(k.base)}</s><br>${formatReceiptMoney(k.daily)}`;
-                        return `
-                        <div class="item-row" style="border-left:2px solid #fcd34d;padding-left:6px;background:#fffbeb">
-                            <span><b>${escNota(k.date)}</b><small>${k.note ? `${escNota(k.note)} · ` : ''}${k.hari} hari × ${formatReceiptMoney(k.rate)}</small>${alasan}</span>
-                            <span>${nilai}</span>
-                        </div>`;
-                    }),
-                    ...((susunanHarian.jumlahBaris > 1 || susunanHarian.potonganJam !== 0 || susunanHarian.tambahanJam !== 0) ? [`
-                    <div class="item-row" style="background:#f1f5f9;padding:5px 6px">
-                        <span><b>Total Gaji Harian (${susunanHarian.totalHari} hari)</b>${susunanHarian.potonganJam !== 0 ? `<small>termasuk potongan jam ${uangBertanda(susunanHarian.potonganJam)}</small>` : ''}${susunanHarian.tambahanJam !== 0 ? `<small>termasuk tambahan jam ${uangBertanda(susunanHarian.tambahanJam)}</small>` : ''}</span>
-                        <span>${formatReceiptMoney(susunanHarian.total)}</span>
-                    </div>`] : [])
-                ];
-                const overtimeRows = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => `
-                    <div class="item-row">
-                        <span><b>${log.date || '-'}</b><small>${log.note || 'Lembur'} | ${log.overtimeCount || 0} jam</small></span>
-                        <span>${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</span>
-                    </div>
-                `);
-                const printContent = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>SG - ${data.empName}</title>
-                    <style>
-                        @page { size: 80mm auto; margin: 4mm; }
-                        html, body { width: 72mm; }
-                        body { font-family: Arial, sans-serif; color: #000; line-height: 1.28; margin: 0 auto; padding: 0; font-size: 11.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                        .receipt { width: 72mm; margin: 0 auto; box-sizing: border-box; }
-                        .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 7px; margin-bottom: 7px; }
-                        .header-logo { max-height: 38px; max-width: 64px; object-fit: contain; margin-bottom: 3px; }
-                        .header h1 { margin: 0; font-size: 14px; text-transform: uppercase; color: #000; line-height: 1.15; }
-                        .header p { margin: 2px 0 0 0; font-size: 10.5px; }
-                        .meta { border-bottom: 1px dashed #000; padding-bottom: 7px; margin-bottom: 7px; }
-                        .meta-row { display: flex; justify-content: space-between; gap: 6px; margin: 2px 0; }
-                        .meta-label { color: #444; white-space: nowrap; }
-                        .meta-value { font-weight: bold; text-align: right; }
-                        .text-center { text-align: center; }
-                        .text-right { text-align: right; }
-                        .font-bold { font-weight: bold; }
-                        .muted { color: #555; font-size: 8.6px; line-height: 1.15; }
-                        .section-title { margin-top: 8px; padding: 4px 0 3px; border-top: 1px dashed #000; border-bottom: 1px dashed #bbb; font-size: 10px; font-weight: 900; text-transform: uppercase; }
-                        .section-list { margin-bottom: 2px; }
-                        .item-row { display: flex; justify-content: space-between; gap: 6px; padding: 4px 0; border-bottom: 1px dashed #ddd; }
-                        .item-row span:first-child { max-width: 44mm; overflow-wrap: anywhere; }
-                        .item-row span:last-child { text-align: right; font-weight: bold; white-space: nowrap; }
-                        .item-row small { display: block; color: #555; font-size: 8.6px; font-weight: normal; margin-top: 1px; }
-                        .total-box { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 7px 0; margin-top: 6px; }
-                        .total-row { display: flex; justify-content: space-between; gap: 6px; margin: 3px 0; }
-                        .grand-total { font-size: 13px; font-weight: 900; }
-                        .signature { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; text-align: center; font-size: 9px; align-items: stretch; }
-                        .sig-box { display: flex; flex-direction: column; align-items: center; min-height: 70px; }
-                        .sig-img { max-height: 48px; max-width: 90px; object-fit: contain; display: block; margin: 6px auto 0; }
-                        .signature-line { margin-top: auto; border-top: 1px solid #000; padding-top: 3px; width: 100%; }
-                        .footer-note { text-align: center; font-size: 9px; margin-top: 9px; color: #444; }
-                        .bonus-box { margin: 9px 0 4px; border: 2px solid #000; border-radius: 6px; overflow: hidden; text-align: center; page-break-inside: avoid; }
-                        .bonus-box .bonus-head { background: #000; color: #fff; font-size: 11px; font-weight: 900; letter-spacing: 2px; padding: 4px 0; }
-                        .bonus-box .bonus-amount { font-size: 20px; font-weight: 900; padding: 6px 0 1px; }
-                        .bonus-box .bonus-note { font-size: 10px; padding: 0 4px 3px; overflow-wrap: anywhere; }
-                        .bonus-box .bonus-thanks { font-size: 9.5px; border-top: 1px dashed #000; padding: 4px 4px 5px; font-style: italic; }
-                        .total-sub { font-size: 9px; color: #444; margin: -2px 0 3px; }
-                        @media screen {
-                            body { background: #f3f4f6; padding: 12px 0; }
-                            .receipt { background: #fff; padding: 4mm; box-shadow: 0 10px 30px rgba(0,0,0,0.12); }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="receipt">
-                        <div class="header">
-                            ${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo" />` : ''}
-                            <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
-                            <p>SLIP GAJI KARYAWAN</p>
-                        </div>
-
-                        <div class="meta">
-                            <div class="meta-row"><span class="meta-label">Nama</span><span class="meta-value">${data.empName}</span></div>
-                            <div class="meta-row"><span class="meta-label">Jabatan</span><span class="meta-value">${data.division}</span></div>
-                            <div class="meta-row"><span class="meta-label">Tanggal Cetak</span><span class="meta-value">${data.dateProcessed}</span></div>
-                            <div class="meta-row"><span class="meta-label">ID Rekap</span><span class="meta-value">${data.id}</span></div>
-                        </div>
-
-                        ${marketingRows.length > 0 ? sectionRows('Komisi Marketing', marketingRows) : ''}
-                        ${productionRows.length > 0 ? sectionRows('Gaji Produksi', productionRows) : ''}
-                        ${dailyRows.length > 0 ? sectionRows('Gaji Harian', dailyRows) : ''}
-                        ${overtimeRows.length > 0 ? sectionRows('Lembur', overtimeRows) : ''}
-                        ${safeMoney(data.bonusSalary) > 0 ? `<div class="bonus-box"><div class="bonus-head">★ APRESIASI KINERJA ★</div><div class="bonus-amount">${formatReceiptMoney(data.bonusSalary || 0)}</div>${data.bonusNote ? `<div class="bonus-note">${String(data.bonusNote).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))}</div>` : ''}<div class="bonus-thanks">Terima kasih atas dedikasi dan kerja kerasnya. Terus semangat memberikan yang terbaik!</div></div>` : ''}
-                        ${safeMoney(data.bagiHasilDireksiAmount) > 0 ? sectionRows('Bagi Hasil Direksi', [`<div class="item-row"><span><b>Periode ${data.bagiHasilDireksiMonth || '-'}</b></span><span style="color:#b45309;font-weight:700">${formatReceiptMoney(data.bagiHasilDireksiAmount || 0)}</span></div>`]) : ''}
-                        ${safeMoney(data.cashAdvanceDeduction) > 0 ? sectionRows('Potongan - Kasbon', [`<div class="item-row"><span><b>Bayar kasbon sekarang</b><small>Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</small></span><span>${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>`]) : ''}
-
-                        <div class="total-box">
-                            <div class="total-row"><span>Total Pendapatan</span><span class="font-bold">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
-                            ${safeMoney(data.bonusSalary) > 0 ? `<div class="total-sub">★ termasuk apresiasi kinerja ${formatReceiptMoney(data.bonusSalary || 0)}</div>` : ''}
-                            ${susunanHarian.potonganJam !== 0 ? `<div class="total-sub" style="display:flex;justify-content:space-between"><span>· potongan jam sudah dikurangkan</span><span>${uangBertanda(susunanHarian.potonganJam)}</span></div>` : ''}
-                            <div class="total-row"><span>Potongan Kasbon</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
-                            <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction)))}</span></div>
-                        </div>
-                        ${(() => {
-                            const payments = Array.isArray(data.payments) ? data.payments.filter(p => safeMoney(p.amount) > 0) : [];
-                            if (payments.length === 0) return '';
-                            const net = data.netSalary != null ? safeMoney(data.netSalary) : Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction));
-                            const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
-                            // Kelebihan bayar yang dijadikan kasbon tidak dihitung sebagai pembayaran gaji
-                            const dikasbon = getRekapKasbonLebihBayar(data, employees).reduce((t, k) => t + getCashAdvanceAmount(k), 0);
-                            const efektif = totalPaid - dikasbon;
-                            const sisa = Math.max(0, Math.round(net - efektif));
-                            const lebih = Math.max(0, Math.round(efektif - net));
-                            const rows = payments.map((p, i) => `<div class="item-row"><span><b>Termin ${i+1}</b><small>${p.date || '-'} · ${p.method || 'Transfer'}${p.note ? ' · ' + p.note : ''}</small></span><span style="color:#15803d">${formatReceiptMoney(p.amount)}</span></div>`).join('');
-                            const barisKasbon = dikasbon > 0 ? `<div class="total-row"><span>Dijadikan kasbon (lebih bayar komisi)</span><span>-${formatReceiptMoney(dikasbon)}</span></div>` : '';
-                            const barisAkhir = lebih > 1
-                                ? `<div class="total-row" style="font-weight:900"><span>Lebih Bayar</span><span style="color:#6d28d9">${formatReceiptMoney(lebih)}</span></div>`
-                                : `<div class="total-row" style="font-weight:900"><span>Sisa Belum Dibayar</span><span style="color:${sisa > 0 ? '#dc2626' : '#15803d'}">${formatReceiptMoney(sisa)}${sisa === 0 ? ' ✓' : ''}</span></div>`;
-                            return `${sectionRows('Riwayat Pembayaran', [rows + `<div class="total-row" style="font-weight:900;margin-top:3px"><span>Sudah Dibayar</span><span style="color:#15803d">${formatReceiptMoney(totalPaid)}</span></div>` + barisKasbon + barisAkhir])}`;
-                        })()}
-
-                        <div class="signature">
-                            <div class="sig-box">
-                                <div>Penerima</div>
-                                <div class="signature-line">${data.empName || ''}</div>
-                            </div>
-                            <div class="sig-box">
-                                <div>Hormat Kami,</div>
-                                ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sig-img" src="${templates.signatureImage}" style="transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
-                                <div class="signature-line">${(templates?.companyName || 'Simpati Konveksi')}</div>
-                            </div>
-                        </div>
-                        <div class="footer-note">Simpan struk ini sebagai bukti rekap gaji karyawan.</div>
-                    </div>
-                </body>
-                </html>
-                `;
+                const printContent = htmlSlipGajiKaryawan({ data, templates, invoices: safeInvoicesForReport, dikasbonLebih: getRekapKasbonLebihBayar(data, employees).reduce((t, k) => t + getCashAdvanceAmount(k), 0) });
 
                 let printWindow = window.open('', '_blank');
                 if (printWindow) {
@@ -24492,24 +24354,108 @@ ${getRekapShareLink(rekap)}
             );
         };
 
+        // Tampilan link slip gaji karyawan: kartu berwarna dengan urutan sama seperti nota. "Simpan PDF" menghasilkan nota yang sama
+        // dengan cetakan admin (htmlSlipGajiKaryawan). Gaya khusus disimpan di sini (bukan kelas Tailwind) agar rapi & mudah diubah.
+        const SLIP_VIEW_CSS = `
+            .slipv{min-height:100vh;min-height:100dvh;background:#eef2f7;color:#0f172a;line-height:1.42;padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
+            .slipv *{box-sizing:border-box}
+            .slipv .wrapv{max-width:480px;margin:0 auto}
+            .slipv .num{font-variant-numeric:tabular-nums}
+            .slipv .head{padding:16px 16px 66px;color:#fff;background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 55%,#2563eb 100%);position:relative;overflow:hidden}
+            .slipv .head:after{content:"";position:absolute;right:-50px;top:-50px;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.07);pointer-events:none}
+            .slipv .co2{display:flex;align-items:center;justify-content:space-between;gap:8px;position:relative;z-index:1}
+            .slipv .co2 .jd{font-size:12px;font-weight:800;opacity:.85;letter-spacing:.02em;text-align:right}
+            .slipv .lgo{height:36px;max-width:150px;padding:3px 8px;border-radius:9px;background:#fff;display:inline-flex;align-items:center;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+            .slipv .lgo img{max-height:30px;max-width:134px;object-fit:contain;display:block}
+            .slipv .lgo b{font-size:12px;font-weight:900;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            .slipv .nm{font-size:23px;font-weight:900;margin-top:12px;position:relative;z-index:1;overflow-wrap:anywhere}
+            .slipv .pr{font-size:13.5px;opacity:.88;position:relative;z-index:1}
+            .slipv .idr{font-size:11.5px;opacity:.7;margin-top:4px;position:relative;z-index:1;overflow-wrap:anywhere}
+            .slipv .main{margin:-50px 12px 0;background:#fff;border-radius:22px;padding:15px;box-shadow:0 10px 24px rgba(15,23,42,.12);position:relative}
+            .slipv .main .k{font-size:13px;font-weight:800;color:#64748b;letter-spacing:.04em}
+            .slipv .main .v{font-size:33px;font-weight:900;letter-spacing:-1px;margin-top:1px;overflow-wrap:anywhere}
+            .slipv .st{display:flex;align-items:center;gap:10px;border-radius:14px;padding:10px 12px;margin-top:10px}
+            .slipv .st .ic{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:900;flex:none}
+            .slipv .st b{display:block;font-size:15.5px}.slipv .st span{font-size:13px}
+            .slipv .s-belum{background:#fff7ed;border:1.5px solid #fdba74;color:#9a3412}.slipv .s-belum .ic{background:#f97316;color:#fff}
+            .slipv .s-sebagian{background:#eff6ff;border:1.5px solid #93c5fd;color:#1e40af}.slipv .s-sebagian .ic{background:#2563eb;color:#fff}
+            .slipv .s-lunas{background:#f0fdf4;border:1.5px solid #86efac;color:#166534}.slipv .s-lunas .ic{background:#16a34a;color:#fff}
+            .slipv .s-lebih{background:#f5f3ff;border:1.5px solid #c4b5fd;color:#5b21b6}.slipv .s-lebih .ic{background:#7c3aed;color:#fff}
+            .slipv .prog{height:9px;border-radius:99px;background:#dbeafe;margin-top:8px;overflow:hidden}
+            .slipv .prog i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#2563eb,#38bdf8)}
+            .slipv .info{margin:12px 12px 0;border-radius:16px;padding:11px 13px;font-size:13.5px;display:flex;gap:9px;align-items:flex-start}
+            .slipv .info .e{font-size:18px;line-height:1.2}
+            .slipv .i-belum{background:#fff7ed;color:#7c2d12;border:1px dashed #fb923c}
+            .slipv .i-seb{background:#eff6ff;color:#1e3a8a;border:1px dashed #60a5fa}
+            .slipv .card{margin:12px 12px 0;background:#fff;border-radius:20px;padding:13px 14px;box-shadow:0 2px 8px rgba(15,23,42,.06)}
+            .slipv .card .h{font-size:15.5px;font-weight:900;margin-bottom:6px}
+            .slipv .ln{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #f1f5f9}
+            .slipv .ln.awal{border-top:0}
+            .slipv .ln .sg{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+            .slipv .ln .tx{flex:1;min-width:0}.slipv .ln .tx b{display:block;font-size:14.5px}.slipv .ln .tx span{font-size:12px;color:#64748b}
+            .slipv .ln .u{font-size:15px;font-weight:900;white-space:nowrap}
+            .slipv .cP .sg{background:#dbeafe}.slipv .cH .sg{background:#dcfce7}.slipv .cL .sg{background:#ffedd5}.slipv .cK .sg{background:#ede9fe}.slipv .cA .sg{background:#fef3c7}.slipv .cM .sg{background:#fee2e2}.slipv .cB .sg{background:#fef9c3}
+            .slipv .cM .u{color:#b91c1c}.slipv .cA .u{color:#b45309}.slipv .cB .u{color:#a16207}
+            .slipv .tot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;padding:11px 12px;border-radius:14px;background:linear-gradient(90deg,#0f172a,#1e3a8a);color:#fff;font-size:15px;font-weight:900}
+            .slipv .tot b{font-size:18px;white-space:nowrap}
+            .slipv .sub{margin-top:6px;font-size:12px;color:#64748b;display:flex;justify-content:space-between;gap:8px}
+            .slipv .det{margin:12px 12px 0;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.06)}
+            .slipv .det .dh{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 14px;font-weight:900;font-size:14.5px;color:#fff}
+            .slipv .det .dh span{font-size:12.5px;font-weight:800;opacity:.95;white-space:nowrap}
+            .slipv .dP .dh{background:linear-gradient(90deg,#1d4ed8,#3b82f6)}.slipv .dH .dh{background:linear-gradient(90deg,#15803d,#22c55e)}.slipv .dL .dh{background:linear-gradient(90deg,#c2410c,#f97316)}
+            .slipv .dK .dh{background:linear-gradient(90deg,#6d28d9,#8b5cf6)}.slipv .dM .dh{background:linear-gradient(90deg,#b91c1c,#ef4444)}.slipv .dB .dh{background:linear-gradient(90deg,#0f766e,#14b8a6)}.slipv .dD .dh{background:linear-gradient(90deg,#a16207,#eab308)}
+            .slipv .det .bd{padding:4px 14px 10px}
+            .slipv .dl{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px dashed #e2e8f0;font-size:13.5px}
+            .slipv .dl.awal{border-top:0}
+            .slipv .dl>div{min-width:0;overflow-wrap:anywhere}
+            .slipv .dl small{display:block;font-size:12px;color:#64748b}
+            .slipv .dl>b{white-space:nowrap}
+            .slipv .red{color:#b91c1c}.slipv .grn{color:#15803d}.slipv .ung{color:#6d28d9}
+            .slipv .tg{display:inline-block;font-size:10.5px;font-weight:900;border-radius:5px;padding:0 5px;margin-left:4px;vertical-align:1px}
+            .slipv .tgL{background:#dcfce7;color:#166534}.slipv .tgT{background:#fef3c7;color:#92400e}.slipv .tgB{background:#fee2e2;color:#991b1b}.slipv .tgJ{background:#ede9fe;color:#5b21b6}
+            .slipv .days{display:flex;flex-wrap:wrap;gap:5px;padding:6px 0 4px}
+            .slipv .days span{font-size:12px;font-weight:800;border-radius:8px;padding:3px 8px;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+            .slipv .days span.k{background:#fef2f2;color:#991b1b;border-color:#fecaca}.slipv .days span.l{background:#ecfdf5;color:#065f46;border-color:#34d399}
+            @keyframes slipKilau{0%{background-position:-200% 0}100%{background-position:200% 0}}
+            @keyframes slipMuncul{0%{transform:scale(.6);opacity:0}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+            @keyframes slipKerlip{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+            .aprK{border-radius:18px;overflow:hidden;box-shadow:0 6px 18px rgba(217,119,6,.28);border:2px solid #f59e0b;background:#fffbeb;position:relative;color:#0f172a}
+            .slipv .aprK{margin:12px 12px 0}
+            .aprK .hd{background:linear-gradient(90deg,#b45309,#f59e0b,#fde68a,#f59e0b,#b45309);background-size:200% 100%;animation:slipKilau 4s linear infinite;color:#fff;text-align:center;font-weight:900;letter-spacing:.22em;font-size:12px;padding:7px;text-shadow:0 1px 2px rgba(0,0,0,.25)}
+            .aprK .bd{padding:12px 14px;text-align:center}
+            .aprK .tr{font-size:40px;line-height:1;animation:slipMuncul .9s ease-out both}
+            .aprK .amt{font-size:30px;font-weight:900;color:#b45309;margin-top:6px;letter-spacing:-.5px}
+            .aprK .why{display:inline-block;margin-top:6px;background:#fff;border:1.5px solid #fcd34d;color:#78350f;border-radius:99px;padding:4px 14px;font-size:13px;font-weight:800;max-width:100%;overflow-wrap:anywhere}
+            .aprK .msg{font-size:13px;color:#92400e;font-style:italic;border-top:1px dashed #fbbf24;margin-top:10px;padding-top:8px}
+            .aprK .stars{position:absolute;top:40px;left:0;right:0;display:flex;justify-content:space-between;padding:0 18px;font-size:16px;color:#f59e0b;pointer-events:none}
+            .aprK .stars span{animation:slipKerlip 2.2s ease-in-out infinite}.aprK .stars span+span{animation-delay:1.1s}
+            .aprNote{font-size:11.5px;color:#64748b;text-align:center;margin-top:6px}
+            @media (prefers-reduced-motion:reduce){.aprK .hd,.aprK .tr,.aprK .stars span{animation:none}}
+            .slipv .bar1{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(255,255,255,.97);border-top:1px solid #e2e8f0;padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px))}
+            .slipv .bar1 .in{max-width:480px;margin:0 auto}
+            .slipv .bar1 button{width:100%;border:0;border-radius:14px;padding:14px;font-size:16px;font-weight:900;background:#0f172a;color:#fff;box-shadow:0 3px 0 #000;cursor:pointer}
+            .slipv .bar1 button:disabled{opacity:.7;cursor:wait}
+            .slipv .bar1 p{font-size:12px;text-align:center;margin-top:6px}
+        `;
+        // Status bayar slip untuk link karyawan — aturan sama dengan Laporan Kinerja (getRekapPayBadge).
+        // dikasbon: kelebihan bayar komisi yang dijadikan kasbon (tidak dihitung sebagai pembayaran gaji)
+        const statusBayarSlip = (rekap, dikasbon = 0) => {
+            const net = rekap?.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap?.grossSalary ?? rekap?.totalWage) - safeMoney(rekap?.cashAdvanceDeduction));
+            const bayar = Array.isArray(rekap?.payments) ? rekap.payments.filter(p => p && safeMoney(p.amount) > 0) : [];
+            const paid = bayar.reduce((s, p) => s + safeMoney(p.amount), 0);
+            if (bayar.length === 0 && (!Array.isArray(rekap?.payments) || rekap?.paymentStatus === 'lunas')) return { st: 'lunas', net, paid: net, sisa: 0, lebih: 0, bayar, lama: true };
+            if (paid <= 0) return { st: 'belum', net, paid: 0, sisa: net, lebih: 0, bayar };
+            const efektif = paid - safeMoney(dikasbon);
+            const lebih = Math.round(efektif - net);
+            if (lebih > 1) return { st: 'lebih', net, paid, sisa: 0, lebih, bayar };
+            if (efektif >= net - 1) return { st: 'lunas', net, paid, sisa: 0, lebih: 0, bayar };
+            return { st: 'sebagian', net, paid, sisa: Math.max(0, Math.round(net - efektif)), lebih: 0, bayar };
+        };
+
         const RekapGajiShareView = ({ rekapId, employees, rekapKinerja, templates, invoices, onSiapkanCetak = null }) => {
-            const [menyiapkanCetak, setMenyiapkanCetak] = React.useState(false);
-            // Cetak: muat dulu logo asli & tanda tangan (bila belum), tunggu gambarnya tampil, lalu buka dialog cetak
-            const cetakSlip = async () => {
-                if (menyiapkanCetak) return;
-                setMenyiapkanCetak(true);
-                try {
-                    if (onSiapkanCetak) await onSiapkanCetak();
-                    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-                    const imgs = [...document.querySelectorAll('.share-receipt img')].filter(i => !i.complete);
-                    await Promise.race([Promise.all(imgs.map(i => new Promise(r => { i.onload = i.onerror = r; }))), new Promise(r => setTimeout(r, 4000))]);
-                } catch (e) {}
-                setMenyiapkanCetak(false);
-                window.print();
-            };
+            const [pdf, setPdf] = React.useState({ proses: false, pesan: '', gagal: false });
             const rekap = (rekapKinerja || []).filter(isVisibleRecord).find(r => String(r.id) === String(rekapId));
             const employee = (employees || []).filter(isVisibleRecord).find(emp => String(emp.id) === String(rekap?.empId));
-            const formatReceiptMoney = (num) => formatRupiah(num || 0).replace(/\s/g, '');
 
             if (!rekap) {
                 return (
@@ -24522,222 +24468,305 @@ ${getRekapShareLink(rekap)}
                 );
             }
 
+            const rp = (n) => formatRupiah(Math.round(safeMoney(n))).replace(/\s/g, '');
+            const rpTanda = (n) => `${n > 0 ? '+' : '−'}${rp(Math.abs(n))}`;
+            const BLN = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+            const tglPendek = (s) => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${parseInt(m[3], 10)} ${BLN[parseInt(m[2], 10) - 1] || ''}` : String(s || '-'); };
             const empName = rekap.empName || employee?.name || rekap.empId || '-';
             const division = employee?.division || rekap.division || '-';
-            const safeInvs = (invoices || []).filter(isVisibleRecord);
-            const relatedInvoices = safeInvs.filter(inv => (rekap.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
-            const dailyLogs = Array.isArray(rekap.dailySalaryLogs) ? rekap.dailySalaryLogs : [];
-            const dailyOnlyLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
-            const overtimeLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
-            const susunanHarian = susunGajiHarianNota(dailyLogs);
-            const uangBertandaSlip = (n) => `${n > 0 ? '+' : '−'}${formatReceiptMoney(Math.abs(n))}`;
-            // Penyesuaian komisi setelah rekap dibuat (invoice berubah)
-            const penyesuaianSlip = getRekapKomisiPenyesuaian(rekap).flatMap(p => safeArray(p.items).map(it => ({ invId: it.invId, dihapus: !!it.dihapus, v: Math.round(safeMoney(it.selisih)), tgl: String(p.date || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1') }))).filter(r => r.v !== 0);
-            // Kelebihan bayar yang dijadikan kasbon
-            // Di perangkat admin dari data kasbon; di HP karyawan (tanpa data kasbon) dari catatan di rekap
+            const namaDepan = String(empName).trim().split(/\s+/)[0] || '';
+
+            // Kelebihan bayar yang dijadikan kasbon: di perangkat admin dari data kasbon; di HP karyawan dari catatan di rekap
             const kasbonDiPerangkat = getRekapKasbonLebihBayar(rekap, employees);
-            const dikasbonSlip = kasbonDiPerangkat.length > 0
+            const dikasbon = kasbonDiPerangkat.length > 0
                 ? kasbonDiPerangkat.reduce((t, k) => t + getCashAdvanceAmount(k), 0)
                 : safeArray(rekap.kasbonLebihBayar).reduce((t, k) => t + safeMoney(k && k.amount), 0);
+            const status = statusBayarSlip(rekap, dikasbon);
+            const gross = safeMoney(rekap.grossSalary ?? rekap.totalWage);
+            const net = status.net;
 
-            const SectionTitle = ({ title }) => (
-                <div className="mt-2 pt-1 pb-0.5 border-t border-b border-dashed border-black text-[10px] font-black uppercase">{title}</div>
+            // ① Komisi marketing (+ penyesuaian setelah rekap dibuat)
+            const invPerId = new Map(safeArray(invoices).filter(Boolean).map(inv => [String(inv.id), inv]));
+            const komisiBaris = safeArray(rekap.marketingInvoiceIds).map(id => {
+                const inv = invPerId.get(String(id)) || null;
+                const simpan = rekap.marketingInvoiceAmounts?.[String(id)];
+                const nilai = simpan != null ? safeMoney(simpan) : (inv ? getInvoiceCommissionTotal(inv) : null);
+                if (nilai == null) return null;
+                const stInv = inv && isVisibleRecord(inv) ? getInvoicePaymentStatus(inv) : '';
+                return { id: String(id), inv, nilai, dihapus: !!inv && !isVisibleRecord(inv), stInv };
+            }).filter(Boolean);
+            const penyesuaian = getRekapKomisiPenyesuaian(rekap).flatMap(p => safeArray(p.items).map(it => ({ invId: it.invId, dihapus: !!it.dihapus, v: Math.round(safeMoney(it.selisih)), tgl: p.date || '' }))).filter(r => r.v !== 0);
+            const totalPenyesuaian = penyesuaian.reduce((s, r) => s + r.v, 0);
+            // Rekap lama tanpa rincian komisi per invoice (dan data invoice tidak terunduh): tampilkan totalnya saja
+            // (marketingCommission sudah termasuk penyesuaian, jadi pakai nilai awalnya)
+            const komisiAwal = rekap.marketingCommissionAwal != null ? safeMoney(rekap.marketingCommissionAwal) : safeMoney(rekap.marketingCommission) - totalPenyesuaian;
+            if (komisiBaris.length === 0 && komisiAwal > 0) komisiBaris.push({ id: safeArray(rekap.marketingInvoiceIds).length ? `${safeArray(rekap.marketingInvoiceIds).length} invoice` : 'Komisi marketing', inv: null, nilai: komisiAwal, dihapus: false, stInv: '' });
+            const totalKomisi = komisiBaris.reduce((s, r) => s + r.nilai, 0) + totalPenyesuaian;
+            const adaKomisi = komisiBaris.length > 0 || penyesuaian.length > 0;
+
+            // ② Gaji produksi
+            const produksi = safeArray(rekap.items);
+            const totalProduksi = produksi.reduce((s, it) => s + safeMoney(it.wageTotal), 0);
+            const pcsProduksi = produksi.reduce((s, it) => s + safeMoney(it.qty), 0);
+            const jumlahOrder = new Set(produksi.filter(it => !it.isManual).map(it => String(it.orderId))).size;
+
+            // ③ Gaji harian: hari kerja per tarif, lalu tambahan/potongan jam per tanggal
+            const dailyLogs = safeArray(rekap.dailySalaryLogs).filter(Boolean);
+            const harianLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
+            const susunan = susunGajiHarianNota(dailyLogs);
+            const perTarif = new Map();
+            const penyesuaianJam = [];
+            const tandaTgl = new Map(); // tanggal → { s: selisih, lbl: [label jam] } (untuk chip tanggal)
+            const tandai = (tgl, s, lbl) => { const k = String(tgl || ''); if (!k) return; const t = tandaTgl.get(k) || { s: 0, lbl: [] }; t.s += s; if (lbl) t.lbl.push(lbl); tandaTgl.set(k, t); };
+            harianLogs.forEach(log => {
+                const t = getDailySalaryLogTotal(log);
+                const rate = safeMoney(log.dailySalary);
+                const wd = parseFloat(log.workDays);
+                const hari = Number.isFinite(wd) ? wd : 1;
+                const g = perTarif.get(rate) || { rate, hari: 0, total: 0 };
+                g.hari += hari; g.total += t.base;
+                perTarif.set(rate, g);
+                const selisih = t.daily - t.base;
+                if (selisih === 0) return;
+                const rinci = safeArray(log.hourAdjDetails).filter(d => d && safeMoney(d.amount) !== 0);
+                const jumlahRinci = rinci.reduce((s, d) => s + safeMoney(d.amount), 0);
+                if (rinci.length > 0 && Math.abs(jumlahRinci - selisih) < 1) {
+                    rinci.forEach(d => {
+                        const amt = safeMoney(d.amount);
+                        const lbl = String(formatSelisihJamLabel(d)).replace(/^[+\-−]\s*/, '');
+                        penyesuaianJam.push({ date: d.date || log.date || '', teks: `${amt < 0 ? 'kurang' : 'lebih'} ${lbl}`, amount: amt });
+                        tandai(d.date || log.date, amt, `${amt < 0 ? '−' : '+'}${lbl.replace(/\s*jam$/, 'j')}`);
+                    });
+                } else {
+                    penyesuaianJam.push({ date: log.date || '', teks: 'penyesuaian jam kerja', amount: selisih });
+                    tandai(log.date, selisih, '');
+                }
+            });
+            const rapikanHari = (n) => Number.isInteger(n) ? n : parseFloat(n.toFixed(1));
+            const tarifList = [...perTarif.values()].sort((a, b) => b.total - a.total);
+            const totalHarianDasar = tarifList.reduce((s, g) => s + g.total, 0);
+            const totalHari = rapikanHari(tarifList.reduce((s, g) => s + g.hari, 0));
+            const hariTambah = new Set(penyesuaianJam.filter(r => r.amount > 0).map(r => r.date)).size;
+            const hariKurang = new Set(penyesuaianJam.filter(r => r.amount < 0).map(r => r.date)).size;
+            const tanggalKerja = [...new Set(harianLogs.map(l => String(l.date || '')).filter(Boolean))].sort();
+
+            // ④ Lembur
+            const lemburLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+            const totalLembur = lemburLogs.reduce((s, l) => s + getDailySalaryLogTotal(l).overtime, 0);
+            const jamLembur = rapikanHari(lemburLogs.reduce((s, l) => s + safeMoney(l.overtimeCount), 0));
+            const fmtJam = (n) => String(rapikanHari(safeMoney(n))).replace('.', ',');
+
+            const bonus = safeMoney(rekap.bonusSalary);
+            const bagiHasil = safeMoney(rekap.bagiHasilDireksiAmount);
+            const bulanBagiHasil = safeArray(rekap.bagiHasilDireksiMonths).length ? safeArray(rekap.bagiHasilDireksiMonths) : (rekap.bagiHasilDireksiMonth ? [rekap.bagiHasilDireksiMonth] : []);
+            const kasbon = safeMoney(rekap.cashAdvanceDeduction);
+            const snapKasbon = rekap.employeeCashAdvanceSnapshot && rekap.employeeCashAdvanceSnapshot.remaining != null ? safeMoney(rekap.employeeCashAdvanceSnapshot.remaining) : null;
+
+            // Periode: dari tanggal kerja yang tercatat di rekap
+            const semuaTgl = [...dailyLogs.map(l => l.date), ...produksi.map(it => it.manualDate)].map(d => String(d || '').slice(0, 10)).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+            const periode = semuaTgl.length ? labelRentangStruk(semuaTgl[0], semuaTgl[semuaTgl.length - 1]) : '';
+            const logo = logoAman(templates?.companyLogoMini || templates?.companyLogo);
+
+            // Kartu status
+            const tglBayar = (s) => fmtTglStruk(s);
+            const bayarTerakhir = status.bayar.length ? status.bayar[status.bayar.length - 1] : null;
+            const kartuStatus = {
+                belum: { ic: '⏳', judul: 'Belum dibayar', ket: 'Menunggu pembayaran' },
+                sebagian: { ic: '💸', judul: 'Dibayar sebagian', ket: `Sudah ${rp(status.paid - dikasbon)} · sisa ${rp(status.sisa)}` },
+                lunas: { ic: '✓', judul: 'Lunas', ket: bayarTerakhir ? `Dibayar ${tglBayar(bayarTerakhir.date)} · ${bayarTerakhir.method || 'Transfer'}` : 'Sudah dibayar' },
+                lebih: { ic: '✓', judul: 'Lunas · lebih bayar', ket: `Kelebihan bayar ${rp(status.lebih)}` },
+            }[status.st];
+            const persenBayar = net > 0 ? Math.max(0, Math.min(100, Math.round((status.paid - dikasbon) / net * 100))) : 0;
+
+            const simpanPdf = async () => {
+                if (pdf.proses) return;
+                setPdf({ proses: true, pesan: 'Menyiapkan PDF…', gagal: false });
+                try {
+                    // Logo asli & tanda tangan baru diunduh saat ini (layar memakai logo kecil)
+                    let tpl = templates || {};
+                    if (onSiapkanCetak) { try { const full = await onSiapkanCetak(); if (full && typeof full === 'object') tpl = { ...tpl, ...full }; } catch (e) {} }
+                    const html = htmlSlipGajiKaryawan({ data: { ...rekap, empName, division }, templates: tpl, invoices, dikasbonLebih: dikasbon });
+                    await simpanNotaPdf(html, namaFileCetak('Slip Gaji', empName, fmtTglStruk(rekap.dateProcessed)));
+                    setPdf({ proses: false, pesan: '✓ PDF tersimpan. Cek folder Unduhan / Download.', gagal: false });
+                } catch (e) {
+                    console.error(e);
+                    setPdf({ proses: false, pesan: 'PDF gagal dibuat. Periksa koneksi internet lalu coba lagi.', gagal: true });
+                }
+            };
+
+            // Baris ringkasan (urutan sama dengan nota)
+            const ringkas = [];
+            if (adaKomisi) ringkas.push({ c: 'cK', ik: '💼', judul: 'Komisi Marketing', ket: `${komisiBaris.length} invoice${penyesuaian.length ? ' · termasuk penyesuaian' : ''}`, nilai: rp(totalKomisi), v: totalKomisi });
+            if (produksi.length) ringkas.push({ c: 'cP', ik: '🧵', judul: 'Gaji Produksi', ket: `${String(pcsProduksi).replace('.', ',')} pcs${jumlahOrder ? ` · ${jumlahOrder} order` : ''}`, nilai: rp(totalProduksi), v: totalProduksi });
+            else if (safeMoney(rekap.productionSalary) > 0) ringkas.push({ c: 'cP', ik: '🧵', judul: 'Gaji Produksi', ket: '', nilai: rp(rekap.productionSalary), v: safeMoney(rekap.productionSalary) });
+            if (harianLogs.length) {
+                ringkas.push({ c: 'cH', ik: '📅', judul: 'Gaji Harian', ket: tarifList.length === 1 ? `${String(totalHari).replace('.', ',')} hari × ${rp(tarifList[0].rate)}` : `${String(totalHari).replace('.', ',')} hari`, nilai: rp(totalHarianDasar), v: totalHarianDasar });
+                if (susunan.tambahanJam !== 0) ringkas.push({ c: 'cH', ik: '⬆', judul: 'Tambahan jam', ket: `${hariTambah} hari`, nilai: rpTanda(susunan.tambahanJam), v: susunan.tambahanJam });
+                if (susunan.potonganJam !== 0) ringkas.push({ c: 'cM', ik: '⬇', judul: 'Potongan jam', ket: `${hariKurang} hari`, nilai: rpTanda(susunan.potonganJam), v: susunan.potonganJam });
+            } else if (safeMoney(rekap.dailySalary) > 0) ringkas.push({ c: 'cH', ik: '📅', judul: 'Gaji Harian', ket: '', nilai: rp(rekap.dailySalary), v: safeMoney(rekap.dailySalary) });
+            if (lemburLogs.length) ringkas.push({ c: 'cL', ik: '⏱', judul: 'Lembur', ket: `${lemburLogs.length} hari · ${fmtJam(jamLembur)} jam`, nilai: rp(totalLembur), v: totalLembur });
+            else if (safeMoney(rekap.overtimeSalary) > 0) ringkas.push({ c: 'cL', ik: '⏱', judul: 'Lembur', ket: '', nilai: rp(rekap.overtimeSalary), v: safeMoney(rekap.overtimeSalary) });
+            if (bonus > 0) ringkas.push({ c: 'cA', ik: '★', judul: 'Apresiasi Kinerja', ket: rekap.bonusNote || '', nilai: rp(bonus), v: bonus });
+            if (bagiHasil > 0) ringkas.push({ c: 'cB', ik: '🤝', judul: 'Bagi Hasil Direksi', ket: bulanBagiHasil.map(m => formatBulanPendek(m)).join(', '), nilai: rp(bagiHasil), v: bagiHasil });
+            // Selisih dengan Total Pendapatan (data lama / pembulatan): tampilkan agar ringkasan tetap cocok dengan total
+            const selisihLain = Math.round(gross - ringkas.reduce((t, r) => t + r.v, 0));
+            if (Math.abs(selisihLain) > 1) ringkas.push({ c: selisihLain < 0 ? 'cM' : 'cP', ik: '±', judul: 'Lain-lain', ket: 'penyesuaian lain', nilai: rpTanda(selisihLain), v: selisihLain });
+            if (kasbon > 0) ringkas.push({ c: 'cM', ik: '💳', judul: 'Potongan Kasbon', ket: '', nilai: `−${rp(kasbon)}`, v: -kasbon });
+
+            const Det = ({ cls, judul, total, bagian, children }) => (
+                <div className={`det ${cls}`} data-slip-bagian={bagian}>
+                    <div className="dh"><span style={{ fontSize: 14.5, fontWeight: 900, whiteSpace: 'normal' }}>{judul}</span><span className="num">{total}</span></div>
+                    <div className="bd">{children}</div>
+                </div>
             );
-            const ItemRow = ({ label, sub, value }) => (
-                <div className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300">
-                    <span className="text-[9.4px]">
-                        <span className="font-bold">{label}</span>
-                        {sub && <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{sub}</small>}
-                    </span>
-                    <span className="text-right font-bold whitespace-nowrap text-[9.4px]">{value}</span>
+            const Baris = ({ awal, kiri, kecil, nilai, warna = '' }) => (
+                <div className={`dl${awal ? ' awal' : ''}`}>
+                    <div>{kiri}{kecil ? <small>{kecil}</small> : null}</div>
+                    <b className={`num ${warna}`}>{nilai}</b>
                 </div>
             );
 
             return (
-                <div className="min-h-screen bg-gray-100 p-4">
-                    <style>{`
-                        @media print {
-                            @page { size: 80mm auto; margin: 4mm; }
-                            html, body { width: 72mm; background: #fff !important; }
-                            body { margin: 0 auto !important; padding: 0 !important; }
-                            .share-print-hidden { display: none !important; }
-                            .share-receipt-wrap { padding: 0 !important; background: #fff !important; }
-                            .share-receipt { width: 72mm !important; max-width: 72mm !important; box-shadow: none !important; border: none !important; padding: 0 !important; margin: 0 auto !important; }
-                        }
-                    `}</style>
-                    <div className="share-print-hidden max-w-3xl mx-auto mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div>
-                            <h1 className="text-xl font-black text-gray-900">Preview Rekap Gaji</h1>
-                            <p className="text-sm text-gray-500">Karyawan hanya dapat melihat rekap gaji dari link ini.</p>
+                <div className="slipv" data-slip-view>
+                    <style>{SLIP_VIEW_CSS}</style>
+                    <div className="wrapv">
+                        <div className="head">
+                            <div className="co2">
+                                <span className="lgo" data-slip-logo>{logo ? <img src={logo} alt="logo" /> : <b>{templates?.companyName || 'SIMPATI KONVEKSI'}</b>}</span>
+                                <span className="jd">SLIP GAJI KARYAWAN</span>
+                            </div>
+                            <div className="nm" data-slip-nama>{empName}</div>
+                            <div className="pr">{division}{periode ? ` · ${periode}` : ''}</div>
+                            <div className="idr">Tgl rekap {fmtTglStruk(rekap.dateProcessed)} · ID {rekap.id}</div>
                         </div>
-                        <button data-rg-cetak onClick={cetakSlip} disabled={menyiapkanCetak} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-5 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 text-sm">
-                            <IconPrinter /> {menyiapkanCetak ? 'Menyiapkan…' : 'Cetak / Simpan PDF'}
-                        </button>
+
+                        <div className="main">
+                            <div className="k">GAJI DITERIMA</div>
+                            <div className="v num" data-slip-diterima>{rp(net)}</div>
+                            <div className={`st s-${status.st}`} data-slip-status={status.st}>
+                                <div className="ic">{kartuStatus.ic}</div>
+                                <div><b>{kartuStatus.judul}</b><span className="num">{kartuStatus.ket}</span></div>
+                            </div>
+                            {status.st === 'sebagian' && <div className="prog"><i style={{ width: `${persenBayar}%` }}></i></div>}
+                        </div>
+
+                        {status.st === 'belum' && (
+                            <div className="info i-belum" data-slip-cek><span className="e">🔎</span><span>Mohon dicek kembali rincian gaji di bawah. Jika ada yang belum sesuai, silakan beritahu admin.</span></div>
+                        )}
+                        {status.st === 'sebagian' && (
+                            <div className="info i-seb" data-slip-cek><span className="e">🔎</span><span>Sisa gaji dibayar menyusul. Mohon dicek kembali rinciannya; jika ada yang belum sesuai, silakan beritahu admin.</span></div>
+                        )}
+
+                        {adaKomisi && (
+                            <Det cls="dK" bagian="komisi" judul="💼 Rincian Komisi Marketing" total={rp(totalKomisi)}>
+                                {komisiBaris.map((r, i) => (
+                                    <Baris key={r.id} awal={i === 0}
+                                        kiri={<>{r.id}{r.dihapus ? <span className="tg tgB">Dihapus</span> : r.stInv === 'Lunas' ? <span className="tg tgL">Lunas</span> : r.stInv === 'Termin' ? <span className="tg tgT">Termin</span> : r.stInv ? <span className="tg tgB">Belum bayar</span> : null}</>}
+                                        kecil={r.inv ? [r.inv.customer || r.inv.client || '', r.inv.date ? tglPendek(r.inv.date) : ''].filter(Boolean).join(' · ') : ''}
+                                        nilai={rp(r.nilai)} />
+                                ))}
+                                {penyesuaian.map((r, i) => (
+                                    <Baris key={`adj${i}`} awal={komisiBaris.length === 0 && i === 0}
+                                        kiri={`Penyesuaian · ${r.invId || 'total komisi'}${r.dihapus ? ' (dihapus)' : ''}`}
+                                        kecil={r.tgl ? fmtTglStruk(r.tgl) : ''} nilai={rpTanda(r.v)} warna={r.v > 0 ? 'grn' : 'red'} />
+                                ))}
+                            </Det>
+                        )}
+
+                        {produksi.length > 0 && (
+                            <Det cls="dP" bagian="produksi" judul="🧵 Rincian Gaji Produksi" total={rp(totalProduksi)}>
+                                {produksi.map((it, i) => (
+                                    <Baris key={i} awal={i === 0}
+                                        kiri={it.isManual ? <>{it.stageLabel || 'Pekerjaan manual'}<span className="tg tgJ">Manual</span></> : <>{it.orderId || '-'}<span className="tg tgJ">{it.stageLabel || it.stage || '-'}</span></>}
+                                        kecil={<>{it.isManual ? (it.manualDate ? fmtTglStruk(it.manualDate) : '') : [it.client && it.client !== '-' ? it.client : '', it.type || ''].filter(Boolean).join(' · ')}{(it.isManual ? it.manualDate : (it.client || it.type)) ? <br /> : null}{String(safeMoney(it.qty)).replace('.', ',')} pcs × {rp(it.unitPrice)}</>}
+                                        nilai={rp(it.wageTotal)} />
+                                ))}
+                            </Det>
+                        )}
+
+                        {harianLogs.length > 0 && (
+                            <Det cls="dH" bagian="harian" judul="📅 Rincian Gaji Harian" total={rp(susunan.total)}>
+                                {tanggalKerja.length > 0 && (
+                                    <div className="days" data-slip-hari>
+                                        {tanggalKerja.map(tgl => { const t = tandaTgl.get(tgl); const s = t ? t.s : 0; return <span key={tgl} className={s < 0 ? 'k' : s > 0 ? 'l' : ''}>{tglPendek(tgl)}{t && t.lbl.length ? ` ${t.lbl.join(' ')}` : s < 0 ? ' −' : s > 0 ? ' +' : ''}</span>; })}
+                                    </div>
+                                )}
+                                {tarifList.map((g, i) => (
+                                    <Baris key={`t${i}`} awal={i === 0 && tanggalKerja.length === 0} kiri="Gaji harian" kecil={`${String(rapikanHari(g.hari)).replace('.', ',')} hari × ${rp(g.rate)}`} nilai={rp(g.total)} />
+                                ))}
+                                {penyesuaianJam.map((r, i) => (
+                                    <Baris key={`j${i}`} kiri={`${tglPendek(r.date)} · ${r.teks}`} kecil={r.amount < 0 ? 'potongan jam' : 'tambahan jam'} nilai={rpTanda(r.amount)} warna={r.amount < 0 ? 'red' : 'grn'} />
+                                ))}
+                            </Det>
+                        )}
+
+                        {lemburLogs.length > 0 && (
+                            <Det cls="dL" bagian="lembur" judul="⏱ Rincian Lembur" total={rp(totalLembur)}>
+                                {lemburLogs.map((log, i) => (
+                                    <Baris key={i} awal={i === 0} kiri={tglPendek(log.date)} kecil={`${fmtJam(log.overtimeCount)} jam${log.note && !/^(lembur|hadir|gaji harian)\b/i.test(String(log.note).trim()) ? ` · ${log.note}` : ''}`} nilai={rp(getDailySalaryLogTotal(log).overtime)} />
+                                ))}
+                            </Det>
+                        )}
+
+                        {bonus > 0 && (
+                            <div style={{ margin: '12px 12px 0' }} data-slip-bagian="apresiasi">
+                                <div className="aprK" style={{ margin: 0 }}>
+                                    <div className="hd">★ APRESIASI KINERJA ★</div>
+                                    <div className="stars"><span>✦</span><span>✧</span></div>
+                                    <div className="bd">
+                                        <div className="tr">🏆</div>
+                                        <div className="amt num">{rp(bonus)}</div>
+                                        {rekap.bonusNote && <div className="why">{rekap.bonusNote}</div>}
+                                        <div className="msg">Terima kasih atas dedikasi dan kerja kerasnya{namaDepan ? `, ${namaDepan}` : ''}. Terus semangat memberikan yang terbaik!</div>
+                                    </div>
+                                </div>
+                                <div className="aprNote">Sudah termasuk dalam Gaji Diterima</div>
+                            </div>
+                        )}
+
+                        {bagiHasil > 0 && (
+                            <Det cls="dD" bagian="bagihasil" judul="🤝 Bagi Hasil Direksi" total={rp(bagiHasil)}>
+                                <Baris awal kiri={`Periode ${bulanBagiHasil.length ? bulanBagiHasil.map(m => formatBulanPendek(m)).join(', ') : '-'}`} nilai={rp(bagiHasil)} />
+                            </Det>
+                        )}
+
+                        {kasbon > 0 && (
+                            <Det cls="dM" bagian="kasbon" judul="💳 Potongan Kasbon" total={`−${rp(kasbon)}`}>
+                                {snapKasbon != null && <Baris awal kiri="Kasbon sebelum gajian" nilai={rp(snapKasbon)} />}
+                                <Baris awal={snapKasbon == null} kiri="Dipotong gaji ini" nilai={`−${rp(kasbon)}`} warna="red" />
+                                {snapKasbon != null && <Baris kiri={<b>Sisa kasbon</b>} kecil={Math.max(0, snapKasbon - kasbon) === 0 ? 'lunas 🎉' : ''} nilai={rp(Math.max(0, snapKasbon - kasbon))} warna={Math.max(0, snapKasbon - kasbon) === 0 ? 'grn' : ''} />}
+                            </Det>
+                        )}
+
+                        <div className="card" data-slip-bagian="ringkasan">
+                            <div className="h">🧾 Ringkasan Gaji</div>
+                            {ringkas.map((r, i) => (
+                                <div key={i} className={`ln ${r.c}${i === 0 ? ' awal' : ''}`}>
+                                    <div className="sg">{r.ik}</div>
+                                    <div className="tx"><b>{r.judul}</b>{r.ket ? <span>{r.ket}</span> : null}</div>
+                                    <div className="u num">{r.nilai}</div>
+                                </div>
+                            ))}
+                            <div className="tot"><span>Gaji Diterima</span><b className="num" data-slip-total>{rp(net)}</b></div>
+                            <div className="sub"><span>Total pendapatan</span><b className="num">{rp(gross)}</b></div>
+                        </div>
+
+                        {status.bayar.length > 0 && (
+                            <Det cls="dB" bagian="riwayat" judul="💸 Riwayat Pembayaran" total={status.st === 'lunas' ? 'Lunas ✓' : status.st === 'lebih' ? 'Lebih bayar' : rp(status.paid)}>
+                                {status.bayar.map((p, i) => (
+                                    <Baris key={i} awal={i === 0} kiri={`Termin ${i + 1}`} kecil={`${p.date ? fmtTglStruk(p.date) : '-'} · ${p.method || 'Transfer'}${p.note ? ` · ${p.note}` : ''}`} nilai={rp(p.amount)} warna="grn" />
+                                ))}
+                                {dikasbon > 0 && <Baris kiri="Dijadikan kasbon" kecil="kelebihan bayar komisi" nilai={`−${rp(dikasbon)}`} />}
+                                {status.st === 'sebagian' && <Baris kiri={<b>Sisa belum dibayar</b>} nilai={rp(status.sisa)} warna="red" />}
+                                {status.st === 'lebih' && <Baris kiri={<b>Lebih bayar</b>} nilai={rp(status.lebih)} warna="ung" />}
+                            </Det>
+                        )}
                     </div>
 
-                    <div className="share-receipt-wrap flex justify-center">
-                        <div className="share-receipt bg-white shadow-xl border border-gray-200 p-4" style={{ width: '80mm', maxWidth: '100%' }}>
-                            <div className="text-center border-b border-dashed border-black pb-2 mb-2">
-                                {templates?.companyLogo && <img src={templates.companyLogo} className="mx-auto object-contain mb-1" style={{ maxHeight: 38, maxWidth: 64 }} />}
-                                <h2 className="font-black uppercase leading-tight text-sm">{templates?.companyName || 'SIMPATI KONVEKSI'}</h2>
-                                <p className="text-[10.5px] mt-1">SLIP GAJI KARYAWAN</p>
-                            </div>
-
-                            <div className="border-b border-dashed border-black pb-2 mb-1 text-[11px]">
-                                <div className="flex justify-between gap-2"><span className="text-gray-600">Nama</span><span className="font-bold text-right">{empName}</span></div>
-                                <div className="flex justify-between gap-2"><span className="text-gray-600">Jabatan</span><span className="font-bold text-right">{division}</span></div>
-                                <div className="flex justify-between gap-2"><span className="text-gray-600">Tanggal Cetak</span><span className="font-bold text-right">{rekap.dateProcessed}</span></div>
-                                <div className="flex justify-between gap-2"><span className="text-gray-600">ID Rekap</span><span className="font-bold text-right">{rekap.id}</span></div>
-                            </div>
-
-                            {(relatedInvoices.length > 0 || penyesuaianSlip.length > 0) && (
-                                <>
-                                    <SectionTitle title="Komisi Marketing" />
-                                    {relatedInvoices.map((inv, idx) => (
-                                        <ItemRow key={idx} label={inv.id || '-'} sub={`${inv.customer || '-'} | ${inv.date || rekap.dateProcessed || '-'}`} value={formatReceiptMoney(rekap.marketingInvoiceAmounts?.[String(inv.id)] != null ? rekap.marketingInvoiceAmounts[String(inv.id)] : getInvoiceCommissionTotal(inv))} />
-                                    ))}
-                                    {penyesuaianSlip.map((row, idx) => (
-                                        <div key={`adj${idx}`} data-rg-penyesuaian className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300 pl-1.5" style={{ background: row.v > 0 ? '#f0fdf4' : '#f5f3ff' }}>
-                                            <span className="text-[9.4px]"><span className="font-bold">Penyesuaian komisi</span><small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{row.invId || 'total'}{row.dihapus ? ' (dihapus)' : ''} · {row.tgl}</small></span>
-                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px]">{uangBertandaSlip(row.v)}</span>
-                                        </div>
-                                    ))}
-                                </>
-                            )}
-
-                            {(rekap.items || []).length > 0 && (
-                                <>
-                                    <SectionTitle title="Gaji Produksi" />
-                                    {(rekap.items || []).map((item, idx) => (
-                                        <ItemRow key={idx} label={`${item.orderId || '-'} - ${item.stageLabel || item.stage || '-'}`} sub={`${item.client ? item.client + ' · ' : ''}${item.type || '-'} | ${item.qty || 0} x ${formatReceiptMoney(item.unitPrice || 0)}`} value={formatReceiptMoney(item.wageTotal || 0)} />
-                                    ))}
-                                </>
-                            )}
-
-                            {susunanHarian.jumlahBaris > 0 && (
-                                <>
-                                    <SectionTitle title="Gaji Harian" />
-                                    {susunanHarian.grup.map((g, idx) => (
-                                        <div key={`g${idx}`} data-rg-harian-grup className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300 pl-1.5" style={{ background: '#f0fdf4', borderLeft: '2px solid #86efac' }}>
-                                            <span className="text-[9.4px]">
-                                                <span className="font-bold">Gaji Harian ({g.hari} hari)</span>
-                                                <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{g.hari} hari × {formatReceiptMoney(g.rate)}/hari</small>
-                                                {g.barisTanggal.map((line, i) => <small key={i} className="block text-gray-600 text-[8.6px] font-normal">{i === 0 ? 'Tgl: ' : ''}{line}</small>)}
-                                            </span>
-                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px]">{formatReceiptMoney(g.total)}</span>
-                                        </div>
-                                    ))}
-                                    {susunanHarian.khusus.map((k, idx) => (
-                                        <div key={`k${idx}`} data-rg-harian-khusus className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300 pl-1.5" style={{ background: '#fffbeb', borderLeft: '2px solid #fcd34d' }}>
-                                            <span className="text-[9.4px]">
-                                                <span className="font-bold">{k.date}</span>
-                                                <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{k.note ? `${k.note} · ` : ''}{k.hari} hari × {formatReceiptMoney(k.rate)}</small>
-                                                {k.selisih !== 0 && (k.rincian.length > 0
-                                                    ? k.rincian.map((d, di) => <small key={di} className="block text-[8.6px] font-normal" style={{ color: d.amount > 0 ? '#15803d' : '#dc2626' }}>{k.rincian.length > 1 && d.date ? `${d.date} ` : ''}{d.text}: {uangBertandaSlip(d.amount)}</small>)
-                                                    : <small className="block text-[8.6px] font-normal" style={{ color: k.selisih > 0 ? '#15803d' : '#dc2626' }}>Penyesuaian jam kerja: {uangBertandaSlip(k.selisih)}</small>)}
-                                            </span>
-                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px]">
-                                                {k.selisih !== 0 && <><s className="text-gray-400 font-normal text-[8.6px]">{formatReceiptMoney(k.base)}</s><br /></>}
-                                                {formatReceiptMoney(k.daily)}
-                                            </span>
-                                        </div>
-                                    ))}
-                                    {(susunanHarian.jumlahBaris > 1 || susunanHarian.potonganJam !== 0 || susunanHarian.tambahanJam !== 0) && (
-                                        <div data-rg-harian-total className="flex justify-between gap-2 py-1 px-1.5 border-b border-dashed border-gray-300" style={{ background: '#f1f5f9' }}>
-                                            <span className="text-[9.4px]">
-                                                <span className="font-bold">Total Gaji Harian ({susunanHarian.totalHari} hari)</span>
-                                                {susunanHarian.potonganJam !== 0 && <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">termasuk potongan jam {uangBertandaSlip(susunanHarian.potonganJam)}</small>}
-                                                {susunanHarian.tambahanJam !== 0 && <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">termasuk tambahan jam {uangBertandaSlip(susunanHarian.tambahanJam)}</small>}
-                                            </span>
-                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px]">{formatReceiptMoney(susunanHarian.total)}</span>
-                                        </div>
-                                    )}
-                                </>
-                            )}
-
-                            {overtimeLogs.length > 0 && (
-                                <>
-                                    <SectionTitle title="Lembur" />
-                                    {overtimeLogs.map((log, idx) => (
-                                        <ItemRow key={idx} label={log.date || '-'} sub={`${log.note || 'Lembur'} | ${log.overtimeCount || 0} jam`} value={formatReceiptMoney(getDailySalaryLogTotal(log).overtime)} />
-                                    ))}
-                                </>
-                            )}
-
-                            {safeMoney(rekap.bonusSalary) > 0 && (
-                                <div className="mt-3 mb-1 rounded-lg overflow-hidden border-2 border-amber-500 text-center" style={{ breakInside: 'avoid' }}>
-                                    <div className="text-white text-[11px] font-black tracking-[0.2em] py-1" style={{ background: 'linear-gradient(90deg,#d97706,#f59e0b,#d97706)' }}>★ APRESIASI KINERJA ★</div>
-                                    <div className="text-[20px] font-black text-amber-700 pt-2 leading-tight">{formatReceiptMoney(rekap.bonusSalary || 0)}</div>
-                                    {rekap.bonusNote && <div className="text-[10.5px] text-gray-700 px-2 pb-1.5 break-words">{rekap.bonusNote}</div>}
-                                    <div className="text-[10px] italic border-t border-dashed border-amber-400 py-1.5 px-2 text-amber-800 bg-amber-50">Terima kasih atas dedikasi dan kerja kerasnya. Terus semangat memberikan yang terbaik!</div>
-                                </div>
-                            )}
-
-                            {safeMoney(rekap.cashAdvanceDeduction) > 0 && (
-                                <>
-                                    <SectionTitle title="Potongan - Kasbon" />
-                                    <ItemRow label="Bayar kasbon sekarang" sub={`Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(rekap.employeeCashAdvanceSnapshot?.remaining) - safeMoney(rekap.cashAdvanceDeduction)))}`} value={formatReceiptMoney(rekap.cashAdvanceDeduction || 0)} />
-                                </>
-                            )}
-
-                            <div className="border-t border-b border-dashed border-black py-2 mt-2 text-[11px]">
-                                <div className="flex justify-between gap-2 mt-0.5"><span>Total Pendapatan</span><span className="font-bold">{formatReceiptMoney(rekap.grossSalary || rekap.totalWage || 0)}</span></div>
-                                {safeMoney(rekap.bonusSalary) > 0 && <div className="text-[9px] text-gray-500 -mt-0.5 mb-0.5">★ termasuk apresiasi kinerja {formatReceiptMoney(rekap.bonusSalary || 0)}</div>}
-                                {susunanHarian.potonganJam !== 0 && <div data-rg-potjam className="flex justify-between gap-2 text-[9px] text-gray-500"><span>· potongan jam sudah dikurangkan</span><span>{uangBertandaSlip(susunanHarian.potonganJam)}</span></div>}
-                                <div className="flex justify-between gap-2 mt-0.5"><span>Potongan Kasbon</span><span className="font-bold">{formatReceiptMoney(rekap.cashAdvanceDeduction || 0)}</span></div>
-                                <div className="flex justify-between gap-2 text-[13px] font-black mt-1 pt-1 border-t border-dashed border-black"><span>Total Diterima</span><span>{formatReceiptMoney(rekap.netSalary ?? Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction)))}</span></div>
-                            </div>
-
-                            {(() => {
-                                const sharePayments = (Array.isArray(rekap.payments) ? rekap.payments : []).filter(p => safeMoney(p.amount) > 0);
-                                if (sharePayments.length === 0) return null;
-                                const shareNet = rekap.netSalary != null ? safeMoney(rekap.netSalary) : Math.max(0, safeMoney(rekap.grossSalary ?? rekap.totalWage) - safeMoney(rekap.cashAdvanceDeduction));
-                                const totalPaid = sharePayments.reduce((s, p) => s + safeMoney(p.amount), 0);
-                                const sisa = Math.max(0, Math.round(shareNet - (totalPaid - dikasbonSlip)));
-                                const lebihSlip = Math.max(0, Math.round(totalPaid - dikasbonSlip - shareNet));
-                                return (
-                                    <div className="mt-3">
-                                        <div className="mt-2 pt-1 pb-0.5 border-t border-b border-dashed border-black text-[10px] font-black uppercase">Riwayat Pembayaran</div>
-                                        {sharePayments.map((p, i) => (
-                                            <div key={i} className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300">
-                                                <span className="text-[9.4px]">
-                                                    <span className="font-bold">Termin {i+1}</span>
-                                                    <small className="block text-gray-500 text-[8.6px] font-normal mt-0.5">{p.date || '-'} · {p.method || 'Transfer'}{p.note ? ` · ${p.note}` : ''}</small>
-                                                </span>
-                                                <span className="text-right font-bold whitespace-nowrap text-[9.4px] text-green-700">{formatReceiptMoney(p.amount)}</span>
-                                            </div>
-                                        ))}
-                                        <div className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300">
-                                            <span className="text-[9.4px] font-bold">Total Dibayar</span>
-                                            <span className="text-right font-bold whitespace-nowrap text-[9.4px] text-green-700">{formatReceiptMoney(totalPaid)}</span>
-                                        </div>
-                                        {dikasbonSlip > 0 && (
-                                            <div data-rg-dikasbon className="flex justify-between gap-2 py-1 border-b border-dashed border-gray-300">
-                                                <span className="text-[9.4px]">Dijadikan kasbon <small className="block text-gray-500 text-[8.6px]">kelebihan bayar komisi</small></span>
-                                                <span className="text-right font-bold whitespace-nowrap text-[9.4px]">−{formatReceiptMoney(dikasbonSlip)}</span>
-                                            </div>
-                                        )}
-                                        <div data-rg-status className="flex justify-between gap-2 py-1 text-[10px] font-black">
-                                            <span>{lebihSlip > 1 ? 'Lebih Bayar' : sisa > 0 ? 'Sisa Belum Dibayar' : 'Status'}</span>
-                                            <span className={lebihSlip > 1 ? 'text-violet-700' : sisa > 0 ? 'text-red-600' : 'text-green-700'}>{lebihSlip > 1 ? formatReceiptMoney(lebihSlip) : sisa > 0 ? formatReceiptMoney(sisa) : 'Lunas ✓'}</span>
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                            <div className="grid grid-cols-2 gap-2 mt-4 text-center text-[9px]" style={{alignItems:'stretch'}}>
-                                <div className="flex flex-col items-center" style={{minHeight:'70px'}}>
-                                    <div>Penerima</div>
-                                    <div className="w-full mt-auto pt-1" style={{borderTop:'1px solid #000'}}>{empName}</div>
-                                </div>
-                                <div className="flex flex-col items-center" style={{minHeight:'70px'}}>
-                                    <div>Hormat Kami,</div>
-                                    {(templates?.signatureImage && templates?.showSignatureOnPrint !== false) && <img src={templates.signatureImage} style={{maxHeight:'48px', maxWidth:'90px', objectFit:'contain', display:'block', margin:'6px auto 0', transform:`scale(${(templates?.signatureSize||100)/100})`, transformOrigin:'center center'}} />}
-                                    <div className="w-full mt-auto pt-1" style={{borderTop:'1px solid #000'}}>{templates?.companyName || 'Simpati Konveksi'}</div>
-                                </div>
-                            </div>
-
-                            <div className="text-center text-[9px] text-gray-500 mt-2">Simpan struk ini sebagai bukti rekap gaji karyawan.</div>
+                    <div className="bar1">
+                        <div className="in">
+                            <button type="button" data-slip-pdf onClick={simpanPdf} disabled={pdf.proses}>{pdf.proses ? '⏳ Menyiapkan PDF…' : '📄 Simpan PDF'}</button>
+                            {pdf.pesan && !pdf.proses && <p data-slip-pdf-pesan style={{ color: pdf.gagal ? '#b91c1c' : '#15803d' }}>{pdf.pesan}</p>}
                         </div>
                     </div>
                 </div>
@@ -25770,6 +25799,236 @@ ${getRekapShareLink(rekap)}
                     </div>
                 </div>
                 <div class="footer">Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>`;
+        // Nota slip gaji karyawan (80 mm) — satu sumber untuk cetak admin (Laporan Kinerja) & "Simpan PDF" di link karyawan.
+        // dikasbonLebih: kelebihan bayar komisi yang sudah dijadikan kasbon (tidak dihitung sebagai pembayaran gaji)
+        const htmlSlipGajiKaryawan = ({ data, templates, invoices, dikasbonLebih = 0 }) => {
+                const formatReceiptMoney = (num) => formatRupiah(num || 0).replace(/\s/g, '');
+                const allInvoicesForPrint = safeArray(invoices);
+                const relatedInvoices = allInvoicesForPrint.filter(inv => (data.marketingInvoiceIds || []).some(id => String(id) === String(inv.id)));
+
+                const dailyLogs = Array.isArray(data.dailySalaryLogs) ? data.dailySalaryLogs : [];
+                const dailyOnlyLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).daily > 0);
+                const overtimeLogs = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0);
+                const sectionRows = (title, rows, emptyText = 'Tidak ada data.') => `
+                    <div class="section-title">${title}</div>
+                    <div class="section-list">
+                        ${rows.length ? rows.join('') : `<div class="item-row muted"><span>${emptyText}</span><span>-</span></div>`}
+                    </div>
+                `;
+                const marketingRows = relatedInvoices.map(inv => {
+                    const storedAmt = data.marketingInvoiceAmounts?.[String(inv.id)];
+                    const commAmt = storedAmt != null ? storedAmt : getInvoiceCommissionTotal(inv);
+                    return `
+                    <div class="item-row${inv.isDeleted ? ' muted' : ''}">
+                        <span><b>${inv.id || '-'}${inv.isDeleted ? ' (dihapus)' : ''}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small></span>
+                        <span>${formatReceiptMoney(commAmt)}</span>
+                    </div>
+                `});
+                // Penyesuaian komisi yang diterapkan setelah rekap dibuat
+                getRekapKomisiPenyesuaian(data).forEach(p => safeArray(p.items).forEach(it => {
+                    const v = Math.round(safeMoney(it.selisih));
+                    const tglP = String(p.date || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1');
+                    marketingRows.push(`
+                    <div class="item-row" style="background:${v > 0 ? '#f0fdf4' : '#f5f3ff'}">
+                        <span><b>Penyesuaian komisi</b><small>${it.invId || 'total'}${it.dihapus ? ' (dihapus)' : ''} · ${tglP}</small></span>
+                        <span>${v > 0 ? '+' : '-'}${formatReceiptMoney(Math.abs(v))}</span>
+                    </div>`);
+                }));
+                const productionRows = (data.items || []).map(item => `
+                    <div class="item-row">
+                        <span><b>${item.orderId || '-'} - ${item.stageLabel || item.stage || '-'}</b><small>${item.client ? `${item.client} &middot; ` : ''}${item.type || '-'} | ${item.qty || 0} x ${formatReceiptMoney(item.unitPrice || 0)}</small></span>
+                        <span>${formatReceiptMoney(item.wageTotal || 0)}</span>
+                    </div>
+                `);
+                const susunanHarian = susunGajiHarianNota(dailyLogs);
+                const escNota = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+                const uangBertanda = (n) => `${n > 0 ? '+' : '−'}${formatReceiptMoney(Math.abs(n))}`;
+                const dailyRows = [
+                    ...susunanHarian.grup.map(g => `
+                    <div class="item-row" style="border-left:2px solid #86efac;padding-left:6px;background:#f0fdf4">
+                        <span>
+                            <b>Gaji Harian (${g.hari} hari)</b>
+                            <small style="color:#555">${g.hari} hari × ${formatReceiptMoney(g.rate)}/hari</small>
+                            ${g.barisTanggal.map((line, i) => `<small style="color:#374151">${i === 0 ? 'Tgl: ' : '       '}${line}</small>`).join('')}
+                        </span>
+                        <span>${formatReceiptMoney(g.total)}</span>
+                    </div>`),
+                    ...susunanHarian.khusus.map(k => {
+                        const alasan = k.selisih === 0 ? '' : (k.rincian.length > 0
+                            ? k.rincian.map(d => `<small style="color:${d.amount > 0 ? '#15803d' : '#dc2626'}">${k.rincian.length > 1 && d.date ? `${escNota(d.date)} ` : ''}${escNota(d.text)}: ${uangBertanda(d.amount)}</small>`).join('')
+                            : `<small style="color:${k.selisih > 0 ? '#15803d' : '#dc2626'}">Penyesuaian jam kerja: ${uangBertanda(k.selisih)}</small>`);
+                        const nilai = k.selisih === 0 ? formatReceiptMoney(k.daily)
+                            : `<s style="color:#9ca3af;font-weight:normal;font-size:10px">${formatReceiptMoney(k.base)}</s><br>${formatReceiptMoney(k.daily)}`;
+                        return `
+                        <div class="item-row" style="border-left:2px solid #fcd34d;padding-left:6px;background:#fffbeb">
+                            <span><b>${escNota(k.date)}</b><small>${k.note ? `${escNota(k.note)} · ` : ''}${k.hari} hari × ${formatReceiptMoney(k.rate)}</small>${alasan}</span>
+                            <span>${nilai}</span>
+                        </div>`;
+                    }),
+                    ...((susunanHarian.jumlahBaris > 1 || susunanHarian.potonganJam !== 0 || susunanHarian.tambahanJam !== 0) ? [`
+                    <div class="item-row" style="background:#f1f5f9;padding:5px 6px">
+                        <span><b>Total Gaji Harian (${susunanHarian.totalHari} hari)</b>${susunanHarian.potonganJam !== 0 ? `<small>termasuk potongan jam ${uangBertanda(susunanHarian.potonganJam)}</small>` : ''}${susunanHarian.tambahanJam !== 0 ? `<small>termasuk tambahan jam ${uangBertanda(susunanHarian.tambahanJam)}</small>` : ''}</span>
+                        <span>${formatReceiptMoney(susunanHarian.total)}</span>
+                    </div>`] : [])
+                ];
+                const overtimeRows = dailyLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0).map(log => `
+                    <div class="item-row">
+                        <span><b>${log.date || '-'}</b><small>${log.note || 'Lembur'} | ${log.overtimeCount || 0} jam</small></span>
+                        <span>${formatReceiptMoney(getDailySalaryLogTotal(log).overtime)}</span>
+                    </div>
+                `);
+                const printContent = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>SG - ${data.empName}</title>
+                    <style>
+                        @page { size: 80mm auto; margin: 4mm; }
+                        html, body { width: 72mm; }
+                        body { font-family: Arial, sans-serif; color: #000; line-height: 1.28; margin: 0 auto; padding: 0; font-size: 11.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                        .receipt { width: 72mm; margin: 0 auto; box-sizing: border-box; }
+                        .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 7px; margin-bottom: 7px; }
+                        .header-logo { max-height: 38px; max-width: 64px; object-fit: contain; margin-bottom: 3px; }
+                        .header h1 { margin: 0; font-size: 14px; text-transform: uppercase; color: #000; line-height: 1.15; }
+                        .header p { margin: 2px 0 0 0; font-size: 10.5px; }
+                        .meta { border-bottom: 1px dashed #000; padding-bottom: 7px; margin-bottom: 7px; }
+                        .meta-row { display: flex; justify-content: space-between; gap: 6px; margin: 2px 0; }
+                        .meta-label { color: #444; white-space: nowrap; }
+                        .meta-value { font-weight: bold; text-align: right; }
+                        .text-center { text-align: center; }
+                        .text-right { text-align: right; }
+                        .font-bold { font-weight: bold; }
+                        .muted { color: #555; font-size: 8.6px; line-height: 1.15; }
+                        .section-title { margin-top: 8px; padding: 4px 0 3px; border-top: 1px dashed #000; border-bottom: 1px dashed #bbb; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+                        .section-list { margin-bottom: 2px; }
+                        .item-row { display: flex; justify-content: space-between; gap: 6px; padding: 4px 0; border-bottom: 1px dashed #ddd; }
+                        .item-row span:first-child { max-width: 44mm; overflow-wrap: anywhere; }
+                        .item-row span:last-child { text-align: right; font-weight: bold; white-space: nowrap; }
+                        .item-row small { display: block; color: #555; font-size: 8.6px; font-weight: normal; margin-top: 1px; }
+                        .total-box { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 7px 0; margin-top: 6px; }
+                        .total-row { display: flex; justify-content: space-between; gap: 6px; margin: 3px 0; }
+                        .grand-total { font-size: 13px; font-weight: 900; }
+                        .signature { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; text-align: center; font-size: 9px; align-items: stretch; }
+                        .sig-box { display: flex; flex-direction: column; align-items: center; min-height: 70px; }
+                        .sig-img { max-height: 48px; max-width: 90px; object-fit: contain; display: block; margin: 6px auto 0; }
+                        .signature-line { margin-top: auto; border-top: 1px solid #000; padding-top: 3px; width: 100%; }
+                        .footer-note { text-align: center; font-size: 9px; margin-top: 9px; color: #444; }
+                        .bonus-box { margin: 9px 0 4px; border: 2px solid #000; border-radius: 6px; overflow: hidden; text-align: center; page-break-inside: avoid; }
+                        .bonus-box .bonus-head { background: #000; color: #fff; font-size: 11px; font-weight: 900; letter-spacing: 2px; padding: 4px 0; }
+                        .bonus-box .bonus-amount { font-size: 20px; font-weight: 900; padding: 6px 0 1px; }
+                        .bonus-box .bonus-note { font-size: 10px; padding: 0 4px 3px; overflow-wrap: anywhere; }
+                        .bonus-box .bonus-thanks { font-size: 9.5px; border-top: 1px dashed #000; padding: 4px 4px 5px; font-style: italic; }
+                        .total-sub { font-size: 9px; color: #444; margin: -2px 0 3px; }
+                        @media screen {
+                            body { background: #f3f4f6; padding: 12px 0; }
+                            .receipt { background: #fff; padding: 4mm; box-shadow: 0 10px 30px rgba(0,0,0,0.12); }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="receipt">
+                        <div class="header">
+                            ${templates?.companyLogo ? `<img src="${templates.companyLogo}" class="header-logo" />` : ''}
+                            <h1>${templates?.companyName || 'SIMPATI KONVEKSI'}</h1>
+                            <p>SLIP GAJI KARYAWAN</p>
+                        </div>
+
+                        <div class="meta">
+                            <div class="meta-row"><span class="meta-label">Nama</span><span class="meta-value">${data.empName}</span></div>
+                            <div class="meta-row"><span class="meta-label">Jabatan</span><span class="meta-value">${data.division}</span></div>
+                            <div class="meta-row"><span class="meta-label">Tanggal Cetak</span><span class="meta-value">${data.dateProcessed}</span></div>
+                            <div class="meta-row"><span class="meta-label">ID Rekap</span><span class="meta-value">${data.id}</span></div>
+                        </div>
+
+                        ${marketingRows.length > 0 ? sectionRows('Komisi Marketing', marketingRows) : ''}
+                        ${productionRows.length > 0 ? sectionRows('Gaji Produksi', productionRows) : ''}
+                        ${dailyRows.length > 0 ? sectionRows('Gaji Harian', dailyRows) : ''}
+                        ${overtimeRows.length > 0 ? sectionRows('Lembur', overtimeRows) : ''}
+                        ${safeMoney(data.bonusSalary) > 0 ? `<div class="bonus-box"><div class="bonus-head">★ APRESIASI KINERJA ★</div><div class="bonus-amount">${formatReceiptMoney(data.bonusSalary || 0)}</div>${data.bonusNote ? `<div class="bonus-note">${String(data.bonusNote).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))}</div>` : ''}<div class="bonus-thanks">Terima kasih atas dedikasi dan kerja kerasnya. Terus semangat memberikan yang terbaik!</div></div>` : ''}
+                        ${safeMoney(data.bagiHasilDireksiAmount) > 0 ? sectionRows('Bagi Hasil Direksi', [`<div class="item-row"><span><b>Periode ${data.bagiHasilDireksiMonth || '-'}</b></span><span style="color:#b45309;font-weight:700">${formatReceiptMoney(data.bagiHasilDireksiAmount || 0)}</span></div>`]) : ''}
+                        ${safeMoney(data.cashAdvanceDeduction) > 0 ? sectionRows('Potongan - Kasbon', [`<div class="item-row"><span><b>Bayar kasbon sekarang</b><small>Sisa kasbon setelah cetak: ${formatReceiptMoney(Math.max(0, safeMoney(data.employeeCashAdvanceSnapshot?.remaining) - safeMoney(data.cashAdvanceDeduction)))}</small></span><span>${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>`]) : ''}
+
+                        <div class="total-box">
+                            <div class="total-row"><span>Total Pendapatan</span><span class="font-bold">${formatReceiptMoney(data.grossSalary || data.totalWage || 0)}</span></div>
+                            ${safeMoney(data.bonusSalary) > 0 ? `<div class="total-sub">★ termasuk apresiasi kinerja ${formatReceiptMoney(data.bonusSalary || 0)}</div>` : ''}
+                            ${susunanHarian.potonganJam !== 0 ? `<div class="total-sub" style="display:flex;justify-content:space-between"><span>· potongan jam sudah dikurangkan</span><span>${uangBertanda(susunanHarian.potonganJam)}</span></div>` : ''}
+                            <div class="total-row"><span>Potongan Kasbon</span><span class="font-bold">${formatReceiptMoney(data.cashAdvanceDeduction || 0)}</span></div>
+                            <div class="total-row grand-total"><span>Total Diterima</span><span>${formatReceiptMoney(data.netSalary ?? Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction)))}</span></div>
+                        </div>
+                        ${(() => {
+                            const payments = Array.isArray(data.payments) ? data.payments.filter(p => safeMoney(p.amount) > 0) : [];
+                            if (payments.length === 0) return '';
+                            const net = data.netSalary != null ? safeMoney(data.netSalary) : Math.max(0, safeMoney(data.grossSalary ?? data.totalWage) - safeMoney(data.cashAdvanceDeduction));
+                            const totalPaid = payments.reduce((s, p) => s + safeMoney(p.amount), 0);
+                            // Kelebihan bayar yang dijadikan kasbon tidak dihitung sebagai pembayaran gaji
+                            const dikasbon = safeMoney(dikasbonLebih);
+                            const efektif = totalPaid - dikasbon;
+                            const sisa = Math.max(0, Math.round(net - efektif));
+                            const lebih = Math.max(0, Math.round(efektif - net));
+                            const rows = payments.map((p, i) => `<div class="item-row"><span><b>Termin ${i+1}</b><small>${p.date || '-'} · ${p.method || 'Transfer'}${p.note ? ' · ' + p.note : ''}</small></span><span style="color:#15803d">${formatReceiptMoney(p.amount)}</span></div>`).join('');
+                            const barisKasbon = dikasbon > 0 ? `<div class="total-row"><span>Dijadikan kasbon (lebih bayar komisi)</span><span>-${formatReceiptMoney(dikasbon)}</span></div>` : '';
+                            const barisAkhir = lebih > 1
+                                ? `<div class="total-row" style="font-weight:900"><span>Lebih Bayar</span><span style="color:#6d28d9">${formatReceiptMoney(lebih)}</span></div>`
+                                : `<div class="total-row" style="font-weight:900"><span>Sisa Belum Dibayar</span><span style="color:${sisa > 0 ? '#dc2626' : '#15803d'}">${formatReceiptMoney(sisa)}${sisa === 0 ? ' ✓' : ''}</span></div>`;
+                            return `${sectionRows('Riwayat Pembayaran', [rows + `<div class="total-row" style="font-weight:900;margin-top:3px"><span>Sudah Dibayar</span><span style="color:#15803d">${formatReceiptMoney(totalPaid)}</span></div>` + barisKasbon + barisAkhir])}`;
+                        })()}
+
+                        <div class="signature">
+                            <div class="sig-box">
+                                <div>Penerima</div>
+                                <div class="signature-line">${data.empName || ''}</div>
+                            </div>
+                            <div class="sig-box">
+                                <div>Hormat Kami,</div>
+                                ${(templates?.signatureImage && templates?.showSignatureOnPrint !== false) ? `<img class="sig-img" src="${templates.signatureImage}" style="transform:scale(${(templates?.signatureSize||100)/100});transform-origin:center center"/>` : ''}
+                                <div class="signature-line">${(templates?.companyName || 'Simpati Konveksi')}</div>
+                            </div>
+                        </div>
+                        <div class="footer-note">Simpan struk ini sebagai bukti rekap gaji karyawan.</div>
+                    </div>
+                </body>
+                </html>
+                `;
+                return printContent;
+        };
+        // "Simpan PDF" di link slip: nota struk (HTML 80 mm) digambar di bingkai tersembunyi, lalu dijadikan PDF selebar 80 mm.
+        // Library PDF (jsPDF + html2canvas) baru diunduh saat tombol ditekan, jadi link tetap ringan saat dibuka.
+        const simpanNotaPdf = async (html, namaFile) => {
+            await Promise.all([loadJsPdf(), loadHtml2Canvas()]);
+            if (!window.jspdf || !window.html2canvas) throw new Error('Library PDF gagal dimuat');
+            const frame = document.createElement('iframe');
+            frame.setAttribute('aria-hidden', 'true');
+            frame.setAttribute('tabindex', '-1');
+            frame.setAttribute('sandbox', 'allow-same-origin');
+            frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:420px;height:1600px;border:0;opacity:0;pointer-events:none';
+            // Tampilan kertas struk: lebar 80 mm dengan tepi 4 mm (sama seperti hasil cetak), tanpa bayangan
+            const gaya = '<style>html{width:80mm!important;background:#fff!important}body{width:80mm!important;margin:0!important;padding:4mm!important;box-sizing:border-box!important;background:#fff!important}.receipt{width:72mm!important;padding:0!important;margin:0!important;box-shadow:none!important;background:#fff!important}</style>';
+            const isi = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, gaya + '</head>') : gaya + html;
+            try {
+                await new Promise((resolve, reject) => {
+                    const t = setTimeout(() => reject(new Error('Nota gagal disiapkan')), 15000);
+                    frame.onload = () => { clearTimeout(t); resolve(); };
+                    frame.srcdoc = isi;
+                    document.body.appendChild(frame);
+                });
+                const doc = frame.contentDocument;
+                if (!doc || !doc.body) throw new Error('Nota gagal disiapkan');
+                const belum = [...doc.images].filter(i => !i.complete);
+                await Promise.race([Promise.all(belum.map(i => new Promise(r => { i.onload = i.onerror = r; }))), new Promise(r => setTimeout(r, 5000))]);
+                const el = doc.body;
+                const w = Math.max(1, Math.ceil(el.scrollWidth)), h = Math.max(1, Math.ceil(el.scrollHeight));
+                // Ketajaman 3× bila muat; nota sangat panjang diturunkan agar tidak melebihi batas memori HP
+                const skala = Math.max(1, Math.min(3, Math.sqrt(12e6 / (w * h))));
+                const canvas = await window.html2canvas(el, { scale: skala, backgroundColor: '#ffffff', useCORS: true, logging: false, width: w, height: h, windowWidth: w, windowHeight: h });
+                const { jsPDF } = window.jspdf;
+                const lebar = 80, tinggi = Math.max(20, lebar * canvas.height / canvas.width);
+                const pdf = new jsPDF({ unit: 'mm', format: [lebar, tinggi], orientation: tinggi >= lebar ? 'portrait' : 'landscape', compress: true });
+                pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, lebar, tinggi);
+                pdf.save(`${namaFile || 'Nota'}.pdf`);
+            } finally {
+                frame.remove();
+            }
+        };
         // Nota rekap gaji driver (sumber yang sama untuk cetak admin & link driver)
         // 🎁 Tips per trip (opsional, diisi admin saat input pengiriman). Disimpan terpisah dari ongkir.
         const tipsTrip = (t) => Math.max(0, safeMoney(t?.tips));
@@ -28345,16 +28604,17 @@ ${getRekapShareLink(rekap)}
             const [tpl, setTpl] = React.useState({});
             const [kasbon, setKasbon] = React.useState([]);
             const [loading, setLoading] = React.useState(true);
-            const [popupDiblokir, setPopupDiblokir] = React.useState(false);
-            const tplLengkapRef = React.useRef(null); // pengaturan cetak lengkap, diunduh saat pertama kali dicetak
+            const [pdf, setPdf] = React.useState({ proses: false, pesan: '', gagal: false });
+            const tplLengkapRef = React.useRef(null); // pengaturan cetak lengkap (logo asli & tanda tangan), diunduh saat pertama kali menyimpan PDF
 
             React.useEffect(() => {
                 const CACHE_KEY = `simpati_drg_cache_${rekapId}`;
                 const load = async () => {
                     try {
-                        const cached = sessionStorage.getItem(CACHE_KEY);
-                        if (cached) {
-                            const { rekap: cR, trips: cT, driver: cD, tpl: cTpl, tarifs: cTrf, kasbon: cKb } = JSON.parse(cached);
+                        // Dibuka ulang di HP yang sama: langsung tampil dari salinan terakhir, lalu diperbarui dari server
+                        const cached = bacaCacheShare(CACHE_KEY);
+                        if (cached && cached.rekap) {
+                            const { rekap: cR, trips: cT, driver: cD, tpl: cTpl, tarifs: cTrf, kasbon: cKb } = cached;
                             setKasbon(Array.isArray(cKb) ? cKb : []);
                             setRekap(cR || null);
                             setTrips(cT || []);
@@ -28364,22 +28624,24 @@ ${getRekapShareLink(rekap)}
                             setLoading(false);
                         }
                         if (supabaseClient) {
-                            // Hanya rekap ini, perjalanannya & kasbon driver ini (bukan semua data driver)
-                            const [allRekap, dRes, tpl, trfRes] = await Promise.all([
+                            // Hanya rekap ini, perjalanannya, data & kasbon driver ini (bukan semua data driver)
+                            const [allRekap, tpl, trfRes] = await Promise.all([
                                 ambilShareCocok('driverRekapGaji', 'id', rekapId),
-                                supabaseClient.from('app_data').select('data').eq('id','drivers').single(),
                                 ambilPengaturanShare(['companyName', 'companySubtitle', 'printMode', 'logoSize']).catch(() => ({})),
                                 supabaseClient.from('app_data').select('data').eq('id','driverTarifs').single(),
                             ]);
-                            const found = allRekap.find(r => r.id === rekapId && !r.isDeleted);
-                            const [tripList, kbList] = found ? await Promise.all([
+                            const found = safeArray(allRekap).find(r => r && r.id === rekapId && !r.isDeleted);
+                            const [tripList, kbList, drvList] = found ? await Promise.all([
                                 ambilShareIds('driverTransactions', found.tripIds),
                                 ambilShareCocok('driverKasbon', 'driverId', found.driverId).catch(() => []),
-                            ]) : [[], []];
+                                ambilShareCocok('drivers', 'id', found.driverId).catch(() => []),
+                            ]) : [[], [], []];
                             const kbRes = { data: { data: kbList } };
-                            const allTarifs = trfRes.data?.data || [];
-                            const foundTrips = found ? tripList.filter(t => (found.tripIds||[]).includes(t.id)) : [];
-                            const foundDriver = found ? (dRes.data?.data || []).find(d => d.id === found.driverId) || null : null;
+                            const foundTrips = found ? safeArray(tripList).filter(t => t && (found.tripIds||[]).includes(t.id)) : [];
+                            // Tarif yang dipakai trip rekap ini saja (salinan di HP lebih kecil)
+                            const tarifDipakai = new Set(foundTrips.map(t => t.tarifId));
+                            const allTarifs = safeArray(trfRes.data?.data).filter(x => x && tarifDipakai.has(x.id));
+                            const foundDriver = found ? safeArray(drvList).find(d => d && d.id === found.driverId) || null : null;
                             setRekap(found || null);
                             setTrips(foundTrips);
                             setDriver(foundDriver);
@@ -28389,7 +28651,8 @@ ${getRekapShareLink(rekap)}
                             // Kasbon driver ini saja (untuk "sisa kasbon per hari ini" pada rekap lama)
                             const kasbonDriver = found ? safeArray(kbRes?.data?.data).filter(k => k && k.driverId === found.driverId) : [];
                             setKasbon(kasbonDriver);
-                            try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ rekap: found, trips: foundTrips, driver: foundDriver, tpl, tarifs: allTarifs, kasbon: kasbonDriver })); } catch(e) {}
+                            if (found) simpanCacheShare(CACHE_KEY, { rekap: found, trips: foundTrips, driver: foundDriver, tpl, tarifs: allTarifs, kasbon: kasbonDriver });
+                            else hapusCacheShare(CACHE_KEY);
                         }
                     } catch(e) { console.error(e); }
                     setLoading(false);
@@ -28419,19 +28682,29 @@ ${getRekapShareLink(rekap)}
             const pot = safeMoney(rekap.potonganKasbon);
             const apr = safeMoney(rekap.apresiasi);
             const diterima = safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir);
-            // Cetak memakai nota yang sama persis dengan cetakan admin
-            // Cetak: pengaturan cetak lengkap (logo asli & tanda tangan) diunduh sekali saat pertama kali dicetak.
-            // Jendela cetak dibuka lebih dulu saat klik agar tidak diblokir browser, lalu diisi setelah unduhan selesai.
-            const printRekap = async () => {
-                if (tplLengkapRef.current || !supabaseClient) { setPopupDiblokir(!cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl: tplLengkapRef.current || tpl, sisaSekarang }))); return; }
-                const w = window.open('', '_blank', 'width=420,height=700');
-                if (!w) { setPopupDiblokir(true); return; }
-                let gabung = tpl;
-                try { const full = await ambilPengaturanShare(KOLOM_CETAK_SLIP); gabung = { ...tpl, ...full }; tplLengkapRef.current = gabung; setTpl(gabung); applyPrintSettingsFromTemplates(gabung); } catch (e) {}
-                setPopupDiblokir(!cetakStruk80(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl: gabung, sisaSekarang }), w));
+            // Simpan PDF: nota yang sama persis dengan cetakan admin. Pengaturan cetak lengkap (logo asli & tanda tangan)
+            // diunduh sekali saat pertama kali menyimpan.
+            const simpanPdf = async () => {
+                if (pdf.proses) return;
+                setPdf({ proses: true, pesan: '', gagal: false });
+                try {
+                    let gabung = tplLengkapRef.current || tpl;
+                    if (!tplLengkapRef.current && supabaseClient) {
+                        try { const full = await ambilPengaturanShare(KOLOM_CETAK_SLIP); gabung = { ...tpl, ...full }; tplLengkapRef.current = gabung; } catch (e) {}
+                    }
+                    await simpanNotaPdf(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl: gabung, sisaSekarang }), namaFileCetak('Rekap Gaji Driver', rekap.driverName || driver?.name || 'Driver', per ? labelRentangStruk(per.dari, per.sampai) : fmtTglStruk(rekap.tanggalRekap)));
+                    setPdf({ proses: false, pesan: '✓ PDF tersimpan. Cek folder Unduhan / Download.', gagal: false });
+                } catch (e) {
+                    console.error(e);
+                    setPdf({ proses: false, pesan: 'PDF gagal dibuat. Periksa koneksi internet lalu coba lagi.', gagal: true });
+                }
             };
+            const stBayar = drvRekapNet(rekap) > 0 ? drvRekapStatus(rekap) : null;
+            const sudahBayar = stBayar ? Math.min(drvRekapNet(rekap), drvRekapDibayar(rekap)) : 0;
+            const namaDepanDrv = String(rekap.driverName || driver?.name || '').trim().split(/\s+/)[0] || '';
             return (
                 <div className="min-h-screen bg-gray-50 py-8 px-4">
+                    <style>{SLIP_VIEW_CSS}</style>
                     <div className="max-w-lg mx-auto">
                         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
                             <div className="bg-slate-700 text-white p-5 text-center">
@@ -28448,12 +28721,37 @@ ${getRekapShareLink(rekap)}
                                     <div className="flex justify-between"><span className="text-gray-500">No Rekap</span><span className="text-xs font-mono text-gray-600">{rekap.id}</span></div>
                                     {rekap.note && <div className="flex justify-between"><span className="text-gray-500">Catatan</span><span className="font-medium">{rekap.note}</span></div>}
                                 </div>
+                                {stBayar && (
+                                    <div className={`rounded-xl border-2 px-3 py-2.5 ${stBayar === 'lunas' ? 'bg-green-50 border-green-300 text-green-800' : stBayar === 'sebagian' ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-orange-50 border-orange-300 text-orange-800'}`} data-rg-status={stBayar}>
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg font-black text-white shrink-0 ${stBayar === 'lunas' ? 'bg-green-600' : stBayar === 'sebagian' ? 'bg-blue-600' : 'bg-orange-500'}`}>{stBayar === 'lunas' ? '✓' : stBayar === 'sebagian' ? '💸' : '⏳'}</div>
+                                            <div className="min-w-0">
+                                                <div className="font-black text-[15px]">{stBayar === 'lunas' ? 'Lunas' : stBayar === 'sebagian' ? 'Dibayar sebagian' : 'Belum dibayar'}</div>
+                                                <div className="text-[13px]">{stBayar === 'lunas' ? 'Gaji sudah dibayar' : stBayar === 'sebagian' ? `Sudah ${formatRupiah(sudahBayar)} · sisa ${formatRupiah(drvRekapSisa(rekap))}` : 'Menunggu pembayaran'}</div>
+                                            </div>
+                                        </div>
+                                        {stBayar === 'sebagian' && <div className="h-2 rounded-full bg-blue-100 mt-2 overflow-hidden"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(0, Math.min(100, Math.round(sudahBayar / Math.max(1, drvRekapNet(rekap)) * 100)))}%` }}></div></div>}
+                                    </div>
+                                )}
+                                {(stBayar === 'belum' || stBayar === 'sebagian') && (
+                                    <div className={`rounded-xl border border-dashed px-3 py-2.5 text-[13.5px] flex gap-2 items-start ${stBayar === 'sebagian' ? 'bg-blue-50 border-blue-400 text-blue-900' : 'bg-orange-50 border-orange-400 text-orange-900'}`} data-rg-cek>
+                                        <span className="text-lg leading-tight">🔎</span>
+                                        <span>{stBayar === 'sebagian' ? 'Sisa gaji dibayar menyusul. Mohon dicek kembali rincian trip & gaji di bawah; jika ada yang belum sesuai, silakan beritahu admin.' : 'Mohon dicek kembali rincian trip & gaji di bawah. Jika ada yang belum sesuai, silakan beritahu admin.'}</span>
+                                    </div>
+                                )}
                                 {apr > 0 && (
-                                    <div className="border-2 border-amber-400 bg-gradient-to-b from-amber-50 to-amber-100 rounded-xl px-4 py-3 text-center" data-rg-apresiasi>
-                                        <div className="text-[11px] font-black tracking-[0.2em] text-amber-700">⭐ APRESIASI ⭐</div>
-                                        <div className="text-3xl font-black text-amber-800 mt-0.5">{formatRupiah(apr)}</div>
-                                        {rekap.apresiasiNote && <div className="text-sm font-bold text-amber-900 mt-0.5">{rekap.apresiasiNote}</div>}
-                                        <div className="text-xs italic text-amber-800 border-t border-dashed border-amber-400 mt-2 pt-1.5">Terima kasih atas kerja kerasnya, {String(rekap.driverName || 'Driver').split(' ')[0]}! 🙏</div>
+                                    <div data-rg-apresiasi>
+                                        <div className="aprK">
+                                            <div className="hd">★ APRESIASI ★</div>
+                                            <div className="stars"><span>✦</span><span>✧</span></div>
+                                            <div className="bd">
+                                                <div className="tr">🏆</div>
+                                                <div className="amt">{formatRupiah(apr)}</div>
+                                                {rekap.apresiasiNote && <div className="why">{rekap.apresiasiNote}</div>}
+                                                <div className="msg">Terima kasih atas kerja kerasnya{namaDepanDrv ? `, ${namaDepanDrv}` : ''}! 🙏 Terus semangat!</div>
+                                            </div>
+                                        </div>
+                                        <div className="aprNote">Sudah termasuk dalam Gaji Diterima</div>
                                     </div>
                                 )}
                                 <div className="border border-gray-200 rounded-xl p-4 space-y-1.5 text-sm" data-rg-uang>
@@ -28465,7 +28763,7 @@ ${getRekapShareLink(rekap)}
                                 <div className="bg-green-100 text-green-800 rounded-xl px-4 py-3 flex items-center justify-between" data-rg-diterima>
                                     <span className="font-black text-sm">GAJI DITERIMA</span><span className="text-2xl font-black">{formatRupiah(diterima)}</span>
                                 </div>
-                                {drvRekapNet(rekap) > 0 && (() => {
+                                {drvRekapNet(rekap) > 0 && !drvRekapLama(rekap) && drvRekapBayar(rekap).length > 0 && (() => {
                                     const st = drvRekapStatus(rekap);
                                     const evs = drvRekapKasKeluar(rekap);
                                     return (
@@ -28504,8 +28802,8 @@ ${getRekapShareLink(rekap)}
                                         </table>
                                     </div>
                                 </div>
-                                <button onClick={printRekap} className="w-full bg-slate-700 hover:bg-slate-800 text-white py-3 rounded-xl font-bold text-base">Cetak / Simpan PDF</button>
-                                {popupDiblokir && <p className="text-xs text-red-600 text-center font-medium" data-rg-popup>Jendela cetak diblokir browser. Izinkan pop-up untuk halaman ini, lalu tekan tombol Cetak lagi.</p>}
+                                <button type="button" onClick={simpanPdf} disabled={pdf.proses} data-rg-pdf className="w-full bg-slate-900 hover:bg-black disabled:opacity-70 text-white py-3.5 rounded-xl font-black text-base">{pdf.proses ? '⏳ Menyiapkan PDF…' : '📄 Simpan PDF'}</button>
+                                {pdf.pesan && !pdf.proses && <p className={`text-xs text-center font-medium ${pdf.gagal ? 'text-red-600' : 'text-green-700'}`} data-rg-pdf-pesan>{pdf.pesan}</p>}
                             </div>
                         </div>
                     </div>
@@ -31797,7 +32095,7 @@ ${getRekapShareLink(rekap)}
             const siapkanCetakSlipShare = () => {
                 if (!cetakSlipLengkapRef.current) {
                     cetakSlipLengkapRef.current = ambilPengaturanShare(KOLOM_CETAK_SLIP)
-                        .then(full => { setTemplates(prev => ({ ...(prev || initialTemplates), ...full })); })
+                        .then(full => { setTemplates(prev => ({ ...(prev || initialTemplates), ...full })); return full; })
                         .catch(() => { cetakSlipLengkapRef.current = null; });
                 }
                 return cetakSlipLengkapRef.current;
@@ -33263,6 +33561,8 @@ ${getRekapShareLink(rekap)}
                 if (savedUser) { setAuthUser(stripCredentials(savedUser)); saveAuthSession(savedUser); }
 
                 const initData = async () => {
+                    // Membuka link share = boleh langsung mencoba server sekali (jeda pengaman dari gangguan sebelumnya tidak menahan)
+                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId || customerTrackingClient || rekapGajiShareId) cloudHealth.allowProbeNow();
                     // Halaman share yang mengambil datanya sendiri: jangan muat (dan jangan simpan ke perangkat pengunjung) data utama
                     if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) {
                         setIsReady(true);
@@ -33299,6 +33599,15 @@ ${getRekapShareLink(rekap)}
                             setIsReady(true);
                             return;
                         }
+                        // Dibuka ulang di HP yang sama: langsung tampil dari salinan terakhir, lalu diperbarui dari server
+                        const CACHE_SLIP = `simpati_slip_cache_${rekapGajiShareId}`;
+                        const salinan = bacaCacheShare(CACHE_SLIP);
+                        if (salinan && salinan.rekap) {
+                            setRekapKinerja([salinan.rekap]);
+                            setTemplates({ ...initialTemplates, ...(salinan.tpl || {}) });
+                            setInvoices(safeArray(salinan.invs));
+                            setIsReady(true);
+                        }
                         try {
                             const [rekaps, tmpls] = await Promise.all([
                                 ambilShareCocok('rekapKinerja', 'id', rekapGajiShareId).catch(() => fetchStoreData('rekapKinerja', [])),
@@ -33311,14 +33620,24 @@ ${getRekapShareLink(rekap)}
                             setRekapKinerja(thisRekap ? [thisRekap] : []);
                             setTemplates(tmpls && typeof tmpls === 'object' ? tmpls : initialTemplates);
                             // Logo asli & tanda tangan baru diunduh saat tombol Cetak ditekan (hemat kuota; layar memakai logo kecil)
+                            let invsRekap = [];
                             if (thisRekap && safeArray(thisRekap.marketingInvoiceIds).length > 0) {
                                 const invs = await ambilShareIds('invoices', thisRekap.marketingInvoiceIds).catch(() => fetchStoreData('invoices', []));
                                 const ids = new Set(safeArray(thisRekap.marketingInvoiceIds).map(String));
-                                setInvoices(safeArray(invs).filter(inv => ids.has(String(inv.id))));
+                                invsRekap = safeArray(invs).filter(inv => inv && ids.has(String(inv.id)));
+                                setInvoices(invsRekap);
                             }
+                            if (thisRekap) {
+                                // Salinan hanya berisi yang ditampilkan link ini (rekap, invoice komisinya, nama & logo kecil usaha)
+                                const t = tmpls && typeof tmpls === 'object' ? tmpls : {};
+                                const tplKecil = {};
+                                ['companyName', 'companySubtitle', 'companyContact', 'companyAddress', 'showSignatureOnPrint', 'signatureSize', 'printMode', 'logoSize', 'companyLogoMini'].forEach(k => { if (t[k] != null) tplKecil[k] = t[k]; });
+                                if (t.companyLogoMini) tplKecil.companyLogo = t.companyLogoMini;
+                                simpanCacheShare(CACHE_SLIP, { rekap: thisRekap, tpl: tplKecil, invs: invsRekap });
+                            } else hapusCacheShare(CACHE_SLIP);
                         } catch(e) {
                             console.error('Gagal fetch data share rekap:', e);
-                            showToast('Gagal memuat data. Periksa jaringan lalu muat ulang halaman.', 'error');
+                            if (!salinan) showToast('Gagal memuat data. Periksa jaringan lalu muat ulang halaman.', 'error');
                         } finally {
                             setIsReady(true);
                         }

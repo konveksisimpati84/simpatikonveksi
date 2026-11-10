@@ -79,7 +79,13 @@ const code = minified.code;
 // "</script" di dalam kode akan memotong tag <script> di HTML
 if (/<\/script/i.test(code)) fail('hasil terjemahan mengandung "</script" — tulis sebagai "<\\/script" di src/app.jsx');
 
-const out = template.replace(PLACEHOLDER, () => `<script>\n${code}\n</script>`).replace(TW_PLACEHOLDER, () => twCss);
+// Alamat & kunci publik (anon) Supabase untuk skrip unduh-awal link slip di template: diambil dari src/app.jsx (satu sumber)
+const sbUrl = (source.match(/const SUPABASE_URL = '([^']+)'/) || [])[1];
+const sbKey = (source.match(/const SUPABASE_ANON_KEY = '([^']+)'/) || [])[1];
+if (!sbUrl || !sbKey) fail('SUPABASE_URL / SUPABASE_ANON_KEY tidak ditemukan di src/app.jsx');
+if (template.split("'__SB_URL__'").length !== 2 || template.split("'__SB_KEY__'").length !== 2) fail("template harus berisi tepat satu '__SB_URL__' dan '__SB_KEY__'");
+const templateSb = template.replace("'__SB_URL__'", () => JSON.stringify(sbUrl).replace(/"/g, "'")).replace("'__SB_KEY__'", () => JSON.stringify(sbKey).replace(/"/g, "'"));
+const out = templateSb.replace(PLACEHOLDER, () => `<script>\n${code}\n</script>`).replace(TW_PLACEHOLDER, () => twCss);
 fs.writeFileSync(path.join(root, 'index.html'), out);
 console.log(`index.html dibuat: ${(out.length / 1048576).toFixed(2)} MB (kode sumber ${(source.length / 1048576).toFixed(2)} MB, CSS Tailwind ${(twCss.length / 1024).toFixed(0)} KB)`);
 })().catch(e => fail(e && e.stack || String(e)));
