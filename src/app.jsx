@@ -24357,7 +24357,7 @@ ${getRekapShareLink(rekap)}
         // Tampilan link slip gaji karyawan: kartu berwarna dengan urutan sama seperti nota. "Simpan PDF" menghasilkan nota yang sama
         // dengan cetakan admin (htmlSlipGajiKaryawan). Gaya khusus disimpan di sini (bukan kelas Tailwind) agar rapi & mudah diubah.
         const SLIP_VIEW_CSS = `
-            .slipv{min-height:100vh;min-height:100dvh;background:#eef2f7;color:#0f172a;line-height:1.42;padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
+            .slipv{min-height:100vh;min-height:100dvh;background:#eef2f7;color:#0f172a;line-height:1.42;padding-bottom:calc(160px + env(safe-area-inset-bottom,0px))}
             .slipv *{box-sizing:border-box}
             .slipv .wrapv{max-width:480px;margin:0 auto}
             .slipv .num{font-variant-numeric:tabular-nums}
@@ -24433,9 +24433,13 @@ ${getRekapShareLink(rekap)}
             @media (prefers-reduced-motion:reduce){.aprK .hd,.aprK .tr,.aprK .stars span{animation:none}}
             .slipv .bar1{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(255,255,255,.97);border-top:1px solid #e2e8f0;padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px))}
             .slipv .bar1 .in{max-width:480px;margin:0 auto}
-            .slipv .bar1 button{width:100%;border:0;border-radius:14px;padding:14px;font-size:16px;font-weight:900;background:#0f172a;color:#fff;box-shadow:0 3px 0 #000;cursor:pointer}
-            .slipv .bar1 button:disabled{opacity:.7;cursor:wait}
-            .slipv .bar1 p{font-size:12px;text-align:center;margin-top:6px}
+            .pdfb-bt{width:100%;border:0;border-radius:14px;padding:14px;font-size:16px;font-weight:900;color:#fff;cursor:pointer;font-family:inherit;line-height:1.2}
+            .pdfb-bt.hitam{background:#0f172a;box-shadow:0 3px 0 #000}.pdfb-bt.abu{background:#64748b;cursor:wait}
+            .pdfb-bt.hijau{background:#16a34a;box-shadow:0 3px 0 #15803d}.pdfb-bt.biru{background:#2563eb;box-shadow:0 3px 0 #1d4ed8}
+            .pdfb-dua{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pdfb-dua.satu{grid-template-columns:1fr}.pdfb-dua .pdfb-bt{font-size:15px;padding:13px 6px}
+            .pdfb-siap{font-size:13px;font-weight:900;color:#15803d;text-align:center;margin-bottom:6px}
+            .pdfb-prog{height:6px;border-radius:99px;background:#e2e8f0;margin-top:8px;overflow:hidden}.pdfb-prog i{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#38bdf8);transition:width .25s}
+            .pdfb-ket{font-size:12px;text-align:center;margin-top:6px;color:#475569;overflow-wrap:anywhere}
         `;
         // Status bayar slip untuk link karyawan — aturan sama dengan Laporan Kinerja (getRekapPayBadge).
         // dikasbon: kelebihan bayar komisi yang dijadikan kasbon (tidak dihitung sebagai pembayaran gaji)
@@ -24453,7 +24457,6 @@ ${getRekapShareLink(rekap)}
         };
 
         const RekapGajiShareView = ({ rekapId, employees, rekapKinerja, templates, invoices, onSiapkanCetak = null }) => {
-            const [pdf, setPdf] = React.useState({ proses: false, pesan: '', gagal: false });
             const rekap = (rekapKinerja || []).filter(isVisibleRecord).find(r => String(r.id) === String(rekapId));
             const employee = (employees || []).filter(isVisibleRecord).find(emp => String(emp.id) === String(rekap?.empId));
 
@@ -24578,20 +24581,11 @@ ${getRekapShareLink(rekap)}
             }[status.st];
             const persenBayar = net > 0 ? Math.max(0, Math.min(100, Math.round((status.paid - dikasbon) / net * 100))) : 0;
 
-            const simpanPdf = async () => {
-                if (pdf.proses) return;
-                setPdf({ proses: true, pesan: 'Menyiapkan PDF…', gagal: false });
-                try {
-                    // Logo asli & tanda tangan baru diunduh saat ini (layar memakai logo kecil)
-                    let tpl = templates || {};
-                    if (onSiapkanCetak) { try { const full = await onSiapkanCetak(); if (full && typeof full === 'object') tpl = { ...tpl, ...full }; } catch (e) {} }
-                    const html = htmlSlipGajiKaryawan({ data: { ...rekap, empName, division }, templates: tpl, invoices, dikasbonLebih: dikasbon });
-                    await simpanNotaPdf(html, namaFileCetak('Slip Gaji', empName, fmtTglStruk(rekap.dateProcessed)));
-                    setPdf({ proses: false, pesan: '✓ PDF tersimpan. Cek folder Unduhan / Download.', gagal: false });
-                } catch (e) {
-                    console.error(e);
-                    setPdf({ proses: false, pesan: 'PDF gagal dibuat. Periksa koneksi internet lalu coba lagi.', gagal: true });
-                }
+            // Nota untuk PDF: logo asli & tanda tangan baru diunduh saat tombol ditekan (layar memakai logo kecil)
+            const buatHtmlNota = async () => {
+                let tpl = templates || {};
+                if (onSiapkanCetak) { try { const full = await onSiapkanCetak(); if (full && typeof full === 'object') tpl = { ...tpl, ...full }; } catch (e) {} }
+                return htmlSlipGajiKaryawan({ data: { ...rekap, empName, division }, templates: tpl, invoices, dikasbonLebih: dikasbon });
             };
 
             // Baris ringkasan (urutan sama dengan nota)
@@ -24765,8 +24759,7 @@ ${getRekapShareLink(rekap)}
 
                     <div className="bar1">
                         <div className="in">
-                            <button type="button" data-slip-pdf onClick={simpanPdf} disabled={pdf.proses}>{pdf.proses ? '⏳ Menyiapkan PDF…' : '📄 Simpan PDF'}</button>
-                            {pdf.pesan && !pdf.proses && <p data-slip-pdf-pesan style={{ color: pdf.gagal ? '#b91c1c' : '#15803d' }}>{pdf.pesan}</p>}
+                            <TombolPdfSlip buatHtml={buatHtmlNota} namaFile={namaFileCetak('Slip Gaji', empName, fmtTglStruk(rekap.dateProcessed))} kunci={`${rekap.id}|${rekap._syncUpdatedAt || ''}|${safeArray(invoices).length}|${dikasbon}`} />
                         </div>
                     </div>
                 </div>
@@ -25991,19 +25984,32 @@ ${getRekapShareLink(rekap)}
                 `;
                 return printContent;
         };
-        // "Simpan PDF" di link slip: nota struk (HTML 80 mm) digambar di bingkai tersembunyi, lalu dijadikan PDF selebar 80 mm.
-        // Library PDF (jsPDF + html2canvas) baru diunduh saat tombol ditekan, jadi link tetap ringan saat dibuka.
-        const simpanNotaPdf = async (html, namaFile) => {
+        // ===== "Simpan PDF" di link slip (karyawan & driver) =====
+        // Nota struk (HTML 80 mm) digambar di bingkai tersembunyi lalu dijadikan PDF selebar 80 mm. Library PDF (jsPDF + html2canvas)
+        // diunduh diam-diam beberapa detik setelah link tampil (dari CDN, tidak memakai kuota Supabase), jadi saat tombol ditekan langsung diproses.
+        const perangkatApple = () => /iPad|iPhone|iPod/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const layarSentuh = () => { try { return window.matchMedia('(pointer: coarse)').matches || perangkatApple(); } catch (e) { return false; } };
+        let pustakaPdfDipesan = false;
+        const siapkanPustakaPdf = () => {
+            if (pustakaPdfDipesan) return;
+            pustakaPdfDipesan = true;
+            setTimeout(() => { loadJsPdf().catch(() => {}); loadHtml2Canvas().catch(() => {}); }, 2500);
+        };
+        // batal.frame diisi agar bingkai bisa dibuang bila waktu habis
+        const buatNotaPdf = async (html, namaFile, batal = {}) => {
             await Promise.all([loadJsPdf(), loadHtml2Canvas()]);
             if (!window.jspdf || !window.html2canvas) throw new Error('Library PDF gagal dimuat');
             const frame = document.createElement('iframe');
+            batal.frame = frame;
             frame.setAttribute('aria-hidden', 'true');
             frame.setAttribute('tabindex', '-1');
-            frame.setAttribute('sandbox', 'allow-same-origin');
+            // Tanpa "sandbox": di iPhone/iPad (WebKit) bingkai ber-sandbox bisa membuat proses menggambar menunggu tanpa akhir
             frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:420px;height:1600px;border:0;opacity:0;pointer-events:none';
             // Tampilan kertas struk: lebar 80 mm dengan tepi 4 mm (sama seperti hasil cetak), tanpa bayangan
             const gaya = '<style>html{width:80mm!important;background:#fff!important}body{width:80mm!important;margin:0!important;padding:4mm!important;box-sizing:border-box!important;background:#fff!important}.receipt{width:72mm!important;padding:0!important;margin:0!important;box-shadow:none!important;background:#fff!important}</style>';
-            const isi = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, gaya + '</head>') : gaya + html;
+            // Nota dibuat aplikasi sendiri (tanpa skrip); skrip apa pun tetap dibuang demi keamanan
+            const bersih = String(html || '').replace(/<script[\s\S]*?<\/script>/gi, '');
+            const isi = /<\/head>/i.test(bersih) ? bersih.replace(/<\/head>/i, gaya + '</head>') : gaya + bersih;
             try {
                 await new Promise((resolve, reject) => {
                     const t = setTimeout(() => reject(new Error('Nota gagal disiapkan')), 15000);
@@ -26017,17 +26023,99 @@ ${getRekapShareLink(rekap)}
                 await Promise.race([Promise.all(belum.map(i => new Promise(r => { i.onload = i.onerror = r; }))), new Promise(r => setTimeout(r, 5000))]);
                 const el = doc.body;
                 const w = Math.max(1, Math.ceil(el.scrollWidth)), h = Math.max(1, Math.ceil(el.scrollHeight));
-                // Ketajaman 3× bila muat; nota sangat panjang diturunkan agar tidak melebihi batas memori HP
-                const skala = Math.max(1, Math.min(3, Math.sqrt(12e6 / (w * h))));
+                // HP/iPad 2× (± 190 dpi, tetap tajam dicetak & lebih cepat), komputer 3×; nota sangat panjang diturunkan agar muat di memori HP
+                const skala = Math.max(1, Math.min(layarSentuh() ? 2 : 3, Math.sqrt(12e6 / (w * h))));
                 const canvas = await window.html2canvas(el, { scale: skala, backgroundColor: '#ffffff', useCORS: true, logging: false, width: w, height: h, windowWidth: w, windowHeight: h });
                 const { jsPDF } = window.jspdf;
                 const lebar = 80, tinggi = Math.max(20, lebar * canvas.height / canvas.width);
                 const pdf = new jsPDF({ unit: 'mm', format: [lebar, tinggi], orientation: tinggi >= lebar ? 'portrait' : 'landscape', compress: true });
                 pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, lebar, tinggi);
-                pdf.save(`${namaFile || 'Nota'}.pdf`);
+                return { blob: pdf.output('blob'), nama: `${namaFile || 'Nota'}.pdf` };
             } finally {
                 frame.remove();
             }
+        };
+        const filePdf = (hasil) => { try { return new File([hasil.blob], hasil.nama, { type: 'application/pdf' }); } catch (e) { return null; } };
+        const bisaBagikanFile = (file) => { try { return !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { return false; } };
+        const unduhBlob = (blob, nama) => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = nama; a.rel = 'noopener'; a.style.display = 'none';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        };
+        // Tombol PDF bersama untuk link slip karyawan & driver:
+        // Simpan PDF → Menyiapkan PDF… → ✓ PDF siap: [💾 Simpan ke HP] [📤 Bagikan]. Bila gagal/waktu habis: pesan + "Coba lagi" (tidak macet).
+        // buatHtml: async () => HTML nota; kunci: berubah bila data slip berubah (PDF lama dibuang).
+        const TombolPdfSlip = ({ buatHtml, namaFile, kunci }) => {
+            const [st, setSt] = React.useState({ tahap: 'awal', pesan: '', gagal: false });
+            const [persen, setPersen] = React.useState(0);
+            const hasilRef = React.useRef(null);
+            const urutRef = React.useRef(0);
+            React.useEffect(() => { siapkanPustakaPdf(); }, []);
+            React.useEffect(() => { hasilRef.current = null; urutRef.current++; setSt({ tahap: 'awal', pesan: '', gagal: false }); }, [kunci]);
+            React.useEffect(() => {
+                if (st.tahap !== 'proses') return undefined;
+                setPersen(8);
+                const t = setInterval(() => setPersen(p => Math.min(92, p + Math.max(1, (92 - p) * 0.12))), 250);
+                return () => clearInterval(t);
+            }, [st.tahap]);
+            const mulai = async () => {
+                if (st.tahap === 'proses') return;
+                const no = ++urutRef.current;
+                const batal = {};
+                setSt({ tahap: 'proses', pesan: '', gagal: false });
+                try {
+                    const kerja = (async () => buatNotaPdf(await buatHtml(), namaFile, batal))();
+                    const hasil = await Promise.race([kerja, new Promise((_, rej) => setTimeout(() => rej(new Error('Waktu habis')), 25000))]);
+                    if (no !== urutRef.current) return;
+                    const file = filePdf(hasil);
+                    hasilRef.current = { ...hasil, file, bagikan: layarSentuh() && bisaBagikanFile(file) };
+                    setSt({ tahap: 'siap', pesan: '', gagal: false });
+                } catch (e) {
+                    console.error(e);
+                    try { if (batal.frame) batal.frame.remove(); } catch (er) {}
+                    if (no !== urutRef.current) return;
+                    setSt({ tahap: 'awal', pesan: '⚠ PDF gagal dibuat (koneksi lambat / waktu habis). Tampilan slip tetap aman — silakan coba lagi.', gagal: true });
+                }
+            };
+            const pesan = (teks, gagal = false) => setSt(s => ({ ...s, pesan: teks, gagal }));
+            const simpan = async () => {
+                const h = hasilRef.current;
+                if (!h) return;
+                // iPhone/iPad: menu Apple (ada "Simpan ke File"); bila tidak tersedia, unduh biasa
+                if (perangkatApple() && h.bagikan) {
+                    try { await navigator.share({ files: [h.file], title: h.nama }); pesan('✓ Selesai.'); return; }
+                    catch (e) { if (e && e.name === 'AbortError') return; }
+                }
+                try { unduhBlob(h.blob, h.nama); pesan(`✓ PDF diunduh: ${h.nama}. Cek folder Download / Unduhan.`); }
+                catch (e) { console.error(e); pesan('⚠ PDF gagal disimpan. Silakan coba lagi.', true); }
+            };
+            const bagikan = async () => {
+                const h = hasilRef.current;
+                if (!h || !h.bagikan) return;
+                try { await navigator.share({ files: [h.file], title: h.nama }); pesan('✓ PDF dibagikan.'); }
+                catch (e) { if (e && e.name === 'AbortError') return; console.error(e); pesan('⚠ Gagal membagikan. Gunakan "Simpan ke HP" lalu kirim dari folder Download.', true); }
+            };
+            const proses = st.tahap === 'proses';
+            const h = hasilRef.current;
+            return (
+                <div className="pdfb" data-pdf-tahap={st.tahap}>
+                    {st.tahap === 'siap' && h ? (
+                        <>
+                            <div className="pdfb-siap" data-pdf-siap>✓ PDF siap</div>
+                            <div className={`pdfb-dua${h.bagikan ? '' : ' satu'}`}>
+                                <button type="button" className="pdfb-bt hijau" data-pdf-simpan onClick={simpan}>💾 {h.bagikan ? 'Simpan ke HP' : 'Simpan PDF'}</button>
+                                {h.bagikan && <button type="button" className="pdfb-bt biru" data-pdf-bagikan onClick={bagikan}>📤 Bagikan</button>}
+                            </div>
+                        </>
+                    ) : (
+                        <button type="button" className={`pdfb-bt ${proses ? 'abu' : 'hitam'}`} data-pdf-buat onClick={mulai} disabled={proses}>{proses ? '⏳ Menyiapkan PDF…' : st.gagal ? '📄 Coba lagi' : '📄 Simpan PDF'}</button>
+                    )}
+                    {proses && <><div className="pdfb-prog"><i style={{ width: `${Math.round(persen)}%` }}></i></div><p className="pdfb-ket">Biasanya 2–4 detik</p></>}
+                    {st.pesan && !proses && <p className="pdfb-ket" data-pdf-pesan style={{ color: st.gagal ? '#b91c1c' : '#15803d' }}>{st.pesan}</p>}
+                </div>
+            );
         };
         // Nota rekap gaji driver (sumber yang sama untuk cetak admin & link driver)
         // 🎁 Tips per trip (opsional, diisi admin saat input pengiriman). Disimpan terpisah dari ongkir.
@@ -28604,7 +28692,6 @@ ${getRekapShareLink(rekap)}
             const [tpl, setTpl] = React.useState({});
             const [kasbon, setKasbon] = React.useState([]);
             const [loading, setLoading] = React.useState(true);
-            const [pdf, setPdf] = React.useState({ proses: false, pesan: '', gagal: false });
             const tplLengkapRef = React.useRef(null); // pengaturan cetak lengkap (logo asli & tanda tangan), diunduh saat pertama kali menyimpan PDF
 
             React.useEffect(() => {
@@ -28682,22 +28769,13 @@ ${getRekapShareLink(rekap)}
             const pot = safeMoney(rekap.potonganKasbon);
             const apr = safeMoney(rekap.apresiasi);
             const diterima = safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir);
-            // Simpan PDF: nota yang sama persis dengan cetakan admin. Pengaturan cetak lengkap (logo asli & tanda tangan)
-            // diunduh sekali saat pertama kali menyimpan.
-            const simpanPdf = async () => {
-                if (pdf.proses) return;
-                setPdf({ proses: true, pesan: '', gagal: false });
-                try {
-                    let gabung = tplLengkapRef.current || tpl;
-                    if (!tplLengkapRef.current && supabaseClient) {
-                        try { const full = await ambilPengaturanShare(KOLOM_CETAK_SLIP); gabung = { ...tpl, ...full }; tplLengkapRef.current = gabung; } catch (e) {}
-                    }
-                    await simpanNotaPdf(htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl: gabung, sisaSekarang }), namaFileCetak('Rekap Gaji Driver', rekap.driverName || driver?.name || 'Driver', per ? labelRentangStruk(per.dari, per.sampai) : fmtTglStruk(rekap.tanggalRekap)));
-                    setPdf({ proses: false, pesan: '✓ PDF tersimpan. Cek folder Unduhan / Download.', gagal: false });
-                } catch (e) {
-                    console.error(e);
-                    setPdf({ proses: false, pesan: 'PDF gagal dibuat. Periksa koneksi internet lalu coba lagi.', gagal: true });
+            // Nota untuk PDF: sama persis dengan cetakan admin. Pengaturan cetak lengkap (logo asli & tanda tangan) diunduh sekali saat pertama kali dibuat.
+            const buatHtmlNotaDrv = async () => {
+                let gabung = tplLengkapRef.current || tpl;
+                if (!tplLengkapRef.current && supabaseClient) {
+                    try { const full = await ambilPengaturanShare(KOLOM_CETAK_SLIP); gabung = { ...tpl, ...full }; tplLengkapRef.current = gabung; } catch (e) {}
                 }
+                return htmlStrukRekapGaji({ rekap, driver, trips, tarifs, tpl: gabung, sisaSekarang });
             };
             const stBayar = drvRekapNet(rekap) > 0 ? drvRekapStatus(rekap) : null;
             const sudahBayar = stBayar ? Math.min(drvRekapNet(rekap), drvRekapDibayar(rekap)) : 0;
@@ -28802,8 +28880,7 @@ ${getRekapShareLink(rekap)}
                                         </table>
                                     </div>
                                 </div>
-                                <button type="button" onClick={simpanPdf} disabled={pdf.proses} data-rg-pdf className="w-full bg-slate-900 hover:bg-black disabled:opacity-70 text-white py-3.5 rounded-xl font-black text-base">{pdf.proses ? '⏳ Menyiapkan PDF…' : '📄 Simpan PDF'}</button>
-                                {pdf.pesan && !pdf.proses && <p className={`text-xs text-center font-medium ${pdf.gagal ? 'text-red-600' : 'text-green-700'}`} data-rg-pdf-pesan>{pdf.pesan}</p>}
+                                <div data-rg-pdf-wadah><TombolPdfSlip buatHtml={buatHtmlNotaDrv} namaFile={namaFileCetak('Rekap Gaji Driver', rekap.driverName || driver?.name || 'Driver', per ? labelRentangStruk(per.dari, per.sampai) : fmtTglStruk(rekap.tanggalRekap))} kunci={`${rekap.id}|${rekap._syncUpdatedAt || ''}|${trips.length}|${kasbon.length}`} /></div>
                             </div>
                         </div>
                     </div>

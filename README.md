@@ -270,6 +270,10 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   saat tombol ditekan. Skrip kecil di `<head>` (src/index.template.html) mulai mengambil data rekap & pengaturan sejak
   halaman dibuka; alamat & kunci publik Supabase diisi otomatis saat build. Salinan kecil link terakhir (maks. 6, 30 hari)
   disimpan di HP agar dibuka ulang langsung tampil, lalu diperbarui dari server.
+  Alur PDF: Simpan PDF → Menyiapkan PDF… → ✓ PDF siap: **💾 Simpan ke HP** / **📤 Bagikan** (menu bagikan HP; di iPhone/iPad
+  "Simpan ke HP" membuka menu Apple berisi "Simpan ke File"). Bila lebih dari 25 detik, tombol kembali "Coba lagi".
+- **Ikon aplikasi**: `favicon.ico`, `favicon-32.png` dan `apple-touch-icon.png` (logo kotak Simpati) ada di samping `index.html`
+  dan **wajib ikut di-upload saat deploy** — dipakai tab browser (termasuk Safari/Chrome iPhone & iPad) dan ikon layar utama HP.
 - **Offline**: Aplikasi tetap bisa digunakan saat offline; data tersimpan di perangkat (IndexedDB) dan sync saat kembali online
 - **Print**: Fitur cetak menggunakan `window.open()` — pastikan browser mengizinkan pop-up dari domain Netlify Anda
 - **Browser**: Chrome/Edge 90+, Firefox 88+, Safari 14+. Tidak mendukung Internet Explorer

@@ -85,8 +85,10 @@ const sbKey = (source.match(/const SUPABASE_ANON_KEY = '([^']+)'/) || [])[1];
 if (!sbUrl || !sbKey) fail('SUPABASE_URL / SUPABASE_ANON_KEY tidak ditemukan di src/app.jsx');
 if (template.split("'__SB_URL__'").length !== 2 || template.split("'__SB_KEY__'").length !== 2) fail("template harus berisi tepat satu '__SB_URL__' dan '__SB_KEY__'");
 const templateSb = template.replace("'__SB_URL__'", () => JSON.stringify(sbUrl).replace(/"/g, "'")).replace("'__SB_KEY__'", () => JSON.stringify(sbKey).replace(/"/g, "'"));
-// Ikon tab & layar HP (logo Simpati): gambar di src/ disematkan sebagai data URI
-const ikon = { __IKON_16__: ['ikon-16.png', 'image/png'], __IKON_32__: ['ikon-32.png', 'image/png'], __IKON_192__: ['ikon-192.jpg', 'image/jpeg'] };
+// Ikon tab cadangan 16 px (logo Simpati): gambar di src/ disematkan sebagai data URI
+const ikon = { __IKON_16__: ['ikon-16.png', 'image/png'] };
+// File ikon di samping index.html (dipakai Safari/Chrome iPhone & iPad, layar utama HP)
+['favicon.ico', 'favicon-32.png', 'apple-touch-icon.png'].forEach(f => { if (!fs.existsSync(path.join(root, f))) fail(`file ikon ${f} tidak ada di folder utama`); });
 let templateIkon = templateSb;
 for (const [ph, [file, mime]] of Object.entries(ikon)) {
     if (!templateIkon.includes(ph)) fail(`template harus berisi ${ph}`);
