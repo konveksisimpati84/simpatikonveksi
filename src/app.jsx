@@ -2272,6 +2272,144 @@
             if (total === 0) return { total: 0, totalTepat: 0, items: [], perInvoice: false };
             return { total, totalTepat: selisih, items: [{ invId: null, client: `${ids.length} invoice (total komisi)`, lama, baru, selisih, dihapus: false }], perInvoice: false };
         };
+        // ===== Penjelasan perubahan komisi: dasar komisi invoice, riwayat perubahan, kalimat sebab =====
+        // Cara hitung komisi TIDAK berubah (getInvoiceCommissionTotal); bagian ini hanya mencatat & menjelaskan.
+        const rpKomisi = (n) => formatRupiah(Math.round(safeMoney(n))).replace(/\s/g, '');
+        const tandaRpKomisi = (n) => `${n > 0 ? '+' : '−'}${rpKomisi(Math.abs(n))}`;
+        const angkaKomisi = (n) => String(Math.round(safeMoney(n) * 100) / 100).replace('.', ',');
+        const isKomisiPcs = (tipe) => { const t = String(tipe || 'Persen').toLowerCase(); return t.includes('pcs') || t === 'rupiah' || t === 'nominal'; };
+        const labelTarifKomisi = (tipe, tarif) => isKomisiPcs(tipe) ? `${rpKomisi(tarif)}/pcs` : `${angkaKomisi(tarif)}%`;
+        // Ringkasan invoice yang menentukan komisi (disimpan di rekap saat dibuat & dipakai pembanding)
+        const dasarKomisiInvoice = (inv) => ({
+            tipe: isKomisiPcs(inv?.commissionType) ? 'Nominal' : 'Persen',
+            tarif: safeMoney(inv?.commissionValue),
+            gdTipe: inv?.globalDiscountType === '%' ? '%' : 'Rp',
+            gdNilai: safeMoney(inv?.globalDiscountValue),
+            nilai: getInvoiceTotals(inv).productionTotal,
+            pcs: getInvoicePcsTotal(inv),
+            komisi: getInvoiceCommissionTotal(inv),
+            marketing: String(inv?.marketing || ''),
+            customer: String(inv?.customer || ''),
+            ongkir: safeMoney(inv?.shippingCost),
+            items: getInvoiceItems(inv).map(it => ({ id: String(it.id), nama: String(it.productionType || 'Barang'), sizes: safeArray(it.sizes).map(sz => ({ id: String(sz.id), size: String(sz.size || ''), qty: safeMoney(sz.qty), harga: safeMoney(sz.pricePerPcs), dRp: safeMoney(sz.discountPerPcs), dPct: safeMoney(sz.discountPercent) })) })),
+        });
+        const invDariDasarKomisi = (d) => ({
+            commissionType: d.tipe, commissionValue: d.tarif, globalDiscountType: d.gdTipe, globalDiscountValue: d.gdNilai,
+            invoiceItems: safeArray(d.items).map(it => ({ id: it.id, productionType: it.nama, sizes: safeArray(it.sizes).map(sz => ({ id: sz.id, size: sz.size, qty: sz.qty, pricePerPcs: sz.harga, discountPerPcs: sz.dRp, discountPercent: sz.dPct })) })),
+        });
+        const komisiDariDasar = (d) => getInvoiceCommissionTotal(invDariDasarKomisi(d));
+        // "10% × nilai barang Rp29.943.600" / "Rp2.000/pcs × 50 pcs"
+        const teksDasarKomisi = (d) => !d ? '' : isKomisiPcs(d.tipe) ? `${rpKomisi(d.tarif)}/pcs × ${angkaKomisi(d.pcs)} pcs` : `${labelTarifKomisi(d.tipe, d.tarif)} × nilai barang ${rpKomisi(d.nilai)}`;
+        // Bandingkan dua keadaan invoice: daftar perubahan beserta dampaknya ke komisi.
+        // Perubahan diterapkan satu per satu dari keadaan lama, jadi jumlah dampaknya = selisih komisi sebenarnya.
+        const bandingDasarKomisi = (lama, baru) => {
+            if (!lama || !baru) return [];
+            const kerja = JSON.parse(JSON.stringify({ ...lama, items: safeArray(lama.items) }));
+            const hasil = [];
+            let komisiKini = komisiDariDasar(kerja);
+            const catat = (t, ubah) => { ubah(); const k = komisiDariDasar(kerja); const e = Math.round((k - komisiKini) * 100) / 100; komisiKini = k; hasil.push({ t, e }); };
+            const disk = (sz) => sz.dPct > 0 ? `${angkaKomisi(sz.dPct)}%${sz.dRp > 0 ? ` + ${rpKomisi(sz.dRp)}/pcs` : ''}` : sz.dRp > 0 ? `${rpKomisi(sz.dRp)}/pcs` : 'tanpa diskon';
+            const pcsItem = (it) => safeArray(it.sizes).reduce((a, sz) => a + safeMoney(sz.qty), 0);
+            safeArray(baru.items).forEach(bi => {
+                const li = kerja.items.find(x => x.id === bi.id);
+                if (!li) { catat(`${bi.nama} ditambahkan (${angkaKomisi(pcsItem(bi))} pcs)`, () => { kerja.items.push(JSON.parse(JSON.stringify(bi))); }); return; }
+                if (li.nama !== bi.nama) catat(`nama barang ${li.nama} → ${bi.nama}`, () => { li.nama = bi.nama; });
+                safeArray(bi.sizes).forEach(bs => {
+                    const label = `${bi.nama}${bs.size ? ' ' + bs.size : ''}`;
+                    const ls = safeArray(li.sizes).find(x => x.id === bs.id);
+                    if (!ls) { catat(`${label} ditambahkan (${angkaKomisi(bs.qty)} pcs)`, () => { li.sizes = [...safeArray(li.sizes), { ...bs }]; }); return; }
+                    if (ls.size !== bs.size) catat(`ukuran ${bi.nama} ${ls.size || '-'} → ${bs.size || '-'}`, () => { ls.size = bs.size; });
+                    if (ls.qty !== bs.qty) catat(`${label} qty ${angkaKomisi(ls.qty)} → ${angkaKomisi(bs.qty)} pcs`, () => { ls.qty = bs.qty; });
+                    if (ls.harga !== bs.harga) catat(`${label} harga ${rpKomisi(ls.harga)} → ${rpKomisi(bs.harga)}`, () => { ls.harga = bs.harga; });
+                    if (ls.dRp !== bs.dRp || ls.dPct !== bs.dPct) catat(`${label} diskon ${disk(ls)} → ${disk(bs)}`, () => { ls.dRp = bs.dRp; ls.dPct = bs.dPct; });
+                });
+                safeArray(li.sizes).filter(ls => !safeArray(bi.sizes).some(bs => bs.id === ls.id)).forEach(ls => catat(`${bi.nama}${ls.size ? ' ' + ls.size : ''} dihapus (${angkaKomisi(ls.qty)} pcs)`, () => { li.sizes = li.sizes.filter(x => x !== ls); }));
+            });
+            kerja.items.filter(li => !safeArray(baru.items).some(bi => bi.id === li.id)).forEach(li => catat(`${li.nama} dihapus (${angkaKomisi(pcsItem(li))} pcs)`, () => { kerja.items = kerja.items.filter(x => x !== li); }));
+            const gd = (d) => d.gdNilai > 0 ? (d.gdTipe === '%' ? `${angkaKomisi(d.gdNilai)}%` : rpKomisi(d.gdNilai)) : 'tanpa diskon';
+            if (kerja.gdTipe !== baru.gdTipe || kerja.gdNilai !== baru.gdNilai) catat(`diskon invoice ${gd(kerja)} → ${gd(baru)}`, () => { kerja.gdTipe = baru.gdTipe; kerja.gdNilai = baru.gdNilai; });
+            if (kerja.tipe !== baru.tipe || kerja.tarif !== baru.tarif) catat(`komisi ${labelTarifKomisi(kerja.tipe, kerja.tarif)} → ${labelTarifKomisi(baru.tipe, baru.tarif)}`, () => { kerja.tipe = baru.tipe; kerja.tarif = baru.tarif; });
+            if (normalizeText(lama.marketing) !== normalizeText(baru.marketing)) hasil.push({ t: `marketing ${lama.marketing || '-'} → ${baru.marketing || '-'}`, e: 0 });
+            if (safeMoney(lama.ongkir) !== safeMoney(baru.ongkir)) hasil.push({ t: `ongkir ${rpKomisi(lama.ongkir)} → ${rpKomisi(baru.ongkir)}`, e: 0 });
+            if (String(lama.customer || '') !== String(baru.customer || '') && lama.customer != null && baru.customer != null) hasil.push({ t: `customer ${lama.customer || '-'} → ${baru.customer || '-'}`, e: 0 });
+            // Pengaman: sisa selisih yang tidak terjelaskan (mis. pembulatan)
+            const sisa = Math.round((komisiDariDasar(invDasarAman(baru)) - komisiKini) * 100) / 100;
+            if (Math.abs(sisa) >= 0.5) hasil.push({ t: 'penyesuaian lain', e: sisa });
+            return hasil;
+        };
+        const invDasarAman = (d) => ({ ...d, items: safeArray(d.items) });
+        const gabungKata = (arr) => arr.length <= 1 ? (arr[0] || '') : `${arr.slice(0, -1).join(', ')} dan ${arr[arr.length - 1]}`;
+        // "Komisi naik Rp46.200 karena Kemeja Putih L qty 20 → 26 pcs"
+        const kalimatSebabKomisi = (perubahan, selisih) => {
+            const berdampak = safeArray(perubahan).filter(p => Math.abs(safeMoney(p.e)) >= 0.5);
+            const arah = selisih > 0 ? 'naik' : 'turun';
+            if (!berdampak.length) return `Komisi ${arah} ${rpKomisi(Math.abs(selisih))}.`;
+            const bagian = berdampak.map(p => berdampak.length > 1 ? `${p.t} (${tandaRpKomisi(p.e)})` : p.t);
+            return `Komisi ${arah} ${rpKomisi(Math.abs(selisih))} karena ${gabungKata(bagian)}.`;
+        };
+        // Alasan singkat untuk slip/nota (tanpa angka & nama admin)
+        const alasanSingkatKomisi = (perubahan) => safeArray(perubahan).filter(p => Math.abs(safeMoney(p.e)) >= 0.5).map(p => p.t).join('; ');
+        // Waktu rekap dibuat (rekap lama: tanggal rekap)
+        const waktuRekapDibuat = (rekap) => String(rekap?.dibuatAt || (rekap?.dateProcessed ? `${rekap.dateProcessed}T00:00:00` : ''));
+        // Penjelasan satu baris selisih komisi pada rekap: kalimat sebab, daftar perubahan, siapa & kapan, atau perkiraan (rekap lama)
+        const jelaskanSelisihKomisi = (rekap, item, inv) => {
+            const invId = String(item?.invId || '');
+            const selisih = safeMoney(item?.selisih);
+            if (!invId) return { kalimat: `Total komisi ${selisih > 0 ? 'naik' : 'turun'} ${rpKomisi(Math.abs(selisih))} (rekap lama: rincian per invoice tidak tersimpan).`, perubahan: [], perkiraan: true, oleh: [] };
+            if (item?.dihapus || !inv || !isVisibleRecord(inv)) return { kalimat: `Komisi turun ${rpKomisi(Math.abs(selisih))} karena invoice dihapus.`, perubahan: [], perkiraan: false, oleh: [] };
+            let acuan = rekap?.marketingInvoiceDasar?.[invId] || null;
+            let batas = waktuRekapDibuat(rekap);
+            getRekapKomisiPenyesuaian(rekap).forEach(p => safeArray(p.items).forEach(it => {
+                if (String(it.invId) !== invId) return;
+                if (it.dasar) acuan = it.dasar;
+                if (p.at && String(p.at) > batas) batas = String(p.at);
+            }));
+            const riw = safeArray(inv.riwayatUbah).filter(r => r && r.jenis === 'diubah' && String(r.at || '') >= batas);
+            const oleh = riw.filter(r => safeArray(r.p).some(x => Math.abs(safeMoney(x.e)) >= 0.5)).map(r => ({ oleh: r.oleh || '-', at: r.at }));
+            if (acuan) {
+                const perubahan = bandingDasarKomisi(acuan, dasarKomisiInvoice(inv));
+                return { kalimat: kalimatSebabKomisi(perubahan, selisih), perubahan, perkiraan: false, oleh };
+            }
+            if (riw.length) {
+                const perubahan = riw.flatMap(r => safeArray(r.p));
+                return { kalimat: kalimatSebabKomisi(perubahan, selisih), perubahan, perkiraan: false, oleh };
+            }
+            // Rekap lama tanpa dasar & tanpa riwayat: perkiraan dari persen/tarif invoice sekarang
+            const d = dasarKomisiInvoice(inv);
+            const lama = safeMoney(item?.lama);
+            let kalimat = `Komisi ${selisih > 0 ? 'naik' : 'turun'} ${rpKomisi(Math.abs(selisih))}. Rincian saat rekap tidak tersimpan (rekap dibuat sebelum ada catatan perubahan).`;
+            if (isKomisiPcs(d.tipe)) {
+                if (d.tarif > 0) kalimat = `Perkiraan: jumlah barang ${selisih > 0 ? 'bertambah' : 'berkurang'} ± ${angkaKomisi(Math.abs(selisih) / d.tarif)} pcs (komisi ${rpKomisi(d.tarif)}/pcs). Rincian saat rekap tidak tersimpan.`;
+            } else if (d.tarif > 0 && d.nilai > 0) {
+                const persenLama = lama / d.nilai * 100;
+                const bulat = Math.round(persenLama * 2) / 2;
+                if (lama > 0 && Math.abs(persenLama - bulat) < 0.01 && Math.abs(bulat - d.tarif) >= 0.25) kalimat = `Kemungkinan persen komisi berubah ${angkaKomisi(bulat)}% → ${angkaKomisi(d.tarif)}% (nilai barang tetap ${rpKomisi(d.nilai)}).`;
+                else kalimat = `Perkiraan: nilai barang ${selisih > 0 ? 'naik' : 'turun'} ± ${rpKomisi(Math.abs(selisih) / (d.tarif / 100))} (bila persen komisi tetap ${angkaKomisi(d.tarif)}%). Rincian saat rekap tidak tersimpan.`;
+            }
+            return { kalimat, perubahan: [], perkiraan: true, oleh };
+        };
+        // Dasar komisi yang dipakai angka rekap (catatan rekap/penyesuaian terakhir; atau invoice sekarang bila komisinya sama).
+        const dasarKomisiDiRekap = (rekap, invId, inv) => {
+            const key = String(invId);
+            let dasar = rekap?.marketingInvoiceDasar?.[key] || null;
+            let jumlah = rekap?.marketingInvoiceAmounts?.[key] != null ? safeMoney(rekap.marketingInvoiceAmounts[key]) : null;
+            getRekapKomisiPenyesuaian(rekap).forEach(p => safeArray(p.items).forEach(it => {
+                if (!it || String(it.invId) !== key) return;
+                if (jumlah != null) jumlah += safeMoney(it.selisih);
+                dasar = it.dasar || null;
+            }));
+            if (dasar) return dasar;
+            if (inv && isVisibleRecord(inv) && jumlah != null && Math.abs(getInvoiceCommissionTotal(inv) - jumlah) < 0.5) return dasarKomisiInvoice(inv);
+            return null;
+        };
+        // Dasar komisi SAAT rekap dibuat (untuk slip): catatan rekap, atau invoice sekarang bila komisinya masih sama
+        const dasarKomisiAwalSlip = (rekap, invId, inv, nilaiAwal) => {
+            const d = rekap?.marketingInvoiceDasar?.[String(invId)];
+            if (d) return d;
+            if (inv && isVisibleRecord(inv) && nilaiAwal != null && Math.abs(getInvoiceCommissionTotal(inv) - safeMoney(nilaiAwal)) < 0.5) return dasarKomisiInvoice(inv);
+            return null;
+        };
+        const teksDasarKomisiSingkat = (d) => !d ? '' : isKomisiPcs(d.tipe) ? `${rpKomisi(d.tarif)}/pcs × ${angkaKomisi(d.pcs)} pcs` : `${labelTarifKomisi(d.tipe, d.tarif)} × ${rpKomisi(d.nilai)}`;
         // Kasbon yang berasal dari kelebihan bayar komisi: uangnya sudah keluar sebagai gaji, jadi bukan uang keluar baru
         const isKasbonLebihBayar = (item) => !!item && item.sumber === 'lebihBayarKomisi';
         const getRekapKasbonLebihBayar = (rekap, employees) => {
@@ -13935,9 +14073,14 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             );
         };
 
-        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi, danaOperasional, purchaseNotes, expenses, rekapKinerja, gajiSensitif = null, bukaBhpDana = null }) => {
+        const EnhancedInvoiceView = ({ invoices, setInvoices, clients, setClients, employees, setEmployees, showToast, templates, bagiHasilPromosi, updateBagiHasilPromosi, danaOperasional, purchaseNotes, expenses, rekapKinerja, gajiSensitif = null, bukaBhpDana = null, penggunaNama = '', bukaRekapGaji = null }) => {
             // Komisi marketing hanya untuk akun dengan akses "Lihat Gaji Direksi & Marketing"
             const canViewKomisi = gajiSensitif ? !!gajiSensitif.lihat : true;
+            // Pemberitahuan setelah menyimpan invoice yang komisinya sudah direkap (isi sesuai hak akses)
+            const [dampakKomisi, setDampakKomisi] = useState(null);
+            React.useEffect(() => { if (!dampakKomisi) return undefined; const t = setTimeout(() => setDampakKomisi(null), 20000); return () => clearTimeout(t); }, [dampakKomisi && dampakKomisi.t]);
+            const [riwayatInvBuka, setRiwayatInvBuka] = useState(null);
+            const fmtWaktuRiwayat = (at) => { const d = new Date(at); return isNaN(d.getTime()) ? '-' : d.toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
             const newSize = () => ({ id: `SIZE-${Date.now()}-${Math.random()}`, size: '', qty: '', pricePerPcs: '', discountPerPcs: '', discountPercent: '' });
             const newItem = () => ({ id: `ITEM-${Date.now()}-${Math.random()}`, productionType: '', pricePerPcs: '', discountType: 'Rp', discountValue: '', sizes: [newSize()] });
             // Konversi item dari data tersimpan ke format form (harga ke level item)
@@ -14125,11 +14268,31 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 if (miripInv) return showToast(`Nama "${form.customer}" mirip klien "${miripInv.name}". Pilih dulu di bawah kolom nama: Pakai "${miripInv.name}" atau Tetap klien baru.`, "error");
                 const row = { ...form, marketingEmpId: marketingEmp?.id || '', clientId: formClient?.id || siapkanKodeKlien(safeClientRows, form.customer, now).clientId || genId('CLI-'), id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.max(0, Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal - safeDpAmount - getInvoicePayments(form).reduce((s, p) => s + safeMoney(p.amount), 0))), shippingCost: Math.max(0, safeMoney(form.shippingCost)), shippingNote: String(form.shippingNote || ''), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
+                // Riwayat perubahan invoice: siapa, kapan, apa yang berubah & dampaknya ke komisi (maks. 20 catatan)
+                const invLama = editId ? safeInvoiceRows.find(i => String(i.id) === String(editId)) : null;
+                const oleh = String(penggunaNama || '').trim() || '-';
+                let riwayatUbah = safeArray(invLama?.riwayatUbah).filter(Boolean);
+                let perubahanSimpan = [];
+                if (invLama) {
+                    perubahanSimpan = bandingDasarKomisi(dasarKomisiInvoice(invLama), dasarKomisiInvoice(row));
+                    if (perubahanSimpan.length) riwayatUbah = [...riwayatUbah, { at: now, oleh, jenis: 'diubah', p: perubahanSimpan, k: [Math.round(getInvoiceCommissionTotal(invLama) * 100) / 100, Math.round(getInvoiceCommissionTotal(row) * 100) / 100] }];
+                } else {
+                    riwayatUbah = [{ at: now, oleh, jenis: 'dibuat' }];
+                }
+                if (riwayatUbah.length > 20) { const awal = riwayatUbah[0] && riwayatUbah[0].jenis === 'dibuat' ? [riwayatUbah[0]] : []; riwayatUbah = [...awal, ...riwayatUbah.slice(-(20 - awal.length))]; }
+                row.riwayatUbah = riwayatUbah;
                 setInvoices(prev => {
                     const list = Array.isArray(prev) ? prev : [];
                     return editId ? list.map(inv => String(inv.id) === String(editId) ? row : inv) : [row, ...list];
                 });
                 syncClientFromInvoice(row);
+                // Invoice yang komisinya sudah direkap: beri tahu dampaknya (kasir: tanpa angka & nama)
+                const rkTerkait = invLama && invLama.commissionRekapId ? safeArray(rekapKinerja).filter(isVisibleRecord).find(r => String(r.id) === String(invLama.commissionRekapId)) : null;
+                const dK = invLama ? getInvoiceCommissionTotal(row) - getInvoiceCommissionTotal(invLama) : 0;
+                if (rkTerkait && perubahanSimpan.length) {
+                    if (!canViewKomisi) setDampakKomisi({ netral: true, t: Date.now() });
+                    else if (Math.abs(dK) >= 0.5) setDampakKomisi({ teks: kalimatSebabKomisi(perubahanSimpan, dK).replace(/^Komisi /, `Komisi ${rkTerkait.empName || row.marketing || ''} `), rekapId: rkTerkait.id, t: Date.now() });
+                }
                 resetForm();
                 const _luarPeriode = !cocokPeriode(row.date, invTahun, invBulan);
                 showToast((editId ? "Invoice diperbarui." : "Invoice dibuat.") + (_luarPeriode ? ` Tanggalnya di luar periode ${invLabelPeriode} — ganti Periode untuk melihatnya.` : ''), "success");
@@ -14504,8 +14667,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
             const commissionRows = Object.values(invoicesPeriode.reduce((acc, inv) => {
                 const key = inv.marketing || 'Tanpa Marketing';
-                if (!acc[key]) acc[key] = { marketing: key, invoices: 0, pcs: 0, sales: 0, commission: 0 };
-                acc[key].invoices += 1; acc[key].pcs += getInvoicePcsTotal(inv); acc[key].sales += getInvoiceTotals(inv).total; acc[key].commission += getInvoiceCommissionTotal(inv);
+                if (!acc[key]) acc[key] = { marketing: key, invoices: 0, pcs: 0, sales: 0, barang: 0, commission: 0 };
+                const tot = getInvoiceTotals(inv);
+                acc[key].invoices += 1; acc[key].pcs += getInvoicePcsTotal(inv); acc[key].sales += tot.total; acc[key].barang += tot.productionTotal; acc[key].commission += getInvoiceCommissionTotal(inv);
                 return acc;
             }, {}));
             const statusClass = (status) => status === 'Lunas' ? 'bg-green-100 text-green-800' : status === 'Termin' ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800';
@@ -14516,6 +14680,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
             return (
                 <>
+                {dampakKomisi && (
+                    <div data-inv-dampak={dampakKomisi.netral ? 'netral' : 'komisi'} className={`fixed bottom-20 lg:bottom-6 right-3 left-3 sm:left-auto sm:w-[420px] z-[160] rounded-2xl shadow-2xl px-4 py-3 text-[13px] ${dampakKomisi.netral ? 'bg-emerald-800 text-white' : 'bg-gray-900 text-white'}`}>
+                        <div className="flex items-start gap-2">
+                            <div className="flex-1 min-w-0">
+                                {dampakKomisi.netral
+                                    ? <>✓ Invoice diperbarui. Perubahan tercatat di riwayat invoice dan akan dilihat pengelola gaji.</>
+                                    : <><div>⚠ <b className="text-amber-200">{dampakKomisi.teks}</b></div><div className="mt-0.5 text-gray-300">Invoice ini sudah masuk rekap gaji — perlu diterapkan di Laporan Kinerja.</div>
+                                        {bukaRekapGaji && <button type="button" data-inv-dampak-buka onClick={() => { const id = dampakKomisi.rekapId; setDampakKomisi(null); bukaRekapGaji(id); }} className="mt-2 bg-amber-200 text-amber-900 font-extrabold rounded-lg px-3 py-1 text-[12px]">Buka rekap ›</button>}</>}
+                            </div>
+                            <button type="button" onClick={() => setDampakKomisi(null)} className="text-white/70 hover:text-white text-lg leading-none" aria-label="Tutup">×</button>
+                        </div>
+                    </div>
+                )}
                 <div className="space-y-6">
                     {/* ── HEADER BANNER ── */}
                     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-6 shadow-lg">
@@ -14640,6 +14817,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const rk = invEdit && invEdit.commissionRekapId ? safeArray(rekapKinerja).filter(isVisibleRecord).find(r => String(r.id) === String(invEdit.commissionRekapId)) : null;
                                 if (!rk) return null;
                                 const tgl = String(rk.dateProcessed || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1');
+                                if (!canViewKomisi) return <div data-inv-edit-komisi-direkap data-netral className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">ℹ️ Invoice ini sudah masuk <b>rekap gaji</b>. Perubahan qty, harga, atau diskon akan tercatat dan dilihat pengelola gaji.</div>;
                                 return <div data-inv-edit-komisi-direkap className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">⚠ Komisi invoice ini <b>sudah direkap</b> di gaji {rk.empName || '-'} ({tgl}). Mengubah harga, qty, diskon, atau komisi akan menimbulkan <b>selisih komisi</b> yang perlu diterapkan di Laporan Kinerja.</div>;
                             })()}
                             <form onSubmit={saveInvoice} className="space-y-5">
@@ -14659,7 +14837,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         </div>
                                         <input list="client-address-list" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Alamat instansi" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}/>
                                         <datalist id="client-address-list">{clientAddressSuggestions.map((a,i)=><option key={i} value={a}/>)}</datalist>
-                                        <input list="marketing-list-enhanced" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Marketing" value={form.marketing} onChange={e => { const mName = e.target.value; const mEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(mName)); setForm({ ...form, marketing: mName, ...(mEmp ? { commissionType: mEmp.commissionType || 'Persen', commissionValue: String(safeMoney(mEmp.commissionValue)) } : {}) }); }}/>
+                                        <input list="marketing-list-enhanced" className="p-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" placeholder="Marketing" value={form.marketing} onChange={e => { const mName = e.target.value; const mEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(mName)); const asal = editId ? safeInvoiceRows.find(i => String(i.id) === String(editId)) : null; const kom = asal && normalizeText(mName) === normalizeText(asal.marketing) ? { commissionType: asal.commissionType || 'Persen', commissionValue: asal.commissionValue != null ? asal.commissionValue : '0' } : mEmp ? { commissionType: mEmp.commissionType || 'Persen', commissionValue: String(safeMoney(mEmp.commissionValue)) } : {}; setForm({ ...form, marketing: mName, ...kom }); }}/>
                                         <datalist id="marketing-list-enhanced">{marketingEmployees.map(emp => <option key={emp.id} value={emp.name}/>)}</datalist>
                                     </div>
                                 </div>
@@ -14834,6 +15012,21 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     {safeMoney(form.shippingCost) > 0 && <div className="mt-1.5 text-xs font-bold text-teal-600">+ {formatRupiah(safeMoney(form.shippingCost))} masuk ke total tagihan · komisi marketing tidak ikut ongkir</div>}
                                 </div>
 
+                                {/* Komisi marketing (hanya akun berakses komisi): persen tersimpan di invoice, terlihat jelas */}
+                                {canViewKomisi && String(form.marketing || '').trim() && (() => {
+                                    // Sama dengan saat simpan: persen kosong (data lama) → ikut tarif karyawan
+                                    const empF = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.marketing));
+                                    const d = dasarKomisiInvoice({ ...form, invoiceItems: getInvoiceItems(form), commissionType: form.commissionType || empF?.commissionType || 'Persen', commissionValue: form.commissionValue != null && form.commissionValue !== '' ? form.commissionValue : safeMoney(empF?.commissionValue || 0) });
+                                    const asal = editId ? safeInvoiceRows.find(i => String(i.id) === String(editId)) : null;
+                                    const ganti = !!asal && normalizeText(form.marketing) !== normalizeText(asal.marketing);
+                                    return (
+                                        <div data-inv-form-komisi className="rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-[13px] text-purple-800">
+                                            Komisi {form.marketing}: <b>{teksDasarKomisi(d)}</b> = <b>{formatRupiah(d.komisi)}</b>
+                                            <span className="text-purple-500"> · tanpa ongkir, tidak tergantung status bayar</span>
+                                            {ganti && <div data-inv-form-komisi-ganti className="text-[12px] text-amber-700 font-semibold mt-0.5">Marketing diganti: persen komisi mengikuti tarif {form.marketing} di Data Karyawan.</div>}
+                                        </div>
+                                    );
+                                })()}
                                 {/* Summary bar */}
                                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                     {(() => { const ft = getInvoiceTotals(form); return (
@@ -14962,7 +15155,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </>
                     }
                     {activeInvoiceTab === 'marketing' &&
-                    <Card><h3 className="text-lg font-bold text-gray-800 mb-4">Laporan Marketing</h3><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th>{canViewKomisi && <th className="p-3 text-right">Total Komisi</th>}{canViewKomisi && <th className="p-3 text-center">Share Link</th>}</tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td>{canViewKomisi && <td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td>}{canViewKomisi && <td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td>}</tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div>{canViewKomisi && <div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)}</div>}</div>{canViewKomisi && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
+                    <Card><h3 className="text-lg font-bold text-gray-800 mb-1">Laporan Marketing</h3><p data-lm-catatan className="text-xs text-gray-500 mb-3">Total Penjualan termasuk ongkir{canViewKomisi ? '; komisi dihitung dari nilai barang (setelah diskon, tanpa ongkir).' : '.'}</p><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th>{canViewKomisi && <th className="p-3 text-right">Nilai Barang (dasar komisi)</th>}{canViewKomisi && <th className="p-3 text-right">Total Komisi</th>}{canViewKomisi && <th className="p-3 text-center">Share Link</th>}</tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td>{canViewKomisi && <td data-lm-nilai-barang className="p-3 text-right">{formatRupiah(row.barang)}</td>}{canViewKomisi && <td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td>}{canViewKomisi && <td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td>}</tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div>{canViewKomisi && <div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)} <span data-lm-nilai-barang className="font-normal text-gray-500">· dasar {formatRupiah(row.barang)}</span></div>}</div>{canViewKomisi && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
                     }
                     {activeInvoiceTab === 'bagi_hasil' &&
                     <BagiHasilPromosiTab bukaDetail={bukaBhpDana} periodeTahun={invTahun} periodeBulan={invBulan} onSemuaPeriode={() => setInvPeriode('', '')} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />
@@ -15223,17 +15416,48 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         const snapAmt = rkKms && rkKms.marketingInvoiceAmounts && rkKms.marketingInvoiceAmounts[String(inv.id)] != null ? safeMoney(rkKms.marketingInvoiceAmounts[String(inv.id)]) : null;
                                         const adjs = rkKms ? getRekapKomisiPenyesuaian(rkKms).flatMap(p => safeArray(p.items).filter(x => String(x.invId) === String(inv.id)).map(x => ({ v: safeMoney(x.selisih), date: p.date }))) : [];
                                         const belum = rkKms ? hitungSelisihKomisiRekap(rkKms, invoices).items.find(x => String(x.invId) === String(inv.id)) : null;
+                                        const jelas = belum ? jelaskanSelisihKomisi(rkKms, belum, inv) : null;
                                         return (
                                             <div className="rounded-xl border border-purple-100 bg-purple-50 px-4 py-2.5 text-[14px] text-purple-800">
                                                 <div className="flex items-center justify-between gap-3">
                                                     <span className="min-w-0">Komisi marketing{inv.commissionValue > 0 ? ` ${inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${inv.commissionValue}%`}` : ''}{inv.marketing ? ` · ${inv.marketing}` : ''}{inv.commissionRekapId ? <b> · sudah direkap</b> : ''}{rkKms ? ` (${tglId(rkKms.dateProcessed)})` : ''}</span>
                                                     <b className="tabular-nums shrink-0">{formatRupiah(commission)}</b>
                                                 </div>
+                                                <div data-inv-komisi-dasar className="text-[12px] text-purple-600">{teksDasarKomisi(dasarKomisiInvoice(inv))} · tanpa ongkir, tidak tergantung status bayar</div>
                                                 {rkKms && (snapAmt != null && Math.abs(snapAmt - commission) >= 0.5 || adjs.length > 0 || belum) && (
                                                     <div data-inv-komisi-rekap className="mt-1 text-[12.5px] space-y-0.5">
                                                         {snapAmt != null && Math.abs(snapAmt - commission) >= 0.5 && <div>Saat direkap {formatRupiah(snapAmt)} → sekarang <b>{formatRupiah(commission)}</b></div>}
                                                         {adjs.map((a, ai) => <div key={ai} className="text-green-700 font-semibold">✓ Penyesuaian {tanda(a.v)} diterapkan {tglId(a.date)}</div>)}
                                                         {belum && <div data-inv-komisi-belum className="text-amber-700 font-semibold">⚠ selisih {tanda(belum.selisih)} belum diterapkan di rekap</div>}
+                                                        {jelas && <div data-inv-komisi-sebab className={`rounded-lg px-2 py-1 mt-1 ${jelas.perkiraan ? 'bg-white/70 text-slate-700' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>💬 {jelas.kalimat}</div>}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Riwayat perubahan invoice (dampak ke komisi hanya untuk akun berakses komisi) */}
+                                    {safeArray(inv.riwayatUbah).length > 0 && (() => {
+                                        const riw = safeArray(inv.riwayatUbah).filter(Boolean);
+                                        const buka = String(riwayatInvBuka) === String(inv.id);
+                                        return (
+                                            <div data-inv-riwayat className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-2.5 text-[13px]">
+                                                <button type="button" data-inv-riwayat-buka onClick={() => setRiwayatInvBuka(v => String(v) === String(inv.id) ? null : inv.id)} className="w-full flex items-center justify-between gap-2 font-black text-gray-700">
+                                                    <span>🕘 Riwayat perubahan ({riw.length})</span><span className="text-blue-600 text-[12px] font-bold">{buka ? 'Tutup ▴' : 'Lihat ▾'}</span>
+                                                </button>
+                                                {buka && (
+                                                    <div className="mt-2 space-y-2">
+                                                        {[...riw].reverse().map((r, ri) => (
+                                                            <div key={ri} data-inv-riwayat-baris className="border-l-2 border-purple-300 pl-2.5">
+                                                                <div className="text-[11.5px] font-bold text-gray-500">{fmtWaktuRiwayat(r.at)} · {r.jenis === 'dibuat' ? 'dibuat' : 'diubah'} oleh {r.oleh || '-'}</div>
+                                                                {safeArray(r.p).map((x, xi) => (
+                                                                    <div key={xi} className="flex justify-between gap-2 text-gray-700">
+                                                                        <span className="min-w-0 break-words">{x.t}</span>
+                                                                        {canViewKomisi && <span className={`shrink-0 whitespace-nowrap font-bold ${Math.abs(safeMoney(x.e)) < 0.5 ? 'text-gray-400 font-semibold text-[11.5px]' : x.e > 0 ? 'text-green-700' : 'text-red-700'}`}>{Math.abs(safeMoney(x.e)) < 0.5 ? 'tidak mengubah komisi' : `komisi ${tandaRpKomisi(x.e)}`}</span>}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 )}
                                             </div>
@@ -18847,7 +19071,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <td style="padding:6px 8px;">${safe(inv.date||'-')}</td>
                                     <td style="padding:6px 8px;">${safe(inv.customer||'-')}</td>
                                     <td style="padding:6px 8px;text-align:right;">${fmt(getInvoiceTotals(inv).total)}</td>
-                                    <td style="padding:6px 8px;text-align:center;">${safe(commType)} (${safe(commLabel)})</td>
+                                    <td style="padding:6px 8px;text-align:right;">${fmt(getInvoiceTotals(inv).productionTotal)}</td>
+                                    <td style="padding:6px 8px;text-align:center;">${safe(teksDasarKomisiSingkat(dasarKomisiInvoice(inv)) || `${commType} (${commLabel})`)}</td>
                                     <td style="padding:6px 8px;text-align:right;font-weight:900;color:#7c3aed;">${fmt(comm)}</td>
                                 </tr>`;
                             }).join('');
@@ -18899,13 +19124,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 <table>
                                     <thead><tr>
-                                        <th>No</th><th>Invoice</th><th>Tanggal</th><th>Klien</th><th style="text-align:right">Nilai Invoice</th><th style="text-align:center">Komisi</th><th style="text-align:right">Nominal</th>
+                                        <th style="text-align:center">No</th><th style="text-align:left">Invoice</th><th style="text-align:left">Tanggal</th><th style="text-align:left">Klien</th><th style="text-align:right">Nilai Invoice</th><th style="text-align:right">Nilai Barang (dasar komisi)</th><th style="text-align:center">Hitungan Komisi</th><th style="text-align:right">Nominal</th>
                                     </tr></thead>
                                     <tbody>
                                         ${invRows}
-                                        <tr class="total-row"><td colspan="6" style="text-align:right;padding-right:16px;">Total Komisi</td><td>${fmt(row.totalCommission)}</td></tr>
+                                        <tr class="total-row"><td colspan="7" style="text-align:right;padding-right:16px;">Total Komisi</td><td>${fmt(row.totalCommission)}</td></tr>
                                     </tbody>
                                 </table>
+                                <div data-struk-catatan style="font-size:10.5px;color:#6b7280;margin:-8px 0 12px">Komisi dihitung dari nilai barang (setelah diskon, tanpa ongkir). Nilai Invoice &amp; Total Penjualan sudah termasuk ongkir.</div>
                                 <div class="thankyou">
                                     <p>Terima kasih sudah banyak mendukung ${safe(templates?.companyName || 'Simpati Konveksi')}!</p>
                                     <small>Kontribusi Anda sangat berarti bagi pertumbuhan kami. Semoga kerjasama ini terus berlanjut.</small>
@@ -18920,8 +19146,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             w.document.open(); w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
                         };
 
+                        const petaInvKomisi = new Map(safeArray(invoices).filter(i => i && i.id != null).map(i => [String(i.id), i]));
+                        const rekapKomisiBerubah = safeFinanceRekaps.filter(r => r && isVisibleRecord(r) && safeArray(r.marketingInvoiceIds).length > 0).filter(r => { try { return hitungSelisihKomisiRekap(r, petaInvKomisi).total !== 0; } catch (e) { return false; } }).length;
                         return (
                             <div className="space-y-4">
+                                <div data-lk-komisi-catatan className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">ℹ️ Komisi = persen × nilai barang (setelah diskon, tanpa ongkir), atau tarif per pcs × jumlah pcs. Persen/tarif diambil dari Data Karyawan saat invoice dibuat. Komisi dibayar lewat rekap gaji di Laporan Kinerja.</div>
+                                {rekapKomisiBerubah > 0 && <div data-lk-komisi-berubah={rekapKomisiBerubah} className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">⚠ {rekapKomisiBerubah} rekap punya perubahan komisi yang belum diterapkan. Periksa di Laporan Kinerja (tanda 🔔).</div>}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <Card><h3 className="text-xs font-bold text-gray-500">Total Marketing</h3><p className="text-xl font-black">{allRows.length}</p></Card>
                                     <Card><h3 className="text-xs font-bold text-gray-500">Total Invoice Berkomisi</h3><p className="text-xl font-black">{totalInvoiceCount}</p></Card>
@@ -18935,6 +19165,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <h3 className="font-bold text-lg text-gray-800">{row.marketing}</h3>
                                                 </div>
                                                 <p className="text-xs text-gray-500">{row.invoices.length} invoice · Total Penjualan: {formatRupiah(row.totalSales)}</p>
+                                                <p data-lm-catatan className="text-[11px] text-gray-400">Total Penjualan termasuk ongkir; komisi dihitung dari nilai barang.</p>
                                             </div>
                                             <div className="flex items-center gap-3">
                                                 <div className="text-right">
@@ -18955,6 +19186,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                     <th className="p-2 text-left">Klien</th>
                                                     <th className="p-2 text-center">Status Bayar</th>
                                                     <th className="p-2 text-right">Nilai Invoice</th>
+                                                    <th className="p-2 text-right">Nilai Barang (dasar komisi)</th>
                                                     <th className="p-2 text-right">Tipe Komisi</th>
                                                     <th className="p-2 text-right">Nilai Komisi</th>
                                                     <th className="p-2 text-right">Nominal Komisi</th>
@@ -18977,13 +19209,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                 <td className="p-2">{inv.customer || '-'}</td>
                                                                 <td className="p-2 text-center">{statusBadge}</td>
                                                                 <td className="p-2 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td>
+                                                                <td data-lm-nilai-barang className="p-2 text-right">{formatRupiah(getInvoiceTotals(inv).productionTotal)}</td>
                                                                 <td className="p-2 text-right">{commType}</td>
                                                                 <td className="p-2 text-right">{String(commType).toLowerCase() === 'persen' ? `${commVal || 0}%` : `${formatRupiah(commVal || 0)}/pcs`}</td>
                                                                 <td className="p-2 text-right font-black text-purple-700">{formatRupiah(comm)}</td>
                                                             </tr>
                                                         );
                                                     })}
-                                                    <tr className="bg-purple-50 font-bold border-t-2"><td colSpan="7" className="p-2 text-right">Total Komisi {row.marketing}</td><td className="p-2 text-right text-purple-800">{formatRupiah(row.totalCommission)}</td></tr>
+                                                    <tr className="bg-purple-50 font-bold border-t-2"><td colSpan="8" className="p-2 text-right">Total Komisi {row.marketing}</td><td className="p-2 text-right text-purple-800">{formatRupiah(row.totalCommission)}</td></tr>
                                                 </tbody>
                                             </table>
                                         </div>
@@ -19011,7 +19244,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         </div>
                                                         <div className="text-sm text-gray-700 mt-0.5 truncate">{inv.customer || '-'}</div>
                                                         <div className="flex items-end justify-between mt-1.5">
-                                                            <span className="text-xs text-gray-500">Nilai: {formatRupiah(getInvoiceTotals(inv).total)}</span>
+                                                            <span className="text-xs text-gray-500">Nilai: {formatRupiah(getInvoiceTotals(inv).total)}<span data-lm-nilai-barang className="block">Barang (dasar komisi): {formatRupiah(getInvoiceTotals(inv).productionTotal)}</span></span>
                                                             <div className="text-right">
                                                                 <span className="text-[10px] text-gray-400 block">{commType} ({commLabel})</span>
                                                                 <span className="font-black text-purple-700 text-sm">{formatRupiah(comm)}</span>
@@ -19156,6 +19389,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [rekapStatusFilter, setRekapStatusFilter] = useState('semua');
             // Konfirmasi penyesuaian komisi: { rekapId, jenis: 'terapkan' | 'abaikan' | 'kasbon' | 'hapusKasbon', kasbonId? }
             const [komisiKonfirm, setKomisiKonfirm] = useState(null);
+            const [rincianKomisiBuka, setRincianKomisiBuka] = useState(false);
             const [showSelisihDetail, setShowSelisihDetail] = useState(false);
             const [cashAdvanceDeduction, setCashAdvanceDeduction] = useState('');
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
@@ -20017,10 +20251,24 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 });
             };
 
-            const executeRekapAndPrint = () => {
+            // Sebelum menyimpan rekap: pastikan data (invoice, order, karyawan, rekap) sama dengan perangkat lain.
+            // Bila ada yang lebih baru, data dimuat dulu dan admin diminta memeriksa ulang (angka di jendela ikut terbaru).
+            const executeRekapAndPrint = async () => {
                 if(!modalData) return;
                 if(isRekapProcessing) return;
                 setIsRekapProcessing(true);
+                if (appSinkron.cek) {
+                    let ada = false;
+                    try { ada = await Promise.race([appSinkron.cek(null, ['invoices', 'orders', 'employees', 'rekapKinerja']), new Promise(r => setTimeout(() => r(false), 10000))]); } catch (e) { ada = false; }
+                    if (ada) {
+                        setIsRekapProcessing(false);
+                        showToast("Ada data terbaru dari perangkat lain dan sudah dimuat. Periksa kembali rincian rekap, lalu tekan simpan lagi.", "error");
+                        return;
+                    }
+                }
+                lanjutkanRekap();
+            };
+            const lanjutkanRekap = () => {
                 const selectedItems = (modalData.allItems || []).filter(item => modalData.selectedKeys?.has(getRekapItemKey(item)));
                 const hasAnyDailySelected = (modalData?.selectedDailyKeys?.size || 0) > 0;
                 const hasAnyOvertimeSelected = (modalData?.selectedOvertimeKeys?.size || 0) > 0;
@@ -20154,6 +20402,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     marketingCommission,
                     marketingInvoiceIds: marketingInvoicesForRekap.map(inv => inv.id),
                     marketingInvoiceAmounts: marketingInvoicesForRekap.reduce((acc, inv) => { acc[String(inv.id)] = getInvoiceCommissionTotal(inv); return acc; }, {}),
+                    // Dasar komisi per invoice saat rekap dibuat (nilai barang, pcs, persen/tarif, barang): untuk menjelaskan perubahan sesudahnya
+                    marketingInvoiceDasar: marketingInvoicesForRekap.reduce((acc, inv) => { acc[String(inv.id)] = dasarKomisiInvoice(inv); return acc; }, {}),
+                    dibuatAt: new Date().toISOString(),
                     bagiHasilDireksiAmount: bagiHasilDireksiAmt,
                     bagiHasilDireksiMonths: selectedBHMonths,
                     bagiHasilDireksiMonth: selectedBHMonths[0] || '',
@@ -20591,7 +20842,13 @@ ${getRekapShareLink(rekap)}
                     const paid = payments.filter(p => safeMoney(p.amount) > 0).reduce((t, p) => t + safeMoney(p.amount), 0);
                     const entry = {
                         id: genId('KMS-'), date: tgl, at: now, by, total: c.inf.totalTepat,
-                        items: c.inf.items.map(it => ({ invId: it.invId, client: it.client, lama: it.lama, baru: it.baru, selisih: it.selisih, dihapus: !!it.dihapus })),
+                        items: c.inf.items.map(it => {
+                            const invNow = it.invId != null ? petaInvoiceRekap.get(String(it.invId)) : null;
+                            const jl = jelaskanSelisihKomisi(item, it, invNow);
+                            return { invId: it.invId, client: it.client, lama: it.lama, baru: it.baru, selisih: it.selisih, dihapus: !!it.dihapus,
+                                alasan: jl.perkiraan ? '' : (alasanSingkatKomisi(jl.perubahan) || (it.dihapus ? 'invoice dihapus' : '')),
+                                ...(invNow && isVisibleRecord(invNow) ? { dasar: dasarKomisiInvoice(invNow) } : {}) };
+                        }),
                         netSebelum: c.oldNet, netSesudah: c.newNet,
                     };
                     return {
@@ -21787,7 +22044,7 @@ ${getRekapShareLink(rekap)}
                                             <table className="w-full text-xs">
                                                 <thead className="bg-purple-50 text-purple-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalMarketingInvoices.length>0&&modalMarketingInvoices.every(i=>modalData?.selectedMarketingKeys?.has(String(i.id)))} onChange={()=>toggleAllModalMarketingItems(modalMarketingInvoices)}/></th><th className="py-2 px-3 text-left">Invoice / Order</th><th className="py-2 px-3 text-left">Nama Klien</th><th className="py-2 px-3 text-center">Status Bayar</th><th className="py-2 px-3 text-right">Nilai Produksi</th><th className="py-2 px-3 text-right">Komisi</th></tr></thead>
                                                 <tbody>
-                                                    {modalMarketingInvoices.map((inv,idx)=>{const isSel=modalData?.selectedMarketingKeys?.has(String(inv.id));const ps=getInvoicePaymentStatus(inv);const psBadge=ps==='Lunas'?<span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span>:ps==='Termin'?<span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span>:<span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;return(<tr key={`mkt-${idx}`} className={`border-t ${isSel?'bg-purple-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalMarketingItem(inv)}/></td><td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-500 font-normal">{inv.date||'-'}</div></td><td className="py-2 px-3">{inv.customer||'-'}</td><td className="py-2 px-3 text-center">{psBadge}</td><td className="py-2 px-3 text-right">{formatRupiah(getInvoiceTotals(inv).productionTotal)}</td><td className="py-2 px-3 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}</td></tr>);})}
+                                                    {modalMarketingInvoices.map((inv,idx)=>{const isSel=modalData?.selectedMarketingKeys?.has(String(inv.id));const ps=getInvoicePaymentStatus(inv);const psBadge=ps==='Lunas'?<span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span>:ps==='Termin'?<span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span>:<span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;return(<tr key={`mkt-${idx}`} className={`border-t ${isSel?'bg-purple-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalMarketingItem(inv)}/></td><td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-500 font-normal">{inv.date||'-'}</div></td><td className="py-2 px-3">{inv.customer||'-'}</td><td className="py-2 px-3 text-center">{psBadge}</td><td className="py-2 px-3 text-right">{formatRupiah(getInvoiceTotals(inv).productionTotal)}</td><td className="py-2 px-3 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}<div className="text-[10px] font-semibold text-gray-500">{labelTarifKomisi(inv.commissionType, inv.commissionValue)}</div></td></tr>);})}
                                                     <tr className="bg-purple-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Komisi Marketing</td><td className="py-2 px-3 text-right text-purple-800">{formatRupiah(modalMarketingCommission)}</td></tr>
                                                 </tbody>
                                             </table>
@@ -22287,20 +22544,29 @@ ${getRekapShareLink(rekap)}
                                         <div data-rk-selisih={detailKomisiSelisih} className={`border-b flex-shrink-0 px-4 py-3 ${komisiNaik ? 'bg-amber-50 border-amber-200' : 'bg-violet-50 border-violet-200'}`}>
                                             <div className={`font-bold text-sm ${komisiNaik ? 'text-amber-800' : 'text-violet-800'}`}>{komisiNaik ? '▲' : '▼'} Komisi berubah sejak rekap dibuat: {tandaRp(detailKomisiSelisih)}</div>
                                             <div className={`text-xs mt-0.5 ${komisiNaik ? 'text-amber-700' : 'text-violet-700'}`}>{selisihInfo.perInvoice ? 'Invoice di bawah ini diubah setelah rekap dibuat.' : 'Rekap lama: hanya total komisi yang bisa dibandingkan.'} Angka rekap belum berubah sampai Anda menekan "Terapkan".</div>
-                                            <div className="mt-2 bg-white rounded-lg border border-gray-200 overflow-x-auto">
-                                                <table className="w-full text-[11px] sm:text-xs">
-                                                    <thead><tr className={komisiNaik ? 'bg-amber-100 text-amber-800' : 'bg-violet-100 text-violet-800'}><th className="text-left px-1.5 sm:px-2.5 py-1.5 font-bold">Invoice</th><th className="text-right px-1.5 sm:px-2.5 py-1.5 font-bold">Saat rekap</th><th className="text-right px-1.5 sm:px-2.5 py-1.5 font-bold">Sekarang</th><th className="text-right px-1.5 sm:px-2.5 py-1.5 font-bold">Selisih</th></tr></thead>
-                                                    <tbody>
-                                                        {selisihInfo.items.map((row, ri) => (
-                                                            <tr key={ri} data-rk-selisih-baris={row.invId || 'total'} className="border-t border-gray-100">
-                                                                <td className="px-1.5 sm:px-2.5 py-1.5"><b className="text-gray-800">{row.invId || 'Total'}</b>{row.dihapus && <span className="text-red-600 font-bold"> (dihapus)</span>}<div className="text-gray-500 truncate max-w-[90px] sm:max-w-[180px]">{row.client}</div></td>
-                                                                <td className="px-1.5 sm:px-2.5 py-1.5 text-right text-gray-600 whitespace-nowrap">{formatRupiah(row.lama)}</td>
-                                                                <td className="px-1.5 sm:px-2.5 py-1.5 text-right text-gray-800 whitespace-nowrap">{formatRupiah(row.baru)}</td>
-                                                                <td className={`px-1.5 sm:px-2.5 py-1.5 text-right font-extrabold whitespace-nowrap ${row.selisih > 0 ? 'text-green-700' : 'text-violet-700'}`}>{tandaRp(Math.round(row.selisih))}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
+                                            <div className="mt-2 space-y-2">
+                                                {selisihInfo.items.map((row, ri) => {
+                                                    const invNow = row.invId != null ? petaInvoiceRekap.get(String(row.invId)) : null;
+                                                    const jl = jelaskanSelisihKomisi(rekap, row, invNow);
+                                                    return (
+                                                        <div key={ri} data-rk-selisih-baris={row.invId || 'total'} className="bg-white rounded-lg border border-gray-200 px-2.5 py-2 text-[12px]">
+                                                            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                                                                <span className="min-w-0"><b className="text-gray-800 break-all">{row.invId || 'Total'}</b>{row.dihapus && <span className="text-red-600 font-bold"> (dihapus)</span>}{row.client ? <span className="text-gray-500"> · {row.client}</span> : null}</span>
+                                                                <span className="whitespace-nowrap text-gray-600">{formatRupiah(row.lama)} → <span className="text-gray-800">{formatRupiah(row.baru)}</span> <b className={row.selisih > 0 ? 'text-green-700' : 'text-violet-700'}>({tandaRp(Math.round(row.selisih))})</b></span>
+                                                            </div>
+                                                            <div data-rk-selisih-sebab className={`mt-1 rounded-md px-2 py-1 ${jl.perkiraan ? 'bg-slate-50 text-slate-700' : 'bg-emerald-50 text-emerald-800'}`}>💬 {jl.kalimat}{jl.perkiraan && <span className="ml-1 text-[10.5px] font-bold bg-slate-200 text-slate-700 rounded px-1">perkiraan</span>}</div>
+                                                            {rincianKomisiBuka && (jl.perubahan.length > 0 || jl.oleh.length > 0) && (
+                                                                <div data-rk-selisih-rincian className="mt-1.5 border-l-2 border-amber-300 pl-2 space-y-0.5 text-gray-700">
+                                                                    {jl.perubahan.map((x, xi) => <div key={xi} className="flex justify-between gap-2"><span className="min-w-0 break-words">{x.t}</span><span className={`shrink-0 whitespace-nowrap font-bold ${Math.abs(safeMoney(x.e)) < 0.5 ? 'text-gray-400 font-semibold' : x.e > 0 ? 'text-green-700' : 'text-red-700'}`}>{Math.abs(safeMoney(x.e)) < 0.5 ? 'tidak mengubah komisi' : tandaRpKomisi(x.e)}</span></div>)}
+                                                                    {jl.oleh.map((o, oi) => <div key={'o' + oi} className="text-[11px] text-gray-500">✍ diubah oleh {o.oleh} · {(() => { const d = new Date(o.at); return isNaN(d.getTime()) ? '-' : d.toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); })()}</div>)}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                                {selisihInfo.items.some(row => { const jl = jelaskanSelisihKomisi(rekap, row, row.invId != null ? petaInvoiceRekap.get(String(row.invId)) : null); return jl.perubahan.length > 0 || jl.oleh.length > 0; }) && (
+                                                    <button type="button" data-rk-selisih-rincian-buka onClick={() => setRincianKomisiBuka(v => !v)} className="text-[12px] font-bold text-blue-700">{rincianKomisiBuka ? 'Tutup rincian ▴' : 'Lihat rincian ▾'}</button>
+                                                )}
                                             </div>
                                             {canEditRekapBonus && (
                                                 <div className="flex gap-2 mt-2.5 flex-wrap">
@@ -22392,7 +22658,7 @@ ${getRekapShareLink(rekap)}
                                                         <div className="flex justify-between gap-3 px-3 py-2 bg-gray-50"><span className="text-gray-700">Komisi (saat direkap)</span><b className="whitespace-nowrap">{formatRupiah(komisiAwal)}</b></div>
                                                         {penyesuaianKomisi.flatMap(p => safeArray(p.items).map((it, ii) => (
                                                             <div key={`${p.id}-${ii}`} data-rk-penyesuaian-baris className={`flex justify-between gap-3 px-3 py-2 border-t border-gray-100 ${safeMoney(it.selisih) > 0 ? 'bg-green-50' : 'bg-violet-50'}`}>
-                                                                <span className="min-w-0">Penyesuaian komisi · {it.invId || 'total'}{it.dihapus ? ' (dihapus)' : ''}<span className="block text-[11.5px] text-gray-500">{fmtTglId(p.date)} · oleh {p.by || '-'}</span></span>
+                                                                <span className="min-w-0">Penyesuaian komisi · {it.invId || 'total'}{it.dihapus ? ' (dihapus)' : ''}<span className="block text-[11.5px] text-gray-500">{fmtTglId(p.date)} · oleh {p.by || '-'}</span>{it.alasan ? <span data-rk-penyesuaian-alasan className="block text-[11.5px] text-gray-600">💬 {it.alasan}</span> : null}</span>
                                                                 <b className={`whitespace-nowrap ${safeMoney(it.selisih) > 0 ? 'text-green-700' : 'text-violet-700'}`}>{tandaRp(Math.round(safeMoney(it.selisih)))}</b>
                                                             </div>
                                                         )))}
@@ -22488,16 +22754,21 @@ ${getRekapShareLink(rekap)}
                                                             <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Komisi Marketing ({mktInvoices.length} invoice)</div>
                                                             <div className="overflow-x-auto border border-gray-200 rounded-xl">
                                                                 <table className="w-full text-xs text-left">
-                                                                    <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Invoice</th><th className="p-2.5 font-semibold">Customer</th><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold text-right">Komisi</th></tr></thead>
+                                                                    <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Invoice</th><th className="p-2.5 font-semibold">Customer</th><th className="p-2.5 font-semibold">Tanggal</th><th className="p-2.5 font-semibold text-right">Nilai Barang</th><th className="p-2.5 font-semibold text-right">Tarif</th><th className="p-2.5 font-semibold text-right">Komisi</th></tr></thead>
                                                                     <tbody>
-                                                                        {mktInvoices.map((inv, idx) => (
-                                                                            <tr key={inv.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
+                                                                        {mktInvoices.map((inv, idx) => {
+                                                                            const dk = dasarKomisiDiRekap(rekap, inv.id, inv);
+                                                                            return (
+                                                                            <tr key={inv.id} data-rk-mkt-baris={inv.id} className={`border-b border-gray-100 ${idx % 2 === 1 ? 'bg-gray-50' : ''}`}>
                                                                                 <td className="p-2.5 font-bold text-blue-700">{inv.id}</td>
                                                                                 <td className="p-2.5 text-gray-700">{inv.customer || '-'}</td>
                                                                                 <td className="p-2.5 text-gray-500">{inv.date || '-'}</td>
+                                                                                <td data-rk-mkt-nilai className="p-2.5 text-right text-gray-700 whitespace-nowrap">{dk ? formatRupiah(dk.nilai) : '-'}</td>
+                                                                                <td data-rk-mkt-tarif className="p-2.5 text-right text-gray-700 whitespace-nowrap">{dk ? (isKomisiPcs(dk.tipe) ? `${labelTarifKomisi(dk.tipe, dk.tarif)} × ${angkaKomisi(dk.pcs)} pcs` : labelTarifKomisi(dk.tipe, dk.tarif)) : '-'}</td>
                                                                                 <td className="p-2.5 text-right font-black text-purple-700">{formatRupiah(rekap.marketingInvoiceAmounts?.[String(inv.id)] ?? getInvoiceCommissionTotal(inv))}</td>
                                                                             </tr>
-                                                                        ))}
+                                                                            );
+                                                                        })}
                                                                     </tbody>
                                                                 </table>
                                                             </div>
@@ -24496,9 +24767,9 @@ ${getRekapShareLink(rekap)}
                 const nilai = simpan != null ? safeMoney(simpan) : (inv ? getInvoiceCommissionTotal(inv) : null);
                 if (nilai == null) return null;
                 const stInv = inv && isVisibleRecord(inv) ? getInvoicePaymentStatus(inv) : '';
-                return { id: String(id), inv, nilai, dihapus: !!inv && !isVisibleRecord(inv), stInv };
+                return { id: String(id), inv, nilai, dihapus: !!inv && !isVisibleRecord(inv), stInv, dasar: dasarKomisiAwalSlip(rekap, id, inv, nilai) };
             }).filter(Boolean);
-            const penyesuaian = getRekapKomisiPenyesuaian(rekap).flatMap(p => safeArray(p.items).map(it => ({ invId: it.invId, dihapus: !!it.dihapus, v: Math.round(safeMoney(it.selisih)), tgl: p.date || '' }))).filter(r => r.v !== 0);
+            const penyesuaian = getRekapKomisiPenyesuaian(rekap).flatMap(p => safeArray(p.items).map(it => ({ invId: it.invId, dihapus: !!it.dihapus, v: Math.round(safeMoney(it.selisih)), tgl: p.date || '', alasan: String(it.alasan || '') }))).filter(r => r.v !== 0);
             const totalPenyesuaian = penyesuaian.reduce((s, r) => s + r.v, 0);
             // Rekap lama tanpa rincian komisi per invoice (dan data invoice tidak terunduh): tampilkan totalnya saja
             // (marketingCommission sudah termasuk penyesuaian, jadi pakai nilai awalnya)
@@ -24656,13 +24927,13 @@ ${getRekapShareLink(rekap)}
                                 {komisiBaris.map((r, i) => (
                                     <Baris key={r.id} awal={i === 0}
                                         kiri={<>{r.id}{r.dihapus ? <span className="tg tgB">Dihapus</span> : r.stInv === 'Lunas' ? <span className="tg tgL">Lunas</span> : r.stInv === 'Termin' ? <span className="tg tgT">Termin</span> : r.stInv ? <span className="tg tgB">Belum bayar</span> : null}</>}
-                                        kecil={r.inv ? [r.inv.customer || r.inv.client || '', r.inv.date ? tglPendek(r.inv.date) : ''].filter(Boolean).join(' · ') : ''}
+                                        kecil={r.inv || r.dasar ? <>{r.inv ? [r.inv.customer || r.inv.client || '', r.inv.date ? tglPendek(r.inv.date) : ''].filter(Boolean).join(' · ') : ''}{r.dasar ? <span data-slip-dasar style={{ display: 'block' }}>{teksDasarKomisiSingkat(r.dasar)}</span> : null}</> : ''}
                                         nilai={rp(r.nilai)} />
                                 ))}
                                 {penyesuaian.map((r, i) => (
                                     <Baris key={`adj${i}`} awal={komisiBaris.length === 0 && i === 0}
                                         kiri={`Penyesuaian · ${r.invId || 'total komisi'}${r.dihapus ? ' (dihapus)' : ''}`}
-                                        kecil={r.tgl ? fmtTglStruk(r.tgl) : ''} nilai={rpTanda(r.v)} warna={r.v > 0 ? 'grn' : 'red'} />
+                                        kecil={r.tgl || r.alasan ? <>{r.tgl ? fmtTglStruk(r.tgl) : ''}{r.alasan ? <span data-slip-alasan style={{ display: 'block' }}>{r.alasan}</span> : null}</> : ''} nilai={rpTanda(r.v)} warna={r.v > 0 ? 'grn' : 'red'} />
                                 ))}
                             </Det>
                         )}
@@ -25811,9 +26082,10 @@ ${getRekapShareLink(rekap)}
                 const marketingRows = relatedInvoices.map(inv => {
                     const storedAmt = data.marketingInvoiceAmounts?.[String(inv.id)];
                     const commAmt = storedAmt != null ? storedAmt : getInvoiceCommissionTotal(inv);
+                    const dasarNota = dasarKomisiAwalSlip(data, inv.id, inv, commAmt);
                     return `
                     <div class="item-row${inv.isDeleted ? ' muted' : ''}">
-                        <span><b>${inv.id || '-'}${inv.isDeleted ? ' (dihapus)' : ''}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small></span>
+                        <span><b>${inv.id || '-'}${inv.isDeleted ? ' (dihapus)' : ''}</b><small>${inv.customer || '-'} | ${inv.date || data.dateProcessed || '-'}</small>${dasarNota ? `<small data-nota-dasar>${escapeHtmlText(teksDasarKomisiSingkat(dasarNota))}</small>` : ''}</span>
                         <span>${formatReceiptMoney(commAmt)}</span>
                     </div>
                 `});
@@ -25823,7 +26095,7 @@ ${getRekapShareLink(rekap)}
                     const tglP = String(p.date || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1');
                     marketingRows.push(`
                     <div class="item-row" style="background:${v > 0 ? '#f0fdf4' : '#f5f3ff'}">
-                        <span><b>Penyesuaian komisi</b><small>${it.invId || 'total'}${it.dihapus ? ' (dihapus)' : ''} · ${tglP}</small></span>
+                        <span><b>Penyesuaian komisi</b><small>${it.invId || 'total'}${it.dihapus ? ' (dihapus)' : ''} · ${tglP}</small>${it.alasan ? `<small data-nota-alasan>${escapeHtmlText(String(it.alasan))}</small>` : ''}</span>
                         <span>${v > 0 ? '+' : '-'}${formatReceiptMoney(Math.abs(v))}</span>
                     </div>`);
                 }));
@@ -35240,6 +35512,16 @@ ${getRekapShareLink(rekap)}
             // Akses gaji Direksi & Marketing untuk akun yang sedang login (dicentang di Master Akun)
             const myLoginAccount = findAccountOfUser(accounts, authUser);
             const gajiSensitif = React.useMemo(() => ({ lihat: hasGajiSensitifLihat(myLoginAccount), edit: hasGajiSensitifEdit(myLoginAccount) }), [myLoginAccount?.id, myLoginAccount?.role, myLoginAccount?.gajiSensitifLihat, myLoginAccount?.gajiSensitifEdit, myLoginAccount?.isDeleted]);
+            // 🔔 di menu Laporan Kinerja: jumlah rekap yang komisinya berubah & belum diterapkan (hanya akun berakses gaji sensitif)
+            const bolehLoncengKomisi = !!authUser && authUser.role !== 'Karyawan' && gajiSensitif.lihat && getAccountNavAccess(authUser).includes('laporan');
+            const loncengKomisi = React.useMemo(() => {
+                if (!bolehLoncengKomisi) return 0;
+                const rks = safeArray(rekapKinerja).filter(r => r && isVisibleRecord(r) && safeArray(r.marketingInvoiceIds).length > 0);
+                if (!rks.length) return 0;
+                const peta = new Map();
+                safeArray(invoices).forEach(i => { if (i && i.id != null) peta.set(String(i.id), i); });
+                return rks.reduce((n, r) => { try { return n + (hitungSelisihKomisiRekap(r, peta).total !== 0 ? 1 : 0); } catch (e) { return n; } }, 0);
+            }, [bolehLoncengKomisi, rekapKinerja, invoices]);
 
             // Coba ulang lewat fungsi update yang sama dengan simpan normal: ambil data cloud terbaru, gabungkan dengan data lokal, lalu simpan
             const retryUpdaters = {
@@ -35308,7 +35590,7 @@ ${getRekapShareLink(rekap)}
             applyRemoteDataSnapshotRef.current = applyRemoteDataSnapshot;
             // Cetak (SPK, Surat Pesanan Bahan, Checklist Belanja) selalu memakai data terbaru: sebelum mencetak, catatan
             // perubahan di cloud dicek (permintaan kecil); bila ada data lebih baru dari perangkat lain, dimuat dulu.
-            appSinkron.cek = async (onPerbarui) => {
+            appSinkron.cek = async (onPerbarui, kunciCek = null) => {
                 if (!supabaseClient || cloudHealth.isBlocked() || navigator.onLine === false) return false;
                 if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return false;
                 const remote = await fetchRemoteTimestamps();
@@ -35316,7 +35598,7 @@ ${getRekapShareLink(rekap)}
                 const lokal = getTsCache();
                 const lebihBaru = (k) => !!remote[k] && remote[k] !== lokal[k] && !(lokal[k] && lokal[k] > remote[k]);
                 const idxLokal = ((loadLocalData(ARSIP_INDEX_LOCAL_KEY, null) || {}).ts) || '';
-                const ada = ['orders', 'purchaseNotes', 'masterBahan', 'stokBahan', 'templates', 'clients'].some(lebihBaru)
+                const ada = (Array.isArray(kunciCek) && kunciCek.length ? kunciCek : ['orders', 'purchaseNotes', 'masterBahan', 'stokBahan', 'templates', 'clients']).some(lebihBaru)
                     || (!!remote[ARSIP_INDEX_KEY] && remote[ARSIP_INDEX_KEY] !== idxLokal);
                 if (!ada) return false;
                 if (onPerbarui) onPerbarui();
@@ -35911,7 +36193,7 @@ ${getRekapShareLink(rekap)}
                                             className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-2 py-3' : 'space-x-3 px-4 py-3'} rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:bg-slate-800 hover:text-white'}`}
                                         >
                                             {item.icon}
-                                            {!sidebarCollapsed && <span>{item.label}</span>}
+                                            {!sidebarCollapsed && <span data-lonceng={item.id === 'laporan' && loncengKomisi > 0 ? loncengKomisi : undefined}>{item.label}</span>}
                                         </button>
                                     </li>
                                 ))}
@@ -35959,7 +36241,7 @@ ${getRekapShareLink(rekap)}
                                             <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileNav(false); }}
                                                 className={`w-full text-left flex items-center gap-3 px-5 py-3 text-sm transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
                                                 <span className="shrink-0">{item.icon}</span>
-                                                <span>{item.label}</span>
+                                                <span data-lonceng={item.id === 'laporan' && loncengKomisi > 0 ? loncengKomisi : undefined}>{item.label}</span>
                                             </button>
                                         ))}
                                     </div>
@@ -35979,7 +36261,7 @@ ${getRekapShareLink(rekap)}
                                     {bottomTabs.map(tab => (
                                         <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMobileNav(false); }}
                                             className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] transition-colors ${activeTab === tab.id ? 'text-blue-400' : 'text-slate-400 active:text-white'}`}>
-                                            <span className="text-[18px] leading-none">{tab.icon}</span>
+                                            <span className="text-[18px] leading-none" data-lonceng-titik={tab.id === 'laporan' && loncengKomisi > 0 ? loncengKomisi : undefined}>{tab.icon}</span>
                                             <span className="leading-tight">{tab.label}</span>
                                         </button>
                                     ))}
@@ -36045,7 +36327,7 @@ ${getRekapShareLink(rekap)}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={ordersTampil} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView bukaRekapDana={danaBukaReq && danaBukaReq.jenis === 'gaji' ? danaBukaReq : null} orders={ordersTampil} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView bukaBiayaDana={danaBukaReq && danaBukaReq.jenis === 'biaya' ? danaBukaReq : null} expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
-                                {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView bukaBhpDana={danaBukaReq && danaBukaReq.jenis === 'bh' ? danaBukaReq : null} invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
+                                {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView bukaBhpDana={danaBukaReq && danaBukaReq.jenis === 'bh' ? danaBukaReq : null} penggunaNama={authUser?.name || authUser?.username || ''} bukaRekapGaji={canOpen('laporan') ? (id) => { setDanaBukaReq({ jenis: 'gaji', id: String(id), empName: '', t: Date.now() }); setActiveTab('laporan'); } : null} invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('data_master', canOpen('data_master')) && <div hidden={!tabVisible('data_master')}><DataMasterView izin={getAccountMenuAccess(authUser)} purchaseNotes={purchaseNotes}
                                     karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
