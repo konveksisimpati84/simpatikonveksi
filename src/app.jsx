@@ -2350,7 +2350,9 @@
         // Alasan singkat untuk slip/nota (tanpa angka & nama admin)
         const alasanSingkatKomisi = (perubahan) => safeArray(perubahan).filter(p => Math.abs(safeMoney(p.e)) >= 0.5).map(p => p.t).join('; ');
         // Waktu rekap dibuat (rekap lama: tanggal rekap)
-        const waktuRekapDibuat = (rekap) => String(rekap?.dibuatAt || (rekap?.dateProcessed ? `${rekap.dateProcessed}T00:00:00` : ''));
+        // Waktu dari ID buatan genId ("RKP-1785581604464-xxxx" → ISO); '' bila tidak ada
+        const waktuDariIdGen = (id) => { const m = String(id || '').match(/^[A-Za-z]+-(1\d{12})(?:-|$)/); if (!m) return ''; const d = new Date(Number(m[1])); return isNaN(d.getTime()) ? '' : d.toISOString(); };
+        const waktuRekapDibuat = (rekap) => String(rekap?.dibuatAt || waktuDariIdGen(rekap?.id) || (rekap?.dateProcessed ? `${rekap.dateProcessed}T00:00:00` : ''));
         // Penjelasan satu baris selisih komisi pada rekap: kalimat sebab, daftar perubahan, siapa & kapan, atau perkiraan (rekap lama)
         const jelaskanSelisihKomisi = (rekap, item, inv) => {
             const invId = String(item?.invId || '');
@@ -2387,6 +2389,90 @@
                 else kalimat = `Perkiraan: nilai barang ${selisih > 0 ? 'naik' : 'turun'} ± ${rpKomisi(Math.abs(selisih) / (d.tarif / 100))} (bila persen komisi tetap ${angkaKomisi(d.tarif)}%). Rincian saat rekap tidak tersimpan.`;
             }
             return { kalimat, perubahan: [], perkiraan: true, oleh };
+        };
+        // ===== Rekap lama (hanya total komisi tersimpan): tunjuk invoice yang paling mungkin berubah =====
+        // Hanya petunjuk — tidak mengubah angka apa pun. "pasti" hanya bila jumlah dampaknya cocok persis dengan selisih total,
+        // atau bila perubahannya tercatat di riwayat invoice.
+        const analisaRekapLamaKomisi = (rekap, item, petaInv) => {
+            const S = safeMoney(item?.selisih);
+            const batasIso = waktuRekapDibuat(rekap);
+            const batas = batasIso ? new Date(batasIso).getTime() : NaN;
+            const cari = (id) => petaInv instanceof Map ? petaInv.get(String(id)) : safeArray(petaInv).find(i => i && String(i.id) === String(id));
+            const baris = safeArray(rekap?.marketingInvoiceIds).map(id => {
+                const inv = cari(id);
+                if (!inv) return null;
+                const d = dasarKomisiInvoice(inv);
+                return { invId: String(id), inv, client: inv.customer || inv.client || String(id), dihapus: !isVisibleRecord(inv), tipe: d.tipe, tarif: d.tarif, nilai: d.nilai, pcs: d.pcs, komisi: isVisibleRecord(inv) ? d.komisi : 0, tanda: 'tetap', tgl: '' };
+            }).filter(Boolean);
+            // Persen/tarif yang paling banyak dipakai per jenis (Persen / Nominal)
+            const modus = {};
+            ['Persen', 'Nominal'].forEach(tp => {
+                const hitung = new Map();
+                baris.filter(b => !b.dihapus && b.tipe === tp && b.tarif > 0).forEach(b => hitung.set(b.tarif, (hitung.get(b.tarif) || 0) + 1));
+                const urut = [...hitung.entries()].sort((a, b) => b[1] - a[1]);
+                if (urut.length > 1 && urut[0][1] >= 2 && urut[0][1] > urut[1][1]) modus[tp] = { tarif: urut[0][0], n: urut[0][1] };
+            });
+            const waktuMs = (v) => { const t = new Date(v || '').getTime(); return isNaN(t) ? NaN : t; };
+            const temuan = [];
+            let diketahui = 0;
+            const kandidat = [];
+            let bayarSaja = 0;
+            baris.forEach(b => {
+                const inv = b.inv;
+                const ubahMs = waktuMs(inv._syncUpdatedAt);
+                const setelah = !isNaN(batas) && !isNaN(ubahMs) && ubahMs > batas;
+                if (b.dihapus) { b.tanda = 'dihapus'; kandidat.push(b); return; }
+                // 1) Perubahan yang tercatat di riwayat invoice setelah rekap → pasti
+                const riw = !isNaN(batas) ? safeArray(inv.riwayatUbah).filter(r => r && r.jenis === 'diubah' && waktuMs(r.at) > batas) : [];
+                if (riw.length) {
+                    const per = riw.flatMap(r => safeArray(r.p));
+                    const e = Math.round(per.reduce((t, x) => t + safeMoney(x.e), 0) * 100) / 100;
+                    b.tanda = 'diubah'; b.tgl = riw[riw.length - 1].at;
+                    if (Math.abs(e) >= 0.5) { diketahui += e; temuan.push({ invId: b.invId, client: b.client, efek: e, pasti: true, jenis: 'riwayat', kalimat: `${alasanSingkatKomisi(per) || 'isi invoice diubah'} (diubah oleh ${riw.map(r => r.oleh || '-').filter((v, i, a) => a.indexOf(v) === i).join(', ')}).` }); }
+                    return;
+                }
+                // 2) Persen/tarif berbeda dari kebanyakan invoice lain di rekap ini
+                const md = modus[b.tipe];
+                if (md && b.tarif !== md.tarif) {
+                    const e = Math.round((b.komisi - getInvoiceCommissionTotal({ ...inv, commissionValue: md.tarif })) * 100) / 100;
+                    b.tanda = 'persen';
+                    if (Math.abs(e) >= 0.5) {
+                        diketahui += e;
+                        temuan.push({ invId: b.invId, client: b.client, efek: e, pasti: false, jenis: 'persen', tarifLain: md.tarif, nLain: md.n,
+                            kalimat: isKomisiPcs(b.tipe)
+                                ? `Komisi invoice ini ${labelTarifKomisi(b.tipe, b.tarif)}, sedangkan ${md.n} invoice lain ${labelTarifKomisi(b.tipe, md.tarif)} (${angkaKomisi(b.pcs)} pcs).`
+                                : `Persen komisi invoice ini ${labelTarifKomisi(b.tipe, b.tarif)}, sedangkan ${md.n} invoice lain ${labelTarifKomisi(b.tipe, md.tarif)} (nilai barang ${rpKomisi(b.nilai)}).` });
+                    }
+                }
+                // 3) Disimpan ulang setelah rekap: karena pembayaran saja, atau isi invoice kemungkinan diubah
+                if (setelah) {
+                    const bayarMs = [...getInvoicePayments(inv).map(p => waktuMs(waktuDariIdGen(p.id)))].filter(t => !isNaN(t));
+                    const karenaBayar = bayarMs.some(t => Math.abs(t - ubahMs) <= 10 * 60 * 1000);
+                    if (b.tanda === 'tetap') b.tanda = karenaBayar ? 'bayar' : 'diubah';
+                    b.tgl = inv._syncUpdatedAt;
+                    if (karenaBayar) bayarSaja += 1; else if (b.tanda !== 'persen') kandidat.push(b);
+                }
+            });
+            const cocok = temuan.length > 0 && Math.abs(S - diketahui) < 1;
+            if (cocok) temuan.forEach(t => { t.pasti = true; });
+            const sisa = Math.round((S - diketahui) * 100) / 100;
+            if (!cocok && Math.abs(sisa) >= 1) {
+                const arah = sisa > 0 ? 'naik' : 'turun';
+                const fmtTgl = (v) => { const d = new Date(v || ''); return isNaN(d.getTime()) ? '' : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); };
+                if (kandidat.length === 1) {
+                    const b = kandidat[0];
+                    let kal;
+                    if (b.dihapus) kal = `Invoice ini dihapus setelah rekap.`;
+                    else if (isKomisiPcs(b.tipe)) kal = `Invoice ini diubah setelah rekap${b.tgl ? ` (${fmtTgl(b.tgl)})` : ''}, bukan karena pembayaran. Kemungkinan jumlah barang ${sisa > 0 ? 'bertambah' : 'berkurang'} ± ${b.tarif > 0 ? angkaKomisi(Math.abs(sisa) / b.tarif) : '?'} pcs.`;
+                    else kal = `Invoice ini diubah setelah rekap${b.tgl ? ` (${fmtTgl(b.tgl)})` : ''}, bukan karena pembayaran. Kemungkinan qty/harga/diskon berubah: nilai barang ${arah} ± ${b.tarif > 0 ? rpKomisi(Math.abs(sisa) / (b.tarif / 100)) : '?'}.`;
+                    temuan.push({ invId: b.invId, client: b.client, efek: sisa, pasti: false, jenis: 'sisa', kalimat: kal });
+                } else if (kandidat.length > 1) {
+                    temuan.push({ invId: null, client: '', efek: sisa, pasti: false, jenis: 'sisa', kalimat: `Sisa selisih kemungkinan dari invoice yang diubah setelah rekap: ${kandidat.slice(0, 6).map(b => `${b.client}${b.dihapus ? ' (dihapus)' : ''}`).join(', ')}${kandidat.length > 6 ? ` +${kandidat.length - 6} lainnya` : ''}.` });
+                } else {
+                    temuan.push({ invId: null, client: '', efek: sisa, pasti: false, jenis: 'sisa', kalimat: `Sisa selisih belum bisa ditunjuk ke invoice tertentu. Cocokkan daftar invoice di bawah dengan nota slip lama.` });
+                }
+            }
+            return { baris, temuan, cocok, sisa, bayarSaja, batas: batasIso };
         };
         // Dasar komisi yang dipakai angka rekap (catatan rekap/penyesuaian terakhir; atau invoice sekarang bila komisinya sama).
         const dasarKomisiDiRekap = (rekap, invId, inv) => {
@@ -17842,6 +17928,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Beban Usaha = operasional + komisi dibayar (via rekap) + komisi belum dibayar + bagi hasil promosi + bagi hasil direksi
             const totalBebanUsaha = totalOperationalExpense + totalCommissionWage + totalMarketingCommission + totalBagiHasilPromosiPaid + totalBagiHasilDireksiWage + totalDriverWage;
             const labaBersih = totalPendapatan - totalBeban; // = labaKotor - totalBebanUsaha
+            // Pengingat (tidak mengubah laba): sisa nota bahan periode ini yang belum dibayar — belum mengurangi laba di atas
+            const hutangBahanBaris = materialRows.filter(r => r.isHutang && r.total > 0);
+            const hutangBahanPeriode = hutangBahanBaris.reduce((s, r) => s + r.total, 0);
+            const hutangBahanVendor = [...new Set(hutangBahanBaris.map(r => String(r.client || '-').trim() || '-'))];
+            const adaNotaBahanPeriode = materialRows.length > 0;
 
             // ===== Data grafik (hanya membaca, tidak mengubah perhitungan di atas) =====
             // Laba bersih untuk periode lain dengan rumus & filter yang sama (pendapatan − totalBeban)
@@ -18174,6 +18265,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <tr class="total-row"><td>TOTAL BEBAN USAHA</td><td class="text-right">${formatRupiah(totalBebanUsaha)}</td></tr>
                                 <tr><td colspan="2">&nbsp;</td></tr>
                                 <tr class="laba-row"><td>LABA BERSIH</td><td class="text-right">${formatRupiah(labaBersih)}</td></tr>
+                                ${hutangBahanPeriode > 0 ? `<tr><td colspan="2" style="color:#92400e;font-style:italic;font-size:11px">Catatan: hutang bahan belum dibayar ${formatRupiah(hutangBahanPeriode)} → laba setelah dibayar ${formatRupiah(labaBersih - hutangBahanPeriode)}</td></tr>` : ''}
                             </tbody>
                         </table>
                         ${(totalPiutangInvoice > 0 || totalKasbonOutstanding > 0 || totalKasbonDriverOutstanding > 0 || totalGajiDriverBelumDibayar > 0) ? `
@@ -18501,6 +18593,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <h3 className={`text-base font-black uppercase tracking-wide mb-1 ${labaBersih >= 0 ? 'text-blue-800' : 'text-red-800'}`}>Laba Bersih</h3>
                                 <p className={`text-4xl font-black mt-1 ${labaBersih >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{formatRupiah(labaBersih)}</p>
                                 <p className={`text-sm mt-2 ${labaBersih >= 0 ? 'text-blue-600' : 'text-red-600'}`}>Laba Kotor ({formatRupiah(labaKotor)}) dikurangi Beban Usaha ({formatRupiah(totalBebanUsaha)})</p>
+                                <p data-laba-catatan className="text-xs text-slate-600 mt-1">Pendapatan = uang yang sudah diterima · bahan = yang sudah dibayar</p>
+                                {hutangBahanPeriode > 0 ? (
+                                    <div data-laba-hutang-bahan={Math.round(hutangBahanPeriode)} className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                        <div className="flex flex-wrap justify-between gap-x-3"><span>⚠ Hutang bahan belum dibayar (nota periode ini)</span><b className="text-amber-900 whitespace-nowrap">{formatRupiah(hutangBahanPeriode)}</b></div>
+                                        <div className="flex flex-wrap justify-between gap-x-3 mt-1"><span>Laba setelah hutang bahan dibayar</span><b data-laba-setelah-hutang className="text-amber-900 whitespace-nowrap">{formatRupiah(labaBersih - hutangBahanPeriode)}</b></div>
+                                        <div className="text-xs text-amber-700 mt-1 break-words">{hutangBahanBaris.length} nota · {hutangBahanVendor.slice(0, 4).join(', ')}{hutangBahanVendor.length > 4 ? ` +${hutangBahanVendor.length - 4} lainnya` : ''}</div>
+                                    </div>
+                                ) : adaNotaBahanPeriode ? (
+                                    <div data-laba-bahan-lunas className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-xs text-green-800">✓ Semua nota bahan periode ini sudah lunas.</div>
+                                ) : null}
                             </div>
 
                             {/* POSISI KEUANGAN */}
@@ -19151,7 +19253,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         return (
                             <div className="space-y-4">
                                 <div data-lk-komisi-catatan className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">ℹ️ Komisi = persen × nilai barang (setelah diskon, tanpa ongkir), atau tarif per pcs × jumlah pcs. Persen/tarif diambil dari Data Karyawan saat invoice dibuat. Komisi dibayar lewat rekap gaji di Laporan Kinerja.</div>
-                                {rekapKomisiBerubah > 0 && <div data-lk-komisi-berubah={rekapKomisiBerubah} className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">⚠ {rekapKomisiBerubah} rekap punya perubahan komisi yang belum diterapkan. Periksa di Laporan Kinerja (tanda 🔔).</div>}
+                                {rekapKomisiBerubah > 0 && <div data-lk-komisi-berubah={rekapKomisiBerubah} className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">⚠ {rekapKomisiBerubah} rekap punya perubahan komisi yang belum diterapkan. Periksa di Laporan Kinerja → Rekap Kinerja, saringan "⚠ Selisih".</div>}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <Card><h3 className="text-xs font-bold text-gray-500">Total Marketing</h3><p className="text-xl font-black">{allRows.length}</p></Card>
                                     <Card><h3 className="text-xs font-bold text-gray-500">Total Invoice Berkomisi</h3><p className="text-xl font-black">{totalInvoiceCount}</p></Card>
@@ -19390,6 +19492,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Konfirmasi penyesuaian komisi: { rekapId, jenis: 'terapkan' | 'abaikan' | 'kasbon' | 'hapusKasbon', kasbonId? }
             const [komisiKonfirm, setKomisiKonfirm] = useState(null);
             const [rincianKomisiBuka, setRincianKomisiBuka] = useState(false);
+            const [daftarRekapLamaBuka, setDaftarRekapLamaBuka] = useState(false);
             const [showSelisihDetail, setShowSelisihDetail] = useState(false);
             const [cashAdvanceDeduction, setCashAdvanceDeduction] = useState('');
             const [cashAdvanceDeductionNote, setCashAdvanceDeductionNote] = useState('');
@@ -22554,7 +22657,7 @@ ${getRekapShareLink(rekap)}
                                                                 <span className="min-w-0"><b className="text-gray-800 break-all">{row.invId || 'Total'}</b>{row.dihapus && <span className="text-red-600 font-bold"> (dihapus)</span>}{row.client ? <span className="text-gray-500"> · {row.client}</span> : null}</span>
                                                                 <span className="whitespace-nowrap text-gray-600">{formatRupiah(row.lama)} → <span className="text-gray-800">{formatRupiah(row.baru)}</span> <b className={row.selisih > 0 ? 'text-green-700' : 'text-violet-700'}>({tandaRp(Math.round(row.selisih))})</b></span>
                                                             </div>
-                                                            <div data-rk-selisih-sebab className={`mt-1 rounded-md px-2 py-1 ${jl.perkiraan ? 'bg-slate-50 text-slate-700' : 'bg-emerald-50 text-emerald-800'}`}>💬 {jl.kalimat}{jl.perkiraan && <span className="ml-1 text-[10.5px] font-bold bg-slate-200 text-slate-700 rounded px-1">perkiraan</span>}</div>
+                                                            {row.invId != null && <div data-rk-selisih-sebab className={`mt-1 rounded-md px-2 py-1 ${jl.perkiraan ? 'bg-slate-50 text-slate-700' : 'bg-emerald-50 text-emerald-800'}`}>💬 {jl.kalimat}{jl.perkiraan && <span className="ml-1 text-[10.5px] font-bold bg-slate-200 text-slate-700 rounded px-1">perkiraan</span>}</div>}
                                                             {rincianKomisiBuka && (jl.perubahan.length > 0 || jl.oleh.length > 0) && (
                                                                 <div data-rk-selisih-rincian className="mt-1.5 border-l-2 border-amber-300 pl-2 space-y-0.5 text-gray-700">
                                                                     {jl.perubahan.map((x, xi) => <div key={xi} className="flex justify-between gap-2"><span className="min-w-0 break-words">{x.t}</span><span className={`shrink-0 whitespace-nowrap font-bold ${Math.abs(safeMoney(x.e)) < 0.5 ? 'text-gray-400 font-semibold' : x.e > 0 ? 'text-green-700' : 'text-red-700'}`}>{Math.abs(safeMoney(x.e)) < 0.5 ? 'tidak mengubah komisi' : tandaRpKomisi(x.e)}</span></div>)}
@@ -22564,6 +22667,54 @@ ${getRekapShareLink(rekap)}
                                                         </div>
                                                     );
                                                 })}
+                                                {!selisihInfo.perInvoice && selisihInfo.items[0] && (() => {
+                                                    const an = analisaRekapLamaKomisi(rekap, selisihInfo.items[0], petaInvoiceRekap);
+                                                    const fmtT = (v) => { const d = new Date(v || ''); return isNaN(d.getTime()) ? '' : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }); };
+                                                    const chip = (b) => b.tanda === 'persen' ? <span className="text-[10.5px] font-bold rounded-full px-1.5 bg-red-100 text-red-800">persen beda</span>
+                                                        : b.tanda === 'diubah' ? <span className="text-[10.5px] font-bold rounded-full px-1.5 bg-amber-100 text-amber-800">diubah {fmtT(b.tgl)}</span>
+                                                        : b.tanda === 'bayar' ? <span className="text-[10.5px] font-bold rounded-full px-1.5 bg-sky-100 text-sky-800">dibayar {fmtT(b.tgl)}</span>
+                                                        : b.tanda === 'dihapus' ? <span className="text-[10.5px] font-bold rounded-full px-1.5 bg-gray-200 text-gray-700">dihapus</span>
+                                                        : <span className="text-[10.5px] text-gray-400">tetap</span>;
+                                                    return (
+                                                        <div data-rk-lama>
+                                                            {an.temuan.length > 0 && <div className="text-[11.5px] text-gray-600 mb-1">Invoice yang paling mungkin menjadi penyebabnya:</div>}
+                                                            <div className="space-y-2">
+                                                                {an.temuan.map((t, ti) => (
+                                                                    <div key={ti} data-rk-lama-temuan={t.invId || 'sisa'} data-pasti={t.pasti ? '1' : '0'} className="bg-white rounded-lg border border-gray-200 px-2.5 py-2 text-[12px]">
+                                                                        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                                                                            <span className="min-w-0">{t.invId ? <><b className="text-gray-800 break-all">{t.invId}</b><span className="text-gray-500"> · {t.client}</span></> : <b className="text-gray-800">{t.jenis === 'sisa' && an.temuan.length > 1 ? 'Sisa selisih' : 'Selisih'}</b>}</span>
+                                                                            <b className={`whitespace-nowrap ${t.efek > 0 ? 'text-green-700' : 'text-violet-700'}`}>{t.jenis === 'sisa' && an.temuan.length > 1 ? 'sisa ' : ''}{tandaRpKomisi(t.efek)}</b>
+                                                                        </div>
+                                                                        <div className={`mt-1 rounded-md px-2 py-1 ${t.pasti ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-50 text-slate-700'}`}>💬 {t.kalimat}{t.jenis === 'persen' && !t.pasti ? ' Bila dulu sama dengan invoice lain, selisihnya dari sini.' : ''} <span className={`ml-1 text-[10.5px] font-bold rounded px-1 ${t.pasti ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-slate-700'}`}>{t.pasti ? 'pasti' : 'perkiraan'}</span></div>
+                                                                        {t.jenis === 'persen' && <div className="text-[11px] text-gray-500 mt-1">Kemungkinan karena masalah lama kolom Marketing (sudah diperbaiki). Periksa: persen yang benar {labelTarifKomisi('Persen', t.tarifLain)} atau tetap seperti sekarang?</div>}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            {an.bayarSaja > 0 && <div data-rk-lama-bayar={an.bayarSaja} className="text-[11.5px] text-gray-600 mt-1.5">ℹ {an.bayarSaja} invoice lain berubah setelah rekap hanya karena <b>pembayaran</b> (tidak memengaruhi komisi).</div>}
+                                                            {an.baris.length > 0 && <button type="button" data-rk-lama-daftar-buka onClick={() => setDaftarRekapLamaBuka(v => !v)} className="mt-1.5 text-[12px] font-bold text-blue-700">{daftarRekapLamaBuka ? 'Tutup daftar ▴' : `Lihat ${an.baris.length} invoice ▾`}</button>}
+                                                            {daftarRekapLamaBuka && (
+                                                                <div className="mt-1.5 bg-white rounded-lg border border-gray-200 overflow-x-auto">
+                                                                    <table data-rk-lama-daftar className="w-full text-[11.5px]">
+                                                                        <thead><tr className="bg-gray-50 text-gray-600"><th className="px-2 py-1.5 text-left">Invoice</th><th className="px-2 py-1.5 text-right">Nilai Barang</th><th className="px-2 py-1.5 text-right">Persen</th><th className="px-2 py-1.5 text-right">Komisi sekarang</th><th className="px-2 py-1.5 text-left">Tanda</th></tr></thead>
+                                                                        <tbody>
+                                                                            {[...an.baris].sort((a, b) => ({ persen: 0, diubah: 1, dihapus: 2, bayar: 3, tetap: 4 }[a.tanda] - { persen: 0, diubah: 1, dihapus: 2, bayar: 3, tetap: 4 }[b.tanda])).map(b => (
+                                                                                <tr key={b.invId} data-rk-lama-baris={b.invId} data-tanda={b.tanda} className="border-t border-gray-100">
+                                                                                    <td className="px-2 py-1.5"><b className="break-all">{b.invId}</b><div className="text-gray-500">{b.client}</div></td>
+                                                                                    <td className="px-2 py-1.5 text-right whitespace-nowrap">{formatRupiah(b.nilai)}</td>
+                                                                                    <td className="px-2 py-1.5 text-right whitespace-nowrap">{isKomisiPcs(b.tipe) ? `${labelTarifKomisi(b.tipe, b.tarif)} × ${angkaKomisi(b.pcs)} pcs` : labelTarifKomisi(b.tipe, b.tarif)}</td>
+                                                                                    <td className="px-2 py-1.5 text-right whitespace-nowrap font-bold">{formatRupiah(b.komisi)}</td>
+                                                                                    <td className="px-2 py-1.5 whitespace-nowrap">{chip(b)}</td>
+                                                                                </tr>
+                                                                            ))}
+                                                                            <tr className="border-t border-gray-200 bg-gray-50"><td colSpan={3} className="px-2 py-1.5 text-right font-bold">Total komisi sekarang</td><td className="px-2 py-1.5 text-right font-black whitespace-nowrap">{formatRupiah(an.baris.reduce((t, b) => t + b.komisi, 0))}</td><td></td></tr>
+                                                                        </tbody>
+                                                                    </table>
+                                                                    <div className="px-2 py-1.5 text-[11px] text-gray-500 border-t border-gray-100">Cocokkan "Komisi sekarang" dengan nota slip lama (cetak/PDF/WA) yang memuat komisi per invoice.</div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                                 {selisihInfo.items.some(row => { const jl = jelaskanSelisihKomisi(rekap, row, row.invId != null ? petaInvoiceRekap.get(String(row.invId)) : null); return jl.perubahan.length > 0 || jl.oleh.length > 0; }) && (
                                                     <button type="button" data-rk-selisih-rincian-buka onClick={() => setRincianKomisiBuka(v => !v)} className="text-[12px] font-bold text-blue-700">{rincianKomisiBuka ? 'Tutup rincian ▴' : 'Lihat rincian ▾'}</button>
                                                 )}
@@ -35512,16 +35663,6 @@ ${getRekapShareLink(rekap)}
             // Akses gaji Direksi & Marketing untuk akun yang sedang login (dicentang di Master Akun)
             const myLoginAccount = findAccountOfUser(accounts, authUser);
             const gajiSensitif = React.useMemo(() => ({ lihat: hasGajiSensitifLihat(myLoginAccount), edit: hasGajiSensitifEdit(myLoginAccount) }), [myLoginAccount?.id, myLoginAccount?.role, myLoginAccount?.gajiSensitifLihat, myLoginAccount?.gajiSensitifEdit, myLoginAccount?.isDeleted]);
-            // 🔔 di menu Laporan Kinerja: jumlah rekap yang komisinya berubah & belum diterapkan (hanya akun berakses gaji sensitif)
-            const bolehLoncengKomisi = !!authUser && authUser.role !== 'Karyawan' && gajiSensitif.lihat && getAccountNavAccess(authUser).includes('laporan');
-            const loncengKomisi = React.useMemo(() => {
-                if (!bolehLoncengKomisi) return 0;
-                const rks = safeArray(rekapKinerja).filter(r => r && isVisibleRecord(r) && safeArray(r.marketingInvoiceIds).length > 0);
-                if (!rks.length) return 0;
-                const peta = new Map();
-                safeArray(invoices).forEach(i => { if (i && i.id != null) peta.set(String(i.id), i); });
-                return rks.reduce((n, r) => { try { return n + (hitungSelisihKomisiRekap(r, peta).total !== 0 ? 1 : 0); } catch (e) { return n; } }, 0);
-            }, [bolehLoncengKomisi, rekapKinerja, invoices]);
 
             // Coba ulang lewat fungsi update yang sama dengan simpan normal: ambil data cloud terbaru, gabungkan dengan data lokal, lalu simpan
             const retryUpdaters = {
@@ -36193,7 +36334,7 @@ ${getRekapShareLink(rekap)}
                                             className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-2 py-3' : 'space-x-3 px-4 py-3'} rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:bg-slate-800 hover:text-white'}`}
                                         >
                                             {item.icon}
-                                            {!sidebarCollapsed && <span data-lonceng={item.id === 'laporan' && loncengKomisi > 0 ? loncengKomisi : undefined}>{item.label}</span>}
+                                            {!sidebarCollapsed && <span>{item.label}</span>}
                                         </button>
                                     </li>
                                 ))}
@@ -36241,7 +36382,7 @@ ${getRekapShareLink(rekap)}
                                             <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileNav(false); }}
                                                 className={`w-full text-left flex items-center gap-3 px-5 py-3 text-sm transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
                                                 <span className="shrink-0">{item.icon}</span>
-                                                <span data-lonceng={item.id === 'laporan' && loncengKomisi > 0 ? loncengKomisi : undefined}>{item.label}</span>
+                                                <span>{item.label}</span>
                                             </button>
                                         ))}
                                     </div>
@@ -36261,7 +36402,7 @@ ${getRekapShareLink(rekap)}
                                     {bottomTabs.map(tab => (
                                         <button key={tab.id} onClick={() => { setActiveTab(tab.id); setShowMobileNav(false); }}
                                             className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] transition-colors ${activeTab === tab.id ? 'text-blue-400' : 'text-slate-400 active:text-white'}`}>
-                                            <span className="text-[18px] leading-none" data-lonceng-titik={tab.id === 'laporan' && loncengKomisi > 0 ? loncengKomisi : undefined}>{tab.icon}</span>
+                                            <span className="text-[18px] leading-none">{tab.icon}</span>
                                             <span className="leading-tight">{tab.label}</span>
                                         </button>
                                     ))}

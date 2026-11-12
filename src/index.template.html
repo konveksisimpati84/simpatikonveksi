@@ -52,10 +52,6 @@
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        /* 🔔 jumlah rekap yang komisinya berubah (menu Laporan Kinerja); dibuat lewat ::after agar teks menu tidak berubah */
-        [data-lonceng]::after { content: "🔔 " attr(data-lonceng); display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #f97316; color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; vertical-align: 1px; }
-        [data-lonceng-titik] { position: relative; }
-        [data-lonceng-titik]::after { content: attr(data-lonceng-titik); position: absolute; top: -5px; right: -11px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 999px; background: #f97316; color: #fff; font-size: 9.5px; font-weight: 800; line-height: 15px; text-align: center; }
 
         /* Larger touch targets for small icon buttons: phones and all touch screens (iPad/tablet).
            PC with a mouse (pointer: fine) is unchanged. */
