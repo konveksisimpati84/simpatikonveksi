@@ -2496,6 +2496,8 @@
             return null;
         };
         const teksDasarKomisiSingkat = (d) => !d ? '' : isKomisiPcs(d.tipe) ? `${rpKomisi(d.tarif)}/pcs × ${angkaKomisi(d.pcs)} pcs` : `${labelTarifKomisi(d.tipe, d.tarif)} × ${rpKomisi(d.nilai)}`;
+        // Setoran saldo DP klien (uang tunai yang benar-benar diterima)
+        const setoranDpKlien = (client) => safeArray(client?.clientDpPayments).filter(isVisibleRecord).filter(dp => safeMoney(dp.amount) > 0);
         // Kasbon yang berasal dari kelebihan bayar komisi: uangnya sudah keluar sebagai gaji, jadi bukan uang keluar baru
         const isKasbonLebihBayar = (item) => !!item && item.sumber === 'lebihBayarKomisi';
         const getRekapKasbonLebihBayar = (rekap, employees) => {
@@ -12486,6 +12488,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const amount = Math.max(0, gross - discountAmt);
                 if (!getExpenseItemsTitle(formData) && !String(formData.category || '').trim()) return showToast("Isi uraian item — nama transaksi diambil dari uraian item.", "error");
                 if (gross <= 0) return showToast("Total nominal harus lebih dari 0. Isi qty dan harga setiap item.", "error");
+                if (discountAmt > gross + 0.01) return showToast(`Diskon (${formatRupiah(discountAmt)}) lebih besar dari total item (${formatRupiah(gross)}). Periksa kembali diskonnya.`, "error");
                 const now = new Date().toISOString();
                 const existing = editId ? (expenses || []).find(i => String(i.id) === String(editId)) : null;
                 let payments = existing?.payments || [];
@@ -13489,7 +13492,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 });
                 setForm(emptyClient); setEditId(null); showToast(editId ? "Klien diperbarui." : "Klien ditambahkan.", "success");
             };
-            const deleteClient = (id) => setClients(prev => (Array.isArray(prev) ? prev : []).map(item => String(item.id) === String(id) ? { ...item, isDeleted: true, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : item));
+            // Pengaman: klien yang punya setoran saldo DP tidak dihapus (uangnya hilang dari Buku Kas)
+            const deleteClient = (id) => setClients(prev => (Array.isArray(prev) ? prev : []).map(item => String(item.id) === String(id) && setoranDpKlien(item).length === 0 ? { ...item, isDeleted: true, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : item));
             const saveDp = (e) => {
                 e.preventDefault();
                 if (!selectedClient) return;
@@ -13607,18 +13611,32 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                         </div></div>
                         <Paginator page={clientPage} setPage={setClientPage} totalPages={clientTotalPages} total={clientTotal} pageSize={15} label="klien" />
                     </Card>
-                    {deleteClientConfirmId && (
+                    {deleteClientConfirmId && (() => {
+                        const klH = safeArray(clients).find(c => String(c.id) === String(deleteClientConfirmId)) || null;
+                        const setorH = setoranDpKlien(klH);
+                        const totalSetorH = setorH.reduce((t, dp) => t + safeMoney(dp.amount), 0);
+                        const terpakaiH = klH ? safeArray(invoices).filter(isVisibleRecord).filter(inv => isInvoiceOfClient(inv, klH)).reduce((t, inv) => t + getInvoiceLinkedDpAmount(inv), 0) : 0;
+                        const sisaH = Math.max(0, totalSetorH - terpakaiH);
+                        return (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                             <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
                                 <h3 className="font-bold text-gray-800 mb-2">Hapus Klien?</h3>
-                                <p className="text-sm text-gray-600 mb-4">Data klien akan dihapus. Invoice yang terkait tidak ikut terhapus.</p>
+                                {setorH.length > 0 ? (
+                                    <div data-klien-hapus-blokir={Math.round(totalSetorH)} className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                                        ⛔ Klien <b>{klH.name || '-'}</b> punya setoran saldo DP <b>{formatRupiah(totalSetorH)}</b> ({setorH.length} setoran; sisa saldo {formatRupiah(sisaH)}).
+                                        <div className="mt-1.5">Setoran itu uang yang benar-benar diterima — bila klien dihapus, uangnya hilang dari Buku Kas. Hapus dulu setoran DP-nya (bila memang salah input), atau biarkan klien ini.</div>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-gray-600 mb-4">Data klien akan dihapus. Invoice yang terkait tidak ikut terhapus.</p>
+                                )}
                                 <div className="flex justify-end gap-2">
-                                    <button onClick={() => setDeleteClientConfirmId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
-                                    <button onClick={() => { deleteClient(deleteClientConfirmId); setDeleteClientConfirmId(null); }} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>
+                                    <button onClick={() => setDeleteClientConfirmId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">{setorH.length > 0 ? 'Tutup' : 'Batal'}</button>
+                                    {setorH.length === 0 && <button onClick={() => { deleteClient(deleteClientConfirmId); setDeleteClientConfirmId(null); }} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>}
                                 </div>
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
                     {activeClient && <div className="fixed inset-0 bg-black/50 overflow-y-auto z-[100]" style={{ WebkitOverflowScrolling: 'touch' }}><div className="flex min-h-full items-center justify-center p-4"><div className="bg-white rounded-xl shadow-xl p-3 sm:p-6 w-full max-w-5xl"><div className="flex justify-between border-b pb-3 mb-4"><div><h3 className="font-black text-lg">Saldo Klien</h3><p className="text-sm text-gray-500">{activeClient.name}</p></div><div className="flex items-center gap-2"><button onClick={() => printSaldoLaporan(activeClient, activeSummary, getClientDpRows(activeClient), getClientInvoices(activeClient), templates)} className="text-xs font-bold bg-blue-600 text-white px-3 py-1.5 rounded">Cetak Laporan</button><button onClick={() => { setSelectedClient(null); setDpForm(emptyDp); setEditDpId(null); }} className="text-2xl text-gray-400">&times;</button></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"><Card><h4 className="text-xs font-bold text-gray-500">Total Saldo Masuk</h4><p className="text-xl font-black text-green-700">{formatRupiah(activeSummary.dp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Saldo Dipakai Invoice</h4><p className="text-xl font-black text-orange-600">{formatRupiah(activeSummary.usedDp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Sisa Saldo</h4><p className="text-xl font-black text-emerald-700">{formatRupiah(activeSummary.saldoDp)}</p></Card><Card><h4 className="text-xs font-bold text-gray-500">Piutang</h4><p className="text-xl font-black text-red-700">{formatRupiah(activeSummary.receivable)}</p></Card></div><form onSubmit={saveDp} className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 border rounded-lg p-4 mb-4"><input type="date" className="p-2 border rounded" value={dpForm.date} onChange={e => setDpForm({ ...dpForm, date: e.target.value })}/><input type="number" min="0" className="p-2 border rounded text-right" placeholder="Nominal DP" value={dpForm.amount} onChange={e => setDpForm({ ...dpForm, amount: e.target.value })} required/><select className="p-2 border rounded" value={dpForm.method} onChange={e => setDpForm({ ...dpForm, method: e.target.value })}><option>Transfer</option><option>Tunai</option><option>QRIS</option><option>Debit</option></select><input className="p-2 border rounded" placeholder="Nomor Order (opsional)" value={dpForm.orderId || ''} onChange={e => setDpForm({ ...dpForm, orderId: e.target.value })}/><input className="p-2 border rounded" placeholder="Catatan Saldo" value={dpForm.note} onChange={e => setDpForm({ ...dpForm, note: e.target.value })}/><div className="md:col-span-3 flex justify-end gap-2"><button type="button" onClick={() => { setDpForm(emptyDp); setEditDpId(null); }} className="px-4 py-2 bg-gray-200 rounded font-bold">Reset</button><button className="px-4 py-2 bg-green-600 text-white rounded font-bold">{editDpId ? 'Simpan Edit' : 'Tambah Saldo'}</button></div></form><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Tanggal</th><th className="p-3 text-right">Nominal</th><th className="p-3">Metode</th><th className="p-3">Order</th><th className="p-3">Catatan</th><th className="p-3 text-center">Status</th><th className="p-3 text-center">Aksi</th></tr></thead><tbody>{getClientDpRows(activeClient).map(dp => { return <tr key={dp.id} className="border-t"><td className="p-3 text-sm">{dp.date}</td><td className="p-3 text-right font-bold text-green-700">{formatRupiah(dp.amount)}</td><td className="p-3 text-sm">{dp.method || '-'}</td><td className="p-3 font-mono text-xs">{dp.orderId || '-'}</td><td className="p-3 text-sm">{dp.note || '-'}</td><td className="p-3 text-center"><span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">Aktif</span></td><td className="p-3"><div className="flex justify-center gap-1 flex-wrap"><button onClick={() => printDpReceipt(dp, activeClient?.name)} className="text-xs font-bold text-slate-700 bg-gray-50 border border-gray-200 px-2 py-1 rounded">Cetak</button><button onClick={() => { setEditDpId(dp.id); setDpForm({ ...emptyDp, ...dp }); }} className="text-blue-600 bg-blue-50 p-1 rounded"><IconEdit /></button><button onClick={() => deleteDp(dp.id)} className="text-red-600 bg-red-50 p-1 rounded"><IconTrash /></button></div></td></tr>; })}</tbody></table></div>{(() => { const linkedInvs = getClientInvoices(activeClient).filter(inv => getInvoiceLinkedDpAmount(inv) > 0); return linkedInvs.length > 0 && (<div className="mt-4 border-t pt-4"><h4 className="font-bold text-sm text-gray-700 mb-3">Invoice yang Memakai Saldo</h4><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">No Invoice</th><th className="p-3 text-left">Tanggal</th><th className="p-3 text-right">Total Invoice</th><th className="p-3 text-right">Saldo Dipakai</th></tr></thead><tbody>{linkedInvs.map(inv => (<tr key={inv.id} className="border-t"><td className="p-3 font-mono text-xs">{inv.id}</td><td className="p-3">{inv.date}</td><td className="p-3 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td><td className="p-3 text-right font-bold text-orange-600">{formatRupiah(getInvoiceLinkedDpAmount(inv))}</td></tr>))}<tr className="bg-gray-50 border-t"><td colSpan="3" className="p-3 text-right font-bold">Total Saldo Dipakai</td><td className="p-3 text-right font-black text-orange-600">{formatRupiah(activeSummary.usedDp)}</td></tr></tbody></table></div></div>); })()}</div></div></div>}
                 </div>
             );
@@ -13698,6 +13716,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 setShowInvDropdown(false);
             };
             const removeInvoice = (id) => setForm(prev => ({ ...prev, invoiceIds: prev.invoiceIds.filter(i => i !== String(id)) }));
+            // Catatan bagi hasil lain (selain yang sedang diedit) yang sudah memuat invoice ini — cegah terbayar dua kali
+            const bhpLainUntukInvoice = (invId) => safeBhp.filter(b => String(b.id) !== String(editId || '') && safeArray(b.invoiceIds).some(x => String(x) === String(invId)));
 
             const saveBhp = (e) => {
                 e.preventDefault();
@@ -13886,10 +13906,13 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                     </div>
                                     {selectedInvs.length > 0 && (
                                         <div className="mt-2 space-y-1.5">
-                                            {selectedInvs.map(inv => (
-                                                <div key={inv.id} className="flex items-center justify-between bg-teal-50 border border-teal-100 rounded-lg px-3 py-2 text-sm">
+                                            {selectedInvs.map(inv => {
+                                                const dipakaiLain = bhpLainUntukInvoice(inv.id);
+                                                return (
+                                                <div key={inv.id} data-bhp-inv={inv.id} data-bhp-dobel={dipakaiLain.length ? '1' : undefined} className={`rounded-lg px-3 py-2 text-sm border ${dipakaiLain.length ? 'bg-amber-50 border-amber-300' : 'bg-teal-50 border-teal-100'}`}>
+                                                <div className="flex items-center justify-between">
                                                     <div className="flex items-center gap-2 min-w-0">
-                                                        <span className="font-mono text-teal-700 font-bold text-xs shrink-0">{inv.id}</span>
+                                                        <span className="font-mono text-teal-700 font-bold text-xs shrink-0">{dipakaiLain.length ? '⚠ ' : ''}{inv.id}</span>
                                                         <span className="text-gray-600 truncate">{inv.customer}</span>
                                                     </div>
                                                     <div className="flex items-center gap-2 shrink-0">
@@ -13897,7 +13920,10 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                         <button type="button" onClick={() => removeInvoice(inv.id)} className="text-red-400 hover:text-red-600 font-bold text-lg leading-none">×</button>
                                                     </div>
                                                 </div>
-                                            ))}
+                                                {dipakaiLain.length > 0 && <div data-bhp-dobel-teks className="text-[12px] text-amber-800 mt-1">⚠ Invoice ini sudah ada di bagi hasil {dipakaiLain.map(b => `${b.nama || '-'} (${String(b.tanggal || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1')})`).join(', ')}. Pastikan memang untuk pihak yang berbeda agar tidak terbayar dua kali.</div>}
+                                                </div>
+                                                );
+                                            })}
                                             <div className="text-xs text-gray-500 text-right">Total Nilai{previewCalc.termasukOngkir ? ' (termasuk ongkir, sudah lunas)' : ' (tanpa ongkir)'}: <span className="font-black text-gray-700">{formatRupiah(previewTotalNilai)}</span></div>
                                         </div>
                                     )}
@@ -16186,6 +16212,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
             const deleteClient = (id) => {
                 const now = new Date().toISOString();
+                const kl = safeArray(clients).find(c => String(c.id) === String(id));
+                if (setoranDpKlien(kl).length > 0) { showToast('Klien ini punya setoran saldo DP. Hapus dulu setoran DP-nya.', 'error'); return; }
                 setClients(prev => (Array.isArray(prev) ? prev : []).map(item => String(item.id) === String(id) ? { ...item, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : item));
                 showToast('Klien dihapus.', 'success');
             };
@@ -17315,6 +17343,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 <input type="text" className="p-1.5 border rounded-lg text-xs flex-1" value={bhNote} onChange={e => setBhNote(e.target.value)} placeholder="Opsional..." />
                                             </div>
                                         </div>
+                                        <div data-investor-pengingat className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12.5px] text-blue-900">ℹ Catatan ini <b>tidak otomatis</b> masuk Buku Kas &amp; Laba. Saat uangnya dibayarkan ke investor, catat juga di menu <b>Biaya</b> (Uang Keluar) — begitu juga modal masuk dicatat di Biaya (Uang Masuk).</div>
                                         <div className="flex items-center justify-between">
                                             <div>
                                                 {selectedInAvail.length > 0 ? (
@@ -19791,14 +19820,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const isDireksi = getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
                 const nilai = safeMoney(emp?.bagiHasilNilai);
                 if (!isDireksi || !(nilai > 0)) return kosong;
-                const direkap = new Set(visibleRekapsBase
-                    .filter(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0)
-                    .flatMap(rk => rk.bagiHasilDireksiMonths || (rk.bagiHasilDireksiMonth ? [rk.bagiHasilDireksiMonth] : [(rk.dateProcessed || '').slice(0, 7)].filter(Boolean))));
+                const isPersenBH = emp?.bagiHasilTipe !== 'Nominal';
+                const rekapBH = visibleRekapsBase.filter(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0);
+                const bulanRekapBH = (rk) => rk.bagiHasilDireksiMonths || (rk.bagiHasilDireksiMonth ? [rk.bagiHasilDireksiMonth] : [(rk.dateProcessed || '').slice(0, 7)].filter(Boolean));
+                // Persen: dikunci per invoice (rekap baru menyimpan daftar invoice) — invoice yang masuk setelah rekap bulan berjalan tetap ikut.
+                // Rekap lama tanpa daftar invoice & tipe Nominal (dibayar sekali per bulan): dikunci per bulan seperti sebelumnya.
+                const direkap = new Set(rekapBH.filter(rk => !isPersenBH || !Array.isArray(rk.bagiHasilDireksiInvoiceIds)).flatMap(bulanRekapBH));
+                const invDirekap = new Set(isPersenBH ? rekapBH.flatMap(rk => safeArray(rk.bagiHasilDireksiInvoiceIds).map(String)) : []);
                 const perBulan = {};
                 safeInvoicesForReport.forEach(inv => {
                     if (!inv || inv.isDeleted || !inv.date) return;
                     const m = String(inv.date).slice(0, 7);
-                    if (!m || direkap.has(m)) return;
+                    if (!m || direkap.has(m) || invDirekap.has(String(inv.id))) return;
                     if (!perBulan[m]) perBulan[m] = [];
                     perBulan[m].push(inv);
                 });
@@ -20548,6 +20581,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     bagiHasilDireksiAmount: bagiHasilDireksiAmt,
                     bagiHasilDireksiMonths: selectedBHMonths,
                     bagiHasilDireksiMonth: selectedBHMonths[0] || '',
+                    // Invoice yang ikut dibagihasilkan di rekap ini (kunci per invoice untuk tipe persen)
+                    ...(bagiHasilDireksiAmt > 0 ? { bagiHasilDireksiInvoiceIds: Object.values(modalData?.bagiHasilDireksiInvoicesByMonth || {}).flat().filter(inv => (modalData?.bagiHasilDireksiSelectedKeys || new Set()).has(String(inv.id))).map(inv => String(inv.id)) } : {}),
                     bonusSalary: bonusSal,
                     bonusNote: bonusNote || '',
                     cashAdvanceDeduction: deduction,
