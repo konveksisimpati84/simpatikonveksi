@@ -17637,6 +17637,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [cashAdvanceStatusFilter, setCashAdvanceStatusFilter] = useState('Semua');
             const [activeFinanceTab, setActiveFinanceTab] = useState('dashboard');
             const [saldoForm, setSaldoForm] = useState(null); // { tanggal, nominal } saat mengisi/mengubah saldo kas awal
+            const [instansiBuka, setInstansiBuka] = useState(() => new Set()); // Biaya per Instansi: grup yang dibuka
+            const [urutInstansi, setUrutInstansi] = useState('terbaru');
             const safeOrders = React.useMemo(() => (Array.isArray(orders) ? orders : []).filter(isVisibleOrder), [orders]);
             const safeFinanceEmployees = Array.isArray(employees) ? employees : [];
             const safeFinanceRekaps = Array.isArray(rekapKinerja) ? rekapKinerja : [];
@@ -18096,7 +18098,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 if (items.length === 0 || itemSubtotal <= 0) {
                     // Fallback: nota tanpa item, pakai ID nota
                     const key = String(row.id);
-                    const existing = orderCostMap.get(key) || { orderId: row.id, client: row.client, type: 'Nota Pembelian', totalPcs: 0, materialCost: 0, wageCost: 0, date: row.date };
+                    const existing = orderCostMap.get(key) || { orderId: row.id, client: row.client, type: 'Nota Pembelian', totalPcs: 0, materialCost: 0, wageCost: 0, date: row.date, tanpaOrder: true };
                     existing.materialCost += row.total;
                     if (!existing.date || new Date(row.date || 0) > new Date(existing.date || 0)) existing.date = row.date;
                     orderCostMap.set(key, existing);
@@ -18128,36 +18130,36 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         totalPcs: 0,
                         materialCost: 0,
                         wageCost: 0,
-                        date: row.date
+                        date: row.date,
+                        tanpaOrder: gKey === '__unlinked__'
                     };
                     existing.materialCost += allocated;
                     if (!existing.date || new Date(row.date || 0) > new Date(existing.date || 0)) existing.date = row.date;
                     orderCostMap.set(mapKey, existing);
                 });
             });
+            // Gaji per order = upah produksi order itu sendiri (jumlah × tarif tahap), sama dengan "Upah produksi" di L/R.
+            // Gaji harian, lembur, komisi, bonus & potongan kasbon tidak dibebankan ke order.
             wageRows.forEach(row => {
-                const items = row.items || [];
-                const grossItemsTotal = items.reduce((s, it) => s + safeMoney(it.wageTotal), 0);
-                let wageDistributed = 0;
-                items.forEach((item, idx) => {
-                    const isLast = idx === items.length - 1;
-                    const itemGross = safeMoney(item.wageTotal);
-                    // Alokasi proporsional dari netSalary; koreksi rounding di baris terakhir
-                    const allocated = grossItemsTotal > 0
-                        ? (isLast ? row.netSalary - wageDistributed : Math.round(row.netSalary * itemGross / grossItemsTotal))
-                        : 0;
-                    wageDistributed += allocated;
-                    const key = String(item.orderId || '-');
+                safeArray(row.items).forEach(item => {
+                    const upah = Math.round(safeMoney(item.wageTotal));
+                    if (!upah) return;
+                    const adaOrder = !!item.orderId && !item.isManual;
+                    const key = adaOrder ? String(item.orderId) : `manual-${row.id}`;
+                    const linkedOrder = adaOrder ? safeArray(orders).find(o => String(o.id) === key) : null;
                     const existing = orderCostMap.get(key) || {
-                        orderId: item.orderId || '-',
-                        client: item.client || '-',
-                        type: item.type || '-',
+                        orderId: adaOrder ? item.orderId : `Manual · ${row.empName || '-'}`,
+                        client: linkedOrder?.client || item.client || '-',
+                        type: linkedOrder?.type || item.type || '-',
                         totalPcs: 0,
                         materialCost: 0,
                         wageCost: 0,
-                        date: row.date
+                        date: row.date,
+                        tanpaOrder: !adaOrder
                     };
-                    existing.wageCost += allocated;
+                    if ((!existing.client || existing.client === '-') && item.client) existing.client = item.client;
+                    if ((!existing.type || existing.type === '-') && item.type) existing.type = item.type;
+                    existing.wageCost += upah;
                     if (!existing.date || new Date(row.date || 0) > new Date(existing.date || 0)) existing.date = row.date;
                     orderCostMap.set(key, existing);
                 });
@@ -18165,6 +18167,30 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const orderCostRows = [...orderCostMap.values()]
                 .map(row => ({ ...row, totalCost: row.materialCost + row.wageCost }))
                 .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+            // Biaya per Instansi: order dikelompokkan per instansi (nota/pekerjaan tanpa order dikumpulkan tersendiri)
+            const instansiRows = (() => {
+                const peta = new Map();
+                orderCostRows.forEach(row => {
+                    const nota = row.tanpaOrder && row.type === 'Nota Pembelian';
+                    const manual = row.tanpaOrder && !nota;
+                    const nama = nota ? 'Nota bahan tanpa order' : manual ? 'Pekerjaan tanpa order' : (String(row.client || '').trim() || 'Tanpa instansi');
+                    const key = nota ? '__nota__' : manual ? '__manual__' : `k:${normalizeText(nama)}`;
+                    const g = peta.get(key) || { key, nama, khusus: nota || manual, satuan: nota ? 'nota' : manual ? 'pekerjaan' : 'order', rows: [], materialCost: 0, wageCost: 0, totalCost: 0, date: '' };
+                    g.rows.push(row);
+                    g.materialCost += row.materialCost; g.wageCost += row.wageCost; g.totalCost += row.totalCost;
+                    if (!g.date || new Date(row.date || 0) > new Date(g.date || 0)) g.date = row.date;
+                    peta.set(key, g);
+                });
+                const list = [...peta.values()];
+                const urut = urutInstansi === 'total' ? (a, b) => b.totalCost - a.totalCost
+                    : urutInstansi === 'nama' ? (a, b) => a.nama.localeCompare(b.nama, 'id')
+                    : (a, b) => new Date(b.date || 0) - new Date(a.date || 0);
+                // Grup khusus (tanpa order) selalu di bawah
+                return [...list.filter(g => !g.khusus).sort(urut), ...list.filter(g => g.khusus).sort(urut)];
+            })();
+            const totalBiayaOrder = orderCostRows.reduce((t, r) => ({ bahan: t.bahan + r.materialCost, gaji: t.gaji + r.wageCost, total: t.total + r.totalCost }), { bahan: 0, gaji: 0, total: 0 });
+            const jumlahOrderAsli = orderCostRows.filter(r => !r.tanpaOrder).length;
+            const jumlahInstansiAsli = instansiRows.filter(g => !g.khusus).length;
 
             const vendorSummary = Object.values(
                 materialRows.filter(r => r.isPayment).reduce((acc, row) => {
@@ -18189,17 +18215,27 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
             const handlePrint = () => {
                 const periodLabel = labelPeriode();
-                const rowsHtml = orderCostRows.map((row, index) => `
+                // Dicetak per instansi: baris subtotal instansi lalu order-ordernya
+                let noCetak = 0;
+                const rowsHtml = instansiRows.map(g => `
+                    <tr style="background:#eef2ff">
+                        <td></td>
+                        <td colspan="4" class="font-bold">${escapeHtmlText(g.nama)} (${g.rows.length} ${g.satuan})</td>
+                        <td class="text-right font-bold">${formatRupiah(g.materialCost)}</td>
+                        <td class="text-right font-bold">${formatRupiah(g.wageCost)}</td>
+                        <td class="text-right font-bold">${formatRupiah(g.totalCost)}</td>
+                    </tr>
+                    ${g.rows.map(row => `
                     <tr>
-                        <td class="text-center">${index + 1}</td>
-                        <td>${row.orderId}</td>
-                        <td>${row.client}</td>
-                        <td>${row.type}</td>
+                        <td class="text-center">${++noCetak}</td>
+                        <td>${escapeHtmlText(row.orderId)}</td>
+                        <td>${escapeHtmlText(row.client)}</td>
+                        <td>${escapeHtmlText(row.type)}</td>
                         <td>${formatDate(row.date)}</td>
                         <td class="text-right">${formatRupiah(row.materialCost)}</td>
                         <td class="text-right">${formatRupiah(row.wageCost)}</td>
                         <td class="text-right font-bold">${formatRupiah(row.totalCost)}</td>
-                    </tr>
+                    </tr>`).join('')}
                 `).join('');
                 const printContent = `
                     <!DOCTYPE html>
@@ -18438,7 +18474,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <div className="flex flex-wrap gap-2">
                             <button onClick={handlePrintPL} className="bg-[#1e3a5f] hover:bg-[#16304f] text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Laba Rugi</button>
                             <button onClick={handlePrintCashBook} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Buku Kas</button>
-                            <button onClick={handlePrint} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Biaya Order</button>
+                            <button onClick={handlePrint} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Biaya per Instansi</button>
                         </div>
                     </div>
                     <div className={`grid ${financeTabList.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'} sm:flex gap-1 bg-gray-100 p-1 rounded-xl`}>
@@ -19015,14 +19051,29 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     {activeFinanceTab === 'detail' && (
                         <>
                             <Card>
-                                <h3 className="text-lg font-bold text-gray-800 mb-4">Biaya per Order</h3>
+                                <div data-biaya-instansi>
+                                <h3 className="text-lg font-bold text-gray-800">Biaya per Instansi</h3>
+                                <p className="text-xs text-gray-500 mt-0.5 mb-3">Bahan = nota bahan yang sudah dibayar · Gaji = upah produksi per order · tekan ▸ untuk melihat rincian per order</p>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"><div className="text-[11px] text-gray-500">Instansi</div><div data-bi-jml-instansi className="font-black">{jumlahInstansiAsli}</div></div>
+                                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"><div className="text-[11px] text-gray-500">Order</div><div data-bi-jml-order className="font-black">{jumlahOrderAsli}</div></div>
+                                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"><div className="text-[11px] text-gray-500">Total Bahan</div><div data-bi-total-bahan className="font-black text-red-600">{formatRupiah(totalBiayaOrder.bahan)}</div></div>
+                                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"><div className="text-[11px] text-gray-500">Total Gaji</div><div data-bi-total-gaji className="font-black text-green-700">{formatRupiah(totalBiayaOrder.gaji)}</div></div>
+                                </div>
+                                {instansiRows.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1.5 mb-2 text-xs">
+                                        <span className="text-gray-500">Urutkan:</span>
+                                        {[['terbaru', 'Terbaru'], ['total', 'Total terbesar'], ['nama', 'Nama A–Z']].map(([k, l]) => (
+                                            <button key={k} type="button" data-bi-urut={k} onClick={() => setUrutInstansi(k)} className={`px-2.5 py-1 rounded-full border font-bold ${urutInstansi === k ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white border-gray-300 text-gray-600'}`}>{l}</button>
+                                        ))}
+                                        <button type="button" data-bi-buka-semua onClick={() => setInstansiBuka(prev => prev.size >= instansiRows.length ? new Set() : new Set(instansiRows.map(g => g.key)))} className="ml-auto px-2.5 py-1 rounded-full border border-gray-300 bg-white font-bold text-gray-600">{instansiBuka.size >= instansiRows.length ? 'Tutup semua' : 'Buka semua'}</button>
+                                    </div>
+                                )}
                                 <div className="overflow-x-auto hidden md:block">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-gray-50 border-b border-gray-200">
-                                                <th className="p-3 text-sm font-semibold text-gray-600">Order</th>
-                                                <th className="p-3 text-sm font-semibold text-gray-600">Instansi</th>
-                                                <th className="p-3 text-sm font-semibold text-gray-600">Jenis Produksi</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600">Instansi / Order</th>
                                                 <th className="p-3 text-sm font-semibold text-gray-600">Tanggal</th>
                                                 <th className="p-3 text-sm font-semibold text-gray-600 text-right">Bahan</th>
                                                 <th className="p-3 text-sm font-semibold text-gray-600 text-right">Gaji</th>
@@ -19030,39 +19081,64 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {orderCostRows.map(row => (
-                                                <tr key={row.orderId} className="border-b border-gray-100 hover:bg-gray-50">
-                                                    <td className="p-3 text-sm font-bold text-blue-600">{row.orderId}</td>
-                                                    <td className="p-3 text-sm text-gray-800">{row.client}</td>
-                                                    <td className="p-3 text-sm text-gray-600">{row.type}</td>
-                                                    <td className="p-3 text-sm text-gray-500">{formatDate(row.date)}</td>
-                                                    <td className="p-3 text-sm text-right text-red-600 font-bold">{formatRupiah(row.materialCost)}</td>
-                                                    <td className="p-3 text-sm text-right text-green-700 font-bold">{formatRupiah(row.wageCost)}</td>
-                                                    <td className="p-3 text-sm text-right text-blue-700 font-black">{formatRupiah(row.totalCost)}</td>
-                                                </tr>
-                                            ))}
-                                            {orderCostRows.length === 0 && (
-                                                <tr><td colSpan="7" className="p-6 text-center text-gray-500 italic">Belum ada data keuangan pada periode ini.</td></tr>
+                                            {instansiRows.map(g => {
+                                                const buka = instansiBuka.has(g.key);
+                                                const toggle = () => setInstansiBuka(prev => { const n = new Set(prev); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n; });
+                                                return (
+                                                    <React.Fragment key={g.key}>
+                                                        <tr data-bi-instansi={g.nama} onClick={toggle} className={`border-b border-gray-100 cursor-pointer ${buka ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                                                            <td className="p-3 text-sm"><span className="inline-flex items-center justify-center w-5 h-5 mr-2 rounded bg-indigo-100 text-indigo-800 text-xs font-black">{buka ? '▾' : '▸'}</span><b className={g.khusus ? 'text-gray-600 italic' : 'text-gray-900'}>{g.nama}</b><span className="ml-1.5 text-xs text-gray-500 font-semibold">{g.rows.length} {g.satuan}</span></td>
+                                                            <td className="p-3 text-sm text-gray-500">{formatDate(g.date)}</td>
+                                                            <td className="p-3 text-sm text-right text-red-600 font-bold">{formatRupiah(g.materialCost)}</td>
+                                                            <td className="p-3 text-sm text-right text-green-700 font-bold">{formatRupiah(g.wageCost)}</td>
+                                                            <td className="p-3 text-sm text-right text-blue-700 font-black">{formatRupiah(g.totalCost)}</td>
+                                                        </tr>
+                                                        {buka && g.rows.map(row => (
+                                                            <tr key={g.key + '|' + row.orderId} data-bi-order={row.orderId} className="border-b border-gray-100 bg-slate-50">
+                                                                <td className="p-2.5 pl-11 text-sm"><span className="font-bold text-blue-600">{row.orderId}</span>{row.type && row.type !== '-' ? <span className="text-gray-600"> · {row.type}</span> : null}</td>
+                                                                <td className="p-2.5 text-sm text-gray-500">{formatDate(row.date)}</td>
+                                                                <td className="p-2.5 text-sm text-right text-red-600">{formatRupiah(row.materialCost)}</td>
+                                                                <td className="p-2.5 text-sm text-right text-green-700">{formatRupiah(row.wageCost)}</td>
+                                                                <td className="p-2.5 text-sm text-right text-blue-700 font-bold">{formatRupiah(row.totalCost)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                            {instansiRows.length > 0 && (
+                                                <tr data-bi-total className="bg-gray-100 font-black"><td className="p-3 text-sm" colSpan="2">Total semua instansi</td><td className="p-3 text-sm text-right text-red-600">{formatRupiah(totalBiayaOrder.bahan)}</td><td className="p-3 text-sm text-right text-green-700">{formatRupiah(totalBiayaOrder.gaji)}</td><td className="p-3 text-sm text-right text-blue-700">{formatRupiah(totalBiayaOrder.total)}</td></tr>
+                                            )}
+                                            {instansiRows.length === 0 && (
+                                                <tr><td colSpan="5" className="p-6 text-center text-gray-500 italic">Belum ada data keuangan pada periode ini.</td></tr>
                                             )}
                                         </tbody>
                                     </table>
                                 </div>
                                 <div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">
-                                    {orderCostRows.map(row => (
-                                        <div key={row.orderId} className="px-4 py-3">
-                                            <div className="flex items-start justify-between gap-2 mb-0.5">
-                                                <span className="font-bold text-blue-600 text-sm">{row.orderId}</span>
-                                                <span className="text-sm font-black text-blue-700">{formatRupiah(row.totalCost)}</span>
+                                    {instansiRows.map(g => {
+                                        const buka = instansiBuka.has(g.key);
+                                        const toggle = () => setInstansiBuka(prev => { const n = new Set(prev); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n; });
+                                        return (
+                                            <div key={g.key} data-bi-instansi-hp={g.nama} className="px-4 py-3">
+                                                <button type="button" onClick={toggle} className="w-full text-left">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <span className={`font-bold text-sm min-w-0 ${g.khusus ? 'text-gray-600 italic' : 'text-gray-800'}`}>{buka ? '▾' : '▸'} {g.nama}</span>
+                                                        <span className="text-sm font-black text-blue-700 shrink-0">{formatRupiah(g.totalCost)}</span>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs"><span className="text-gray-500">{g.rows.length} {g.satuan} · {formatDate(g.date)}</span>{g.materialCost > 0 && <span className="text-red-600 font-bold">Bahan {formatRupiah(g.materialCost)}</span>}{g.wageCost > 0 && <span className="text-green-700 font-bold">Gaji {formatRupiah(g.wageCost)}</span>}</div>
+                                                </button>
+                                                {buka && g.rows.map(row => (
+                                                    <div key={row.orderId} className="mt-1.5 ml-1.5 border-l-[3px] border-indigo-200 bg-slate-50 rounded-r-lg px-2.5 py-1.5 text-xs">
+                                                        <div className="flex justify-between gap-2"><span className="font-bold text-blue-600 min-w-0 break-all">{row.orderId}</span><b className="text-blue-700 shrink-0">{formatRupiah(row.totalCost)}</b></div>
+                                                        <div className="text-gray-500">{row.type && row.type !== '-' ? `${row.type} · ` : ''}{formatDate(row.date)}</div>
+                                                        <div className="flex gap-3">{row.materialCost > 0 && <span className="text-red-600 font-bold">Bahan {formatRupiah(row.materialCost)}</span>}{row.wageCost > 0 && <span className="text-green-700 font-bold">Gaji {formatRupiah(row.wageCost)}</span>}</div>
+                                                    </div>
+                                                ))}
                                             </div>
-                                            <div className="font-bold text-gray-800 text-sm truncate">{row.client}</div>
-                                            <div className="text-xs text-gray-500 mt-0.5">{row.type} · {formatDate(row.date)}</div>
-                                            <div className="flex gap-3 mt-1 text-xs">
-                                                {row.materialCost > 0 && <span className="text-red-600 font-bold">Bahan: {formatRupiah(row.materialCost)}</span>}
-                                                {row.wageCost > 0 && <span className="text-green-700 font-bold">Gaji: {formatRupiah(row.wageCost)}</span>}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {orderCostRows.length === 0 && <div className="py-6 text-center text-gray-500 italic text-sm">Belum ada data keuangan pada periode ini.</div>}
+                                        );
+                                    })}
+                                    {instansiRows.length === 0 && <div className="py-6 text-center text-gray-500 italic text-sm">Belum ada data keuangan pada periode ini.</div>}
+                                </div>
                                 </div>
                             </Card>
 
