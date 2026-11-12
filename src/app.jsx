@@ -14342,6 +14342,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const cleanedTotal = getInvoiceTotals({ ...form, invoiceItems: cleanedItems }).total;
                 // A3: Invoice total tidak boleh Rp 0
                 if (cleanedTotal <= 0) return showToast("Total invoice tidak boleh Rp 0. Periksa harga dan jumlah item.", "error");
+                // Uang tunai yang sudah diterima (DP + cicilan) tidak boleh melebihi total baru — jangan sampai DP terpotong diam-diam
+                const sudahDiterima = safeMoney(form.invoiceDp?.amount) + getInvoicePayments(form).reduce((sum, p) => sum + safeMoney(p?.amount), 0);
+                if (sudahDiterima > cleanedTotal + 0.01) return showToast(`Total baru ${formatRupiah(cleanedTotal)} lebih kecil dari yang sudah dibayar ${formatRupiah(sudahDiterima)} (DP + cicilan). Kurangi atau hapus pembayaran/DP dulu (selisih ${formatRupiah(sudahDiterima - cleanedTotal)}), atau periksa kembali isi invoice. Invoice belum disimpan.`, "error");
                 // Auto-calculate commission from employee settings (only for new invoices; editing preserves existing rates)
                 const marketingEmp = safeEmployeeRows.filter(isVisibleRecord).find(emp => normalizeText(emp.name) === normalizeText(form.marketing));
                 const empCommType = form.commissionType || marketingEmp?.commissionType || 'Persen';
@@ -14383,7 +14386,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const _luarPeriode = !cocokPeriode(row.date, invTahun, invBulan);
                 showToast((editId ? "Invoice diperbarui." : "Invoice dibuat.") + (_luarPeriode ? ` Tanggalnya di luar periode ${invLabelPeriode} — ganti Periode untuk melihatnya.` : ''), "success");
             };
-            const deleteInvoice = (id) => setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => String(inv.id) === String(id) ? { ...inv, isDeleted: true, linkedDpAmount: 0, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : inv));
+            // Pengaman: invoice yang sudah menerima DP/cicilan tunai tidak dihapus (hapus pembayarannya dulu)
+            const deleteInvoice = (id) => setInvoices(prev => (Array.isArray(prev) ? prev : []).map(inv => String(inv.id) === String(id) && (getInvoiceDpAmount(inv) + getInvoicePayments(inv).reduce((t, p) => t + safeMoney(p.amount), 0)) <= 0 ? { ...inv, isDeleted: true, linkedDpAmount: 0, deletedAt: new Date().toISOString(), _syncUpdatedAt: new Date().toISOString() } : inv));
             const saveInvoicePayment = () => {
                 const amt = safeMoney(payForm.amount);
                 if (amt <= 0) return showToast('Isi nominal pembayaran.', 'error');
@@ -15326,18 +15330,44 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                     );
                 })()}
-                {deleteInvConfirmId && (
+                {deleteInvConfirmId && (() => {
+                    const invH = safeInvoiceRows.find(i => String(i.id) === String(deleteInvConfirmId)) || null;
+                    // Uang tunai yang sudah diterima (DP + cicilan): harus dihapus dulu agar tidak hilang dari Buku Kas tanpa catatan
+                    const dpH = invH ? getInvoiceDpAmount(invH) : 0;
+                    const cicilH = invH ? getInvoicePayments(invH).filter(p => safeMoney(p.amount) > 0) : [];
+                    const tunaiH = dpH + cicilH.reduce((t, p) => t + safeMoney(p.amount), 0);
+                    const saldoDpH = invH ? getInvoiceLinkedDpAmount(invH) : 0;
+                    const rkH = invH && invH.commissionRekapId ? safeArray(rekapKinerja).filter(isVisibleRecord).find(r => String(r.id) === String(invH.commissionRekapId)) : null;
+                    const tglH = (d) => String(d || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1') || '-';
+                    const hapusSekarang = () => { deleteInvoice(deleteInvConfirmId); setDeleteInvConfirmId(null); showToast('Invoice dihapus.', 'success'); };
+                    return (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                         <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
                             <h3 className="font-bold text-gray-800 mb-2">Hapus Invoice?</h3>
-                            <p className="text-sm text-gray-600 mb-4">Invoice <strong>{deleteInvConfirmId}</strong> akan disembunyikan dari daftar. Data tetap tersimpan di sistem.</p>
+                            {tunaiH > 0 ? (
+                                <div data-inv-hapus-blokir={Math.round(tunaiH)} className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                                    ⛔ Invoice <b>{invH.customer || invH.id}</b> sudah menerima pembayaran <b>{formatRupiah(tunaiH)}</b>.
+                                    <ul className="mt-1 pl-4 list-disc text-[12.5px]">
+                                        {dpH > 0 && <li>DP · {tglH(getInvoiceDp(invH).date || invH.date)} · {formatRupiah(dpH)}</li>}
+                                        {cicilH.map((p, i) => <li key={p.id || i}>Cicilan · {tglH(p.date)} · {formatRupiah(p.amount)}</li>)}
+                                    </ul>
+                                    <div className="mt-1.5">Hapus dulu DP &amp; cicilannya (tombol <b>Bayar</b> / kolom DP di Edit), supaya uang yang diterima tidak hilang dari Buku Kas tanpa catatan.</div>
+                                </div>
+                            ) : (
+                                <>
+                                    <p className="text-sm text-gray-600 mb-3">Invoice <strong>{deleteInvConfirmId}</strong> akan disembunyikan dari daftar. Data tetap tersimpan di sistem.</p>
+                                    {saldoDpH > 0 && <div data-inv-hapus-saldo-dp className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12.5px] text-blue-900">ℹ Saldo DP klien {formatRupiah(saldoDpH)} yang dipakai invoice ini dikembalikan ke saldo klien.</div>}
+                                    {rkH && <div data-inv-hapus-komisi className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900">⚠ Komisinya sudah direkap{canViewKomisi ? <> di gaji <b>{rkH.empName || '-'}</b></> : ' di rekap gaji'}. Setelah dihapus, Laporan Kinerja akan menandai komisi turun untuk diterapkan.</div>}
+                                </>
+                            )}
                             <div className="flex justify-end gap-2">
-                                <button onClick={() => setDeleteInvConfirmId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
-                                <button onClick={() => { deleteInvoice(deleteInvConfirmId); setDeleteInvConfirmId(null); showToast('Invoice dihapus.', 'success'); }} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>
+                                <button onClick={() => setDeleteInvConfirmId(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">{tunaiH > 0 ? 'Tutup' : 'Batal'}</button>
+                                {tunaiH <= 0 && <button onClick={hapusSekarang} className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold">Hapus</button>}
                             </div>
                         </div>
                     </div>
-                )}
+                    );
+                })()}
                 {detailInvId && (() => {
                     const inv = safeInvoiceRows.find(i => String(i.id) === String(detailInvId));
                     if (!inv) return null;
@@ -20008,6 +20038,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const rekapToDelete = (rekapKinerja || []).find(r => String(r.id) === String(deleteRekapConfirmId));
                 if (!rekapToDelete) return;
                 if (tolakEditSensitif(rekapToDelete.empId)) { setDeleteRekapConfirmId(null); return; }
+                // Rekap yang sudah dibayar tidak boleh dibatalkan: catatan bayar ikut hilang & pekerjaannya bisa terbayar dua kali
+                const sudahBayarHapus = getRekapPaidTotal(rekapToDelete);
+                if (sudahBayarHapus === null || sudahBayarHapus > 0) {
+                    setDeleteRekapConfirmId(null);
+                    showToast(sudahBayarHapus === null ? "Rekap lama ini tercatat sudah dibayar, tidak bisa dibatalkan." : `Rekap ini sudah dibayar ${formatRupiah(sudahBayarHapus)}. Hapus dulu pembayarannya di tab Pembayaran.`, "error");
+                    return;
+                }
                 // Kelebihan bayar rekap ini sudah dijadikan kasbon → kasbonnya harus dihapus dulu agar tidak menggantung
                 const kasbonAsal = getRekapKasbonLebihBayar(rekapToDelete, employees);
                 if (kasbonAsal.length > 0) {
@@ -21242,10 +21279,20 @@ ${getRekapShareLink(rekap)}
                     .filter(([, rs]) => rs.length > 1)
                     .map(([invId, rs]) => ({ invId, inv: allInvoices.find(i => String(i.id) === invId), rekaps: rs }));
 
-                // 3. Rate komisi bukan 3%
-                const wrongRateInvoices = allInvoices.filter(inv =>
-                    inv.commissionRekapId && safeMoney(inv.commissionValue) > 0 && Math.abs(safeMoney(inv.commissionValue) - 3) > 0.01
-                );
+                // 3. Persen/tarif komisi berbeda dari kebanyakan invoice lain di rekap yang sama (per pcs dibanding per pcs, persen dibanding persen)
+                const petaInvAudit = new Map(allInvoices.map(i => [String(i.id), i]));
+                const wrongRateInvoices = allRekaps.flatMap(r => {
+                    const invs = safeArray(r.marketingInvoiceIds).map(id => petaInvAudit.get(String(id))).filter(Boolean);
+                    return ['Persen', 'Nominal'].flatMap(tp => {
+                        const grup = invs.filter(i => (isKomisiPcs(i.commissionType) ? 'Nominal' : 'Persen') === tp && safeMoney(i.commissionValue) > 0);
+                        const hitung = new Map();
+                        grup.forEach(i => { const v = safeMoney(i.commissionValue); hitung.set(v, (hitung.get(v) || 0) + 1); });
+                        const urut = [...hitung.entries()].sort((a, b) => b[1] - a[1]);
+                        if (urut.length < 2 || urut[0][1] < 2 || urut[0][1] === urut[1][1]) return [];
+                        const mayor = urut[0][0];
+                        return grup.filter(i => safeMoney(i.commissionValue) !== mayor).map(i => ({ ...i, _rekapAudit: r, _tarifLain: mayor, _tipeAudit: tp }));
+                    });
+                });
 
                 // 4. Ringkasan komisi per marketing
                 const perMarketing = {};
@@ -21700,9 +21747,9 @@ ${getRekapShareLink(rekap)}
                                     </AuditRow>
 
                                     <AuditRow ok={wrongRateInvoices.length === 0} warn="yellow">
-                                        <SectionTitle ok={wrongRateInvoices.length === 0} warn="yellow">{wrongRateInvoices.length > 0 ? `⚠ ${wrongRateInvoices.length} Invoice Rate Bukan 3%` : '✓ Semua invoice komisi rate 3%'}</SectionTitle>
-                                        {wrongRateInvoices.length > 0 && <div className="text-xs text-yellow-700">Invoice sudah direkap tapi rate-nya bukan 3%.</div>}
-                                        {wrongRateInvoices.map(inv => <ItemRow key={inv.id} color="yellow" left={`${inv.id} — ${inv.customer || '-'} (${inv.marketing || '-'})`} right={`${safeMoney(inv.commissionValue)}% | ${formatRupiah(getInvoiceCommissionTotal(inv))}`} />)}
+                                        <SectionTitle ok={wrongRateInvoices.length === 0} warn="yellow">{wrongRateInvoices.length > 0 ? `⚠ ${wrongRateInvoices.length} invoice persennya beda dari invoice lain di rekap yang sama` : '✓ Persen komisi seragam di setiap rekap'}</SectionTitle>
+                                        {wrongRateInvoices.length > 0 && <div className="text-xs text-yellow-700">Komisi per pcs dibandingkan dengan per pcs; persen dengan persen. Bisa sah bila persen di Data Karyawan memang berubah di tengah periode.</div>}
+                                        {wrongRateInvoices.map(inv => <ItemRow key={`${inv._rekapAudit.id}-${inv.id}`} color="yellow" left={`${inv.id} — ${inv.customer || '-'} (${inv._rekapAudit.empName || inv.marketing || '-'} · rekap ${String(inv._rekapAudit.dateProcessed || '').replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$3/$2/$1')})`} right={`${labelTarifKomisi(inv._tipeAudit, inv.commissionValue)} (lainnya ${labelTarifKomisi(inv._tipeAudit, inv._tarifLain)}) | ${formatRupiah(getInvoiceCommissionTotal(inv))}`} />)}
                                     </AuditRow>
 
                                     <AuditRow ok={ghostInvoices.length === 0} warn="red">
@@ -23082,6 +23129,13 @@ ${getRekapShareLink(rekap)}
             const handleDeleteRekap = () => {
                 const rekapToDelete = (rekapKinerja || []).find(r => String(r.id) === String(deleteRekapConfirmId));
                 if (!rekapToDelete) return;
+                // Rekap yang sudah dibayar tidak boleh dibatalkan (catatan bayar hilang & bisa terbayar dua kali)
+                const bayarAda = safeArray(rekapToDelete.payments).filter(p => safeMoney(p && p.amount) > 0);
+                if (bayarAda.length > 0 || !Array.isArray(rekapToDelete.payments) || rekapToDelete.paymentStatus === 'lunas') {
+                    setDeleteRekapConfirmId(null);
+                    showToast(bayarAda.length > 0 ? `Rekap ini sudah dibayar ${formatRupiah(bayarAda.reduce((t, p) => t + safeMoney(p.amount), 0))}. Hapus dulu pembayarannya.` : "Rekap ini tercatat sudah dibayar, tidak bisa dibatalkan.", "error");
+                    return;
+                }
                 const now = new Date().toISOString();
                 const logsToUnlock = (rekapToDelete.items || []).flatMap(item =>
                     (item.logIds || []).map(l => ({ orderId: item.orderId, stageId: l.stageId, logId: l.logId }))
