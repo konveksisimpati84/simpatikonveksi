@@ -1504,6 +1504,16 @@
         );
 
         const genId = (prefix = '') => `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        // Nomor versi aplikasi (diisi otomatis saat build di <meta name="app-versi">), mis. "v2026.11.13-1"
+        const APP_VERSI = (() => { try { const v = document.querySelector('meta[name="app-versi"]')?.content || ''; return /^v\d/.test(v) ? v : ''; } catch (e) { return ''; } })();
+        // Bandingkan dua nomor versi: >0 bila a lebih baru dari b
+        const bandingVersi = (a, b) => {
+            const urai = (v) => (String(v || '').match(/^v(\d{4})\.(\d{2})\.(\d{2})-(\d+)$/) || []).slice(1).map(Number);
+            const x = urai(a), y = urai(b);
+            if (x.length !== 4 || y.length !== 4) return 0;
+            for (let i = 0; i < 4; i++) if (x[i] !== y[i]) return x[i] - y[i];
+            return 0;
+        };
 
         // Lebar elemen (px) yang selalu diperbarui saat ukuran layar/kartu berubah.
         // Dipakai grafik SVG agar di layar sempit (HP) tulisannya tidak mengecil.
@@ -2659,6 +2669,7 @@
                                 Masuk
                             </button>
                         </form>
+                        {APP_VERSI && <div data-versi-login className="mt-6 text-center text-[11px] text-gray-400">Versi {APP_VERSI}</div>}
                     </div>
                 </div>
             );
@@ -35828,6 +35839,52 @@ ${getRekapShareLink(rekap)}
             // Akses gaji Direksi & Marketing untuk akun yang sedang login (dicentang di Master Akun)
             const myLoginAccount = findAccountOfUser(accounts, authUser);
             const gajiSensitif = React.useMemo(() => ({ lihat: hasGajiSensitifLihat(myLoginAccount), edit: hasGajiSensitifEdit(myLoginAccount) }), [myLoginAccount?.id, myLoginAccount?.role, myLoginAccount?.gajiSensitifLihat, myLoginAccount?.gajiSensitifEdit, myLoginAccount?.isDeleted]);
+            // ===== Cek versi baru: bandingkan nomor versi index.html di hosting dengan yang sedang dipakai =====
+            // Tiap 30 menit & saat aplikasi dibuka kembali; hanya akun yang sudah masuk & bila dibuka dari hosting (http/https)
+            const [versiBaru, setVersiBaru] = useState('');
+            const [versiTutup, setVersiTutup] = useState('');
+            const [versiSibuk, setVersiSibuk] = useState(false);
+            const cekVersiAktif = !!authUser && !!APP_VERSI && /^https?:$/.test(window.location.protocol);
+            useEffect(() => {
+                if (!cekVersiAktif) return;
+                let batal = false, terakhir = 0;
+                const cek = async (paksa = false) => {
+                    if (batal || (!paksa && Date.now() - terakhir < 5 * 60 * 1000)) return;
+                    terakhir = Date.now();
+                    try {
+                        const url = window.location.origin + window.location.pathname + '?cekversi=' + Date.now();
+                        // Cukup bagian awal file (nomor versi ada di <head>); hosting yang tidak mendukung Range tetap mengirim utuh
+                        const res = await fetch(url, { cache: 'no-store', headers: { Range: 'bytes=0-2047' } });
+                        if (!res.ok && res.status !== 206) return;
+                        const teks = (await res.text()).slice(0, 4000);
+                        const v = (teks.match(/<meta name="app-versi" content="(v[^"]+)"/) || [])[1] || '';
+                        if (!batal && v && bandingVersi(v, APP_VERSI) > 0) { setVersiBaru(v); setVersiTutup(''); }
+                    } catch (e) { /* offline / hosting menolak: coba lagi nanti */ }
+                };
+                const t0 = setTimeout(() => cek(true), 15000);
+                const iv = setInterval(() => cek(true), 30 * 60 * 1000);
+                const saatKembali = () => { if (document.visibilityState === 'visible') cek(false); };
+                document.addEventListener('visibilitychange', saatKembali);
+                window.addEventListener('focus', saatKembali);
+                return () => { batal = true; clearTimeout(t0); clearInterval(iv); document.removeEventListener('visibilitychange', saatKembali); window.removeEventListener('focus', saatKembali); };
+            }, [cekVersiAktif]);
+            // Jangan tampilkan pita saat ada jendela/form yang sedang terbuka atau sedang diketik
+            useEffect(() => {
+                if (!versiBaru) return;
+                const periksa = () => {
+                    const ae = document.activeElement;
+                    const mengetik = !!ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+                    const jendela = [...document.querySelectorAll('.fixed.inset-0')].some(el => el.getClientRects().length > 0 && !el.hasAttribute('data-versi-pita'));
+                    setVersiSibuk(mengetik || jendela);
+                };
+                periksa();
+                const iv = setInterval(periksa, 2000);
+                return () => clearInterval(iv);
+            }, [versiBaru]);
+            const muatUlangVersiBaru = async () => {
+                try { await fetch(window.location.origin + window.location.pathname, { cache: 'reload' }); } catch (e) {}
+                window.location.reload();
+            };
 
             // Coba ulang lewat fungsi update yang sama dengan simpan normal: ambil data cloud terbaru, gabungkan dengan data lokal, lalu simpan
             const retryUpdaters = {
@@ -36461,6 +36518,13 @@ ${getRekapShareLink(rekap)}
             return (
                 <div className="flex app-shell-root bg-gray-100 font-sans print:bg-white print:h-auto">
                     <ShellViewportLock />
+                    {versiBaru && versiTutup !== versiBaru && !versiSibuk && (
+                        <div data-versi-baru={versiBaru} className="fixed z-[180] left-3 right-3 bottom-20 lg:bottom-auto lg:top-3 lg:left-auto lg:right-4 lg:w-[460px] rounded-xl bg-blue-900 text-white shadow-2xl px-4 py-2.5 text-[13px] flex items-center gap-3 print:hidden">
+                            <span className="min-w-0">🔄 Versi baru <b className="text-amber-200">{versiBaru}</b> sudah tersedia <span className="text-blue-200">(sekarang {APP_VERSI})</span></span>
+                            <button type="button" data-versi-muat onClick={muatUlangVersiBaru} className="ml-auto shrink-0 rounded-lg bg-amber-200 text-amber-900 font-black px-3 py-1">Muat ulang</button>
+                            <button type="button" aria-label="Tutup" onClick={() => setVersiTutup(versiBaru)} className="shrink-0 text-white/70 hover:text-white text-lg leading-none">×</button>
+                        </div>
+                    )}
                     <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex-col hidden lg:flex shrink-0 print:hidden shadow-xl z-10 transition-all duration-200`}>
                         <div className={`bg-slate-950 border-b border-slate-800 flex items-center ${sidebarCollapsed ? 'justify-center py-4 px-2' : 'p-4 flex-col text-center'}`}>
                             {!sidebarCollapsed && (
@@ -36508,6 +36572,7 @@ ${getRekapShareLink(rekap)}
                         {!sidebarCollapsed && (
                             <div className="p-4 border-t border-slate-800 text-xs text-center text-gray-500">
                                 Simpati Konveksi &copy; {new Date().getFullYear()}
+                                {APP_VERSI && <div data-versi-menu className="mt-0.5 font-semibold text-slate-400">{APP_VERSI}</div>}
                             </div>
                         )}
                     </div>
@@ -36551,6 +36616,7 @@ ${getRekapShareLink(rekap)}
                                             </button>
                                         ))}
                                     </div>
+                                    {APP_VERSI && <div data-versi-menu-hp className="border-t border-slate-700 px-4 py-2 text-center text-[11px] text-slate-500">Simpati Konveksi · {APP_VERSI}</div>}
                                 </div>
                             </div>
                         )}

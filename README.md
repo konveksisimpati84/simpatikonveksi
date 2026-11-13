@@ -299,6 +299,12 @@ Gateway & DNS = IP modem. Menu Cloud Server Setting: Server Address = IP PC serv
 
 ---
 
+## Nomor Versi
+
+- Nomor versi dibuat otomatis oleh `node scripts/build.cjs`: `vTAHUN.BULAN.TANGGAL-URUTAN` (tanggal WIB), mis. `v2026.11.13-1`. Urutan = jumlah pembaruan bernomor versi hari itu + 1 (dibaca dari riwayat git `index.html`), jadi build ulang sebelum commit tidak menaikkan nomor.
+- Disimpan di `<meta name="app-versi">` dan tampil di bawah menu samping, menu ☰ HP, dan layar login.
+- Saat dibuka dari hosting, aplikasi mengecek bagian awal `index.html` di hosting tiap 30 menit & saat dibuka kembali; bila nomornya lebih baru muncul pita **"Versi baru tersedia"** + tombol **Muat ulang** (tidak muncul saat ada jendela/form terbuka).
+
 ## Changelog Versi Terbaru
 
 - ✅ Fix: Komisi marketing tidak lagi menghitung saldo klien yang di-link ke invoice

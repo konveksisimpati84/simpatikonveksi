@@ -95,7 +95,26 @@ for (const [ph, [file, mime]] of Object.entries(ikon)) {
     const buf = fs.readFileSync(path.join(root, 'src', file));
     templateIkon = templateIkon.split(ph).join(`data:${mime};base64,${buf.toString('base64')}`);
 }
+// Nomor versi: tanggal (WIB) + urutan pembaruan hari itu (dari riwayat git index.html), mis. v2026.11.13-1.
+// Dibangun ulang sebelum commit → nomor tetap sama; pembaruan berikutnya di hari yang sama → -2, -3, dst.
+const appVersi = (() => {
+    if (process.env.APP_VERSI) return String(process.env.APP_VERSI);
+    const tgl = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    let urut = 1;
+    try {
+        const cp = require('child_process');
+        const opsi = { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 };
+        const log = cp.execSync(`git log --since="${tgl}T00:00:00+07:00" --format=%H -- index.html`, opsi).toString().trim();
+        // Hanya hitung pembaruan yang sudah bernomor versi (file sebelum fitur versi tidak dihitung)
+        const sudah = (log ? log.split('\n') : []).filter(h => /name="app-versi" content="v/.test(cp.execSync(`git show ${h}:index.html`, opsi).toString().slice(0, 2000)));
+        urut = sudah.length + 1;
+    } catch (e) { /* tanpa git: urutan 1 */ }
+    return `v${tgl.replace(/-/g, '.')}-${urut}`;
+})();
+if (!/^v\d{4}\.\d{2}\.\d{2}-\d+$/.test(appVersi) && !process.env.APP_VERSI) fail(`format versi tidak dikenal: ${appVersi}`);
+if (templateIkon.split('__APP_VERSI__').length !== 2) fail('template harus berisi tepat satu __APP_VERSI__');
+templateIkon = templateIkon.replace('__APP_VERSI__', appVersi);
 const out = templateIkon.replace(PLACEHOLDER, () => `<script>\n${code}\n</script>`).replace(TW_PLACEHOLDER, () => twCss);
 fs.writeFileSync(path.join(root, 'index.html'), out);
-console.log(`index.html dibuat: ${(out.length / 1048576).toFixed(2)} MB (kode sumber ${(source.length / 1048576).toFixed(2)} MB, CSS Tailwind ${(twCss.length / 1024).toFixed(0)} KB)`);
+console.log(`index.html dibuat (${appVersi}): ${(out.length / 1048576).toFixed(2)} MB (kode sumber ${(source.length / 1048576).toFixed(2)} MB, CSS Tailwind ${(twCss.length / 1024).toFixed(0)} KB)`);
 })().catch(e => fail(e && e.stack || String(e)));
