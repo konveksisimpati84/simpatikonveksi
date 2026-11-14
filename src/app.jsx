@@ -12378,7 +12378,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             );
         };
 
-        const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes, rekapKinerja = [], bagiHasilPromosi = [], bukaBiayaDana = null }) => {
+        const BiayaView = ({ expenses, setExpenses, showToast, templates, kartuKredit, setKartuKredit, transaksiKartu, setTransaksiKartu, employees, danaOperasional, purchaseNotes, rekapKinerja = [], bagiHasilPromosi = [], bukaBiayaDana = null, lihatSelisihKas = true, isAdmin = true }) => {
             const [biayaSubTab, setBiayaSubTab] = useState('biaya');
             const emptyItem = () => ({ id: genId('BI-'), desc: '', qty: '1', unit: 'pcs', price: '' });
             // payMode/payAmount/payDate/payMethod/payDana: isian pembayaran saat input (tidak ikut disimpan sebagai kolom)
@@ -12411,7 +12411,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const addItem = () => setForm(prev => ({ ...prev, items: [...prev.items, emptyItem()] }));
             const removeItem = (idx) => { if (form.items.length <= 1) return; setForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) })); };
 
-            const allExpenses = (expenses || []).filter(isVisibleRecord);
+            // Catatan "Selisih kas" dari Posisi Uang hanya terlihat oleh akun yang punya akses Laporan Keuangan
+            const allExpenses = (expenses || []).filter(isVisibleRecord).filter(item => lihatSelisihKas || !item.sumberPosisi);
             const expenseMonths = [...new Set(allExpenses.map(item => (item.date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
             const visibleExpenses = allExpenses.filter(item => {
                 if (monthFilter && !(item.date || '').startsWith(monthFilter)) return false;
@@ -12562,6 +12563,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const startEdit = (item) => {
+                if (item && item.sumberPosisi) { showToast('Catatan selisih kas dari Posisi Uang tidak bisa diedit. Bila salah, hapus (Admin) atau pakai Isi ulang titik mulai di Laporan Keuangan.', 'error'); return; }
                 setEditId(item.id);
                 const hasIt = item.items && item.items.length > 0;
                 const ei = hasIt ? item.items : [{ id: genId('BI-'), desc: item.category || '', qty: '1', unit: '', price: String(safeMoney(item.grossAmount || item.amount)) }];
@@ -12584,6 +12586,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             }, [bukaBiayaDana && bukaBiayaDana.t]);
 
             const handleDelete = (id) => {
+                if (!isAdmin && (expenses || []).some(i => String(i.id) === String(id) && i.sumberPosisi)) { showToast('Catatan selisih kas hanya bisa dihapus oleh Admin.', 'error'); return; }
                 const now = new Date().toISOString();
                 setExpenses(prev => (prev || []).map(item => String(item.id) === String(id) ? { ...item, isDeleted: true, deletedAt: now, _syncUpdatedAt: now } : item));
                 showToast("Data biaya dihapus.", "success");
@@ -12613,6 +12616,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             };
 
             const deletePayment = (itemId, payId) => {
+                if ((expenses || []).some(i => String(i.id) === String(itemId) && i.sumberPosisi)) { showToast('Pembayaran catatan selisih kas tidak bisa dihapus sendiri. Hapus catatannya (Admin).', 'error'); return; }
                 const now = new Date().toISOString();
                 setExpenses(prev => (prev || []).map(item => {
                     if (String(item.id) !== String(itemId)) return item;
@@ -12964,7 +12968,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <div className={`hidden md:flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg} hover:brightness-[0.97] transition-all`}>
                                                 <div className="w-20 flex-shrink-0 text-xs text-gray-500 font-mono">{item.date}</div>
                                                 <div className="flex-1 min-w-0">
-                                                    <button type="button" onClick={() => openDetail(item)} className="block max-w-full text-left font-bold text-gray-900 text-sm truncate hover:underline">{title}</button>{showCat && <span className="inline-block mt-0.5 text-[10px] font-bold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-0.5">{item.category}</span>}
+                                                    <button type="button" onClick={() => openDetail(item)} className="block max-w-full text-left font-bold text-gray-900 text-sm truncate hover:underline">{title}</button>{item.sumberPosisi && <span data-biaya-posisi className="inline-block mt-0.5 mr-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5">dari Posisi Uang</span>}{showCat && <span className="inline-block mt-0.5 text-[10px] font-bold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-0.5">{item.category}</span>}
                                                     <div className="text-xs text-gray-400 truncate">{item.party || <span className="italic">—</span>} {item.note ? `· ${item.note}` : ''}</div>
                                                 </div>
                                                 <div className="w-24 text-center hidden sm:block flex-shrink-0"><Badge status={item.type} /></div>
@@ -12975,9 +12979,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <div className="w-28 text-center hidden lg:block flex-shrink-0">{payStatusBadge(status)}</div>
                                                 <div className="flex gap-1 items-center flex-shrink-0 justify-end">
                                                     <button onClick={() => openDetail(item)} title="Rincian" className="p-1.5 rounded-lg border transition-colors bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100"><IconEye /></button>
-                                                    <button onClick={() => startEdit(item)} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                    {!item.sumberPosisi && <button onClick={() => startEdit(item)} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
                                                     <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
-                                                    <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
+                                                    {(isAdmin || !item.sumberPosisi) && <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>}
                                                 </div>
                                             </div>
                                             <div className={`md:hidden px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg}`}>
@@ -12987,7 +12991,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             <span className="text-xs text-gray-500 font-mono shrink-0">{item.date}</span>
                                                             <Badge status={item.type} />
                                                         </div>
-                                                        <button type="button" onClick={() => openDetail(item)} className="block max-w-full text-left font-bold text-gray-900 text-sm truncate hover:underline">{title}</button>{showCat && <span className="inline-block mt-0.5 text-[10px] font-bold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-0.5">{item.category}</span>}
+                                                        <button type="button" onClick={() => openDetail(item)} className="block max-w-full text-left font-bold text-gray-900 text-sm truncate hover:underline">{title}</button>{item.sumberPosisi && <span data-biaya-posisi className="inline-block mt-0.5 mr-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5">dari Posisi Uang</span>}{showCat && <span className="inline-block mt-0.5 text-[10px] font-bold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-0.5">{item.category}</span>}
                                                         <div className="text-xs text-gray-400 truncate">{item.party || <span className="italic">—</span>}{item.note ? ` · ${item.note}` : ''}</div>
                                                         <div className={`text-sm font-black mt-1 ${isMasuk ? 'text-green-700' : 'text-red-700'}`}>{formatRupiah(item.amount)}{!isMasuk && paid > 0 && <span className="text-[10px] font-normal text-gray-400 ml-1">· Bayar: {formatRupiah(paid)}</span>}</div>
                                                     </div>
@@ -12995,9 +12999,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         {payStatusBadge(status)}
                                                         <div className="flex gap-1 mt-0.5">
                                                             <button onClick={() => openDetail(item)} title="Rincian" className="p-1.5 rounded-lg border transition-colors bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100"><IconEye /></button>
-                                                            <button onClick={() => startEdit(item)} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>
+                                                            {!item.sumberPosisi && <button onClick={() => startEdit(item)} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
                                                             <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
-                                                            <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
+                                                            {(isAdmin || !item.sumberPosisi) && <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -13098,7 +13102,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             <span className="text-gray-600">{pay.method}</span>
                                                             <span className="font-bold text-green-700 tabular-nums">{formatRupiah(pay.amount)}</span>
                                                             {pay.note && <span className="text-gray-500">{pay.note}</span>}
-                                                            <button type="button" onClick={() => deletePayment(item.id, pay.id)} className="text-red-500 hover:text-red-700 font-bold ml-auto shrink-0 px-1" title="Hapus pembayaran">✕</button>
+                                                            {!item.sumberPosisi && <button type="button" onClick={() => deletePayment(item.id, pay.id)} className="text-red-500 hover:text-red-700 font-bold ml-auto shrink-0 px-1" title="Hapus pembayaran">✕</button>}
                                                         </div>
                                                     ))}
                                                 </div>
@@ -13124,9 +13128,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 )}
                             </div>
                             <div className="px-5 py-3 border-t bg-gray-50 flex flex-wrap justify-end gap-2">
-                                <button type="button" onClick={() => { setDeleteConfirmId(item.id); setDetailId(null); }} className="px-3 py-2 rounded-lg text-sm font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 mr-auto">Hapus</button>
+                                {(isAdmin || !item.sumberPosisi) && <button type="button" onClick={() => { setDeleteConfirmId(item.id); setDetailId(null); }} className="px-3 py-2 rounded-lg text-sm font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 mr-auto">Hapus</button>}
                                 <button type="button" onClick={() => printReceipt(item)} className="px-3 py-2 rounded-lg text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100">Cetak Bukti</button>
-                                <button type="button" onClick={() => startEdit(item)} className="px-3 py-2 rounded-lg text-sm font-bold text-purple-700 bg-purple-50 border border-purple-200 hover:bg-purple-100">Edit</button>
+                                {!item.sumberPosisi && <button type="button" onClick={() => startEdit(item)} className="px-3 py-2 rounded-lg text-sm font-bold text-purple-700 bg-purple-50 border border-purple-200 hover:bg-purple-100">Edit</button>}
                             </div>
                         </div>
                     </div>
@@ -18629,13 +18633,28 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const rpJt = (n) => { const v = Math.round(safeMoney(n)); const a = Math.abs(v); const t = a >= 1e9 ? `${(a / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 })} M` : a >= 1e6 ? `${(a / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })} jt` : a.toLocaleString('id-ID'); return `${v < 0 ? '−' : ''}Rp ${t}`; };
             // Saldo Buku Kas tanpa pengaruh titik mulai (untuk menghitung penyesuaian awal yang baru)
             const kasTanpaPosisi = kasHariIni - penyesuaianAwal + danaHilangBaris.filter(r => tglKas(r.date) < besok).reduce((t, r) => t + r.nominal, 0);
-            const simpanTitikMulai = (rekening, tunai) => {
+            // Catatan "Selisih kas" yang dibuat Cocokkan saldo sejak titik mulai sekarang (bisa dihapus saat isi ulang titik mulai)
+            const selisihSejakMulai = posisiUang ? (expenses || []).filter(isVisibleRecord).filter(e => e.sumberPosisi && (waktuDariIdGen(e.id) || '') > posisiUang.mulai.at && tglKas(e.date) < besok) : [];
+            // Pengaruh menghapusnya ke saldo Buku Kas: biaya dihapus → kas naik; pendapatan dihapus → kas turun
+            const efekHapusSelisih = selisihSejakMulai.reduce((t, e) => t + (e.type === 'Uang Masuk' ? -safeMoney(e.amount) : getExpensePaidEvents(e).reduce((x, ev) => x + ev.amount, 0)), 0);
+            const totalSelisihBiaya = selisihSejakMulai.filter(e => e.type !== 'Uang Masuk').reduce((t, e) => t + safeMoney(e.amount), 0);
+            const totalSelisihPendapatan = selisihSejakMulai.filter(e => e.type === 'Uang Masuk').reduce((t, e) => t + safeMoney(e.amount), 0);
+            const simpanTitikMulai = (rekening, tunai, opsi = {}) => {
                 const now = new Date().toISOString();
-                const pen = Math.round(rekening + tunai + danaKaryawan.pegang - danaKaryawan.hutang - kasTanpaPosisi);
+                const ulang = !!(opsi.ulang && posisiUang);
+                const hapus = ulang && opsi.hapusSelisih && selisihSejakMulai.length > 0;
+                if (hapus && !setExpenses) { showToast('Tidak bisa menghapus catatan selisih kas dari sini.', 'error'); return; }
+                const kasDasar = kasTanpaPosisi + (hapus ? efekHapusSelisih : 0);
+                const pen = Math.round(rekening + tunai + danaKaryawan.pegang - danaKaryawan.hutang - kasDasar);
                 const oleh = authUser?.name || authUser?.username || '-';
-                setTemplates(prev => ({ ...(prev || {}), posisiUang: { ...(prev?.posisiUang || {}), mulai: { at: now, tanggal: toLocalDateStr(), rekening, tunai, danaBersih: Math.round(danaKaryawan.pegang - danaKaryawan.hutang), bukuKas: Math.round(kasTanpaPosisi), penyesuaian: pen, sudahTermasuk: [], oleh }, mutasi: [], riwayat: [{ at: now, jenis: 'mulai', oleh, rekening, tunai, penyesuaian: pen }, ...safeArray(prev?.posisiUang?.riwayat)].slice(0, 50) } }));
+                const idHapus = hapus ? new Set(selisihSejakMulai.map(e => String(e.id))) : null;
+                if (hapus) setExpenses(prev => (Array.isArray(prev) ? prev : []).map(e => idHapus.has(String(e.id)) ? { ...e, isDeleted: true, deletedAt: now, dihapusKarena: 'Isi ulang titik mulai', _syncUpdatedAt: now } : e));
+                const catatan = ulang
+                    ? { at: now, jenis: 'ulang', oleh, rekening, tunai, penyesuaian: pen, lama: { tanggal: posisiUang.mulai.tanggal, rekening: posisiUang.mulai.rekening, tunai: posisiUang.mulai.tunai, oleh: posisiUang.mulai.oleh }, hapusSelisih: hapus ? { n: selisihSejakMulai.length, biaya: totalSelisihBiaya, pendapatan: totalSelisihPendapatan, ids: [...idHapus] } : null }
+                    : { at: now, jenis: 'mulai', oleh, rekening, tunai, penyesuaian: pen };
+                setTemplates(prev => ({ ...(prev || {}), posisiUang: { ...(prev?.posisiUang || {}), mulai: { at: now, tanggal: toLocalDateStr(), rekening, tunai, danaBersih: Math.round(danaKaryawan.pegang - danaKaryawan.hutang), bukuKas: Math.round(kasDasar), penyesuaian: pen, sudahTermasuk: [], oleh }, mutasi: [], terakhirCocok: null, riwayat: [catatan, ...safeArray(prev?.posisiUang?.riwayat)].slice(0, 50) } }));
                 setPosisiDialog(null);
-                showToast('Titik mulai disimpan. Saldo rekening & tunai dihitung dari angka ini.', 'success');
+                showToast(ulang ? `Titik mulai diisi ulang${hapus ? ` dan ${selisihSejakMulai.length} catatan selisih kas dihapus` : ''}.` : 'Titik mulai disimpan. Saldo rekening & tunai dihitung dari angka ini.', 'success');
             };
             // Cocokkan saldo: pecah selisih jadi pindah saldo rekening↔tunai + sisa (biaya / pendapatan selisih kas)
             const rencanaCocok = (aktualR, aktualT) => {
@@ -18795,6 +18814,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <p className="text-xs text-gray-500">per {formatDate(toLocalDateStr())} · angka per hari ini, tidak memakai filter tahun/bulan</p>
                                     </div>
                                     {saldoAkun && bolehAturPosisi && <button type="button" data-posisi-cocok-buka onClick={() => { if (Math.abs(selisihBukuKas) >= 1) { showToast('Saldo belum cocok dengan Buku Kas. Tekan "Masukkan ke penyesuaian awal" dulu, baru cocokkan saldo.', 'error'); return; } setPosisiDialog({ jenis: 'cocok', rekening: '', tunai: '' }); }} className="rounded-lg bg-teal-700 text-white font-bold text-sm px-3 py-2">⚖ Cocokkan saldo</button>}
+                                    {saldoAkun && bolehAturPosisi && <button type="button" data-posisi-ulang-buka onClick={() => setPosisiDialog({ jenis: 'mulai', ulang: true, langkah: 1, rekening: '', tunai: '', hapusSelisih: true })} className="rounded-lg border border-slate-300 bg-white text-slate-700 font-bold text-sm px-3 py-2">↺ Isi ulang titik mulai</button>}
                                 </div>
                                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_54px_1.15fr_54px_1fr]">
                                     <div data-posisi-customer className={`${kotak} bg-gradient-to-br from-emerald-600 to-emerald-500`}>
@@ -18873,27 +18893,47 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <div className="fixed inset-0 z-[150] bg-black/50 flex items-center justify-center p-3" onClick={() => setPosisiDialog(null)}>
                                             <div data-posisi-dialog={posisiDialog.jenis} className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                                                 {posisiDialog.jenis === 'mulai' && posisiDialog.langkah === 1 && <>
-                                                    <h4 className="font-black text-gray-800">⚑ Isi saldo sekarang</h4>
-                                                    <p className="text-xs text-gray-500 mb-3">Cek mutasi bank &amp; hitung uang tunai di kantor. Transaksi yang sudah dicatat sebelum saat ini dianggap sudah termasuk.</p>
+                                                    <h4 className="font-black text-gray-800">{posisiDialog.ulang ? '↺ Isi ulang titik mulai' : '⚑ Isi saldo sekarang'}</h4>
+                                                    <p className="text-xs text-gray-500 mb-3">{posisiDialog.ulang ? <>Untuk membetulkan salah ketik saldo awal. Isi saldo yang <b>benar-benar ada sekarang</b> (cek mutasi bank &amp; hitung uang tunai).</> : <>Cek mutasi bank &amp; hitung uang tunai di kantor. Transaksi yang sudah dicatat sebelum saat ini dianggap sudah termasuk.</>}</p>
                                                     <label className="block text-xs font-bold text-gray-600 mb-2">Saldo rekening bank<input data-posisi-in="rekening" inputMode="numeric" className={inputCls} placeholder="0" value={tampil(posisiDialog.rekening)} onChange={isiAngka('rekening')} /></label>
                                                     <label className="block text-xs font-bold text-gray-600">Uang tunai di kantor<input data-posisi-in="tunai" inputMode="numeric" className={inputCls} placeholder="0" value={tampil(posisiDialog.tunai)} onChange={isiAngka('tunai')} /></label>
                                                     <p className="mt-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">Jangan masukkan dana operasional yang dipegang karyawan — sudah dihitung terpisah.</p>
+                                                    {posisiDialog.ulang && selisihSejakMulai.length > 0 && (
+                                                        <label data-posisi-hapus-selisih={selisihSejakMulai.length} className="mt-2 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[12.5px] text-red-900 cursor-pointer">
+                                                            <input type="checkbox" className="mt-0.5" checked={!!posisiDialog.hapusSelisih} onChange={e => { const v = e.target.checked; setPosisiDialog(d => ({ ...d, hapusSelisih: v })); }} />
+                                                            <span><b>Hapus {selisihSejakMulai.length} catatan "Selisih kas" dari Cocokkan saldo sebelumnya</b> ({[totalSelisihBiaya > 0 ? `biaya ${formatRupiah(totalSelisihBiaya)}` : '', totalSelisihPendapatan > 0 ? `pendapatan ${formatRupiah(totalSelisihPendapatan)}` : ''].filter(Boolean).join(' · ')}).<br /><span className="text-red-800/80">Dianjurkan bila selisih itu karena salah ketik — jadi tidak memengaruhi Laba Bersih.</span></span>
+                                                        </label>
+                                                    )}
                                                     <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setPosisiDialog(null)} className="px-4 py-2 rounded-lg bg-gray-100 font-bold text-sm">Batal</button><button type="button" data-posisi-lanjut disabled={kosong} onClick={() => setPosisiDialog(d => ({ ...d, langkah: 2 }))} className="px-4 py-2 rounded-lg bg-teal-700 text-white font-bold text-sm disabled:opacity-50">Lanjut ›</button></div>
                                                 </>}
                                                 {posisiDialog.jenis === 'mulai' && posisiDialog.langkah === 2 && (() => {
-                                                    const menurut = Math.round(kasTanpaPosisi - (danaKaryawan.pegang - danaKaryawan.hutang));
+                                                    const hapusSel = !!(posisiDialog.ulang && posisiDialog.hapusSelisih && selisihSejakMulai.length > 0);
+                                                    const menurut = Math.round(kasTanpaPosisi + (hapusSel ? efekHapusSelisih : 0) - (danaKaryawan.pegang - danaKaryawan.hutang));
                                                     const pen = R + Tn - menurut;
+                                                    const efekLaba = hapusSel ? totalSelisihBiaya - totalSelisihPendapatan : 0;
                                                     return <>
                                                         <h4 className="font-black text-gray-800">Periksa sebelum disimpan</h4>
                                                         <p className="text-xs text-gray-500 mb-3">Dicatat {new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })} oleh {authUser?.name || authUser?.username || '-'}.</p>
                                                         <table className="w-full text-sm"><thead><tr className="text-[11.5px] text-gray-500"><th className="text-left py-1"></th><th className="text-right">Menurut aplikasi</th><th className="text-right">Sebenarnya</th><th className="text-right">Selisih</th></tr></thead>
                                                             <tbody><tr className="border-t" data-posisi-ringkas><td className="py-2 font-bold">Rekening + tunai</td><td className="text-right tabular-nums">{formatRupiah(menurut)}</td><td className="text-right tabular-nums">{formatRupiah(R + Tn)}</td><td data-posisi-pen={pen} className={`text-right font-black tabular-nums ${pen < 0 ? 'text-red-700' : pen > 0 ? 'text-green-700' : 'text-gray-500'}`}>{pen === 0 ? '✓' : `${pen > 0 ? '+' : '−'}${formatRupiah(Math.abs(pen))}`}</td></tr></tbody></table>
+                                                        {posisiDialog.ulang && posisiUang && (
+                                                            <div data-posisi-ulang-ringkas className="mt-3 text-[12.5px] divide-y divide-gray-100 border-y border-gray-100">
+                                                                <div className="flex justify-between gap-2 py-1.5"><span>Titik mulai lama ({formatDate(posisiUang.mulai.tanggal)})</span><b className="tabular-nums text-right">{formatRupiah(posisiUang.mulai.rekening)} + {formatRupiah(posisiUang.mulai.tunai)}</b></div>
+                                                                <div className="flex justify-between gap-2 py-1.5"><span>Titik mulai baru</span><b className="tabular-nums text-right">{formatRupiah(R)} + {formatRupiah(Tn)}</b></div>
+                                                                {hapusSel && <div className="flex justify-between gap-2 py-1.5"><span>Catatan "Selisih kas" dihapus ({selisihSejakMulai.length})</span><b className="tabular-nums text-red-700">{formatRupiah(totalSelisihBiaya + totalSelisihPendapatan)}</b></div>}
+                                                                {efekLaba !== 0 && <div data-posisi-efek-laba={efekLaba} className="flex justify-between gap-2 py-1.5"><span>Laba Bersih</span><b className={`tabular-nums ${efekLaba > 0 ? 'text-green-700' : 'text-red-700'}`}>{efekLaba > 0 ? 'naik kembali' : 'turun'} {formatRupiah(Math.abs(efekLaba))}</b></div>}
+                                                            </div>
+                                                        )}
                                                         <p className="mt-3 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">{pen === 0 ? 'Sudah sama dengan hitungan aplikasi.' : <>Selisih ini = uang masuk/keluar sebelum hari ini yang <b>tidak tercatat</b>. Dicatat sekali di Buku Kas sebagai <b>"Penyesuaian awal"</b> (tidak mengubah Laba Rugi bulan-bulan lalu). Mulai sekarang saldo dihitung dari angka sebenarnya.</>}</p>
-                                                        <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setPosisiDialog(d => ({ ...d, langkah: 1 }))} className="px-4 py-2 rounded-lg bg-gray-100 font-bold text-sm">‹ Kembali</button><button type="button" data-posisi-simpan-mulai onClick={() => simpanTitikMulai(R, Tn)} className="px-4 py-2 rounded-lg bg-teal-700 text-white font-bold text-sm">Simpan titik mulai</button></div>
+                                                        <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setPosisiDialog(d => ({ ...d, langkah: 1 }))} className="px-4 py-2 rounded-lg bg-gray-100 font-bold text-sm">‹ Kembali</button><button type="button" data-posisi-simpan-mulai onClick={() => simpanTitikMulai(R, Tn, { ulang: !!posisiDialog.ulang, hapusSelisih: hapusSel })} className="px-4 py-2 rounded-lg bg-teal-700 text-white font-bold text-sm">{posisiDialog.ulang ? 'Simpan titik mulai baru' : 'Simpan titik mulai'}</button></div>
                                                     </>;
                                                 })()}
                                                 {posisiDialog.jenis === 'cocok' && saldoAkun && (() => {
                                                     const rc = kosong ? null : rencanaCocok(R, Tn);
+                                                    // Selisih yang masuk Laba Rugi sangat besar → kemungkinan salah ketik saldo awal
+                                                    const sisaTotal = rc ? rc.sisa.reduce((t, x) => t + x.nominal, 0) : 0;
+                                                    const dasarSaldo = Math.abs(saldoAkun.rekening + saldoAkun.tunai);
+                                                    const besar = sisaTotal > 5000000 || (dasarSaldo > 0 && sisaTotal > dasarSaldo * 0.1);
                                                     const sel = (n) => n === 0 ? <span className="text-gray-500">✓</span> : <span className={n < 0 ? 'text-red-700' : 'text-green-700'}>{n > 0 ? '+' : '−'}{formatRupiah(Math.abs(n))}</span>;
                                                     return <>
                                                         <h4 className="font-black text-gray-800">⚖ Cocokkan saldo · {formatDate(toLocalDateStr())}</h4>
@@ -18911,8 +18951,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                 <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">Sebaiknya cari &amp; catat dulu transaksi yang terlupa (mis. biaya admin bank) — selisih akan berkurang sendiri.</p>
                                                             </div>
                                                         )}
+                                                        {besar && (
+                                                            <div data-posisi-besar={sisaTotal} className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[12.5px] text-amber-900">
+                                                                ⚠ <b>Selisih sangat besar</b> ({formatRupiah(sisaTotal)}). Biasanya karena <b>salah ketik saldo awal</b>, bukan uang hilang. Bila begitu, pakai <b>↺ Isi ulang titik mulai</b> — kalau tetap disimpan di sini, selisih ini masuk Laba Rugi.
+                                                                <div className="mt-1.5"><button type="button" data-posisi-ke-ulang onClick={() => setPosisiDialog({ jenis: 'mulai', ulang: true, langkah: 1, rekening: posisiDialog.rekening, tunai: posisiDialog.tunai, hapusSelisih: true })} className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-bold text-slate-700">↺ Isi ulang titik mulai</button></div>
+                                                            </div>
+                                                        )}
                                                         {rc && !rc.pindah && !rc.sisa.length && <p data-posisi-rencana="cocok" className="mt-3 text-sm font-bold text-green-700">✓ Saldo sudah cocok, tidak ada yang perlu dicatat.</p>}
-                                                        <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setPosisiDialog(null)} className="px-4 py-2 rounded-lg bg-gray-100 font-bold text-sm">Tutup</button><button type="button" data-posisi-simpan-cocok disabled={kosong} onClick={() => simpanCocok(R, Tn)} className="px-4 py-2 rounded-lg bg-teal-700 text-white font-bold text-sm disabled:opacity-50">Simpan</button></div>
+                                                        <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setPosisiDialog(null)} className="px-4 py-2 rounded-lg bg-gray-100 font-bold text-sm">Tutup</button><button type="button" data-posisi-simpan-cocok disabled={kosong} onClick={() => simpanCocok(R, Tn)} className={`px-4 py-2 rounded-lg text-white font-bold text-sm disabled:opacity-50 ${besar ? 'bg-amber-600' : 'bg-teal-700'}`}>{besar ? 'Tetap catat sebagai selisih kas' : 'Simpan'}</button></div>
                                                     </>;
                                                 })()}
                                             </div>
@@ -37110,7 +37156,7 @@ ${getRekapShareLink(rekap)}
                                 {tabMounted('pembelian_bahan', canOpen('pembelian_bahan')) && <div hidden={!tabVisible('pembelian_bahan')}><PembelianBahanView orders={ordersTampil} setOrders={updateOrders} showToast={showToast} templates={templates} purchaseNotes={purchaseNotes} setPurchaseNotes={updatePurchaseNotes} employees={employees} danaOperasional={danaOperasional} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} masterBahan={masterBahan} setMasterBahan={updateMasterBahan} stokBahan={stokBahan} setStokBahan={updateStokBahan} bukaNotaVendor={notaVendorReq} bukaNotaDana={danaBukaReq && danaBukaReq.jenis === 'nota' ? danaBukaReq : null} /></div>}
                                 {tabMounted('produksi', canOpen('produksi')) && <div hidden={!tabVisible('produksi')}><ProduksiView orders={ordersTampil} setOrders={updateOrders} employees={employees} authUser={authUser} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('laporan', canOpen('laporan')) && <div hidden={!tabVisible('laporan')}><LaporanView bukaRekapDana={danaBukaReq && danaBukaReq.jenis === 'gaji' ? danaBukaReq : null} orders={ordersTampil} setOrders={updateOrders} employees={employees} setEmployees={updateEmployees} rekapKinerja={rekapKinerja} setRekapKinerja={updateRekapKinerja} invoices={invoices} setInvoices={updateInvoices} showToast={showToast} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} absensiRawSync={absensiRawSync} onRetryAbsensiRaw={() => { cloudHealth.allowProbeNow(); syncAbsensiRawForLaporan(true); }} /></div>}
-                                {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView bukaBiayaDana={danaBukaReq && danaBukaReq.jenis === 'biaya' ? danaBukaReq : null} expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
+                                {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView lihatSelisihKas={canOpen('laporan_keuangan')} isAdmin={authUser?.role === 'Admin'} bukaBiayaDana={danaBukaReq && danaBukaReq.jenis === 'biaya' ? danaBukaReq : null} expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView bukaBhpDana={danaBukaReq && danaBukaReq.jenis === 'bh' ? danaBukaReq : null} penggunaNama={authUser?.name || authUser?.username || ''} bukaRekapGaji={canOpen('laporan') ? (id) => { setDanaBukaReq({ jenis: 'gaji', id: String(id), empName: '', t: Date.now() }); setActiveTab('laporan'); } : null} invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('data_master', canOpen('data_master')) && <div hidden={!tabVisible('data_master')}><DataMasterView izin={getAccountMenuAccess(authUser)} purchaseNotes={purchaseNotes}
                                     karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
