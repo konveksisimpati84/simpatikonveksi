@@ -1648,6 +1648,9 @@
         // Kolom angka berkoma (persen 2,5 / 3,5): koma atau titik → disimpan dengan titik; maks = batas atas (0 = tanpa batas)
         const isiDesimal = (v, maks = 0) => { let s = String(v ?? '').replace(/,/g, '.').replace(/[^\d.]/g, ''); const i = s.indexOf('.'); if (i >= 0) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/\./g, ''); if (maks > 0 && parseFloat(s) > maks) s = String(maks); return s; };
         const tampilDesimal = (v) => (v === null || v === undefined || v === '' || v === 0) ? '' : String(v).replace('.', ',');
+        // Kolom Rupiah: titik/koma dianggap pemisah ribuan ("50.000" = 50000), tampil dengan titik ribuan
+        const isiNominal = (v) => String(v ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+        const tampilNominal = (v) => { if (v === null || v === undefined || v === '' || v === 0) return ''; const n = Number(String(v).replace(/[^\d.]/g, '')); return Number.isFinite(n) ? n.toLocaleString('id-ID', { maximumFractionDigits: 2 }) : ''; };
 
         const getEmployeeCashAdvances = (employee) => {
             return Array.isArray(employee?.cashAdvances) ? employee.cashAdvances.filter(item => !item?.isDeleted) : [];
@@ -6616,8 +6619,16 @@ ${blocks}
             const activeDailySalaryLogs = getEmployeeDailySalaryLogs(activeDailySalaryEmp);
             const activeDailySalaryTotal = activeDailySalaryLogs.reduce((sum, log) => sum + getDailySalaryLogTotal(log).total, 0);
 
+            // Persen komisi / bagi hasil maksimal 100% (mis. sisa angka Rp setelah pindah ke mode Persen)
+            const cekPersenKaryawan = (emp) => {
+                const divs = getEmployeeDivisions(emp);
+                if (divs.includes('Marketing') && !isKomisiPcs(emp.commissionType) && safeMoney(emp.commissionValue) > 100) return 'Persen komisi marketing maksimal 100%. Periksa kembali angkanya.';
+                if ((divs.includes('Direktur') || divs.includes('Komisaris')) && emp.bagiHasilTipe !== 'Nominal' && safeMoney(emp.bagiHasilNilai) > 100) return 'Persen bagi hasil maksimal 100%. Periksa kembali angkanya.';
+                return '';
+            };
             const handleAdd = (e) => {
                 e.preventDefault();
+                if (cekPersenKaryawan(newEmp)) { showToast(cekPersenKaryawan(newEmp), 'error'); return; }
                 if (!canEditSens && isSensitiveSalaryEmp(newEmp)) { showToast('Karyawan divisi Direktur/Komisaris/Marketing hanya bisa ditambahkan oleh akun dengan akses Edit Gaji Direksi & Marketing.', 'error'); return; }
                 const now = new Date().toISOString();
                 setEmployees(prev => [...(prev||[]), { ...newEmp, id: genId('EMP-'), _syncUpdatedAt: now }]);
@@ -6628,6 +6639,7 @@ ${blocks}
 
             const handleSaveEdit = (e) => {
                 e.preventDefault();
+                if (cekPersenKaryawan(editEmp)) { showToast(cekPersenKaryawan(editEmp), 'error'); return; }
                 const now = new Date().toISOString();
                 const original = safeEmployees.find(emp => String(emp.id) === String(editEmp.id));
                 let next = { ...editEmp };
@@ -7100,7 +7112,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                         <option value="Persen">Persentase (%)</option>
                                         <option value="Nominal">Nominal Tetap (Rp)</option>
                                       </select>
-                                      <input type="text" inputMode="decimal" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={newEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={tampilDesimal(newEmp.commissionValue)} onChange={e => setNewEmp({ ...newEmp, commissionValue: isiDesimal(e.target.value, newEmp.commissionType === 'Nominal' ? 0 : 100) })}/>
+                                      <input type="text" inputMode="decimal" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={newEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={isKomisiPcs(newEmp.commissionType) ? tampilNominal(newEmp.commissionValue) : tampilDesimal(newEmp.commissionValue)} onChange={e => setNewEmp({ ...newEmp, commissionValue: isKomisiPcs(newEmp.commissionType) ? isiNominal(e.target.value) : isiDesimal(e.target.value, 100) })}/>
                                     </div>
                                     <p className="text-xs text-purple-600 mt-2">{newEmp.commissionType === 'Nominal' ? 'Komisi tetap per pcs (jumlah pcs × nilai komisi)' : 'Persentase dari nilai total invoice yang ditangani'}</p>
                                   </div>
@@ -7114,7 +7126,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                         <option value="Persen">Persentase dari total invoice (%)</option>
                                         <option value="Nominal">Nominal Tetap per bulan (Rp)</option>
                                       </select>
-                                      <input type="text" inputMode="decimal" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={tampilDesimal(newEmp.bagiHasilNilai)} onChange={e => setNewEmp({ ...newEmp, bagiHasilNilai: isiDesimal(e.target.value, (newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 0 : 100) })}/>
+                                      <input type="text" inputMode="decimal" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={(newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? tampilNominal(newEmp.bagiHasilNilai) : tampilDesimal(newEmp.bagiHasilNilai)} onChange={e => setNewEmp({ ...newEmp, bagiHasilNilai: (newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? isiNominal(e.target.value) : isiDesimal(e.target.value, 100) })}/>
                                     </div>
                                   </div>
                                 )}
@@ -7519,7 +7531,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                             <option value="Persen">Persentase (%)</option>
                                             <option value="Nominal">Nominal Tetap (Rp)</option>
                                           </select>
-                                          <input type="text" inputMode="decimal" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={editEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={tampilDesimal(editEmp.commissionValue)} onChange={e => setEditEmp({ ...editEmp, commissionValue: isiDesimal(e.target.value, editEmp.commissionType === 'Nominal' ? 0 : 100) })}/>
+                                          <input type="text" inputMode="decimal" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={editEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={isKomisiPcs(editEmp.commissionType) ? tampilNominal(editEmp.commissionValue) : tampilDesimal(editEmp.commissionValue)} onChange={e => setEditEmp({ ...editEmp, commissionValue: isKomisiPcs(editEmp.commissionType) ? isiNominal(e.target.value) : isiDesimal(e.target.value, 100) })}/>
                                         </div>
                                         <p className="text-xs text-purple-600 mt-2">{editEmp.commissionType === 'Nominal' ? 'Komisi tetap per pcs (jumlah pcs × nilai komisi)' : 'Persentase dari nilai total invoice yang ditangani'}</p>
                                       </div>
@@ -7533,7 +7545,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                             <option value="Persen">Persentase dari total invoice (%)</option>
                                             <option value="Nominal">Nominal Tetap per bulan (Rp)</option>
                                           </select>
-                                          <input type="text" inputMode="decimal" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={tampilDesimal(editEmp.bagiHasilNilai)} onChange={e => setEditEmp({ ...editEmp, bagiHasilNilai: isiDesimal(e.target.value, (editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 0 : 100) })}/>
+                                          <input type="text" inputMode="decimal" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={(editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? tampilNominal(editEmp.bagiHasilNilai) : tampilDesimal(editEmp.bagiHasilNilai)} onChange={e => setEditEmp({ ...editEmp, bagiHasilNilai: (editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? isiNominal(e.target.value) : isiDesimal(e.target.value, 100) })}/>
                                         </div>
                                       </div>
                                     )}
@@ -11202,7 +11214,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountType: 'Rp' }))} className={`px-3 py-2.5 text-sm font-black transition-colors ${(noteForm.globalDiscountType || 'Rp') === 'Rp' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Rp</button>
                                                 <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountType: '%' }))} className={`px-3 py-2.5 text-sm font-black transition-colors ${noteForm.globalDiscountType === '%' ? 'bg-green-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>%</button>
                                             </div>
-                                            <input type="text" inputMode="decimal" className="flex-1 min-w-0 px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-orange-400 focus:border-orange-400 text-right" placeholder={noteForm.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={tampilDesimal(noteForm.globalDiscountValue)} onChange={e => setNoteForm(f => ({ ...f, globalDiscountValue: isiDesimal(e.target.value, f.globalDiscountType === '%' ? 100 : 0) }))} />
+                                            <input type="text" inputMode="decimal" className="flex-1 min-w-0 px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-orange-400 focus:border-orange-400 text-right" placeholder={noteForm.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={noteForm.globalDiscountType === '%' ? tampilDesimal(noteForm.globalDiscountValue) : tampilNominal(noteForm.globalDiscountValue)} onChange={e => setNoteForm(f => ({ ...f, globalDiscountValue: f.globalDiscountType === '%' ? isiDesimal(e.target.value, 100) : isiNominal(e.target.value) }))} />
                                             {safeMoney(noteForm.globalDiscountValue) > 0 && <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountValue: '' }))} className="text-gray-400 hover:text-red-500 font-black text-lg shrink-0 leading-none">✕</button>}
                                         </div>
                                         {safeMoney(noteForm.globalDiscountValue) > 0 && (
@@ -11873,7 +11885,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 return () => document.removeEventListener('mousedown', handler);
             }, []);
 
-            const selectedEmp = safeEmployees.find(e => String(e.id) === selectedEmpId);
+            // Karyawan yang sudah dihapus tetapi masih memegang dana / masih ada kekurangan: tetap tampil agar bisa ditarik / dinolkan
+            const empDihapusDana = (employees || []).filter(e => e && e.isDeleted && !safeEmployees.some(x => String(x.id) === String(e.id))).filter(e => { const s = getDanaSaldoKaryawan(e.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi); return s.saldo > 0 || s.hutang > 0 || s.defisit > 0; });
+            const selectedEmp = safeEmployees.find(e => String(e.id) === selectedEmpId) || empDihapusDana.find(e => String(e.id) === selectedEmpId);
             const safeDana = safeArray(danaOperasional).filter(isVisibleRecord);
             const filteredEmps = safeEmployees.filter(e => e.name.toLowerCase().includes(empSearch.toLowerCase()));
             const handleEmpSelect = (empId) => { setSelectedEmpId(String(empId)); setEmpDropdownOpen(false); setEmpSearch(''); setEmpFocusedIdx(-1); };
@@ -11891,6 +11905,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (tolakTanpaAkses()) return;
                 const nominal = safeMoney(form.nominal);
                 if (!selectedEmpId) { showToast('Pilih karyawan terlebih dahulu.', 'error'); return; }
+                if (!editId && empDihapusDana.some(e => String(e.id) === selectedEmpId)) { showToast('Karyawan ini sudah dihapus — tidak bisa diberi transfer/talangan baru. Tarik atau nolkan sisa dananya.', 'error'); return; }
                 if (nominal <= 0) { showToast('Nominal harus lebih dari 0.', 'error'); return; }
                 const now = new Date().toISOString();
                 const isTalangan = form.type === 'talangan';
@@ -12146,7 +12161,20 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </button>
                                 );
                             })}
-                            {safeEmployees.every(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi); return s.totalIn === 0 && s.totalTalangan === 0 && s.defisit === 0 && !isAktifDana(emp.id, danaOperasional); }) && safeEmployees.length > 0 && (
+                            {empDihapusDana.map(emp => {
+                                const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi);
+                                const isSelected = selectedEmpId === String(emp.id);
+                                return (
+                                    <button key={emp.id} data-dana-dihapus={emp.id} onClick={() => setSelectedEmpId(isSelected ? '' : String(emp.id))}
+                                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed text-sm font-semibold transition-all ${isSelected ? 'bg-gray-700 border-gray-700 text-white shadow-md' : 'bg-gray-50 border-gray-300 text-gray-700 hover:border-gray-400'}`}>
+                                        <span>{emp.name}</span>
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'}`}>karyawan dihapus</span>
+                                        {s.saldo > 0 && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}`}>{formatRupiah(s.saldo)}</span>}
+                                        {(s.hutang > 0 || s.defisit > 0) && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600'}`}>Kekurangan {formatRupiah(s.hutang + s.defisit)}</span>}
+                                    </button>
+                                );
+                            })}
+                            {empDihapusDana.length === 0 && safeEmployees.every(emp => { const s = getDanaSaldoKaryawan(emp.id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi); return s.totalIn === 0 && s.totalTalangan === 0 && s.defisit === 0 && !isAktifDana(emp.id, danaOperasional); }) && safeEmployees.length > 0 && (
                                 <p className="text-sm text-gray-400 italic">{bolehKelola ? 'Daftarkan karyawan di atas lalu klik "+ Transfer Dana" untuk mulai.' : 'Belum ada dana operasional yang dicatat.'}</p>
                             )}
                         </div>
@@ -15050,7 +15078,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         <span className="text-[11px] font-bold text-orange-500 uppercase tracking-wide px-0.5">Diskon</span>
                                                         <div className="flex gap-1">
                                                             <button type="button" onClick={() => patchItemDiscount(item.id, item.discountType === 'Rp' ? '%' : 'Rp', '')} className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors ${item.discountType === '%' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>{item.discountType || 'Rp'}</button>
-                                                            <input type="text" inputMode="decimal" className="flex-1 min-w-0 p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={tampilDesimal(item.discountValue)} onChange={e => patchItemDiscount(item.id, item.discountType || 'Rp', isiDesimal(e.target.value, item.discountType === '%' ? 100 : 0))}/>
+                                                            <input type="text" inputMode="decimal" className="flex-1 min-w-0 p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={item.discountType === '%' ? tampilDesimal(item.discountValue) : tampilNominal(item.discountValue)} onChange={e => patchItemDiscount(item.id, item.discountType || 'Rp', (item.discountType === '%' ? isiDesimal(e.target.value, 100) : isiNominal(e.target.value)))}/>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -15174,7 +15202,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountType: 'Rp' }))} className={`px-3 py-2 text-sm font-black transition-colors ${(form.globalDiscountType || 'Rp') === 'Rp' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Rp</button>
                                             <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountType: '%' }))} className={`px-3 py-2 text-sm font-black transition-colors ${form.globalDiscountType === '%' ? 'bg-green-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>%</button>
                                         </div>
-                                        <input type="text" inputMode="decimal" className="flex-1 min-w-0 p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right" placeholder={form.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={tampilDesimal(form.globalDiscountValue)} onChange={e => setForm(f => ({ ...f, globalDiscountValue: isiDesimal(e.target.value, f.globalDiscountType === '%' ? 100 : 0) }))}/>
+                                        <input type="text" inputMode="decimal" className="flex-1 min-w-0 p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right" placeholder={form.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={form.globalDiscountType === '%' ? tampilDesimal(form.globalDiscountValue) : tampilNominal(form.globalDiscountValue)} onChange={e => setForm(f => ({ ...f, globalDiscountValue: f.globalDiscountType === '%' ? isiDesimal(e.target.value, 100) : isiNominal(e.target.value) }))}/>
                                         {safeMoney(form.globalDiscountValue) > 0 && <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountValue: '' }))} className="text-gray-400 hover:text-red-500 font-black text-lg shrink-0 leading-none">✕</button>}
                                     </div>
                                     {safeMoney(form.globalDiscountValue) > 0 && (
@@ -17723,7 +17751,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             }, { pegang: 0, hutang: 0 });
         };
         // Saldo rekening & tunai sekarang = titik mulai + mutasi sesudahnya
-        const hitungSaldoAkun = (posisi, mutasi) => {
+        // kasDari = tanggal saldo kas awal: transaksi sebelum tanggal itu (atau tanpa tanggal) tidak ada di Buku Kas → tidak dihitung juga di sini
+        const hitungSaldoAkun = (posisi, mutasi, kasDari = '') => {
             const m = posisi?.mulai;
             if (!m) return null;
             const sudah = new Set(safeArray(m.sudahTermasuk).map(String));
@@ -17731,6 +17760,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const hariIni = toLocalDateStr();
             mutasi.forEach(e => {
                 if (e.tanggal && e.tanggal > hariIni) return; // bertanggal ke depan: dihitung saat tanggalnya tiba (sama seperti Buku Kas)
+                // Sebelum saldo kas awal: dianggap sudah termasuk saldo awal. Transfer dana operasional & pindah saldo bukan baris Buku Kas → tetap dihitung.
+                if (kasDari && !/^(dana|pindah)/.test(e.key) && (!e.tanggal || e.tanggal < kasDari)) return;
                 const sesudahCatat = !!e.at && e.at > m.at;
                 const sesudahTanggal = !!e.tanggal && e.tanggal > m.tanggal;
                 if (sudah.has(e.key)) { res.koreksiSudahTermasuk += e.v; return; }
@@ -18003,7 +18034,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // ===== Posisi Uang: titik mulai (saldo rekening & tunai sebenarnya) =====
             const posisiUang = templates?.posisiUang && templates.posisiUang.mulai ? templates.posisiUang : null;
             const mutasiAkun = React.useMemo(() => kumpulkanMutasiKas({ invoices: safeFinanceInvoices, clients, expenses, purchaseNotes, rekapKinerja: safeFinanceRekaps, bagiHasilPromosi, driverRekapGaji, driverKasbon, employees: safeFinanceEmployees, danaOperasional, posisi: posisiUang }), [invoices, clients, expenses, purchaseNotes, rekapKinerja, bagiHasilPromosi, driverRekapGaji, driverKasbon, employees, danaOperasional, posisiUang]);
-            const saldoAkun = hitungSaldoAkun(posisiUang, mutasiAkun);
+            const kasDariPosisi = /^\d{4}-\d{2}-\d{2}$/.test(String(templates?.saldoKasAwal?.tanggal || '')) ? templates.saldoKasAwal.tanggal : '';
+            const saldoAkun = hitungSaldoAkun(posisiUang, mutasiAkun, kasDariPosisi);
             // Penyesuaian awal = koreksi saldo sebelum titik mulai (tidak masuk Laba Rugi); dikurangi transaksi lama yang ditandai "sudah termasuk"
             const penyesuaianAwal = posisiUang ? Math.round(safeMoney(posisiUang.mulai.penyesuaian) - (saldoAkun ? saldoAkun.koreksiSudahTermasuk : 0)) : 0;
             // Sisa dana operasional yang dinolkan & tidak kembali (dicatat sesudah titik mulai) = uang keluar
@@ -20013,7 +20045,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </div>
                     <div className="bg-amber-50 rounded-lg p-2.5">
                         <div className="text-xs text-amber-600 font-semibold">Nilai</div>
-                        <div className="font-bold text-amber-900 text-sm">{emp.bagiHasilTipe === 'Nominal' ? formatRupiah(safeMoney(emp.bagiHasilNilai)) : `${emp.bagiHasilNilai || 0}%`}</div>
+                        <div className="font-bold text-amber-900 text-sm">{emp.bagiHasilTipe === 'Nominal' ? formatRupiah(safeMoney(emp.bagiHasilNilai)) : `${angkaKomisi(emp.bagiHasilNilai || 0)}%`}</div>
                     </div>
                     <div className="bg-amber-50 rounded-lg p-2.5">
                         <div className="text-xs text-amber-600 font-semibold">Bagi Hasil Bulan Ini</div>
@@ -22857,7 +22889,7 @@ ${getRekapShareLink(rekap)}
                                                     <div className={`px-4 py-2 flex items-center justify-between border-t-2 ${isSel ? 'bg-amber-100 border-amber-300' : 'bg-gray-100 border-gray-300'}`}>
                                                         <span className="text-xs font-bold text-gray-700">
                                                             {isPersen
-                                                                ? `Total ${bhNilai}% dari invoice terpilih`
+                                                                ? `Total ${angkaKomisi(bhNilai)}% dari invoice terpilih`
                                                                 : `${formatRupiah(bhNilai)} × ${sortedMonths.filter(m => bhInvsByMonth[m].some(inv => selKeys.has(String(inv.id)))).length} bulan terpilih`}
                                                         </span>
                                                         <span className={`text-sm font-black ${isSel ? 'text-amber-800' : 'text-gray-500 line-through'}`}>{formatRupiah(modalBagiHasilDireksiAmount)}</span>
@@ -30781,8 +30813,8 @@ ${getRekapShareLink(rekap)}
 
             const calcQuotationItemNet = (qi) => {
                 const gross = (qi.unitPrice || 0);
-                if (qi.discountType === 'rp') return Math.max(0, gross - (qi.discountValue || 0));
-                return Math.max(0, gross * (1 - (qi.discountValue || 0) / 100));
+                if (qi.discountType === 'rp') return Math.max(0, gross - safeMoney(qi.discountValue));
+                return Math.max(0, gross * (1 - Math.min(100, safeMoney(qi.discountValue)) / 100));
             };
 
             // Harga di kolom "Harga Satuan" cetakan: harga net bila dipilih "Hanya harga net" + centang Harga Satuan = net
@@ -32042,7 +32074,7 @@ ${getRekapShareLink(rekap)}
                                                                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-slate-800 focus:ring-1 focus:ring-indigo-400 outline-none text-xs" />
                                                         </td>
                                                         <td className="py-2 px-1">
-                                                            <input type="number" value={qi.discountValue} onChange={e => updateQuotationItem(qi.id, 'discountValue', parseFloat(e.target.value)||0)}
+                                                            <input type="text" inputMode="decimal" data-q-diskon value={qi.discountType === 'rp' ? tampilNominal(qi.discountValue) : tampilDesimal(qi.discountValue)} onChange={e => updateQuotationItem(qi.id, 'discountValue', qi.discountType === 'rp' ? isiNominal(e.target.value) : isiDesimal(e.target.value, 100))}
                                                                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 focus:ring-1 focus:ring-indigo-400 outline-none text-xs" />
                                                         </td>
                                                         <td className="py-2 px-1">
@@ -32281,7 +32313,7 @@ ${getRekapShareLink(rekap)}
                                                                     <td style={{padding:'5pt 6pt', textAlign:'right', color:'#475569'}}>{formatRp(satuanTampil(qi))}</td>
                                                                     <td style={{padding:'5pt 6pt', textAlign:'right'}}>
                                                                         {hasDiscount && qDiskonTampil !== 'net' && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#f43f5e', textDecoration:'line-through', display:'block'}}>{formatRp(qi.unitPrice)}</span>}
-                                                                        {hasDiscount && qDiskonTampil === 'lengkap' && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#94a3b8', display:'block'}}>Diskon {qi.discountType==='pct'?`${qi.discountValue}%`:formatRp(qi.discountValue)}</span>}
+                                                                        {hasDiscount && qDiskonTampil === 'lengkap' && <span style={{fontSize:`${printFontSize*0.78}pt`, color:'#94a3b8', display:'block'}}>Diskon {qi.discountType==='pct'?`${angkaKomisi(qi.discountValue)}%`:formatRp(safeMoney(qi.discountValue))}</span>}
                                                                         <span style={{fontWeight:800, color:'#0f172a'}}>{formatRp(net)}</span>
                                                                     </td>
                                                                 </tr>
@@ -32420,7 +32452,7 @@ ${getRekapShareLink(rekap)}
                                                     <td style={{padding:'5pt 6pt', textAlign:'right', color:'#475569'}}>{formatRp(satuanTampil(qi))}</td>
                                                     <td style={{padding:'5pt 6pt', textAlign:'right'}}>
                                                         {hd&&qDiskonTampil!=='net'&&<span style={{fontSize:`${(printFontSize*0.79).toFixed(1)}pt`,color:'#f43f5e',textDecoration:'line-through',display:'block'}}>{formatRp(qi.unitPrice)}</span>}
-                                                        {hd&&qDiskonTampil==='lengkap'&&<span style={{fontSize:`${(printFontSize*0.79).toFixed(1)}pt`,color:'#94a3b8',display:'block'}}>Diskon {qi.discountType==='pct'?`${qi.discountValue}%`:formatRp(qi.discountValue)}</span>}
+                                                        {hd&&qDiskonTampil==='lengkap'&&<span style={{fontSize:`${(printFontSize*0.79).toFixed(1)}pt`,color:'#94a3b8',display:'block'}}>Diskon {qi.discountType==='pct'?`${angkaKomisi(qi.discountValue)}%`:formatRp(safeMoney(qi.discountValue))}</span>}
                                                         <span style={{fontWeight:800, color:'#0f172a'}}>{formatRp(net)}</span>
                                                     </td>
                                                 </tr>);
