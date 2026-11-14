@@ -1645,6 +1645,9 @@
             const num = parseFloat(value);
             return Number.isFinite(num) ? num : 0;
         };
+        // Kolom angka berkoma (persen 2,5 / 3,5): koma atau titik → disimpan dengan titik; maks = batas atas (0 = tanpa batas)
+        const isiDesimal = (v, maks = 0) => { let s = String(v ?? '').replace(/,/g, '.').replace(/[^\d.]/g, ''); const i = s.indexOf('.'); if (i >= 0) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/\./g, ''); if (maks > 0 && parseFloat(s) > maks) s = String(maks); return s; };
+        const tampilDesimal = (v) => (v === null || v === undefined || v === '' || v === 0) ? '' : String(v).replace('.', ',');
 
         const getEmployeeCashAdvances = (employee) => {
             return Array.isArray(employee?.cashAdvances) ? employee.cashAdvances.filter(item => !item?.isDeleted) : [];
@@ -2228,11 +2231,15 @@
             return { grup, khusus, total, totalHari: rapikanHari(totalHari), potonganJam, tambahanJam, jumlahBaris: grup.length + khusus.length };
         };
 
+        // Komisi per invoice dibulatkan ke rupiah penuh (persen boleh berkoma, mis. 2,5%) agar rekap, slip & laporan sama persis
+        const bulatRupiah = (n) => { const v = safeMoney(n); return v < 0 ? -Math.round(-v + 1e-7) : Math.round(v + 1e-7); };
+        // Toleransi pembanding komisi lama (belum dibulatkan) vs sekarang (dibulatkan): beda ≤ Rp 0,5 bukan perubahan
+        const TOL_KOMISI = 0.501;
         const getInvoiceCommissionTotal = (invoice) => {
             const type = String(invoice?.commissionType || 'Persen').toLowerCase();
-            if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue);
+            if (type.includes('pcs') || type === 'rupiah' || type === 'nominal') return bulatRupiah(getInvoicePcsTotal(invoice) * safeMoney(invoice?.commissionValue));
             // Gunakan productionTotal (bukan total) agar biaya kirim tidak ikut masuk basis komisi
-            return getInvoiceTotals(invoice).productionTotal * safeMoney(invoice?.commissionValue) / 100;
+            return bulatRupiah(getInvoiceTotals(invoice).productionTotal * safeMoney(invoice?.commissionValue) / 100);
         };
 
         // ===== Penyesuaian komisi marketing pada rekap gaji =====
@@ -2263,8 +2270,8 @@
                     const lama = safeMoney(snap[key]) + (sudah[key] || 0);
                     const baru = dihapus ? 0 : getInvoiceCommissionTotal(inv);
                     const selisih = baru - lama;
-                    if (Math.abs(selisih) < 0.5) return;
-                    if (abaikan[key] != null && Math.abs(safeMoney(abaikan[key]) - baru) < 0.5) return;
+                    if (Math.abs(selisih) < TOL_KOMISI) return;
+                    if (abaikan[key] != null && Math.abs(safeMoney(abaikan[key]) - baru) < TOL_KOMISI) return;
                     items.push({ invId: key, client: namaInv(inv, id), lama, baru, selisih, dihapus });
                 });
                 const totalTepat = items.reduce((s, it) => s + it.selisih, 0);
@@ -2276,8 +2283,9 @@
             const baru = ids.reduce((s, id) => { const inv = cari(id); return s + (isVisibleRecord(inv) ? getInvoiceCommissionTotal(inv) : 0); }, 0);
             const lama = safeMoney(rekap.marketingCommission);
             const selisih = baru - lama;
-            if (Math.abs(selisih) < 0.5) return { total: 0, items: [], perInvoice: false };
-            if (abaikan.__total != null && Math.abs(safeMoney(abaikan.__total) - baru) < 0.5) return { total: 0, items: [], perInvoice: false };
+            const tolTotal = Math.max(TOL_KOMISI, 0.5 * ids.length + 0.001); // tiap invoice dibulatkan ke rupiah → beda maks Rp 0,5 per invoice
+            if (Math.abs(selisih) < tolTotal) return { total: 0, items: [], perInvoice: false };
+            if (abaikan.__total != null && Math.abs(safeMoney(abaikan.__total) - baru) < tolTotal) return { total: 0, items: [], perInvoice: false };
             const total = Math.round(selisih);
             if (total === 0) return { total: 0, totalTepat: 0, items: [], perInvoice: false };
             return { total, totalTepat: selisih, items: [{ invId: null, client: `${ids.length} invoice (total komisi)`, lama, baru, selisih, dihapus: false }], perInvoice: false };
@@ -2358,7 +2366,7 @@
             return `Komisi ${arah} ${rpKomisi(Math.abs(selisih))} karena ${gabungKata(bagian)}.`;
         };
         // Alasan singkat untuk slip/nota (tanpa angka & nama admin)
-        const alasanSingkatKomisi = (perubahan) => safeArray(perubahan).filter(p => Math.abs(safeMoney(p.e)) >= 0.5).map(p => p.t).join('; ');
+        const alasanSingkatKomisi = (perubahan) => safeArray(perubahan).filter(p => Math.abs(safeMoney(p.e)) >= TOL_KOMISI).map(p => p.t).join('; ');
         // Waktu rekap dibuat (rekap lama: tanggal rekap)
         // Waktu dari ID buatan genId ("RKP-1785581604464-xxxx" → ISO); '' bila tidak ada
         const waktuDariIdGen = (id) => { const m = String(id || '').match(/^[A-Za-z]+-(1\d{12})(?:-|$)/); if (!m) return ''; const d = new Date(Number(m[1])); return isNaN(d.getTime()) ? '' : d.toISOString(); };
@@ -2438,7 +2446,7 @@
                     const per = riw.flatMap(r => safeArray(r.p));
                     const e = Math.round(per.reduce((t, x) => t + safeMoney(x.e), 0) * 100) / 100;
                     b.tanda = 'diubah'; b.tgl = riw[riw.length - 1].at;
-                    if (Math.abs(e) >= 0.5) { diketahui += e; temuan.push({ invId: b.invId, client: b.client, efek: e, pasti: true, jenis: 'riwayat', kalimat: `${alasanSingkatKomisi(per) || 'isi invoice diubah'} (diubah oleh ${riw.map(r => r.oleh || '-').filter((v, i, a) => a.indexOf(v) === i).join(', ')}).` }); }
+                    if (Math.abs(e) >= TOL_KOMISI) { diketahui += e; temuan.push({ invId: b.invId, client: b.client, efek: e, pasti: true, jenis: 'riwayat', kalimat: `${alasanSingkatKomisi(per) || 'isi invoice diubah'} (diubah oleh ${riw.map(r => r.oleh || '-').filter((v, i, a) => a.indexOf(v) === i).join(', ')}).` }); }
                     return;
                 }
                 // 2) Persen/tarif berbeda dari kebanyakan invoice lain di rekap ini
@@ -2495,14 +2503,14 @@
                 dasar = it.dasar || null;
             }));
             if (dasar) return dasar;
-            if (inv && isVisibleRecord(inv) && jumlah != null && Math.abs(getInvoiceCommissionTotal(inv) - jumlah) < 0.5) return dasarKomisiInvoice(inv);
+            if (inv && isVisibleRecord(inv) && jumlah != null && Math.abs(getInvoiceCommissionTotal(inv) - jumlah) < TOL_KOMISI) return dasarKomisiInvoice(inv);
             return null;
         };
         // Dasar komisi SAAT rekap dibuat (untuk slip): catatan rekap, atau invoice sekarang bila komisinya masih sama
         const dasarKomisiAwalSlip = (rekap, invId, inv, nilaiAwal) => {
             const d = rekap?.marketingInvoiceDasar?.[String(invId)];
             if (d) return d;
-            if (inv && isVisibleRecord(inv) && nilaiAwal != null && Math.abs(getInvoiceCommissionTotal(inv) - safeMoney(nilaiAwal)) < 0.5) return dasarKomisiInvoice(inv);
+            if (inv && isVisibleRecord(inv) && nilaiAwal != null && Math.abs(getInvoiceCommissionTotal(inv) - safeMoney(nilaiAwal)) < TOL_KOMISI) return dasarKomisiInvoice(inv);
             return null;
         };
         const teksDasarKomisiSingkat = (d) => !d ? '' : isKomisiPcs(d.tipe) ? `${rpKomisi(d.tarif)}/pcs × ${angkaKomisi(d.pcs)} pcs` : `${labelTarifKomisi(d.tipe, d.tarif)} × ${rpKomisi(d.nilai)}`;
@@ -7092,7 +7100,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                         <option value="Persen">Persentase (%)</option>
                                         <option value="Nominal">Nominal Tetap (Rp)</option>
                                       </select>
-                                      <input type="number" min="0" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={newEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={newEmp.commissionValue || ''} onChange={e => setNewEmp({ ...newEmp, commissionValue: e.target.value })}/>
+                                      <input type="text" inputMode="decimal" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={newEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={tampilDesimal(newEmp.commissionValue)} onChange={e => setNewEmp({ ...newEmp, commissionValue: isiDesimal(e.target.value, newEmp.commissionType === 'Nominal' ? 0 : 100) })}/>
                                     </div>
                                     <p className="text-xs text-purple-600 mt-2">{newEmp.commissionType === 'Nominal' ? 'Komisi tetap per pcs (jumlah pcs × nilai komisi)' : 'Persentase dari nilai total invoice yang ditangani'}</p>
                                   </div>
@@ -7106,7 +7114,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                         <option value="Persen">Persentase dari total invoice (%)</option>
                                         <option value="Nominal">Nominal Tetap per bulan (Rp)</option>
                                       </select>
-                                      <input type="number" min="0" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={newEmp.bagiHasilNilai || ''} onChange={e => setNewEmp({ ...newEmp, bagiHasilNilai: e.target.value })}/>
+                                      <input type="text" inputMode="decimal" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={tampilDesimal(newEmp.bagiHasilNilai)} onChange={e => setNewEmp({ ...newEmp, bagiHasilNilai: isiDesimal(e.target.value, (newEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 0 : 100) })}/>
                                     </div>
                                   </div>
                                 )}
@@ -7511,7 +7519,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                             <option value="Persen">Persentase (%)</option>
                                             <option value="Nominal">Nominal Tetap (Rp)</option>
                                           </select>
-                                          <input type="number" min="0" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={editEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={editEmp.commissionValue || ''} onChange={e => setEditEmp({ ...editEmp, commissionValue: e.target.value })}/>
+                                          <input type="text" inputMode="decimal" className="p-2 border border-purple-300 rounded text-right bg-white" placeholder={editEmp.commissionType === 'Nominal' ? 'Nominal komisi (Rp)' : 'Persentase komisi (%)'} value={tampilDesimal(editEmp.commissionValue)} onChange={e => setEditEmp({ ...editEmp, commissionValue: isiDesimal(e.target.value, editEmp.commissionType === 'Nominal' ? 0 : 100) })}/>
                                         </div>
                                         <p className="text-xs text-purple-600 mt-2">{editEmp.commissionType === 'Nominal' ? 'Komisi tetap per pcs (jumlah pcs × nilai komisi)' : 'Persentase dari nilai total invoice yang ditangani'}</p>
                                       </div>
@@ -7525,7 +7533,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                             <option value="Persen">Persentase dari total invoice (%)</option>
                                             <option value="Nominal">Nominal Tetap per bulan (Rp)</option>
                                           </select>
-                                          <input type="number" min="0" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={editEmp.bagiHasilNilai || ''} onChange={e => setEditEmp({ ...editEmp, bagiHasilNilai: e.target.value })}/>
+                                          <input type="text" inputMode="decimal" className="p-2 border border-amber-300 rounded text-right bg-white" placeholder={(editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 'Nominal bagi hasil (Rp)' : 'Persentase bagi hasil (%)'} value={tampilDesimal(editEmp.bagiHasilNilai)} onChange={e => setEditEmp({ ...editEmp, bagiHasilNilai: isiDesimal(e.target.value, (editEmp.bagiHasilTipe || 'Persen') === 'Nominal' ? 0 : 100) })}/>
                                         </div>
                                       </div>
                                     )}
@@ -10447,6 +10455,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (!vendor) { showToast('Vendor tidak boleh kosong.', 'error'); return; }
                 const fc = calcNoteForm(noteForm);
                 if (fc.validItems.length === 0) { showToast('Minimal satu item harus diisi.', 'error'); return; }
+                if (noteForm.globalDiscountType === '%' && safeMoney(noteForm.globalDiscountValue) > 100) { showToast('Diskon global nota maksimal 100%.', 'error'); return; }
                 const now = new Date().toISOString();
                 if (fc.total > 0 && fc.cleanPaid > fc.total + 0.01) { showToast('Jumlah bayar melebihi total nota.', 'error'); return; }
                 const note = {
@@ -10794,7 +10803,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             if (gd <= 0) return null;
                                             return (
                                                 <div className="flex items-center justify-between px-3 py-1.5 bg-orange-50 border border-orange-200 rounded-xl text-xs">
-                                                    <span className="text-orange-700 font-semibold">Diskon Global{note.globalDiscountType === '%' ? ` (${note.globalDiscountValue}%)` : ''}</span>
+                                                    <span className="text-orange-700 font-semibold">Diskon Global{note.globalDiscountType === '%' ? ` (${angkaKomisi(note.globalDiscountValue)}%)` : ''}</span>
                                                     <span className="font-black text-orange-600" style={{ fontVariantNumeric: 'tabular-nums' }}>- {formatRupiah(gd)}</span>
                                                 </div>
                                             );
@@ -11047,7 +11056,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                             </div>
                                                             <div className="col-span-2">
                                                                 <label className="block text-[10px] font-bold text-green-600 mb-1 uppercase tracking-wide">Diskon (%)</label>
-                                                                <input type="number" min="0" max="100" className="w-full px-3 py-2 text-sm border border-green-200 rounded-lg bg-green-50 text-right focus:ring-1 focus:ring-green-400" placeholder="0" value={it.discountPct} onChange={e => updateItem(idx, 'discountPct', e.target.value)} />
+                                                                <input type="text" inputMode="decimal" className="w-full px-3 py-2 text-sm border border-green-200 rounded-lg bg-green-50 text-right focus:ring-1 focus:ring-green-400" placeholder="0" value={tampilDesimal(it.discountPct)} onChange={e => updateItem(idx, 'discountPct', isiDesimal(e.target.value, 100))} />
                                                             </div>
                                                             <div className="col-span-5">
                                                                 <label className="block text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wide">Untuk Order <span className="normal-case font-normal text-gray-300">(opsional)</span></label>
@@ -11193,7 +11202,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountType: 'Rp' }))} className={`px-3 py-2.5 text-sm font-black transition-colors ${(noteForm.globalDiscountType || 'Rp') === 'Rp' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Rp</button>
                                                 <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountType: '%' }))} className={`px-3 py-2.5 text-sm font-black transition-colors ${noteForm.globalDiscountType === '%' ? 'bg-green-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>%</button>
                                             </div>
-                                            <input type="number" min="0" max={noteForm.globalDiscountType === '%' ? 100 : undefined} className="flex-1 min-w-0 px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-orange-400 focus:border-orange-400 text-right" placeholder={noteForm.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={noteForm.globalDiscountValue || ''} onChange={e => setNoteForm(f => ({ ...f, globalDiscountValue: e.target.value }))} />
+                                            <input type="text" inputMode="decimal" className="flex-1 min-w-0 px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:ring-2 focus:ring-orange-400 focus:border-orange-400 text-right" placeholder={noteForm.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={tampilDesimal(noteForm.globalDiscountValue)} onChange={e => setNoteForm(f => ({ ...f, globalDiscountValue: isiDesimal(e.target.value, f.globalDiscountType === '%' ? 100 : 0) }))} />
                                             {safeMoney(noteForm.globalDiscountValue) > 0 && <button type="button" onClick={() => setNoteForm(f => ({ ...f, globalDiscountValue: '' }))} className="text-gray-400 hover:text-red-500 font-black text-lg shrink-0 leading-none">✕</button>}
                                         </div>
                                         {safeMoney(noteForm.globalDiscountValue) > 0 && (
@@ -14417,6 +14426,8 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const now = new Date().toISOString();
                 const cleanedTotal = getInvoiceTotals({ ...form, invoiceItems: cleanedItems }).total;
                 // A3: Invoice total tidak boleh Rp 0
+                if (form.globalDiscountType === '%' && safeMoney(form.globalDiscountValue) > 100) return showToast('Diskon global invoice maksimal 100%.', 'error');
+                if (cleanedItems.some(item => (item.sizes || []).some(size => size.discountPercent > 100))) return showToast('Diskon per barang maksimal 100%.', 'error');
                 if (cleanedTotal <= 0) return showToast("Total invoice tidak boleh Rp 0. Periksa harga dan jumlah item.", "error");
                 // Uang tunai yang sudah diterima (DP + cicilan) tidak boleh melebihi total baru — jangan sampai DP terpotong diam-diam
                 const sudahDiterima = safeMoney(form.invoiceDp?.amount) + getInvoicePayments(form).reduce((sum, p) => sum + safeMoney(p?.amount), 0);
@@ -14459,7 +14470,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const dK = invLama ? getInvoiceCommissionTotal(row) - getInvoiceCommissionTotal(invLama) : 0;
                 if (rkTerkait && perubahanSimpan.length) {
                     if (!canViewKomisi) setDampakKomisi({ netral: true, t: Date.now() });
-                    else if (Math.abs(dK) >= 0.5) setDampakKomisi({ teks: kalimatSebabKomisi(perubahanSimpan, dK).replace(/^Komisi /, `Komisi ${rkTerkait.empName || row.marketing || ''} `), rekapId: rkTerkait.id, t: Date.now() });
+                    else if (Math.abs(dK) >= TOL_KOMISI) setDampakKomisi({ teks: kalimatSebabKomisi(perubahanSimpan, dK).replace(/^Komisi /, `Komisi ${rkTerkait.empName || row.marketing || ''} `), rekapId: rkTerkait.id, t: Date.now() });
                 }
                 resetForm();
                 const _luarPeriode = !cocokPeriode(row.date, invTahun, invBulan);
@@ -15035,7 +15046,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                         <span className="text-[11px] font-bold text-orange-500 uppercase tracking-wide px-0.5">Diskon</span>
                                                         <div className="flex gap-1">
                                                             <button type="button" onClick={() => patchItemDiscount(item.id, item.discountType === 'Rp' ? '%' : 'Rp', '')} className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors ${item.discountType === '%' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>{item.discountType || 'Rp'}</button>
-                                                            <input type="number" className="flex-1 min-w-0 p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={item.discountValue || ''} onChange={e => patchItemDiscount(item.id, item.discountType || 'Rp', e.target.value)}/>
+                                                            <input type="text" inputMode="decimal" className="flex-1 min-w-0 p-2 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right text-sm" placeholder="0" value={tampilDesimal(item.discountValue)} onChange={e => patchItemDiscount(item.id, item.discountType || 'Rp', isiDesimal(e.target.value, item.discountType === '%' ? 100 : 0))}/>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -15159,7 +15170,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                             <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountType: 'Rp' }))} className={`px-3 py-2 text-sm font-black transition-colors ${(form.globalDiscountType || 'Rp') === 'Rp' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Rp</button>
                                             <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountType: '%' }))} className={`px-3 py-2 text-sm font-black transition-colors ${form.globalDiscountType === '%' ? 'bg-green-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>%</button>
                                         </div>
-                                        <input type="number" min="0" max={form.globalDiscountType === '%' ? 100 : undefined} className="flex-1 min-w-0 p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right" placeholder={form.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={form.globalDiscountValue || ''} onChange={e => setForm(f => ({ ...f, globalDiscountValue: e.target.value }))}/>
+                                        <input type="text" inputMode="decimal" className="flex-1 min-w-0 p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all text-right" placeholder={form.globalDiscountType === '%' ? 'Persen diskon (0–100)' : 'Nominal diskon (Rp)'} value={tampilDesimal(form.globalDiscountValue)} onChange={e => setForm(f => ({ ...f, globalDiscountValue: isiDesimal(e.target.value, f.globalDiscountType === '%' ? 100 : 0) }))}/>
                                         {safeMoney(form.globalDiscountValue) > 0 && <button type="button" onClick={() => setForm(f => ({ ...f, globalDiscountValue: '' }))} className="text-gray-400 hover:text-red-500 font-black text-lg shrink-0 leading-none">✕</button>}
                                     </div>
                                     {safeMoney(form.globalDiscountValue) > 0 && (
@@ -15615,13 +15626,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         return (
                                             <div className="rounded-xl border border-purple-100 bg-purple-50 px-4 py-2.5 text-[14px] text-purple-800">
                                                 <div className="flex items-center justify-between gap-3">
-                                                    <span className="min-w-0">Komisi marketing{inv.commissionValue > 0 ? ` ${inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${inv.commissionValue}%`}` : ''}{inv.marketing ? ` · ${inv.marketing}` : ''}{inv.commissionRekapId ? <b> · sudah direkap</b> : ''}{rkKms ? ` (${tglId(rkKms.dateProcessed)})` : ''}</span>
+                                                    <span className="min-w-0">Komisi marketing{inv.commissionValue > 0 ? ` ${inv.commissionType === 'Nominal' ? `Rp ${inv.commissionValue}/pcs` : `${angkaKomisi(inv.commissionValue)}%`}` : ''}{inv.marketing ? ` · ${inv.marketing}` : ''}{inv.commissionRekapId ? <b> · sudah direkap</b> : ''}{rkKms ? ` (${tglId(rkKms.dateProcessed)})` : ''}</span>
                                                     <b className="tabular-nums shrink-0">{formatRupiah(commission)}</b>
                                                 </div>
                                                 <div data-inv-komisi-dasar className="text-[12px] text-purple-600">{teksDasarKomisi(dasarKomisiInvoice(inv))} · tanpa ongkir, tidak tergantung status bayar</div>
-                                                {rkKms && (snapAmt != null && Math.abs(snapAmt - commission) >= 0.5 || adjs.length > 0 || belum) && (
+                                                {rkKms && (snapAmt != null && Math.abs(snapAmt - commission) >= TOL_KOMISI || adjs.length > 0 || belum) && (
                                                     <div data-inv-komisi-rekap className="mt-1 text-[12.5px] space-y-0.5">
-                                                        {snapAmt != null && Math.abs(snapAmt - commission) >= 0.5 && <div>Saat direkap {formatRupiah(snapAmt)} → sekarang <b>{formatRupiah(commission)}</b></div>}
+                                                        {snapAmt != null && Math.abs(snapAmt - commission) >= TOL_KOMISI && <div>Saat direkap {formatRupiah(snapAmt)} → sekarang <b>{formatRupiah(commission)}</b></div>}
                                                         {adjs.map((a, ai) => <div key={ai} className="text-green-700 font-semibold">✓ Penyesuaian {tanda(a.v)} diterapkan {tglId(a.date)}</div>)}
                                                         {belum && <div data-inv-komisi-belum className="text-amber-700 font-semibold">⚠ selisih {tanda(belum.selisih)} belum diterapkan di rekap</div>}
                                                         {jelas && <div data-inv-komisi-sebab className={`rounded-lg px-2 py-1 mt-1 ${jelas.perkiraan ? 'bg-white/70 text-slate-700' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>💬 {jelas.kalimat}</div>}
@@ -15648,7 +15659,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                 {safeArray(r.p).map((x, xi) => (
                                                                     <div key={xi} className="flex justify-between gap-2 text-gray-700">
                                                                         <span className="min-w-0 break-words">{x.t}</span>
-                                                                        {canViewKomisi && <span className={`shrink-0 whitespace-nowrap font-bold ${Math.abs(safeMoney(x.e)) < 0.5 ? 'text-gray-400 font-semibold text-[11.5px]' : x.e > 0 ? 'text-green-700' : 'text-red-700'}`}>{Math.abs(safeMoney(x.e)) < 0.5 ? 'tidak mengubah komisi' : `komisi ${tandaRpKomisi(x.e)}`}</span>}
+                                                                        {canViewKomisi && <span className={`shrink-0 whitespace-nowrap font-bold ${Math.abs(safeMoney(x.e)) < TOL_KOMISI ? 'text-gray-400 font-semibold text-[11.5px]' : x.e > 0 ? 'text-green-700' : 'text-red-700'}`}>{Math.abs(safeMoney(x.e)) < 0.5 ? 'tidak mengubah komisi' : `komisi ${tandaRpKomisi(x.e)}`}</span>}
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -19712,7 +19723,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 const commType = inv.commissionType || 'Persen';
                                 const commVal = inv.commissionValue;
                                 const isPercs = String(commType).toLowerCase() === 'persen';
-                                const commLabel = isPercs ? `${commVal || 0}%` : `${fmt(commVal)}/pcs`;
+                                const commLabel = isPercs ? `${angkaKomisi(commVal || 0)}%` : `${fmt(commVal)}/pcs`;
                                 return `<tr style="border-bottom:1px solid #e5e7eb;">
                                     <td style="padding:6px 8px;text-align:center;">${i+1}</td>
                                     <td style="padding:6px 8px;font-weight:700;color:#1d4ed8;">${safe(inv.id)}</td>
@@ -19859,7 +19870,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                                 <td className="p-2 text-right">{formatRupiah(getInvoiceTotals(inv).total)}</td>
                                                                 <td data-lm-nilai-barang className="p-2 text-right">{formatRupiah(getInvoiceTotals(inv).productionTotal)}</td>
                                                                 <td className="p-2 text-right">{commType}</td>
-                                                                <td className="p-2 text-right">{String(commType).toLowerCase() === 'persen' ? `${commVal || 0}%` : `${formatRupiah(commVal || 0)}/pcs`}</td>
+                                                                <td className="p-2 text-right">{String(commType).toLowerCase() === 'persen' ? `${angkaKomisi(commVal || 0)}%` : `${formatRupiah(commVal || 0)}/pcs`}</td>
                                                                 <td className="p-2 text-right font-black text-purple-700">{formatRupiah(comm)}</td>
                                                             </tr>
                                                         );
@@ -19875,7 +19886,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                                 const commVal = inv.commissionValue;
                                                 const payStatus = getInvoicePaymentStatus(inv);
                                                 const isPercs = String(commType).toLowerCase() === 'persen';
-                                                const commLabel = isPercs ? `${commVal || 0}%` : `${formatRupiah(commVal || 0)}/pcs`;
+                                                const commLabel = isPercs ? `${angkaKomisi(commVal || 0)}%` : `${formatRupiah(commVal || 0)}/pcs`;
                                                 const statusBadge = payStatus === 'Lunas'
                                                     ? <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span>
                                                     : payStatus === 'Termin'
