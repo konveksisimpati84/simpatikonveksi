@@ -7561,6 +7561,15 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
                             <div className="bg-white p-6 rounded-xl w-full max-w-sm">
                                 <h3 className="font-bold mb-2">Hapus?</h3>
+                                {(() => {
+                                    const empH = safeEmployees.find(emp => String(emp.id) === String(deleteConfirmId));
+                                    const sisaH = getEmployeeCashAdvanceSummary(empH).remaining;
+                                    if (!empH) return null;
+                                    return <>
+                                        <p className="text-sm text-gray-600 mb-3">Data karyawan <b>{empH.name || '-'}</b> akan dihapus.</p>
+                                        {sisaH > 0 && !gajiTersembunyi(empH) && <div data-hapus-karyawan-kasbon={Math.round(sisaH)} className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12.5px] text-blue-900">ℹ {empH.name || 'Karyawan ini'} masih punya sisa kasbon <b>{formatRupiah(sisaH)}</b>. Kasbon tetap tercatat di Buku Kas &amp; piutang Laporan Keuangan setelah karyawan dihapus.</div>}
+                                    </>;
+                                })()}
                                 <div className="flex justify-end space-x-2">
                                     <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 bg-gray-200 rounded">Batal</button>
                                     <button onClick={executeDeleteKaryawan} className="px-4 py-2 bg-red-600 text-white rounded">Hapus</button>
@@ -13510,6 +13519,13 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 if (!selectedClient) return;
                 const now = new Date().toISOString();
                 const row = { ...dpForm, id: editDpId || genId('DP-'), amount: safeMoney(dpForm.amount), _syncUpdatedAt: now };
+                // Setoran yang diubah tidak boleh membuat total setoran lebih kecil dari saldo DP yang sudah dipakai invoice
+                if (editDpId) {
+                    const klienDp = safeArray(clients).find(c => String(c.id) === String(selectedClient.id)) || selectedClient;
+                    const totalSetorBaru = setoranDpKlien(klienDp).reduce((t, dp) => t + (String(dp.id) === String(editDpId) ? safeMoney(row.amount) : safeMoney(dp.amount)), 0);
+                    const terpakai = safeArray(invoices).filter(isVisibleRecord).filter(inv => isInvoiceOfClient(inv, klienDp)).reduce((t, inv) => t + getInvoiceLinkedDpAmount(inv), 0);
+                    if (totalSetorBaru < terpakai - 0.01) return showToast(`Total setoran DP klien ini jadi ${formatRupiah(totalSetorBaru)}, lebih kecil dari yang sudah dipakai invoice (${formatRupiah(terpakai)}). Kurangi dulu pemakaian saldo DP di invoice terkait. Setoran belum disimpan.`, "error");
+                }
                 setClients(prev => (Array.isArray(prev) ? prev : []).map(client => {
                     if (String(client.id) !== String(selectedClient.id)) return client;
                     const rows = Array.isArray(client.clientDpPayments) ? client.clientDpPayments : [];
@@ -17730,10 +17746,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         paymentStatus: rekap.paymentStatus
                     };
                 }), [rekapKinerja, employees, canViewSens]);
-            const allCashAdvanceRows = React.useMemo(() => visibleEmployees.flatMap(emp => getEmployeeCashAdvances(emp).map(item => ({
+            // Kasbon karyawan yang sudah DIHAPUS tetap dihitung: uangnya benar-benar sudah keluar (Buku Kas) & sisanya masih piutang
+            const allCashAdvanceRows = React.useMemo(() => safeFinanceEmployees.filter(e => e && e.id != null).flatMap(emp => getEmployeeCashAdvances(emp).map(item => ({
                 id: (!canViewSens && isSensitiveSalaryEmp(emp)) ? '-' : `${emp.id}-${item.id}`,
                 empId: (!canViewSens && isSensitiveSalaryEmp(emp)) ? SENS_ID : emp.id,
-                empName: (!canViewSens && isSensitiveSalaryEmp(emp)) ? GAJI_SENSITIF_LABEL : (emp.name || '-'),
+                empName: (!canViewSens && isSensitiveSalaryEmp(emp)) ? GAJI_SENSITIF_LABEL : `${emp.name || '-'}${emp.isDeleted ? ' (karyawan dihapus)' : ''}`,
+                empDihapus: !!emp.isDeleted,
                 division: (!canViewSens && isSensitiveSalaryEmp(emp)) ? SENS_DIV : (getEmployeeDivisions(emp).join(', ') || '-'),
                 date: item.date,
                 amount: getCashAdvanceAmount(item),
@@ -17789,7 +17807,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Uang keluar untuk kasbon (kasbon dari lebih bayar komisi tidak termasuk: uangnya sudah tercatat sebagai gaji)
             const totalCashAdvanceGiven = cashAdvanceRows.filter(row => !row.bukanKasKeluar).reduce((sum, row) => sum + row.amount, 0);
             // Potongan kasbon yang terjadi dalam periode ini (berdasarkan tanggal rekap di deductionHistory)
-            const totalCashAdvanceDeducted = React.useMemo(() => visibleEmployees
+            const totalCashAdvanceDeducted = React.useMemo(() => safeFinanceEmployees.filter(Boolean)
                 .flatMap(emp => getEmployeeCashAdvances(emp))
                 .flatMap(item => Array.isArray(item.deductionHistory) ? item.deductionHistory : [])
                 .filter(entry => isInPeriod(entry.date))
@@ -19055,6 +19073,52 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                 )}
                             </Card>
+                            {(() => {
+                                // Data yang terhapus padahal sudah ada uangnya (biasanya data lama sebelum ada pengaman) — hanya untuk diperiksa
+                                const tglD = (v) => { const d = new Date(v || ''); return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
+                                const daftar = [];
+                                safeFinanceInvoices.filter(inv => inv && !isVisibleRecord(inv)).forEach(inv => {
+                                    const uang = getInvoiceCashInflow(inv);
+                                    if (uang > 0) daftar.push({ jenis: 'Invoice', data: `${inv.id} · ${inv.customer || '-'}`, at: inv.deletedAt || inv._syncUpdatedAt, uang, ket: 'DP + cicilan diterima — tidak tampil di Buku Kas' });
+                                });
+                                safeFinanceRekaps.filter(r => r && !isVisibleRecord(r)).forEach(r => {
+                                    const bayar = safeArray(r.payments).filter(p => p && safeMoney(p.amount) > 0).reduce((t, p) => t + safeMoney(p.amount), 0);
+                                    const lamaLunas = !Array.isArray(r.payments) && !r.restoredForEdit;
+                                    const uang = bayar > 0 ? bayar : lamaLunas ? safeMoney(r.netSalary ?? r.grossSalary ?? r.totalWage) : 0;
+                                    if (uang <= 0) return;
+                                    const emp = safeFinanceEmployees.find(e => String(e.id) === String(r.empId));
+                                    const nama = !canViewSens && isRekapSensitif(r, emp) ? GAJI_SENSITIF_LABEL : (r.empName || emp?.name || '-');
+                                    daftar.push({ jenis: 'Rekap gaji', data: `${r.id} · ${nama}`, at: r.deletedAt || r._syncUpdatedAt, uang, ket: bayar > 0 ? 'gaji dibayar — tidak tampil di Buku Kas' : 'rekap lama tercatat lunas — tidak tampil di Buku Kas' });
+                                });
+                                safeArray(clients).filter(c => c && !isVisibleRecord(c)).forEach(c => {
+                                    const uang = setoranDpKlien(c).reduce((t, dp) => t + safeMoney(dp.amount), 0);
+                                    if (uang > 0) daftar.push({ jenis: 'Klien', data: c.name || '-', at: c.deletedAt || c._syncUpdatedAt, uang, ket: 'setoran saldo DP — tidak tampil di Buku Kas' });
+                                });
+                                if (!daftar.length) return null;
+                                daftar.sort((x, y) => String(y.at || '').localeCompare(String(x.at || '')));
+                                return (
+                                    <details data-cek-terhapus={daftar.length} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                        <summary className="cursor-pointer px-4 py-3 bg-slate-50 font-bold text-sm text-gray-700">🔎 Cek data terhapus yang punya pembayaran ({daftar.length})</summary>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-[12.5px] text-left">
+                                                <thead className="bg-gray-50 text-gray-500"><tr><th className="px-3 py-2">Jenis</th><th className="px-3 py-2">Data</th><th className="px-3 py-2">Dihapus</th><th className="px-3 py-2 text-right">Uang tercatat</th><th className="px-3 py-2">Keterangan</th></tr></thead>
+                                                <tbody>
+                                                    {daftar.map((d, i) => (
+                                                        <tr key={i} data-cek-terhapus-baris={d.jenis} className="border-t border-gray-100">
+                                                            <td className="px-3 py-2 whitespace-nowrap">{d.jenis}</td>
+                                                            <td className="px-3 py-2 break-all">{d.data}</td>
+                                                            <td className="px-3 py-2 whitespace-nowrap">{tglD(d.at)}</td>
+                                                            <td className="px-3 py-2 text-right font-bold whitespace-nowrap">{formatRupiah(d.uang)}</td>
+                                                            <td className="px-3 py-2 text-gray-600">{d.ket}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div className="px-4 py-2 text-xs text-gray-500 border-t border-gray-100">Hanya daftar untuk diperiksa; tidak mengubah data. Bila ternyata salah hapus, data bisa dimasukkan ulang / dipulihkan manual.</div>
+                                    </details>
+                                );
+                            })()}
                         </>
                     )}
 
