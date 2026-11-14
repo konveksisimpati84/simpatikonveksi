@@ -6582,7 +6582,7 @@ ${blocks}
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [cashAdvanceEmp, setCashAdvanceEmp] = useState(null);
-            const [cashAdvanceForm, setCashAdvanceForm] = useState({ date: toLocalDateStr(), amount: '', note: '', status: 'Belum Dipotong' });
+            const [cashAdvanceForm, setCashAdvanceForm] = useState({ date: toLocalDateStr(), amount: '', note: '', status: 'Belum Dipotong', dari: 'rekening' });
             const [editingCashAdvanceId, setEditingCashAdvanceId] = useState(null);
             const [dailySalaryEmp, setDailySalaryEmp] = useState(null);
             const [dailySalaryForm, setDailySalaryForm] = useState({ date: toLocalDateStr(), workDays: '', dailySalary: '', overtimeCount: '', overtimeRate: '', note: '' });
@@ -6897,7 +6897,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
             };
 
             const resetCashAdvanceForm = () => {
-                setCashAdvanceForm({ date: toLocalDateStr(), amount: '', note: '', status: 'Belum Dipotong' });
+                setCashAdvanceForm({ date: toLocalDateStr(), amount: '', note: '', status: 'Belum Dipotong', dari: 'rekening' });
                 setEditingCashAdvanceId(null);
             };
 
@@ -6934,6 +6934,8 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                         amount,
                         note: String(cashAdvanceForm.note || '').trim(),
                         status: cashAdvanceForm.status || 'Belum Dipotong',
+                        // Uang kasbon keluar dari rekening atau tunai kantor (untuk Posisi Uang)
+                        dari: cashAdvanceForm.dari === 'tunai' ? 'tunai' : 'rekening',
                         deductedAmount: editingCashAdvanceId
                             ? getCashAdvanceDeducted(currentAdvances.find(item => String(item.id) === String(editingCashAdvanceId)))
                             : 0,
@@ -6956,7 +6958,8 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                     date: cashAdvance.date || toLocalDateStr(),
                     amount: getCashAdvanceAmount(cashAdvance),
                     note: cashAdvance.note || '',
-                    status: cashAdvance.status || normalizeCashAdvanceStatus(cashAdvance)
+                    status: cashAdvance.status || normalizeCashAdvanceStatus(cashAdvance),
+                    dari: cashAdvance.dari === 'tunai' ? 'tunai' : 'rekening'
                 });
             };
 
@@ -7234,7 +7237,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                         <div className="text-xl font-black text-orange-800">{formatRupiah(activeCashAdvanceSummary.remaining)}</div>
                                     </div>
                                 </div>
-                                <form onSubmit={saveCashAdvance} className="grid grid-cols-1 md:grid-cols-5 gap-3 bg-gray-50 border border-gray-200 rounded-lg p-4 mb-5">
+                                <form onSubmit={saveCashAdvance} className="grid grid-cols-1 md:grid-cols-6 gap-3 bg-gray-50 border border-gray-200 rounded-lg p-4 mb-5">
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Tanggal Kasbon</label>
                                         <input required type="date" className="w-full p-2 border rounded text-sm" value={cashAdvanceForm.date} onChange={e => setCashAdvanceForm(prev => ({ ...prev, date: e.target.value }))} />
@@ -7249,6 +7252,13 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                             <option>Belum Dipotong</option>
                                             <option>Dipotong Sebagian</option>
                                             <option>Lunas</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-600 mb-1">Dari</label>
+                                        <select data-kasbon-dari className="w-full p-2 border rounded text-sm" value={cashAdvanceForm.dari || 'rekening'} onChange={e => setCashAdvanceForm(prev => ({ ...prev, dari: e.target.value }))}>
+                                            <option value="rekening">Rekening</option>
+                                            <option value="tunai">Tunai</option>
                                         </select>
                                     </div>
                                     <div>
@@ -11836,12 +11846,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const canViewSensDana = gajiSensitif ? !!gajiSensitif.lihat : false;
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const [selectedEmpId, setSelectedEmpId] = useState('');
-            const emptyTransferForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '', type: 'keluar' };
+            const emptyTransferForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '', type: 'keluar', dari: 'rekening' };
             const [form, setForm] = useState(emptyTransferForm);
             const [editId, setEditId] = useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [showForm, setShowForm] = useState(false);
-            const emptyNolkanForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '' };
+            const emptyNolkanForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '', kembali: 'rekening' };
             const [showNolkanForm, setShowNolkanForm] = useState(false);
             const [nolkanForm, setNolkanForm] = useState(emptyNolkanForm);
             const [empSearch, setEmpSearch] = useState('');
@@ -11883,6 +11893,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     nominal,
                     keterangan: form.keterangan || '',
                     type: isTalangan ? 'talangan' : 'keluar',
+                    // Transfer ke karyawan keluar dari rekening atau tunai kantor (untuk Posisi Uang)
+                    ...(isTalangan ? {} : { dari: form.dari === 'tunai' ? 'tunai' : 'rekening' }),
                     _syncUpdatedAt: now,
                 };
                 // Pencatat: isian baru → akun yang login; edit → pencatat asli tetap, pengubah dicatat terpisah
@@ -11921,6 +11933,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     nominal,
                     keterangan: nolkanForm.keterangan.trim(),
                     type: 'penyelesaian',
+                    // Sisa dana: dikembalikan ke rekening/tunai kantor, atau tidak kembali (habis terpakai tanpa catatan)
+                    kembali: ['rekening', 'tunai', 'tidak'].includes(nolkanForm.kembali) ? nolkanForm.kembali : 'rekening',
                     dicatatOleh: namaPencatat,
                     _syncUpdatedAt: now,
                 };
@@ -12049,6 +12063,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-500 mb-1.5">Keterangan</label>
+                                        {form.type !== 'talangan' && <div className="mb-2"><label className="block text-xs font-bold text-gray-500 mb-1.5">Dari</label><select data-dana-dari className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={form.dari || 'rekening'} onChange={e => setForm(f => ({ ...f, dari: e.target.value }))}><option value="rekening">Rekening</option><option value="tunai">Tunai</option></select></div>}
                                         <input type="text" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="Misal: Belanja bahan Juli" value={form.keterangan} onChange={e => setForm(f => ({ ...f, keterangan: e.target.value }))} />
                                     </div>
                                 </div>
@@ -12196,6 +12211,14 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <p className="text-xs text-gray-400 mt-1">Maksimal: {formatRupiah(stats.saldo)}</p>
                                         </div>
                                         <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">Uangnya</label>
+                                            <select data-nolkan-kembali className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={nolkanForm.kembali || 'rekening'} onChange={e => setNolkanForm(f => ({ ...f, kembali: e.target.value }))}>
+                                                <option value="rekening">Dikembalikan ke rekening</option>
+                                                <option value="tunai">Dikembalikan ke tunai kantor</option>
+                                                <option value="tidak">Tidak kembali (habis terpakai)</option>
+                                            </select>
+                                        </div>
+                                        <div>
                                             <label className="block text-xs font-bold text-gray-500 mb-1.5">Keterangan <span className="text-red-500">*</span></label>
                                             <input type="text" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="Misal: Dana diserahkan ke admin Rudi" value={nolkanForm.keterangan} onChange={e => setNolkanForm(f => ({ ...f, keterangan: e.target.value }))} required />
                                         </div>
@@ -12263,7 +12286,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <div data-dana-pencatat className="text-[11px] text-gray-500 mt-0.5">✍ Dicatat oleh: <b className="font-semibold">{d.dicatatOleh || '—'}</b>{d.diubahOleh ? <span> · diubah oleh {d.diubahOleh}</span> : null}</div>
                                             </div>
                                             {bolehKelola && <div className="flex gap-1 flex-shrink-0">
-                                                {!isPenyelesaian && <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
+                                                {!isPenyelesaian && <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar', dari: d.dari === 'tunai' ? 'tunai' : 'rekening' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
                                                 <button onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                             </div>}
                                         </div>
@@ -14404,11 +14427,14 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const empCommValue = form.commissionValue != null && form.commissionValue !== '' ? safeMoney(form.commissionValue) : safeMoney(marketingEmp?.commissionValue || 0);
                 // A1 & A2: Cap invoiceDp.amount antara 0 dan cleanedTotal
                 const safeDpAmount = Math.max(0, Math.min(safeMoney(form.invoiceDp?.amount), cleanedTotal));
+                // Waktu DP pertama kali dicatat (Posisi Uang: DP baru pada invoice lama tetap masuk saldo rekening/tunai)
+                const dpLamaInv = editId ? getInvoiceDpAmount(safeInvoiceRows.find(inv => String(inv.id) === String(editId))) : 0;
+                const dpDicatatAt = safeDpAmount > 0 ? ((dpLamaInv > 0 && form.invoiceDp?.dicatatAt) || (dpLamaInv > 0 ? '' : now)) : '';
                 const formClient = resolveFormClient(form.customer, editId);
                 // Invoice butuh klien (saldo DP & piutang): nama mirip klien lain harus dijawab dulu agar tidak membuat klien dobel
                 const miripInv = !formClient ? klienMiripBelumDijawab(safeClientRows, form.customer, klienAbaikanInv) : null;
                 if (miripInv) return showToast(`Nama "${form.customer}" mirip klien "${miripInv.name}". Pilih dulu di bawah kolom nama: Pakai "${miripInv.name}" atau Tetap klien baru.`, "error");
-                const row = { ...form, marketingEmpId: marketingEmp?.id || '', clientId: formClient?.id || siapkanKodeKlien(safeClientRows, form.customer, now).clientId || genId('CLI-'), id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.max(0, Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal - safeDpAmount - getInvoicePayments(form).reduce((s, p) => s + safeMoney(p.amount), 0))), shippingCost: Math.max(0, safeMoney(form.shippingCost)), shippingNote: String(form.shippingNote || ''), _syncUpdatedAt: now };
+                const row = { ...form, marketingEmpId: marketingEmp?.id || '', clientId: formClient?.id || siapkanKodeKlien(safeClientRows, form.customer, now).clientId || genId('CLI-'), id: editId || genId('INV-'), invoiceItems: cleanedItems, invoiceDp: { ...form.invoiceDp, amount: safeDpAmount, dicatatAt: dpDicatatAt }, commissionType: empCommType, commissionValue: empCommValue, linkedDpAmount: Math.max(0, Math.min(safeMoney(form.linkedDpAmount || 0), availableDpForForm, cleanedTotal - safeDpAmount - getInvoicePayments(form).reduce((s, p) => s + safeMoney(p.amount), 0))), shippingCost: Math.max(0, safeMoney(form.shippingCost)), shippingNote: String(form.shippingNote || ''), _syncUpdatedAt: now };
                 row.paymentStatus = getInvoicePaymentStatus(row);
                 // Riwayat perubahan invoice: siapa, kapan, apa yang berubah & dampaknya ke komisi (maks. 20 catatan)
                 const invLama = editId ? safeInvoiceRows.find(i => String(i.id) === String(editId)) : null;
@@ -17632,7 +17658,75 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             );
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null, driverRekapGaji = [], driverKasbon = [] }) => {
+        // ===== Posisi Uang: mutasi rekening & tunai (sesudah titik mulai) =====
+        // Metode bayar → akun: Tunai/Cash = tunai; lainnya (Transfer, QRIS, Debit, kosong) = rekening.
+        const akunDariMetode = (m) => /tunai|cash/i.test(String(m || '')) ? 'tunai' : 'rekening';
+        const tglKasPosisi = (d) => { const v = String(d || ''); if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10); const t = new Date(v); return isNaN(t.getTime()) ? '' : toLocalDateStr(t); };
+        // Semua gerakan uang yang menyentuh rekening/tunai kantor. Pembayaran memakai dana operasional karyawan tidak dihitung di sini
+        // (mengurangi dana di karyawan). v > 0 = masuk, v < 0 = keluar. at = waktu dicatat (dari ID), bila diketahui.
+        const kumpulkanMutasiKas = ({ invoices = [], clients = [], expenses = [], purchaseNotes = [], rekapKinerja = [], bagiHasilPromosi = [], driverRekapGaji = [], driverKasbon = [], employees = [], danaOperasional = [], posisi = null }) => {
+            const out = [];
+            const tambah = (key, jenis, ket, tanggal, idWaktu, v, metode) => { if (!v) return; out.push({ key, jenis, ket, tanggal: tglKasPosisi(tanggal), at: waktuDariIdGen(idWaktu), v, akun: akunDariMetode(metode) }); };
+            safeArray(invoices).filter(isVisibleRecord).forEach(inv => {
+                const dp = getInvoiceDpAmount(inv);
+                if (dp > 0) { tambah(`invdp:${inv.id}`, 'DP invoice', `${inv.id} · ${inv.customer || '-'}`, getInvoiceDp(inv).date || inv.date, inv.id, dp, getInvoiceDp(inv).method); const dc = getInvoiceDp(inv).dicatatAt; if (dc && out.length) out[out.length - 1].at = String(dc); }
+                getInvoicePayments(inv).forEach(pay => tambah(`invpay:${inv.id}:${pay.id}`, 'Pembayaran invoice', `${inv.id} · ${inv.customer || '-'}`, pay.date || inv.date, pay.id, safeMoney(pay.amount), pay.method));
+            });
+            safeArray(clients).filter(isVisibleRecord).forEach(c => setoranDpKlien(c).forEach(dp => tambah(`dpklien:${c.id}:${dp.id}`, 'Saldo DP klien', c.name || '-', dp.date, dp.id, safeMoney(dp.amount), dp.method)));
+            safeArray(expenses).filter(isVisibleRecord).forEach(e => {
+                if (e.type === 'Uang Masuk') { tambah(`masuk:${e.id}`, 'Pemasukan', getExpenseLabel(e), e.date, e.id, safeMoney(e.amount), e.method); return; }
+                if (e.type !== 'Uang Keluar') return;
+                const pays = safeArray(e.payments).filter(pay => safeMoney(pay.amount) > 0);
+                pays.filter(pay => !pay.operasionalKaryawanId).forEach(pay => tambah(`biaya:${e.id}:${pay.id}`, 'Biaya', getExpenseLabel(e), pay.date || e.date, pay.id || e.id, -safeMoney(pay.amount), pay.method || e.method));
+                if (!pays.length && !Array.isArray(e.payments) && e.paymentStatus !== 'Belum Dibayar' && e.paymentStatus !== 'Dibayar Sebagian') tambah(`biaya:${e.id}`, 'Biaya', getExpenseLabel(e), e.date, e.id, -safeMoney(e.amount), e.method);
+            });
+            safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => safeArray(n.payments).filter(pay => safeMoney(pay.amount) > 0 && !pay.operasionalKaryawanId).forEach(pay => tambah(`nota:${n.id}:${pay.id}`, 'Pembelian bahan', n.vendor || '-', pay.date || n.date, pay.id, -safeMoney(pay.amount), pay.method)));
+            safeArray(rekapKinerja).filter(isVisibleRecord).forEach(r => safeArray(r.payments).filter(pay => safeMoney(pay && pay.amount) > 0 && !pay.operasionalKaryawanId).forEach(pay => tambah(`gaji:${r.id}:${pay.id}`, 'Gaji', r.empName || '-', pay.date || r.dateProcessed, pay.id, -safeMoney(pay.amount), pay.method)));
+            safeArray(bagiHasilPromosi).filter(isVisibleRecord).forEach(b => safeArray(b.payments).filter(pay => safeMoney(pay.amount) > 0 && !pay.operasionalKaryawanId).forEach(pay => tambah(`bhp:${b.id}:${pay.id}`, 'Bagi hasil promosi', b.nama || '-', pay.date || b.tanggal, pay.id, -safeMoney(pay.amount), pay.method)));
+            safeArray(driverRekapGaji).filter(isVisibleRecord).forEach(r => safeArray(r.payments).filter(pay => pay && safeMoney(pay.amount) > 0).forEach(pay => tambah(`gajidrv:${r.id}:${pay.id}`, 'Gaji driver', r.driverName || '-', pay.date || r.tanggalRekap, pay.id, -safeMoney(pay.amount), pay.method)));
+            safeArray(driverKasbon).filter(isVisibleRecord).forEach(k => tambah(`kasbondrv:${k.id}`, 'Kasbon driver', k.driverName || '-', k.tanggal, k.id, -safeMoney(k.jumlah), k.dari));
+            safeArray(employees).filter(Boolean).forEach(emp => getEmployeeCashAdvances(emp).filter(k => !isKasbonLebihBayar(k)).forEach(k => tambah(`kasbon:${emp.id}:${k.id}`, 'Kasbon', emp.name || '-', k.date, k.id, -getCashAdvanceAmount(k), k.dari)));
+            // Dana operasional: transfer ke karyawan keluar dari rekening/tunai; sisa dana yang dikembalikan masuk lagi (bukan uang masuk/keluar Buku Kas)
+            safeArray(danaOperasional).filter(isVisibleRecord).forEach(d => {
+                if ((!d.type || d.type === 'keluar') && safeMoney(d.nominal) > 0) tambah(`dana:${d.id}`, 'Transfer dana operasional', d.karyawanNama || '-', d.tanggal, d.id, -safeMoney(d.nominal), d.dari);
+                if (d.type === 'penyelesaian' && (d.kembali === 'rekening' || d.kembali === 'tunai')) tambah(`danakembali:${d.id}`, 'Sisa dana dikembalikan', d.karyawanNama || '-', d.tanggal, d.id, safeMoney(d.nominal), d.kembali === 'tunai' ? 'Tunai' : 'Transfer');
+            });
+            // Pindah saldo rekening ↔ tunai (dari Cocokkan saldo)
+            safeArray(posisi?.mutasi).filter(m => m && m.jenis === 'pindah').forEach(m => {
+                tambah(`pindah-dari:${m.id}`, 'Pindah saldo', `${m.dari === 'tunai' ? 'Tunai' : 'Rekening'} → ${m.ke === 'tunai' ? 'Tunai' : 'Rekening'}`, m.tanggal, m.id, -safeMoney(m.nominal), m.dari === 'tunai' ? 'Tunai' : 'Transfer');
+                tambah(`pindah-ke:${m.id}`, 'Pindah saldo', `${m.dari === 'tunai' ? 'Tunai' : 'Rekening'} → ${m.ke === 'tunai' ? 'Tunai' : 'Rekening'}`, m.tanggal, m.id, safeMoney(m.nominal), m.ke === 'tunai' ? 'Tunai' : 'Transfer');
+            });
+            return out;
+        };
+        // Dana operasional di tangan karyawan (uang perusahaan) & kekurangan/talangan (perusahaan berhutang ke karyawan)
+        const ringkasDanaKaryawan = (employees, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi) => {
+            const ids = [...new Set(safeArray(danaOperasional).filter(d => d && !d.isDeleted).map(d => String(d.karyawanId)))];
+            return ids.reduce((acc, id) => {
+                const st = getDanaSaldoKaryawan(id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi);
+                acc.pegang += st.saldo; acc.hutang += st.hutang + st.defisit;
+                return acc;
+            }, { pegang: 0, hutang: 0 });
+        };
+        // Saldo rekening & tunai sekarang = titik mulai + mutasi sesudahnya
+        const hitungSaldoAkun = (posisi, mutasi) => {
+            const m = posisi?.mulai;
+            if (!m) return null;
+            const sudah = new Set(safeArray(m.sudahTermasuk).map(String));
+            const res = { rekening: safeMoney(m.rekening), tunai: safeMoney(m.tunai), mundur: [], koreksiSudahTermasuk: 0 };
+            const hariIni = toLocalDateStr();
+            mutasi.forEach(e => {
+                if (e.tanggal && e.tanggal > hariIni) return; // bertanggal ke depan: dihitung saat tanggalnya tiba (sama seperti Buku Kas)
+                const sesudahCatat = !!e.at && e.at > m.at;
+                const sesudahTanggal = !!e.tanggal && e.tanggal > m.tanggal;
+                if (sudah.has(e.key)) { res.koreksiSudahTermasuk += e.v; return; }
+                if (!(sesudahCatat || sesudahTanggal)) return;
+                res[e.akun] += e.v;
+                if (sesudahCatat && e.tanggal && e.tanggal < m.tanggal && !/^pindah/.test(e.key)) res.mundur.push(e);
+            });
+            return res;
+        };
+
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null, driverRekapGaji = [], driverKasbon = [], danaOperasional = [], setExpenses = null }) => {
             // Gaji Direksi & Marketing: tanpa akses "Lihat", tetap DIHITUNG di semua total (kas & laba benar),
             // tapi ditampilkan gabungan tanpa nama/rincian per orang
             const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : authUser?.role === 'Admin';
@@ -17662,7 +17756,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [employeeFilter, setEmployeeFilter] = useState('Semua');
             const [divisionFilter, setDivisionFilter] = useState('Semua');
             const [cashAdvanceStatusFilter, setCashAdvanceStatusFilter] = useState('Semua');
-            const [activeFinanceTab, setActiveFinanceTab] = useState('dashboard');
+            const [activeFinanceTab, setActiveFinanceTab] = useState('posisi-uang');
+            const [posisiDialog, setPosisiDialog] = useState(null); // { jenis: 'mulai'|'cocok', langkah, rekening, tunai }
             const [saldoForm, setSaldoForm] = useState(null); // { tanggal, nominal } saat mengisi/mengubah saldo kas awal
             const [instansiBuka, setInstansiBuka] = useState(() => new Set()); // Biaya per Instansi: grup yang dibuka
             const [urutInstansi, setUrutInstansi] = useState('terbaru');
@@ -17890,8 +17985,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Pendapatan = pembayaran invoice + saldo DP yang dipakai invoice + pemasukan manual.
             // Setoran saldo DP sendiri bukan pendapatan (kewajiban) — hanya masuk Buku Kas.
             const totalPendapatan = totalInvoiceIncome + totalLinkedDpIncome + totalManualIncome;
+            // ===== Posisi Uang: titik mulai (saldo rekening & tunai sebenarnya) =====
+            const posisiUang = templates?.posisiUang && templates.posisiUang.mulai ? templates.posisiUang : null;
+            const mutasiAkun = React.useMemo(() => kumpulkanMutasiKas({ invoices: safeFinanceInvoices, clients, expenses, purchaseNotes, rekapKinerja: safeFinanceRekaps, bagiHasilPromosi, driverRekapGaji, driverKasbon, employees: safeFinanceEmployees, danaOperasional, posisi: posisiUang }), [invoices, clients, expenses, purchaseNotes, rekapKinerja, bagiHasilPromosi, driverRekapGaji, driverKasbon, employees, danaOperasional, posisiUang]);
+            const saldoAkun = hitungSaldoAkun(posisiUang, mutasiAkun);
+            // Penyesuaian awal = koreksi saldo sebelum titik mulai (tidak masuk Laba Rugi); dikurangi transaksi lama yang ditandai "sudah termasuk"
+            const penyesuaianAwal = posisiUang ? Math.round(safeMoney(posisiUang.mulai.penyesuaian) - (saldoAkun ? saldoAkun.koreksiSudahTermasuk : 0)) : 0;
+            // Sisa dana operasional yang dinolkan & tidak kembali (dicatat sesudah titik mulai) = uang keluar
+            const danaHilangBaris = posisiUang ? safeArray(danaOperasional).filter(d => d && !d.isDeleted && d.type === 'penyelesaian' && d.kembali === 'tidak' && (waktuDariIdGen(d.id) || '') > posisiUang.mulai.at)
+                .map(d => ({ date: d.tanggal || '-', ref: d.id || '-', sumber: 'Dana operasional dinolkan', ket: `${d.karyawanNama || '-'}${d.keterangan ? ' · ' + d.keterangan : ''}`, nominal: safeMoney(d.nominal) })) : [];
+            const barisPenyesuaianAwal = posisiUang && penyesuaianAwal !== 0 ? { date: posisiUang.mulai.tanggal, ref: 'Posisi Uang', sumber: 'Penyesuaian awal', ket: `Koreksi saldo sebelum ${posisiUang.mulai.tanggal.split('-').reverse().join('/')} (selisih pencatatan lama)`, nominal: Math.abs(penyesuaianAwal) } : null;
             const cashInRows = [
                 ...invoiceCashEvents.map(e => ({ date: e.date || '-', ref: e.inv.id || '-', sumber: e.sumber, ket: e.inv.customer || '-', nominal: e.amount })),
+                ...(barisPenyesuaianAwal && penyesuaianAwal > 0 && isInPeriod(barisPenyesuaianAwal.date) ? [barisPenyesuaianAwal] : []),
                 ...clientDpRows.map(dp => ({ date: dp.date || '-', ref: dp.id || '-', sumber: 'Saldo DP Klien', ket: dp.clientName || '-', nominal: safeMoney(dp.amount) })),
                 ...expenseRows.filter(r => r.type === 'Uang Masuk').map(r => ({ date: r.date || '-', ref: r.id || '-', sumber: 'Pemasukan', ket: getExpenseLabel(r), nominal: safeMoney(r.amount) }))
             ].sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
@@ -17936,6 +18042,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             };
             // Semua kas keluar (pakaiFilterKaryawan=false untuk saldo kas seluruh perusahaan)
             const kasKeluarBaris = (pakaiFilterKaryawan) => [
+                ...(barisPenyesuaianAwal && penyesuaianAwal < 0 ? [barisPenyesuaianAwal] : []),
+                ...danaHilangBaris,
                 ...allUnifiedNotes.flatMap(note => {
                     const base = { ref: note.id || '-', sumber: 'Pembelian Bahan', ket: note.vendor || '-' };
                     const pays = safeArray(note.payments).filter(p => (parseFloat(p.amount) || 0) > 0);
@@ -17971,6 +18079,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 ...allInvoiceCashEvents.map(e => ({ t: tglKas(e.date), v: e.amount })),
                 ...(clients || []).filter(isVisibleRecord).flatMap(c => safeArray(c.clientDpPayments).filter(isVisibleRecord).map(dp => ({ t: tglKas(dp.date), v: safeMoney(dp.amount) }))),
                 ...(expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Masuk').map(e => ({ t: tglKas(e.date), v: safeMoney(e.amount) })),
+                ...(barisPenyesuaianAwal && penyesuaianAwal > 0 ? [{ t: tglKas(barisPenyesuaianAwal.date), v: penyesuaianAwal }] : []),
                 ...kasKeluarBaris(false).filter(r => r.nominal > 0).map(r => ({ t: tglKas(r.date), v: -r.nominal })),
             ].filter(r => r.v);
             const kasDari = saldoAwalSet ? saldoAwalSet.tanggal : '';
@@ -18485,7 +18594,90 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 else { showToast("Gagal mencetak. Harap izinkan Pop-up di browser Anda!", "error"); }
             };
 
+            // ===== Posisi Uang Hari Ini (per hari ini, tidak memakai filter periode) =====
+            const bolehAturPosisi = authUser?.role === 'Admin';
+            const danaKaryawan = ringkasDanaKaryawan(safeFinanceEmployees, danaOperasional, purchaseNotes, expenses, safeFinanceRekaps, bagiHasilPromosi);
+            const posisiPegang = saldoAkun ? saldoAkun.rekening + saldoAkun.tunai + danaKaryawan.pegang : null;
+            const posisiCustomer = { piutang: totalPiutangInvoice, nInvoice: safeFinanceInvoices.filter(isVisibleRecord).filter(inv => getInvoiceTotals(inv).total - getInvoicePaidTotal(inv) > 0.5).length, kasbon: totalKasbonOutstanding + totalKasbonDriverOutstanding };
+            posisiCustomer.total = posisiCustomer.piutang + posisiCustomer.kasbon;
+            const posisiBayar = {
+                vendor: totalUnpaidPurchase,
+                nNota: allUnifiedNotes.filter(n => noteDebt(n) > 0).length,
+                biaya: (expenses || []).filter(isVisibleRecord).filter(e => e.type === 'Uang Keluar').reduce((t, e) => t + Math.max(0, safeMoney(e.amount) - getExpensePaidEvents(e).reduce((x, ev) => x + ev.amount, 0)), 0),
+                gaji: allWageRows.reduce((t, r) => t + Math.max(0, r.netSalary - getWagePaidEvents(r).reduce((x, ev) => x + ev.amount, 0)), 0) + totalGajiDriverBelumDibayar,
+                komisi: safeFinanceInvoices.filter(isVisibleRecord).filter(inv => !inv.commissionRekapId || deletedRekapIds.has(String(inv.commissionRekapId))).reduce((t, inv) => t + getInvoiceCommission(inv), 0),
+                bagiHasil: safeArray(bagiHasilPromosi).filter(isVisibleRecord).reduce((t, b) => t + Math.max(0, calcBagiHasil(b, safeFinanceInvoices).nominal - safeArray(b.payments).reduce((x, p) => x + safeMoney(p.amount), 0)), 0),
+                talangan: danaKaryawan.hutang,
+                dpTitipan: sisaSaldoDpKewajiban,
+            };
+            posisiBayar.total = posisiBayar.vendor + posisiBayar.biaya + posisiBayar.gaji + posisiBayar.komisi + posisiBayar.bagiHasil + posisiBayar.talangan + posisiBayar.dpTitipan;
+            const posisiBersih = posisiPegang == null ? null : posisiPegang + posisiCustomer.total - posisiBayar.total;
+            // Pengaman: rekening + tunai + dana karyawan (bersih) harus sama dengan saldo Buku Kas
+            const selisihBukuKas = saldoAkun ? Math.round((saldoAkun.rekening + saldoAkun.tunai + danaKaryawan.pegang - danaKaryawan.hutang) - kasHariIni) : 0;
+            const piutangLama = (umurPiutang[3] || {}).nilai || 0;
+            const rpJt = (n) => { const v = Math.round(safeMoney(n)); const a = Math.abs(v); const t = a >= 1e9 ? `${(a / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 })} M` : a >= 1e6 ? `${(a / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })} jt` : a.toLocaleString('id-ID'); return `${v < 0 ? '−' : ''}Rp ${t}`; };
+            // Saldo Buku Kas tanpa pengaruh titik mulai (untuk menghitung penyesuaian awal yang baru)
+            const kasTanpaPosisi = kasHariIni - penyesuaianAwal + danaHilangBaris.filter(r => tglKas(r.date) < besok).reduce((t, r) => t + r.nominal, 0);
+            const simpanTitikMulai = (rekening, tunai) => {
+                const now = new Date().toISOString();
+                const pen = Math.round(rekening + tunai + danaKaryawan.pegang - danaKaryawan.hutang - kasTanpaPosisi);
+                const oleh = authUser?.name || authUser?.username || '-';
+                setTemplates(prev => ({ ...(prev || {}), posisiUang: { ...(prev?.posisiUang || {}), mulai: { at: now, tanggal: toLocalDateStr(), rekening, tunai, danaBersih: Math.round(danaKaryawan.pegang - danaKaryawan.hutang), bukuKas: Math.round(kasTanpaPosisi), penyesuaian: pen, sudahTermasuk: [], oleh }, mutasi: [], riwayat: [{ at: now, jenis: 'mulai', oleh, rekening, tunai, penyesuaian: pen }, ...safeArray(prev?.posisiUang?.riwayat)].slice(0, 50) } }));
+                setPosisiDialog(null);
+                showToast('Titik mulai disimpan. Saldo rekening & tunai dihitung dari angka ini.', 'success');
+            };
+            // Cocokkan saldo: pecah selisih jadi pindah saldo rekening↔tunai + sisa (biaya / pendapatan selisih kas)
+            const rencanaCocok = (aktualR, aktualT) => {
+                if (!saldoAkun) return null;
+                let dR = Math.round(aktualR - saldoAkun.rekening), dT = Math.round(aktualT - saldoAkun.tunai);
+                let pindah = null;
+                if (dR < 0 && dT > 0) { const x = Math.min(-dR, dT); pindah = { dari: 'rekening', ke: 'tunai', nominal: x }; dR += x; dT -= x; }
+                else if (dT < 0 && dR > 0) { const x = Math.min(-dT, dR); pindah = { dari: 'tunai', ke: 'rekening', nominal: x }; dT += x; dR -= x; }
+                const sisa = [['rekening', dR], ['tunai', dT]].filter(([, d]) => d !== 0).map(([akun, d]) => ({ akun, nominal: Math.abs(d), jenis: d < 0 ? 'biaya' : 'pendapatan' }));
+                return { selisihR: Math.round(aktualR - saldoAkun.rekening), selisihT: Math.round(aktualT - saldoAkun.tunai), pindah, sisa };
+            };
+            const simpanCocok = (aktualR, aktualT) => {
+                const rc = rencanaCocok(aktualR, aktualT);
+                if (!rc) return;
+                if (rc.sisa.length && !setExpenses) { showToast('Tidak bisa mencatat selisih kas dari sini.', 'error'); return; }
+                const now = new Date().toISOString(); const tgl = toLocalDateStr();
+                const oleh = authUser?.name || authUser?.username || '-';
+                const metode = (akun) => akun === 'tunai' ? 'Tunai' : 'Transfer';
+                const baru = rc.sisa.map(x => {
+                    const id = genId('EXP-');
+                    const item = { id: genId('BI-'), desc: x.jenis === 'biaya' ? 'Selisih kas (tidak tercatat)' : 'Selisih kas lebih', qty: '1', unit: 'kali', price: String(x.nominal) };
+                    const dasar = { date: tgl, category: 'Selisih kas', items: [item], method: metode(x.akun), party: '', note: `Cocokkan saldo ${x.akun === 'tunai' ? 'tunai' : 'rekening'} oleh ${oleh}`, discountType: 'Rp', discountValue: '', amount: x.nominal, grossAmount: x.nominal, discountAmount: 0, id, sumberPosisi: true, _syncUpdatedAt: now };
+                    return x.jenis === 'biaya'
+                        ? { ...dasar, type: 'Uang Keluar', payments: [{ id: genId('BPAY-'), date: tgl, amount: x.nominal, method: metode(x.akun), note: 'Cocokkan saldo', operasionalKaryawanId: '' }], paymentStatus: 'Lunas' }
+                        : { ...dasar, type: 'Uang Masuk', payments: [], paymentStatus: 'Lunas' };
+                });
+                if (baru.length) setExpenses(prev => [...baru, ...(Array.isArray(prev) ? prev : [])]);
+                setTemplates(prev => {
+                    const pu = prev?.posisiUang || {};
+                    const mutasi = rc.pindah ? [...safeArray(pu.mutasi), { id: genId('PND-'), jenis: 'pindah', dari: rc.pindah.dari, ke: rc.pindah.ke, nominal: rc.pindah.nominal, tanggal: tgl, at: now, oleh }] : safeArray(pu.mutasi);
+                    return { ...(prev || {}), posisiUang: { ...pu, mutasi, terakhirCocok: now, riwayat: [{ at: now, jenis: 'cocok', oleh, rekening: aktualR, tunai: aktualT, selisihR: rc.selisihR, selisihT: rc.selisihT }, ...safeArray(pu.riwayat)].slice(0, 50) } };
+                });
+                setPosisiDialog(null);
+                showToast(rc.pindah || rc.sisa.length ? 'Saldo dicocokkan dan selisihnya dicatat.' : 'Saldo sudah cocok.', 'success');
+            };
+            // Data lama (sebelum titik mulai) diubah/dihapus sesudahnya → selisih dengan Buku Kas dimasukkan ke penyesuaian awal (tidak masuk Laba Rugi)
+            const samakanPenyesuaian = () => {
+                const d = Math.round(selisihBukuKas);
+                if (!d || !posisiUang) return;
+                const now = new Date().toISOString(); const oleh = authUser?.name || authUser?.username || '-';
+                setTemplates(prev => {
+                    const pu = prev?.posisiUang; if (!pu?.mulai) return prev;
+                    return { ...prev, posisiUang: { ...pu, mulai: { ...pu.mulai, penyesuaian: Math.round(safeMoney(pu.mulai.penyesuaian) + d) }, riwayat: [{ at: now, jenis: 'samakan', oleh, nominal: d }, ...safeArray(pu.riwayat)].slice(0, 50) } };
+                });
+                showToast(`Selisih ${formatRupiah(Math.abs(d))} dimasukkan ke penyesuaian awal.`, 'success');
+            };
+            const tandaiSudahTermasuk = (key) => setTemplates(prev => {
+                const pu = prev?.posisiUang; if (!pu?.mulai) return prev;
+                return { ...prev, posisiUang: { ...pu, mulai: { ...pu.mulai, sudahTermasuk: [...new Set([...safeArray(pu.mulai.sudahTermasuk), key])] } } };
+            });
+
             const financeTabList = [
+                { id: 'posisi-uang', label: '💼 Posisi Uang' },
                 { id: 'dashboard', label: 'Dashboard' },
                 { id: 'laba-rugi', label: 'Laporan L/R' },
                 { id: 'buku-kas', label: 'Buku Kas' },
@@ -18506,7 +18698,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <button onClick={handlePrint} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><IconPrinter /> Cetak Biaya per Instansi</button>
                         </div>
                     </div>
-                    <div className={`grid ${financeTabList.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'} sm:flex gap-1 bg-gray-100 p-1 rounded-xl`}>
+                    <div className={`grid ${financeTabList.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'} sm:flex gap-1 bg-gray-100 p-1 rounded-xl`} data-keu-tabs>
                         {financeTabList.map(tab => (
                             <button key={tab.id} onClick={() => setActiveFinanceTab(tab.id)}
                                 className={`sm:flex-1 min-w-0 py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm leading-tight sm:leading-5 font-bold transition-all ${activeFinanceTab === tab.id ? 'bg-white text-blue-700 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -18515,6 +18707,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         ))}
                     </div>
 
+                    {activeFinanceTab !== 'posisi-uang' && (
                     <Card>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                             <div data-keu-periode className="md:col-span-4 flex flex-wrap items-end gap-2">
@@ -18575,6 +18768,149 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             </div>
                         </div>
                     </Card>
+                    )}
+
+                    {/* Tab: Posisi Uang (per hari ini) */}
+                    {activeFinanceTab === 'posisi-uang' && (() => {
+                        const kotak = 'rounded-2xl p-4 text-white';
+                        const baris = (label, nilai, extra = {}) => <div {...extra} className="flex justify-between gap-2 py-1 border-t border-white/25 text-[12.5px]"><span className="min-w-0">{label}</span><b className="whitespace-nowrap tabular-nums">{nilai}</b></div>;
+                        const panah = (teks) => <div className="flex items-center justify-center text-slate-400 font-black text-3xl py-1 lg:py-0"><div className="text-center leading-none"><span className="hidden lg:inline">➜</span><span className="lg:hidden">⬇</span><div className="text-[10px] font-bold text-slate-500 mt-0.5">{teks}</div></div></div>;
+                        const persenCukup = posisiPegang != null && posisiBayar.total > 0 ? Math.round(posisiPegang / posisiBayar.total * 100) : null;
+                        return (
+                            <div data-posisi-uang className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5">
+                                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                    <div>
+                                        <h3 className="text-lg font-black text-gray-800">💼 Posisi Uang Hari Ini</h3>
+                                        <p className="text-xs text-gray-500">per {formatDate(toLocalDateStr())} · angka per hari ini, tidak memakai filter tahun/bulan</p>
+                                    </div>
+                                    {saldoAkun && bolehAturPosisi && <button type="button" data-posisi-cocok-buka onClick={() => { if (Math.abs(selisihBukuKas) >= 1) { showToast('Saldo belum cocok dengan Buku Kas. Tekan "Masukkan ke penyesuaian awal" dulu, baru cocokkan saldo.', 'error'); return; } setPosisiDialog({ jenis: 'cocok', rekening: '', tunai: '' }); }} className="rounded-lg bg-teal-700 text-white font-bold text-sm px-3 py-2">⚖ Cocokkan saldo</button>}
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-[1fr_54px_1.15fr_54px_1fr]">
+                                    <div data-posisi-customer className={`${kotak} bg-gradient-to-br from-emerald-600 to-emerald-500`}>
+                                        <div className="text-[12.5px] font-bold opacity-90">📥 Masih di customer</div>
+                                        <div className="text-2xl font-black my-1 tabular-nums">{rpJt(posisiCustomer.total)}</div>
+                                        {baris(`Piutang invoice (${posisiCustomer.nInvoice})`, formatRupiah(posisiCustomer.piutang))}
+                                        {baris('Kasbon karyawan & driver', formatRupiah(posisiCustomer.kasbon))}
+                                    </div>
+                                    {panah('akan masuk')}
+                                    <div data-posisi-pegang className={`${kotak} ${saldoAkun ? 'bg-gradient-to-br from-blue-700 to-blue-500' : 'bg-gradient-to-br from-slate-400 to-slate-300'}`}>
+                                        <div className="text-[12.5px] font-bold opacity-90">💰 Uang yang kita pegang</div>
+                                        <div className="text-2xl font-black my-1 tabular-nums">{saldoAkun ? rpJt(posisiPegang) : '?'}</div>
+                                        {saldoAkun ? <>
+                                            {baris('🏦 Rekening bank', formatRupiah(saldoAkun.rekening), { 'data-posisi-rekening': Math.round(saldoAkun.rekening) })}
+                                            {baris('💵 Tunai', formatRupiah(saldoAkun.tunai), { 'data-posisi-tunai': Math.round(saldoAkun.tunai) })}
+                                        </> : baris('Isi saldo rekening & tunai sekarang', '')}
+                                        {baris('👷 Dana operasional di karyawan', formatRupiah(danaKaryawan.pegang))}
+                                    </div>
+                                    {panah('harus keluar')}
+                                    <div data-posisi-bayar className={`${kotak} bg-gradient-to-br from-red-600 to-orange-500`}>
+                                        <div className="text-[12.5px] font-bold opacity-90">📤 Harus kita bayar</div>
+                                        <div className="text-2xl font-black my-1 tabular-nums">{rpJt(posisiBayar.total)}</div>
+                                        {baris(`Hutang vendor bahan (${posisiBayar.nNota} nota)`, formatRupiah(posisiBayar.vendor))}
+                                        {posisiBayar.biaya > 0 && baris('Biaya belum dibayar', formatRupiah(posisiBayar.biaya))}
+                                        {baris('Gaji karyawan & driver belum dibayar', formatRupiah(posisiBayar.gaji))}
+                                        {posisiBayar.komisi > 0 && baris('Komisi marketing belum direkap', formatRupiah(posisiBayar.komisi))}
+                                        {posisiBayar.bagiHasil > 0 && baris('Bagi hasil promosi belum dibayar', formatRupiah(posisiBayar.bagiHasil))}
+                                        {posisiBayar.talangan > 0 && baris('Talangan / kekurangan dana karyawan', formatRupiah(posisiBayar.talangan))}
+                                        {baris('DP titipan customer', formatRupiah(posisiBayar.dpTitipan))}
+                                    </div>
+                                </div>
+                                {saldoAkun ? (
+                                    <>
+                                        <div data-posisi-bersih={Math.round(posisiBersih)} className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-900 text-white px-4 py-3">
+                                            <div><div className="text-xs text-slate-400">Uang bersih (modal kerja)</div><div className="text-[12.5px]">pegang + di customer − harus dibayar · <span className="text-slate-400">belum termasuk stok bahan, mesin &amp; modal pemilik</span></div></div>
+                                            <b className="text-2xl tabular-nums">{rpJt(posisiBersih)}</b>
+                                        </div>
+                                        <div className="mt-2.5 flex flex-wrap gap-2 text-xs font-bold">
+                                            {Math.abs(selisihBukuKas) < 1
+                                                ? <span data-posisi-cek="cocok" className="rounded-full bg-green-100 text-green-800 px-3 py-1">✓ Cocok dengan Buku Kas</span>
+                                                : <span data-posisi-cek={selisihBukuKas} className="rounded-xl bg-amber-100 text-amber-900 px-3 py-1">⚠ Berbeda {formatRupiah(Math.abs(selisihBukuKas))} dengan saldo Buku Kas — biasanya karena data lama (sebelum titik mulai) diubah atau dihapus.{bolehAturPosisi && <button type="button" data-posisi-samakan onClick={samakanPenyesuaian} className="ml-2 rounded-md bg-white border border-amber-300 px-2 py-0.5">Masukkan ke penyesuaian awal</button>}</span>}
+                                            {persenCukup != null && (persenCukup >= 100
+                                                ? <span data-posisi-cukup={persenCukup} className="rounded-full bg-green-100 text-green-800 px-3 py-1">✓ Kas cukup bayar semua hutang ({persenCukup}%)</span>
+                                                : <span data-posisi-cukup={persenCukup} className="rounded-full bg-red-100 text-red-800 px-3 py-1">⚠ Kas baru menutup {persenCukup}% hutang</span>)}
+                                            {piutangLama > 0 && <span data-posisi-piutang-lama className="rounded-full bg-amber-100 text-amber-900 px-3 py-1">⚠ Piutang &gt; 90 hari: {formatRupiah(piutangLama)}</span>}
+                                            <span className="rounded-full bg-slate-100 text-slate-700 px-3 py-1">Titik mulai {formatDate(posisiUang.mulai.tanggal)} oleh {posisiUang.mulai.oleh || '-'}{posisiUang.terakhirCocok ? ` · dicocokkan ${formatDate(posisiUang.terakhirCocok)}` : ''}</span>
+                                        </div>
+                                        {saldoAkun.mundur.length > 0 && (
+                                            <div data-posisi-mundur={saldoAkun.mundur.length} className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900">
+                                                ⚠ {saldoAkun.mundur.length} transaksi bertanggal <b>sebelum</b> titik mulai baru dicatat sesudahnya — sudah dihitung di saldo. Bila uangnya sebenarnya sudah termasuk di saldo yang diisi, tekan <b>Sudah termasuk</b>.
+                                                <div className="mt-1 space-y-1">
+                                                    {saldoAkun.mundur.slice(0, 20).map(e => (
+                                                        <div key={e.key} className="flex flex-wrap items-center justify-between gap-2">
+                                                            <span className="min-w-0">{e.tanggal.split('-').reverse().join('/')} · {e.jenis} · {e.ket} · <b>{e.v > 0 ? '+' : '−'}{formatRupiah(Math.abs(e.v))}</b> ({e.akun})</span>
+                                                            {bolehAturPosisi && <button type="button" data-posisi-sudah={e.key} onClick={() => tandaiSudahTermasuk(e.key)} className="rounded-md bg-white border border-amber-300 px-2 py-0.5 font-bold">Sudah termasuk</button>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div data-posisi-belum className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        <span>⚑ Isi sekali saldo rekening &amp; tunai yang <b>benar-benar ada sekarang</b> agar "Uang yang kita pegang" &amp; uang bersih bisa dihitung.</span>
+                                        {bolehAturPosisi ? <button type="button" data-posisi-mulai-buka onClick={() => setPosisiDialog({ jenis: 'mulai', langkah: 1, rekening: '', tunai: '' })} className="ml-auto rounded-lg bg-amber-600 text-white font-bold px-3 py-1.5">Isi saldo sekarang</button> : <span className="ml-auto text-xs">Hubungi Admin untuk mengisinya.</span>}
+                                    </div>
+                                )}
+                                {posisiDialog && (() => {
+                                    const angka = (v) => Number(String(v ?? '').replace(/\D/g, '')) || 0;
+                                    const isiAngka = (k) => (e) => { const v = e.target.value.replace(/\D/g, ''); setPosisiDialog(d => ({ ...d, [k]: v })); };
+                                    const tampil = (v) => v === '' ? '' : Number(v).toLocaleString('id-ID');
+                                    const kosong = posisiDialog.rekening === '' || posisiDialog.tunai === '';
+                                    const R = angka(posisiDialog.rekening), Tn = angka(posisiDialog.tunai);
+                                    const inputCls = 'mt-1 w-full border border-blue-300 bg-blue-50 rounded-lg p-2 text-sm font-bold text-right tabular-nums';
+                                    return (
+                                        <div className="fixed inset-0 z-[150] bg-black/50 flex items-center justify-center p-3" onClick={() => setPosisiDialog(null)}>
+                                            <div data-posisi-dialog={posisiDialog.jenis} className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                                                {posisiDialog.jenis === 'mulai' && posisiDialog.langkah === 1 && <>
+                                                    <h4 className="font-black text-gray-800">⚑ Isi saldo sekarang</h4>
+                                                    <p className="text-xs text-gray-500 mb-3">Cek mutasi bank &amp; hitung uang tunai di kantor. Transaksi yang sudah dicatat sebelum saat ini dianggap sudah termasuk.</p>
+                                                    <label className="block text-xs font-bold text-gray-600 mb-2">Saldo rekening bank<input data-posisi-in="rekening" inputMode="numeric" className={inputCls} placeholder="0" value={tampil(posisiDialog.rekening)} onChange={isiAngka('rekening')} /></label>
+                                                    <label className="block text-xs font-bold text-gray-600">Uang tunai di kantor<input data-posisi-in="tunai" inputMode="numeric" className={inputCls} placeholder="0" value={tampil(posisiDialog.tunai)} onChange={isiAngka('tunai')} /></label>
+                                                    <p className="mt-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">Jangan masukkan dana operasional yang dipegang karyawan — sudah dihitung terpisah.</p>
+                                                    <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setPosisiDialog(null)} className="px-4 py-2 rounded-lg bg-gray-100 font-bold text-sm">Batal</button><button type="button" data-posisi-lanjut disabled={kosong} onClick={() => setPosisiDialog(d => ({ ...d, langkah: 2 }))} className="px-4 py-2 rounded-lg bg-teal-700 text-white font-bold text-sm disabled:opacity-50">Lanjut ›</button></div>
+                                                </>}
+                                                {posisiDialog.jenis === 'mulai' && posisiDialog.langkah === 2 && (() => {
+                                                    const menurut = Math.round(kasTanpaPosisi - (danaKaryawan.pegang - danaKaryawan.hutang));
+                                                    const pen = R + Tn - menurut;
+                                                    return <>
+                                                        <h4 className="font-black text-gray-800">Periksa sebelum disimpan</h4>
+                                                        <p className="text-xs text-gray-500 mb-3">Dicatat {new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })} oleh {authUser?.name || authUser?.username || '-'}.</p>
+                                                        <table className="w-full text-sm"><thead><tr className="text-[11.5px] text-gray-500"><th className="text-left py-1"></th><th className="text-right">Menurut aplikasi</th><th className="text-right">Sebenarnya</th><th className="text-right">Selisih</th></tr></thead>
+                                                            <tbody><tr className="border-t" data-posisi-ringkas><td className="py-2 font-bold">Rekening + tunai</td><td className="text-right tabular-nums">{formatRupiah(menurut)}</td><td className="text-right tabular-nums">{formatRupiah(R + Tn)}</td><td data-posisi-pen={pen} className={`text-right font-black tabular-nums ${pen < 0 ? 'text-red-700' : pen > 0 ? 'text-green-700' : 'text-gray-500'}`}>{pen === 0 ? '✓' : `${pen > 0 ? '+' : '−'}${formatRupiah(Math.abs(pen))}`}</td></tr></tbody></table>
+                                                        <p className="mt-3 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">{pen === 0 ? 'Sudah sama dengan hitungan aplikasi.' : <>Selisih ini = uang masuk/keluar sebelum hari ini yang <b>tidak tercatat</b>. Dicatat sekali di Buku Kas sebagai <b>"Penyesuaian awal"</b> (tidak mengubah Laba Rugi bulan-bulan lalu). Mulai sekarang saldo dihitung dari angka sebenarnya.</>}</p>
+                                                        <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setPosisiDialog(d => ({ ...d, langkah: 1 }))} className="px-4 py-2 rounded-lg bg-gray-100 font-bold text-sm">‹ Kembali</button><button type="button" data-posisi-simpan-mulai onClick={() => simpanTitikMulai(R, Tn)} className="px-4 py-2 rounded-lg bg-teal-700 text-white font-bold text-sm">Simpan titik mulai</button></div>
+                                                    </>;
+                                                })()}
+                                                {posisiDialog.jenis === 'cocok' && saldoAkun && (() => {
+                                                    const rc = kosong ? null : rencanaCocok(R, Tn);
+                                                    const sel = (n) => n === 0 ? <span className="text-gray-500">✓</span> : <span className={n < 0 ? 'text-red-700' : 'text-green-700'}>{n > 0 ? '+' : '−'}{formatRupiah(Math.abs(n))}</span>;
+                                                    return <>
+                                                        <h4 className="font-black text-gray-800">⚖ Cocokkan saldo · {formatDate(toLocalDateStr())}</h4>
+                                                        <p className="text-xs text-gray-500 mb-3">Isi saldo sebenarnya (cek mutasi bank &amp; hitung uang tunai).</p>
+                                                        <table className="w-full text-sm"><thead><tr className="text-[11.5px] text-gray-500"><th className="text-left py-1"></th><th className="text-right">Menurut aplikasi</th><th className="text-right">Sebenarnya</th><th className="text-right">Selisih</th></tr></thead>
+                                                            <tbody>
+                                                                <tr className="border-t"><td className="py-2 font-bold">Rekening</td><td className="text-right tabular-nums">{formatRupiah(saldoAkun.rekening)}</td><td className="text-right"><input data-posisi-in="rekening" inputMode="numeric" className="w-28 border border-blue-300 bg-blue-50 rounded-md px-2 py-1 text-right font-bold tabular-nums" value={tampil(posisiDialog.rekening)} onChange={isiAngka('rekening')} /></td><td className="text-right font-black tabular-nums">{rc ? sel(rc.selisihR) : ''}</td></tr>
+                                                                <tr className="border-t"><td className="py-2 font-bold">Tunai</td><td className="text-right tabular-nums">{formatRupiah(saldoAkun.tunai)}</td><td className="text-right"><input data-posisi-in="tunai" inputMode="numeric" className="w-28 border border-blue-300 bg-blue-50 rounded-md px-2 py-1 text-right font-bold tabular-nums" value={tampil(posisiDialog.tunai)} onChange={isiAngka('tunai')} /></td><td className="text-right font-black tabular-nums">{rc ? sel(rc.selisihT) : ''}</td></tr>
+                                                            </tbody></table>
+                                                        {rc && (rc.pindah || rc.sisa.length > 0) && (
+                                                            <div data-posisi-rencana className="mt-3 space-y-1.5 text-[12.5px]">
+                                                                <div className="font-bold text-gray-700">Akan dicatat:</div>
+                                                                {rc.pindah && <div className="rounded-lg border-2 border-teal-600 bg-teal-50 px-2.5 py-1.5"><b>🔁 Pindah saldo {rc.pindah.dari === 'rekening' ? 'rekening → tunai' : 'tunai → rekening'} {formatRupiah(rc.pindah.nominal)}</b><div className="text-gray-600">Mis. ambil tunai di ATM yang belum dicatat. Tidak masuk Laba Rugi (total tetap).</div></div>}
+                                                                {rc.sisa.map((x, i) => <div key={i} className="rounded-lg border-2 border-teal-600 bg-teal-50 px-2.5 py-1.5"><b>{x.jenis === 'biaya' ? `📉 Biaya "Selisih kas (tidak tercatat)" ${formatRupiah(x.nominal)}` : `📈 Pendapatan lain-lain "Selisih kas lebih" ${formatRupiah(x.nominal)}`} · {x.akun === 'tunai' ? 'Tunai' : 'Rekening'}</b><div className="text-gray-600">Masuk Laba Rugi sebagai {x.jenis === 'biaya' ? 'biaya' : 'pendapatan lain-lain'}.</div></div>)}
+                                                                <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">Sebaiknya cari &amp; catat dulu transaksi yang terlupa (mis. biaya admin bank) — selisih akan berkurang sendiri.</p>
+                                                            </div>
+                                                        )}
+                                                        {rc && !rc.pindah && !rc.sisa.length && <p data-posisi-rencana="cocok" className="mt-3 text-sm font-bold text-green-700">✓ Saldo sudah cocok, tidak ada yang perlu dicatat.</p>}
+                                                        <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={() => setPosisiDialog(null)} className="px-4 py-2 rounded-lg bg-gray-100 font-bold text-sm">Tutup</button><button type="button" data-posisi-simpan-cocok disabled={kosong} onClick={() => simpanCocok(R, Tn)} className="px-4 py-2 rounded-lg bg-teal-700 text-white font-bold text-sm disabled:opacity-50">Simpan</button></div>
+                                                    </>;
+                                                })()}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        );
+                    })()}
 
                     {/* Tab: Dashboard */}
                     {activeFinanceTab === 'dashboard' && (
@@ -18946,7 +19282,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         {saldoAwalSet
                                             ? <span className="text-gray-600" data-keu-saldo-info>Saldo kas awal: <b>{formatRupiah(saldoAwalSet.nominal)}</b> per {fmtTglKas(saldoAwalSet.tanggal)}</span>
                                             : <span className="text-amber-700" data-keu-saldo-info>Saldo kas awal belum diisi — dianggap Rp 0.</span>}
-                                        <button type="button" className="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 font-bold bg-white" onClick={() => setSaldoForm(saldoAwalSet ? { tanggal: saldoAwalSet.tanggal, nominal: String(saldoAwalSet.nominal) } : { tanggal: '', nominal: '' })} data-keu-saldo-ubah>{saldoAwalSet ? 'Ubah' : 'Isi saldo kas awal'}</button>
+                                        {posisiUang ? <span className="text-gray-500" data-keu-saldo-posisi>· Saldo kas sekarang diatur lewat tab 💼 Posisi Uang (titik mulai {formatDate(posisiUang.mulai.tanggal)}).</span> : <button type="button" className="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 font-bold bg-white" onClick={() => setSaldoForm(saldoAwalSet ? { tanggal: saldoAwalSet.tanggal, nominal: String(saldoAwalSet.nominal) } : { tanggal: '', nominal: '' })} data-keu-saldo-ubah>{saldoAwalSet ? 'Ubah' : 'Isi saldo kas awal'}</button>}
                                     </div>
                                 )}
                             </Card></div>
@@ -27386,7 +27722,7 @@ ${getRekapShareLink(rekap)}
                     if (!confirm(`Driver ini masih punya sisa kasbon ${formatRupiah(sisaKasbonAktif)}.\nTotal kasbon aktif akan menjadi ${formatRupiah(totalNanti)}.\n\nLanjutkan tambah kasbon?`)) return;
                 }
                 const drv = visibleDrivers.find(d => d.id === kasbonForm.driverId);
-                const rec = { id: genId('KASBON-'), driverId: kasbonForm.driverId, driverName: drv ? drv.name : '', tanggal: kasbonForm.tanggal, jumlah: safeMoney(kasbonForm.jumlah), keterangan: kasbonForm.keterangan, sudahDipotong: 0, _syncUpdatedAt: new Date().toISOString() };
+                const rec = { id: genId('KASBON-'), driverId: kasbonForm.driverId, driverName: drv ? drv.name : '', tanggal: kasbonForm.tanggal, jumlah: safeMoney(kasbonForm.jumlah), keterangan: kasbonForm.keterangan, dari: kasbonForm.dari === 'tunai' ? 'tunai' : 'rekening', sudahDipotong: 0, _syncUpdatedAt: new Date().toISOString() };
                 setDriverKasbon(prev => [...(prev||[]), rec]);
                 setKasbonForm(f => ({ ...f, jumlah: '', keterangan: '' }));
                 setShowKasbonAddForm(false);
@@ -28789,6 +29125,7 @@ ${getRekapShareLink(rekap)}
                                                 <div><label className="block text-xs text-gray-600 mb-1">Tanggal</label><input type="date" value={kasbonForm.tanggal} onChange={e=>setKasbonForm(f=>({...f,tanggal:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" /></div>
                                                 <div><label className="block text-xs text-gray-600 mb-1">Nominal (Rp)</label><input type="number" min="0" value={kasbonForm.jumlah} onChange={e=>setKasbonForm(f=>({...f,jumlah:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="0" /></div>
                                             </div>
+                                            <div><label className="block text-xs text-gray-600 mb-1">Dari</label><select data-kasbon-drv-dari value={kasbonForm.dari || 'rekening'} onChange={e=>setKasbonForm(f=>({...f,dari:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs"><option value="rekening">Rekening</option><option value="tunai">Tunai</option></select></div>
                                             <div><label className="block text-xs text-gray-600 mb-1">Keterangan</label><input value={kasbonForm.keterangan} onChange={e=>setKasbonForm(f=>({...f,keterangan:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Opsional" /></div>
                                             <div className="flex gap-2 justify-end">
                                                 <button onClick={()=>setShowKasbonAddForm(false)} className="px-3 py-1.5 bg-gray-100 rounded text-xs">Batal</button>
@@ -36768,7 +37105,7 @@ ${getRekapShareLink(rekap)}
                                     karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
                                     onLihatNotaVendor={canOpen('pembelian_bahan') ? (vendor) => { setNotaVendorReq({ vendor, t: Date.now() }); setActiveTab('pembelian_bahan'); } : null} /></div>}
-                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={ordersTampil} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} /></MenuBeku></div>}
+                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={ordersTampil} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} danaOperasional={danaOperasional} setExpenses={updateExpenses} /></MenuBeku></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={ordersTampil} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></MenuBeku></div>}
