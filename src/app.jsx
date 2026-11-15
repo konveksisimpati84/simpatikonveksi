@@ -1129,7 +1129,8 @@
             return safeArray(danaOperasional).some(d => !d.isDeleted && String(d.karyawanId) === eid && d.type === 'aktivasi');
         };
         // Hitung saldo dana operasional karyawan secara dinamis dari data
-        const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = []) => {
+        // Cara hitung asli (dipakai sebagai pembanding di uji). Aplikasi memakai getDanaSaldoKaryawan di bawah (hasil sama, jauh lebih cepat).
+        const hitungDanaSaldoKaryawanLangsung = (empId, danaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = []) => {
             const eid = String(empId);
             const records = safeArray(danaOperasional).filter(d => !d.isDeleted && String(d.karyawanId) === eid);
             // backward-compat: records without type field treated as 'keluar'
@@ -1147,6 +1148,45 @@
             // menggunakan (totalIn - totalPenyelesaian) agar karyawan lama dengan history besar tetap benar
             const hutang = Math.max(0, totalTalangan - Math.max(0, totalIn - totalPenyelesaian));
             // defisit = pool negatif: total terpakai melebihi total pool (totalIn + talangan - penyelesaian)
+            const defisit = Math.max(0, -rawBalance);
+            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap + usedBHP, totalPenyelesaian, saldo, hutang, defisit };
+        };
+        // ===== Saldo dana operasional per karyawan — cepat =====
+        // Sebelumnya setiap pemanggilan memeriksa SEMUA nota, biaya, rekap & bagi hasil (diulang per karyawan & per ketikan).
+        // Sekarang ringkasan semua karyawan dibuat sekali per isi data, lalu dipakai ulang selama datanya sama (hasil identik).
+        const DANA_KOSONG = Object.freeze([]);
+        const danaKunci = (a) => (Array.isArray(a) && a.length ? a : DANA_KOSONG);
+        const indeksDanaCache = [];
+        const buatIndeksDana = (dana, pn, ex, rk, bhp) => {
+            const per = new Map();
+            const ambil = (k) => { let o = per.get(k); if (!o) { o = { totalIn: 0, totalTalangan: 0, totalPenyelesaian: 0, usedPN: 0, usedExp: 0, usedRekap: 0, usedBHP: 0 }; per.set(k, o); } return o; };
+            dana.forEach(d => {
+                if (!d || d.isDeleted) return;
+                const o = ambil(String(d.karyawanId));
+                if (!d.type || d.type === 'keluar') o.totalIn += safeMoney(d.nominal);
+                else if (d.type === 'talangan') o.totalTalangan += safeMoney(d.nominal);
+                else if (d.type === 'penyelesaian') o.totalPenyelesaian += safeMoney(d.nominal);
+            });
+            const pakai = (arr, kolom) => arr.forEach(n => {
+                if (!n || n.isDeleted) return;
+                safeArray(n.payments).forEach(p => { if (!p) return; ambil(String(p.operasionalKaryawanId || ''))[kolom] += safeMoney(p.amount); });
+            });
+            pakai(pn, 'usedPN'); pakai(ex, 'usedExp'); pakai(rk, 'usedRekap'); pakai(bhp, 'usedBHP');
+            return per;
+        };
+        const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = []) => {
+            const args = [danaKunci(danaOperasional), danaKunci(purchaseNotes), danaKunci(expenses), danaKunci(rekapKinerja), danaKunci(bagiHasilPromosi)];
+            let c = indeksDanaCache.find(x => x.args.every((a, i) => a === args[i]));
+            if (!c) {
+                c = { args, idx: buatIndeksDana(...args) };
+                indeksDanaCache.unshift(c);
+                if (indeksDanaCache.length > 4) indeksDanaCache.pop();
+            }
+            const o = c.idx.get(String(empId)) || { totalIn: 0, totalTalangan: 0, totalPenyelesaian: 0, usedPN: 0, usedExp: 0, usedRekap: 0, usedBHP: 0 };
+            const { totalIn, totalTalangan, totalPenyelesaian, usedPN, usedExp, usedRekap, usedBHP } = o;
+            const rawBalance = totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap - usedBHP;
+            const saldo = Math.max(0, rawBalance);
+            const hutang = Math.max(0, totalTalangan - Math.max(0, totalIn - totalPenyelesaian));
             const defisit = Math.max(0, -rawBalance);
             return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap + usedBHP, totalPenyelesaian, saldo, hutang, defisit };
         };
