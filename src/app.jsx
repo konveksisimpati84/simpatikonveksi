@@ -652,6 +652,22 @@
         const IMG_REF_PREFIX = 'img:';
         const isImgRef = (v) => typeof v === 'string' && v.startsWith(IMG_REF_PREFIX);
         const isInlineImage = (v) => typeof v === 'string' && v.startsWith('data:image');
+        // Foto bukti (transfer dana dll.): sisi terpanjang maks 1000 px, JPEG; dikecilkan lagi bila masih > 300 KB
+        const kompresFotoBukti = (file) => new Promise((resolve, reject) => {
+            if (!file || !/^image\//.test(file.type || '')) { reject(new Error('Berkas bukan foto')); return; }
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const buat = (maks, mutu) => { const sk = Math.min(1, maks / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.width * sk)); c.height = Math.max(1, Math.round(img.height * sk)); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', mutu); };
+                    let hasil = buat(1000, 0.7);
+                    if (hasil.length > 400000) hasil = buat(800, 0.55);
+                    URL.revokeObjectURL(url); resolve(hasil);
+                } catch (e) { URL.revokeObjectURL(url); reject(e); }
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Foto tidak bisa dibaca')); };
+            img.src = url;
+        });
         const imgMem = new Map();
         const imgMissing = new Set();
         const imgInflight = new Map();
@@ -960,7 +976,7 @@
         const adoptImageRefs = (target, other) => {
             if (!target || !other || typeof target !== 'object' || typeof other !== 'object') return target;
             let out = target;
-            IMG_RECORD_FIELDS.forEach(f => {
+            [...IMG_RECORD_FIELDS, 'bukti'].forEach(f => {
                 if (isInlineImage(out[f]) && imgRefMatchesInline(other[f], out[f])) { if (out === target) out = { ...target }; out[f] = other[f]; }
             });
             if (Array.isArray(out.payments) && Array.isArray(other.payments) && out.payments.some(p => isInlineImage(p?.proofImage))) {
@@ -11867,8 +11883,21 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const canViewSensDana = gajiSensitif ? !!gajiSensitif.lihat : false;
             const safeEmployees = (employees || []).filter(isVisibleRecord);
             const [selectedEmpId, setSelectedEmpId] = useState('');
-            const emptyTransferForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '', type: 'keluar', dari: 'rekening' };
+            const emptyTransferForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '', type: 'keluar', dari: 'rekening', bukti: '' };
             const [form, setForm] = useState(emptyTransferForm);
+            const [prosesBukti, setProsesBukti] = useState(false);
+            const bukaFormTransfer = () => { setEditId(null); setForm(emptyTransferForm); setShowForm(true); };
+            const tutupFormTransfer = () => { setShowForm(false); setForm(emptyTransferForm); setEditId(null); setEmpDropdownOpen(false); };
+            const pilihBukti = async (e) => {
+                const file = e.target.files && e.target.files[0];
+                e.target.value = '';
+                if (!file) return;
+                if (!/^image\//.test(file.type || '')) { showToast('Pilih file foto (JPG/PNG).', 'error'); return; }
+                setProsesBukti(true);
+                try { const data = await kompresFotoBukti(file); setForm(f => ({ ...f, bukti: data })); }
+                catch (err) { showToast('Foto tidak bisa dibaca. Coba foto lain.', 'error'); }
+                finally { setProsesBukti(false); }
+            };
             const [editId, setEditId] = useState(null);
             const [deleteConfirmId, setDeleteConfirmId] = useState(null);
             const [showForm, setShowForm] = useState(false);
@@ -11919,6 +11948,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     type: isTalangan ? 'talangan' : 'keluar',
                     // Transfer ke karyawan keluar dari rekening atau tunai kantor (untuk Posisi Uang)
                     ...(isTalangan ? {} : { dari: form.dari === 'tunai' ? 'tunai' : 'rekening' }),
+                    // Bukti transfer / tanda terima (opsional); foto dipindah otomatis ke penyimpanan terpisah.
+                    // Selalu ditulis (kosong bila dihapus) agar penghapusan ikut tersinkron ke perangkat lain.
+                    bukti: form.bukti || '',
                     _syncUpdatedAt: now,
                 };
                 // Pencatat: isian baru → akun yang login; edit → pencatat asli tetap, pengubah dicatat terpisah
@@ -11929,6 +11961,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setForm(emptyTransferForm);
                 setEditId(null);
                 setShowForm(false);
+                setEmpDropdownOpen(false);
                 showToast(editId ? 'Data diperbarui.' : (isTalangan ? 'Talangan karyawan dicatat.' : 'Transfer dana dicatat.'), 'success');
             };
 
@@ -12018,7 +12051,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             <p className="text-sm text-gray-500 mt-1">Transfer dana perusahaan ke karyawan dan pantau penggunaannya di pembelian bahan &amp; biaya.</p>
                         </div>
                         {bolehKelola ? (
-                            <button onClick={() => { setShowForm(f => !f); setForm(emptyTransferForm); setEditId(null); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">
+                            <button onClick={bukaFormTransfer} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2">
                                 <span>+</span> Transfer Dana
                             </button>
                         ) : (
@@ -12027,78 +12060,107 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     </div>
 
                     {showForm && bolehKelola && (
-                        <Card>
-                            <div className="flex items-center gap-2 mb-4">
-                                <div className="w-1 h-4 rounded-full bg-blue-500"></div>
-                                <span className="text-xs font-black text-gray-500 tracking-widest uppercase">
-                                    {editId ? 'Edit Catatan Dana' : 'Transfer Dana Baru'}
-                                </span>
-                            </div>
-                            <form onSubmit={handleSave} className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                                    <div className="relative" ref={empRef}>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Karyawan</label>
-                                        <div className="relative">
-                                            <input
-                                                type="text"
-                                                className={`w-full p-2.5 pr-8 border rounded-xl text-sm bg-gray-50 outline-none transition-colors ${empDropdownOpen ? 'border-blue-400 ring-2 ring-blue-100' : selectedEmpId ? 'border-blue-300' : ''}`}
-                                                placeholder="— Ketik atau pilih karyawan —"
-                                                value={empDropdownOpen ? empSearch : (selectedEmp ? selectedEmp.name : '')}
-                                                onClick={() => { setEmpDropdownOpen(true); setEmpSearch(''); setEmpFocusedIdx(-1); }}
-                                                onChange={e => { if (empDropdownOpen) { setEmpSearch(e.target.value); setEmpFocusedIdx(-1); } }}
-                                                onKeyDown={handleEmpKeydown}
-                                                autoComplete="off"
-                                                spellCheck={false}
-                                            />
-                                            {selectedEmpId
-                                                ? <button type="button" tabIndex={-1} onClick={handleEmpClear} className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-gray-200 hover:bg-red-100 flex items-center justify-center text-gray-500 hover:text-red-500 text-[10px] font-black">✕</button>
-                                                : <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none select-none text-[10px]">{empDropdownOpen ? '▲' : '▼'}</span>
-                                            }
-                                        </div>
-                                        {empDropdownOpen && (
-                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-blue-400 rounded-xl shadow-xl z-50 overflow-hidden">
-                                                {filteredEmps.length === 0
-                                                    ? <p className="px-4 py-3 text-sm text-gray-400 italic text-center">Karyawan tidak ditemukan</p>
-                                                    : <>
-                                                        <ul className="max-h-52 overflow-y-auto py-1.5 px-1.5 space-y-0.5">
-                                                            {filteredEmps.map((emp, i) => (
-                                                                <li key={emp.id}
-                                                                    onMouseDown={() => handleEmpSelect(emp.id)}
-                                                                    onMouseEnter={() => setEmpFocusedIdx(i)}
-                                                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${String(emp.id) === selectedEmpId ? 'bg-blue-50 text-blue-800 font-semibold' : i === empFocusedIdx ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'}`}>
-                                                                    <span className="flex-1">{emp.name}</span>
-                                                                    {String(emp.id) === selectedEmpId && <span className="text-blue-500 text-xs font-black">✓</span>}
-                                                                </li>
-                                                            ))}
-                                                        </ul>
-                                                        <p className="px-3 py-1.5 border-t border-gray-100 text-right text-xs text-gray-400 font-semibold">{filteredEmps.length} karyawan</p>
-                                                    </>
+                        <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4">
+                            <div data-dana-modal className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[94vh] flex flex-col">
+                                <div className="flex items-center justify-between gap-2 px-5 py-3 rounded-t-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white">
+                                    <b className="text-base">{editId ? '✎ Edit Catatan Dana' : '💸 Transfer Dana Baru'}</b>
+                                    <button type="button" onClick={tutupFormTransfer} title="Tutup" className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 font-black">✕</button>
+                                </div>
+                                <form onSubmit={handleSave} className="flex flex-col min-h-0 flex-1">
+                                    <div className="px-5 py-4 space-y-3 overflow-y-auto">
+                                        <div className="relative" ref={empRef}>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">Karyawan</label>
+                                            <div className="relative">
+                                                <input
+                                                    type="text"
+                                                    className={`w-full p-2.5 pr-8 border rounded-xl text-sm bg-gray-50 outline-none transition-colors ${empDropdownOpen ? 'border-blue-400 ring-2 ring-blue-100' : selectedEmpId ? 'border-blue-300' : ''}`}
+                                                    placeholder="— Ketik atau pilih karyawan —"
+                                                    value={empDropdownOpen ? empSearch : (selectedEmp ? selectedEmp.name : '')}
+                                                    onClick={() => { setEmpDropdownOpen(true); setEmpSearch(''); setEmpFocusedIdx(-1); }}
+                                                    onChange={e => { if (empDropdownOpen) { setEmpSearch(e.target.value); setEmpFocusedIdx(-1); } }}
+                                                    onKeyDown={handleEmpKeydown}
+                                                    autoComplete="off"
+                                                    spellCheck={false}
+                                                />
+                                                {selectedEmpId
+                                                    ? <button type="button" tabIndex={-1} onClick={handleEmpClear} className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-gray-200 hover:bg-red-100 flex items-center justify-center text-gray-500 hover:text-red-500 text-[10px] font-black">✕</button>
+                                                    : <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none select-none text-[10px]">{empDropdownOpen ? '▲' : '▼'}</span>
                                                 }
                                             </div>
+                                            {empDropdownOpen && (
+                                                <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-blue-400 rounded-xl shadow-xl z-50 overflow-hidden">
+                                                    {filteredEmps.length === 0
+                                                        ? <p className="px-4 py-3 text-sm text-gray-400 italic text-center">Karyawan tidak ditemukan</p>
+                                                        : <>
+                                                            <ul className="max-h-52 overflow-y-auto py-1.5 px-1.5 space-y-0.5">
+                                                                {filteredEmps.map((emp, i) => (
+                                                                    <li key={emp.id}
+                                                                        onMouseDown={() => handleEmpSelect(emp.id)}
+                                                                        onMouseEnter={() => setEmpFocusedIdx(i)}
+                                                                        className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${String(emp.id) === selectedEmpId ? 'bg-blue-50 text-blue-800 font-semibold' : i === empFocusedIdx ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'}`}>
+                                                                        <span className="flex-1">{emp.name}</span>
+                                                                        {String(emp.id) === selectedEmpId && <span className="text-blue-500 text-xs font-black">✓</span>}
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                            <p className="px-3 py-1.5 border-t border-gray-100 text-right text-xs text-gray-400 font-semibold">{filteredEmps.length} karyawan</p>
+                                                        </>
+                                                    }
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Tanggal</label>
+                                                <input type="date" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={form.tanggal} onChange={e => setForm(f => ({ ...f, tanggal: e.target.value }))} required />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Nominal (Rp)</label>
+                                                <input type="text" inputMode="numeric" data-dana-nominal className="w-full p-2.5 border rounded-xl text-sm bg-gray-50 text-right font-bold tabular-nums" placeholder="0" value={tampilNominal(form.nominal)} onChange={e => setForm(f => ({ ...f, nominal: isiNominal(e.target.value) }))} required />
+                                            </div>
+                                        </div>
+                                        {form.type !== 'talangan' && (
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1.5">Cara kirim</label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {[['rekening', '🏦 Transfer', 'dari rekening'], ['tunai', '💵 Tunai', 'uang cash']].map(([v, t, k]) => {
+                                                        const on = (form.dari === 'tunai' ? 'tunai' : 'rekening') === v;
+                                                        return <button key={v} type="button" data-dana-cara-pilih={v} aria-pressed={on} onClick={() => setForm(f => ({ ...f, dari: v }))} className={`rounded-xl border-2 px-2 py-2 text-sm font-black ${on ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white text-gray-700'}`}>{t}<span className="block text-[11px] font-semibold text-gray-500">{k}</span></button>;
+                                                    })}
+                                                </div>
+                                            </div>
                                         )}
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">Keterangan</label>
+                                            <input type="text" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="Misal: Belanja bahan Juli" value={form.keterangan} onChange={e => setForm(f => ({ ...f, keterangan: e.target.value }))} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1.5">{form.type === 'talangan' ? 'Foto nota' : (form.dari === 'tunai' ? 'Bukti serah terima' : 'Bukti transfer')} <span className="font-semibold text-gray-400">(opsional)</span></label>
+                                            {form.bukti ? (
+                                                <div data-dana-bukti-terpasang className="flex items-center gap-3 border border-gray-200 rounded-xl p-2">
+                                                    <button type="button" onClick={() => bukaPenampilGambar({ gambar: [{ label: 'Bukti', src: form.bukti }], awal: 0, judul: 'Bukti' })} className="shrink-0" title="Ketuk untuk memperbesar"><StoredImg src={form.bukti} alt="bukti" className="w-14 h-14 object-cover rounded-lg border" placeholderClassName="w-14 h-14 rounded-lg" /></button>
+                                                    <div className="flex-1 min-w-0 text-xs text-gray-500">Foto terpasang · ketuk untuk lihat besar</div>
+                                                    <label className="shrink-0 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-bold cursor-pointer">Ganti<input type="file" accept="image/*" className="hidden" onChange={pilihBukti} /></label>
+                                                    <button type="button" data-dana-bukti-hapus onClick={() => setForm(f => ({ ...f, bukti: '' }))} className="shrink-0 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold">Hapus</button>
+                                                </div>
+                                            ) : (
+                                                <label className={`block border-2 border-dashed border-blue-300 bg-blue-50 rounded-xl p-3 text-center text-blue-700 text-sm font-bold ${prosesBukti ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`}>
+                                                    {prosesBukti ? 'Memproses foto…' : '📷 Ambil foto / pilih dari galeri'}
+                                                    <span className="block text-[11px] font-semibold text-slate-500">Foto diperkecil otomatis</span>
+                                                    <input type="file" accept="image/*" data-dana-bukti-input className="hidden" onChange={pilihBukti} disabled={prosesBukti} />
+                                                </label>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Tanggal</label>
-                                        <input type="date" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={form.tanggal} onChange={e => setForm(f => ({ ...f, tanggal: e.target.value }))} required />
+                                    <div className="flex gap-2 justify-end px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+                                        <button type="button" onClick={tutupFormTransfer} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-sm">Batal</button>
+                                        <button type="submit" disabled={prosesBukti} className="px-4 py-2 text-white rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50">
+                                            {editId ? 'Simpan Perubahan' : 'Simpan Transfer'}
+                                        </button>
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Nominal (Rp)</label>
-                                        <input type="number" min="1" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="0" value={form.nominal} onChange={e => setForm(f => ({ ...f, nominal: e.target.value }))} required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1.5">Keterangan</label>
-                                        {form.type !== 'talangan' && <div className="mb-2"><label className="block text-xs font-bold text-gray-500 mb-1.5">Dari</label><select data-dana-dari className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" value={form.dari || 'rekening'} onChange={e => setForm(f => ({ ...f, dari: e.target.value }))}><option value="rekening">Rekening</option><option value="tunai">Tunai</option></select></div>}
-                                        <input type="text" className="w-full p-2.5 border rounded-xl text-sm bg-gray-50" placeholder="Misal: Belanja bahan Juli" value={form.keterangan} onChange={e => setForm(f => ({ ...f, keterangan: e.target.value }))} />
-                                    </div>
-                                </div>
-                                <div className="flex gap-2 justify-end">
-                                    <button type="button" onClick={() => { setShowForm(false); setForm(emptyTransferForm); setEditId(null); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-sm">Batal</button>
-                                    <button type="submit" className="px-4 py-2 text-white rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-700">
-                                        {editId ? 'Simpan Perubahan' : 'Simpan Transfer'}
-                                    </button>
-                                </div>
-                            </form>
-                        </Card>
+                                </form>
+                            </div>
+                        </div>
                     )}
 
                     <Card>
@@ -12297,7 +12359,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     <div className="w-1 h-4 rounded-full bg-blue-500"></div>
                                     <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Riwayat Dana Operasional — {selectedEmp.name}{empDana.length > 0 ? ` (${empDana.length})` : ''}</span>
                                 </div>
-                                {bolehKelola && <button onClick={() => { setEditId(null); setForm(emptyTransferForm); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-100">+ Transfer Baru</button>}
+                                {bolehKelola && <button onClick={bukaFormTransfer} className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-100">+ Transfer Baru</button>}
                             </div>
                             {empDana.length === 0 ? (
                                 <p className="text-sm text-gray-400 italic text-center py-4">Belum ada transfer dana untuk {selectedEmp.name}.</p>
@@ -12318,13 +12380,17 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     <span className={`font-bold text-sm ${amtCls}`}>{formatRupiah(d.nominal)}</span>
                                                     {isPenyelesaian && <span className="text-[10px] font-bold bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Penyesuaian</span>}
                                                     {isTalangan && <span className="text-[10px] font-bold bg-red-200 text-red-800 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Talangan</span>}
+                                                    {!isPenyelesaian && !isTalangan && (d.dari === 'tunai'
+                                                        ? <span data-dana-cara="tunai" className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full">💵 Tunai</span>
+                                                        : <span data-dana-cara="rekening" className="text-[10px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full">🏦 Transfer</span>)}
+                                                    {d.bukti && <button type="button" data-dana-bukti onClick={() => bukaPenampilGambar({ gambar: [{ label: isTalangan ? 'Nota' : 'Bukti', src: d.bukti }], awal: 0, judul: `Bukti · ${d.karyawanNama || selectedEmp?.name || '-'} · ${String(d.tanggal || '').split('-').reverse().join('/')} · ${formatRupiah(d.nominal)}` })} className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 hover:bg-blue-100">📎 Lihat bukti</button>}
                                                 </div>
                                                 <div className="text-xs text-gray-500">{d.tanggal}{d.keterangan ? ` · ${d.keterangan}` : ''}</div>
                                                 <div data-dana-pencatat className="text-[11px] text-gray-500 mt-0.5">✍ Dicatat oleh: <b className="font-semibold">{d.dicatatOleh || '—'}</b>{d.diubahOleh ? <span> · diubah oleh {d.diubahOleh}</span> : null}</div>
                                             </div>
                                             {bolehKelola && <div className="flex gap-1 flex-shrink-0">
-                                                {!isPenyelesaian && <button onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar', dari: d.dari === 'tunai' ? 'tunai' : 'rekening' }); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
-                                                <button onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
+                                                {!isPenyelesaian && <button title="Edit" onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar', dari: d.dari === 'tunai' ? 'tunai' : 'rekening', bukti: d.bukti || '' }); setShowForm(true); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
+                                                <button title="Hapus" onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                             </div>}
                                         </div>
                                         );
@@ -36652,8 +36718,8 @@ ${getRekapShareLink(rekap)}
             // ===== Pindahkan gambar lama (desain order & bukti bayar invoice) ke baris cloud terpisah =====
             // Bertahap, satu per satu, hanya satu tab, berhenti saat server bermasalah. Data order/invoice
             // hanya menyimpan penanda 'img:...' sehingga jauh lebih ringan diunduh & disimpan.
-            const imgOffloadDataRef = useRef({ orders: [], invoices: [] });
-            imgOffloadDataRef.current = { orders, invoices };
+            const imgOffloadDataRef = useRef({ orders: [], invoices: [], danaOperasional: [] });
+            imgOffloadDataRef.current = { orders, invoices, danaOperasional };
             const imgOffloadBusyRef = useRef(false);
             const [imgOffloadProgress, setImgOffloadProgress] = useState(null); // { done, total } selama gambar lama dipindah
             const imgOffloadSkipRef = useRef(new Set()); // gambar yang ditolak server (bukan karena server sakit): tidak dicoba lagi sesi ini
@@ -36672,12 +36738,23 @@ ${getRekapShareLink(rekap)}
                         if (p && p.id != null && isInlineImage(p.proofImage)) tasks.push({ kind: 'invoice', id: String(inv.id), payId: String(p.id), value: p.proofImage, ref: `${IMG_REF_PREFIX}i:${inv.id}:${p.id}:${hashImageString(p.proofImage)}`, deleted: !!inv.isDeleted });
                     });
                 });
+                // Bukti transfer dana operasional
+                safeArray(imgOffloadDataRef.current.danaOperasional).forEach(d => {
+                    if (d && d.id != null && isInlineImage(d.bukti)) tasks.push({ kind: 'dana', id: String(d.id), value: d.bukti, ref: `${IMG_REF_PREFIX}d:${d.id}:${hashImageString(d.bukti)}`, deleted: !!d.isDeleted });
+                });
                 // Yang masih aktif dulu, yang sudah dihapus belakangan
                 return tasks.sort((a, b) => Number(a.deleted) - Number(b.deleted));
             };
             const applyImageOffloadResults = (done) => {
                 const ordersDone = done.filter(d => d.kind === 'order');
                 const invDone = done.filter(d => d.kind === 'invoice');
+                const danaDone = done.filter(d => d.kind === 'dana');
+                if (danaDone.length) {
+                    const byId = new Map(danaDone.map(d => [d.id, d]));
+                    // Hanya diganti bila fotonya masih sama (tidak diganti pengguna selama proses)
+                    const hitDana = (r) => { const d = byId.get(String(r?.id)); return d && r.bukti === d.value ? d : null; };
+                    if (safeArray(imgOffloadDataRef.current.danaOperasional).some(hitDana)) updateDanaOperasional(prev => safeArray(prev).map(r => { const d = hitDana(r); return d ? { ...r, bukti: d.ref } : r; }));
+                }
                 if (ordersDone.length) {
                     const byId = new Map();
                     ordersDone.forEach(d => { if (!byId.has(d.id)) byId.set(d.id, []); byId.get(d.id).push(d); });
@@ -36774,7 +36851,7 @@ ${getRekapShareLink(rekap)}
                 // Gambar baru (order baru / bukti bayar baru) dipindah ±15 detik setelah disimpan
                 const t = setTimeout(() => runImageOffloadRef.current(), 15000);
                 return () => clearTimeout(t);
-            }, [orders, invoices]);
+            }, [orders, invoices, danaOperasional]);
 
             const handleSyncBadgeClick = async () => {
                 if (navigator.onLine === false) { showToast('Perangkat sedang offline. Data akan dikirim otomatis saat internet tersambung.', 'error'); return; }
