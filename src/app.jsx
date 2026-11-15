@@ -12162,7 +12162,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     </div>
                                     <div className="px-5 py-4 space-y-3 overflow-y-auto">
                                         <div data-dana-kirim-pesan className="rounded-xl bg-[#d9fdd3] border border-green-200 px-3 py-2 text-[13px] whitespace-pre-wrap break-words text-gray-800">{pesan.replace(/⁠/g, '').replace(/\*/g, '')}</div>
-                                        <a data-dana-kirim-wa href={hp ? `https://wa.me/${hp}?text=${encodeURIComponent(pesan)}` : `https://wa.me/?text=${encodeURIComponent(pesan)}`} target="_blank" rel="noopener noreferrer" className="block text-center rounded-xl bg-green-600 hover:bg-green-700 text-white font-black py-2.5">💬 Kirim WA{hp ? ` ke ${d.karyawanNama || ''}` : ''}</a>
+                                        <a data-dana-kirim-wa href={hp ? `https://api.whatsapp.com/send?phone=${hp}&text=${encodeURIComponent(pesan)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(pesan)}`} target="_blank" rel="noopener noreferrer" className="block text-center rounded-xl bg-green-600 hover:bg-green-700 text-white font-black py-2.5">💬 Kirim WA{hp ? ` ke ${d.karyawanNama || ''}` : ''}</a>
                                         <button type="button" data-dana-kirim-salin onClick={salin} className="w-full rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold py-2.5">🔗 Salin link</button>
                                         {!hp && <p className="text-xs text-gray-500">Nomor HP {d.karyawanNama || 'karyawan'} belum diisi di Data Karyawan — WhatsApp akan meminta Anda memilih kontak.</p>}
                                         <p className="text-[11px] text-gray-400 break-all">{url}</p>
@@ -13466,7 +13466,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 break-all text-xs text-gray-600">{shareUrl}</div>
                                 <div className="grid grid-cols-2 gap-2 mb-4">
                                     <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
-                                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Halo, berikut link laporan invoice Anda:\n' + shareUrl)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
+                                    <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent('Halo, berikut link laporan invoice Anda:\n' + shareUrl)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
                                 </div>
                                 <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang punya link ini dapat melihat data invoice marketing ini.</p>
                                 <div className="flex justify-between items-center">
@@ -14477,7 +14477,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                 </div>
                                 <div className="flex gap-2">
                                     <button onClick={() => { navigator.clipboard?.writeText(shareModal.waText); showToast('Pesan disalin', 'success'); }} className="flex-1 py-2.5 text-sm font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl">Salin Pesan</button>
-                                    <a href={`https://wa.me/?text=${encodeURIComponent(shareModal.waText)}`} target="_blank" rel="noopener noreferrer" className="flex-1 py-2.5 text-sm font-bold bg-green-500 hover:bg-green-600 text-white rounded-xl text-center">Buka WhatsApp</a>
+                                    <a href={`https://api.whatsapp.com/send?text=${encodeURIComponent(shareModal.waText)}`} target="_blank" rel="noopener noreferrer" className="flex-1 py-2.5 text-sm font-bold bg-green-500 hover:bg-green-600 text-white rounded-xl text-center">Buka WhatsApp</a>
                                 </div>
                             </div>
                         </div>
@@ -15956,7 +15956,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 break-all text-xs text-gray-600">{shareUrl}</div>
                                 <div className="grid grid-cols-2 gap-2 mb-4">
                                     <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
-                                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`Halo *${mktShareModal.marketing || ''}*,\n\nBerikut link laporan invoice & komisi marketing Anda di *Simpati Konveksi* (diperbarui otomatis):\n\n📊 ${shareUrl}\n\nTerima kasih atas kerja kerasnya 🙏`)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
+                                    <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(`Halo *${mktShareModal.marketing || ''}*,\n\nBerikut link laporan invoice & komisi marketing Anda di *Simpati Konveksi* (diperbarui otomatis):\n\n📊 ${shareUrl}\n\nTerima kasih atas kerja kerasnya 🙏`)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
                                 </div>
                                 <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang punya link ini dapat melihat data invoice marketing ini.</p>
                                 <div className="flex justify-between items-center">
@@ -15979,7 +15979,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const rincianDiskonWa = sTotals.discount > 0 ? `• Subtotal: ${rpWa(sTotals.subtotal)}\n• Diskon: −${rpWa(sTotals.discount)}\n` : '';
                     const waTagih = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nKami dari *Simpati Konveksi* ingin mengingatkan terkait tagihan invoice berikut:\n\n🧾 *DETAIL INVOICE*\n${rincianDiskonWa}• Total: ${rpWa(sTotals.total)}\n• Sudah dibayar: ${rpWa(sPaid)}\n\n💳 *Sisa tagihan: ${rpWa(sRemaining)}*\n\nMohon bantuan Bapak/Ibu untuk dapat segera melakukan pembayaran atas tagihan tersebut.\n\n*Pembayaran dari Bapak/Ibu sangat berarti bagi kami*, karena sangat membantu kelancaran operasional perusahaan, kebutuhan produksi, serta *gaji karyawan kami* yang menjadi bagian penting dalam keberlangsungan *Simpati Konveksi*.\n\nKami sangat berharap Bapak/Ibu dapat membantu memproses pembayaran tersebut. Dukungan dari customer sangat membantu kami untuk terus menjaga kelancaran produksi dan memberikan pelayanan terbaik.\n\nTerima kasih banyak atas perhatian, bantuan, dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*.\n\n📄 Detail invoice:\n${shareUrl}\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`;
                     const waDp = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nAlhamdulillah, terima kasih atas kepercayaan Bapak/Ibu yang telah mempercayakan kebutuhan seragamnya kepada *Simpati Konveksi*.\n\nBerikut kami sampaikan *ringkasan nilai pesanan* Bapak/Ibu:\n\n🧾 *RINGKASAN NILAI PESANAN*\n${rincianDiskonWa || ''}\n💰 *Total nilai pesanan: ${rpWa(sTotals.total)}*\n\nMohon bantuan Bapak/Ibu untuk dapat melakukan pembayaran *uang muka (DP)* guna memulai proses produksi.\n\n*Pembayaran DP sangat kami butuhkan untuk pembelian bahan dan persiapan produksi*, agar proses pengerjaan pesanan dapat segera kami mulai dan berjalan dengan lancar sesuai rencana.\n\nUntuk konfirmasi nominal DP dan informasi pembayaran, silakan menghubungi kami langsung.\n\nTerima kasih atas bantuan, kepercayaan, dan kerja sama Bapak/Ibu kepada *Simpati Konveksi*.\n\n📄 Detail invoice:\n${shareUrl}\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`;
-                    const mkUrl = (msg) => rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                    const mkUrl = (msg) => rawPhone ? `https://api.whatsapp.com/send?phone=${rawPhone}&text=${encodeURIComponent(msg)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
                     return (
                         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4">
                             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
@@ -17715,7 +17715,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 mb-4">
                                         <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
-                                        <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`*Assalamu'alaikum warahmatullahi wabarakatuh*\n\nYth. Bapak/Ibu *${shareModal.investor.name || ''}*,\n\nBerikut link laporan investasi & bagi hasil Bapak/Ibu di *Simpati Konveksi*. Laporan diperbarui otomatis.\n\n📊 Lihat laporan:\n${shareUrl}\n\nTerima kasih atas kepercayaannya 🙏\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`)}`, '_blank')} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Kirim WhatsApp</button>
+                                        <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(`*Assalamu'alaikum warahmatullahi wabarakatuh*\n\nYth. Bapak/Ibu *${shareModal.investor.name || ''}*,\n\nBerikut link laporan investasi & bagi hasil Bapak/Ibu di *Simpati Konveksi*. Laporan diperbarui otomatis.\n\n📊 Lihat laporan:\n${shareUrl}\n\nTerima kasih atas kepercayaannya 🙏\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`)}`, '_blank')} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Kirim WhatsApp</button>
                                     </div>
                                     <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang memiliki link ini dapat melihat laporan investasi. Cabut akses jika tidak diperlukan lagi.</p>
                                     <div className="flex justify-between items-center">
@@ -21563,8 +21563,8 @@ ${getRekapShareLink(rekap)}
 
 *Wassalamu'alaikum warahmatullahi wabarakatuh*`;
                 const url = phone
-                    ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
-                    : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                    ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`
+                    : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
                 window.open(url, 'simpati_wa');
             };
 
@@ -27922,7 +27922,7 @@ ${getRekapShareLink(rekap)}
                 const tpNote = String(trx.tipsNote || '').trim();
                 const msg = `Halo *${drv ? drv.name : 'Driver'}*,\n\n🛵 *ORDER PENGIRIMAN BARU*\n${ket ? '📝 *' + ket + '*\n' : ''}📍 Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n🔁 Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n💰 Ongkir: *${rpWa(safeMoney(trx.ongkir))}*\n${tp > 0 ? '🎁 Tip: *' + rpWa(tp) + '*' + (tpNote ? ' — ' + tpNote : '') + '\n' : ''}\n👉 Ketuk link untuk konfirmasi:\n${link}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g,'').replace(/^0/,'62') : '';
-                const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                const waUrl = phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
                 window.open(waUrl, '_blank');
             };
 
@@ -28727,7 +28727,7 @@ ${getRekapShareLink(rekap)}
                 const apr = safeMoney(rekap.apresiasi);
                 const msg = `Halo *${drv ? drv.name : (rekap.driverName || 'Driver')}*,\n\n🧾 *SLIP GAJI PENGIRIMAN*\n${rekap.periodeDari ? '📅 ' + labelPeriodeRekap(rekap) + '\n' : ''}\n• Jumlah trip: ${rekap.jumlahTrip || 0}\n• Total ongkir: ${rpWa(safeMoney(rekap.totalOngkir))}\n${safeMoney(rekap.totalTips) > 0 ? `• Tip: ${rpWa(safeMoney(rekap.totalTips))}\n` : ''}${apr > 0 ? `• Apresiasi: ${rpWa(apr)}${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `• Potong kasbon: −${rpWa(pot)}\n` : ''}\n💰 *Gaji diterima: ${rpWa(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${drvRekapStatus(rekap) === 'lunas' ? '✅ Sudah dibayar\n' : `⏳ ${DRV_STATUS_BAYAR_LABEL[drvRekapStatus(rekap)]}${drvRekapDibayar(rekap) > 0 ? ` · sudah dibayar ${rpWa(drvRekapDibayar(rekap))}` : ''} · sisa *${rpWa(drvRekapSisa(rekap))}*\n`}${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\n📄 Rincian & PDF:\n${linkSlip(rekap)}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
-                window.open(phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                window.open(phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
             };
 
             // ----- Laporan (per periode) -----
