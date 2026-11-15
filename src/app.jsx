@@ -299,6 +299,12 @@
             return rest;
         };
         const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(parseInt(num) || 0);
+        // ===== Pesan WhatsApp =====
+        // Rupiah untuk pesan WA: tanda tak terlihat (word joiner) setelah titik ribuan agar WhatsApp tidak menjadikan angka
+        // seperti "1.537.000" tautan nomor telepon (hijau bergaris). Angka yang terlihat tetap sama.
+        const rpWa = (num) => formatRupiah(num).replace(/\./g, '.\u2060');
+        // Tanggal untuk pesan WA: "13 November 2026" (bukan 2026-11-13 yang dijadikan tautan oleh WhatsApp)
+        const tglWa = (d) => { const v = String(d || '').slice(0, 10); const t = new Date(`${v}T00:00:00`); return /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(t.getTime()) ? t.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : String(d || '-'); };
 
         const terbilangRupiah = (n) => {
             const clean = String(n ?? '').replace(/[Rp\s.]/g, '').replace(',', '.');
@@ -1495,6 +1501,13 @@
         const getInvoiceShareFromHash = () => {
             const hash = window.location.hash || '';
             const prefix = '#invoice-share=';
+            if (!hash.startsWith(prefix)) return '';
+            try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
+        };
+
+        const getDanaShareFromHash = () => {
+            const hash = window.location.hash || '';
+            const prefix = '#dana=';
             if (!hash.startsWith(prefix)) return '';
             try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
         };
@@ -11886,6 +11899,36 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const emptyTransferForm = { tanggal: toLocalDateStr(), nominal: '', keterangan: '', type: 'keluar', dari: 'rekening', bukti: '' };
             const [form, setForm] = useState(emptyTransferForm);
             const [prosesBukti, setProsesBukti] = useState(false);
+            // Kirim "Bukti Penyerahan Dana" ke karyawan (link + WhatsApp)
+            const [kirimDana, setKirimDana] = useState(null); // { id, token }
+            const linkDana = (token) => `${window.location.origin}${window.location.pathname}#dana=${encodeURIComponent(token)}`;
+            const bukaKirimDana = (d) => {
+                if (tolakTanpaAkses()) return;
+                let token = d.shareToken;
+                if (!token) {
+                    token = genId('DOS-');
+                    const now = new Date().toISOString();
+                    setDanaOperasional(prev => safeArray(prev).map(x => String(x.id) === String(d.id) ? { ...x, shareToken: token, _syncUpdatedAt: now } : x));
+                }
+                setKirimDana({ id: String(d.id), token });
+            };
+            const pesanWaDana = (d, url) => [
+                `*Assalamu'alaikum warahmatullahi wabarakatuh*`,
+                ``,
+                `Halo *${d.karyawanNama || '-'}*, dana operasional sudah kami berikan:`,
+                ``,
+                `💸 *DANA OPERASIONAL*`,
+                `💰 *${rpWa(safeMoney(d.nominal))}*`,
+                caraDanaLabel(d),
+                `📅 ${tglWa(d.tanggal)}`,
+                ...(d.keterangan ? [`📝 ${d.keterangan}`] : []),
+                ``,
+                `📄 Bukti & PDF:`,
+                url,
+                ``,
+                `Terima kasih 🙏`,
+                `*Simpati Konveksi*`,
+            ].join('\n');
             const bukaFormTransfer = () => { setEditId(null); setForm(emptyTransferForm); setShowForm(true); };
             const tutupFormTransfer = () => { setShowForm(false); setForm(emptyTransferForm); setEditId(null); setEmpDropdownOpen(false); };
             const pilihBukti = async (e) => {
@@ -11956,7 +11999,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 // Pencatat: isian baru → akun yang login; edit → pencatat asli tetap, pengubah dicatat terpisah
                 if (editId) record.diubahOleh = namaPencatat; else record.dicatatOleh = namaPencatat;
                 setDanaOperasional(prev => editId
-                    ? safeArray(prev).map(d => String(d.id) === editId ? { ...(d.dicatatOleh ? { dicatatOleh: d.dicatatOleh } : {}), ...record } : d)
+                    ? safeArray(prev).map(d => String(d.id) === editId ? { ...(d.dicatatOleh ? { dicatatOleh: d.dicatatOleh } : {}), ...(d.shareToken ? { shareToken: d.shareToken } : {}), ...record } : d)
                     : [record, ...safeArray(prev)]);
                 setForm(emptyTransferForm);
                 setEditId(null);
@@ -12059,6 +12102,35 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                         )}
                     </div>
 
+                    {kirimDana && (() => {
+                        const d = safeArray(danaOperasional).find(x => String(x.id) === kirimDana.id);
+                        if (!d) return null;
+                        const url = linkDana(kirimDana.token);
+                        const emp = (employees || []).find(e => String(e.id) === String(d.karyawanId));
+                        const hp = String(emp?.phone || '').replace(/\D/g, '').replace(/^0/, '62');
+                        const pesan = pesanWaDana(d, url);
+                        const salin = async () => {
+                            try { await navigator.clipboard.writeText(url); showToast('Link disalin.', 'success'); }
+                            catch (e) { window.prompt('Salin link:', url); }
+                        };
+                        return (
+                            <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4">
+                                <div data-dana-kirim-modal className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[94vh] flex flex-col">
+                                    <div className="flex items-center justify-between gap-2 px-5 py-3 rounded-t-2xl bg-gradient-to-r from-green-600 to-emerald-600 text-white">
+                                        <b className="text-base">📤 Kirim bukti ke {d.karyawanNama || '-'}</b>
+                                        <button type="button" onClick={() => setKirimDana(null)} title="Tutup" className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 font-black">✕</button>
+                                    </div>
+                                    <div className="px-5 py-4 space-y-3 overflow-y-auto">
+                                        <div data-dana-kirim-pesan className="rounded-xl bg-[#d9fdd3] border border-green-200 px-3 py-2 text-[13px] whitespace-pre-wrap break-words text-gray-800">{pesan.replace(/⁠/g, '').replace(/\*/g, '')}</div>
+                                        <a data-dana-kirim-wa href={hp ? `https://wa.me/${hp}?text=${encodeURIComponent(pesan)}` : `https://wa.me/?text=${encodeURIComponent(pesan)}`} target="_blank" rel="noopener noreferrer" className="block text-center rounded-xl bg-green-600 hover:bg-green-700 text-white font-black py-2.5">💬 Kirim WA{hp ? ` ke ${d.karyawanNama || ''}` : ''}</a>
+                                        <button type="button" data-dana-kirim-salin onClick={salin} className="w-full rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold py-2.5">🔗 Salin link</button>
+                                        {!hp && <p className="text-xs text-gray-500">Nomor HP {d.karyawanNama || 'karyawan'} belum diisi di Data Karyawan — WhatsApp akan meminta Anda memilih kontak.</p>}
+                                        <p className="text-[11px] text-gray-400 break-all">{url}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
                     {showForm && bolehKelola && (
                         <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4">
                             <div data-dana-modal className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[94vh] flex flex-col">
@@ -12389,6 +12461,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <div data-dana-pencatat className="text-[11px] text-gray-500 mt-0.5">✍ Dicatat oleh: <b className="font-semibold">{d.dicatatOleh || '—'}</b>{d.diubahOleh ? <span> · diubah oleh {d.diubahOleh}</span> : null}</div>
                                             </div>
                                             {bolehKelola && <div className="flex gap-1 flex-shrink-0">
+                                                {!isPenyelesaian && !isTalangan && <button title="Kirim ke karyawan" data-dana-kirim={d.id} onClick={() => bukaKirimDana(d)} className="p-1.5 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors text-sm leading-none">📤</button>}
                                                 {!isPenyelesaian && <button title="Edit" onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar', dari: d.dari === 'tunai' ? 'tunai' : 'rekening', bukti: d.bukti || '' }); setShowForm(true); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
                                                 <button title="Hapus" onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
                                             </div>}
@@ -13949,7 +14022,6 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
             const openShareModal = (bhp) => {
                 const { invs, totalNilai, totalPcs, nominal, termasukOngkir } = calcBagiHasil(bhp, safeInvoices);
                 const url = getShareUrl(bhp.shareToken);
-                const sep = `————————————————`;
                 const isSingle = invs.length <= 1;
                 const isPcs = bhp.bagiHasilType === 'Rp/pcs';
                 const singleCustomer = invs[0] ? (invs[0].customer || '-') : '-';
@@ -13959,20 +14031,22 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const seragamPara = isSingle
                     ? `Sebagai bentuk terima kasih dan apresiasi kami, kami dengan senang hati berbagi hasil atas pesanan tersebut kepada Bapak/Ibu.`
                     : `Sebagai bentuk terima kasih dan apresiasi kami, kami dengan senang hati berbagi hasil atas pesanan-pesanan tersebut kepada Bapak/Ibu.`;
+                // Pesan WA: label pendek tanpa spasi perataan; rincian pesanan satu baris bernomor; angka tidak jadi tautan nomor telepon
+                const hitunganLine = isPcs ? [`• Hitungan: ${rpWa(bhp.bagiHasilValue)}/pcs`] : [];
                 const blockLines = isSingle
                     ? [
-                        `• Customer      : ${singleCustomer}`,
-                        `• Nilai Pesanan  : ${formatRupiah(totalNilai)}`,
-                        ...(isPcs ? [`• Total Pcs       : ${totalPcs} pcs`] : []),
-                        `• Bagi Hasil     : *${formatRupiah(nominal)}*${isPcs ? ` (${formatRupiah(bhp.bagiHasilValue)}/pcs)` : ''}`,
+                        `• Customer: ${singleCustomer}`,
+                        `• Nilai pesanan: ${rpWa(totalNilai)}`,
+                        ...(isPcs ? [`• Total pcs: ${totalPcs} pcs`] : []),
+                        ...hitunganLine,
                       ]
                     : [
-                        `Rincian Pesanan:`,
-                        ...invs.map(inv => `• ${inv.customer || '-'}\n  Nilai : ${formatRupiah(getBhpInvoiceNilai(inv, termasukOngkir))}${isPcs ? `  |  ${getInvoicePcsTotal(inv)} pcs` : ''}`),
+                        `Rincian pesanan:`,
+                        ...invs.map((inv, i) => `${i + 1}. ${inv.customer || '-'} — ${rpWa(getBhpInvoiceNilai(inv, termasukOngkir))}${isPcs ? ` · ${getInvoicePcsTotal(inv)} pcs` : ''}`),
                         ``,
-                        `• Total Pesanan  : ${formatRupiah(totalNilai)}`,
-                        ...(isPcs ? [`• Total Pcs       : ${totalPcs} pcs`] : []),
-                        `• Bagi Hasil     : *${formatRupiah(nominal)}*${isPcs ? ` (${formatRupiah(bhp.bagiHasilValue)}/pcs)` : ''}`,
+                        `• Total pesanan: ${rpWa(totalNilai)}`,
+                        ...(isPcs ? [`• Total pcs: ${totalPcs} pcs`] : []),
+                        ...hitunganLine,
                       ];
                 const waText = [
                     `*Assalamu'alaikum warahmatullahi wabarakatuh*`,
@@ -13986,21 +14060,21 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                     ``,
                     seragamPara,
                     ``,
-                    sep,
-                    `*BAGI HASIL PROMOSI*`,
+                    `🎁 *BAGI HASIL PROMOSI*`,
                     ...blockLines,
-                    sep,
+                    ``,
+                    `💰 *Bagi hasil: ${rpWa(nominal)}*`,
                     ``,
                     `Untuk pencairan bagi hasil tersebut, mohon Bapak/Ibu konfirmasi nomor rekening berikut:`,
                     ``,
-                    `*DATA REKENING*`,
-                    `• Nama Bank     :`,
-                    `• No. Rekening  :`,
-                    `• Atas Nama     :`,
+                    `🏦 *DATA REKENING*`,
+                    `• Nama bank:`,
+                    `• No. rekening:`,
+                    `• Atas nama:`,
                     ``,
                     `Kami akan segera proses transfer setelah menerima konfirmasi dari Bapak/Ibu. 🙏`,
                     ``,
-                    `Detail lengkap dapat dilihat di:`,
+                    `📄 Detail lengkap:`,
                     url,
                     ``,
                     `Sekali lagi, terima kasih atas kepercayaan dan dukungan Bapak/Ibu kepada *Simpati Konveksi*. Semoga kerja sama kita bisa terus berlanjut dan membawa manfaat bagi kita semua.`,
@@ -15798,7 +15872,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 break-all text-xs text-gray-600">{shareUrl}</div>
                                 <div className="grid grid-cols-2 gap-2 mb-4">
                                     <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
-                                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Halo, berikut link laporan invoice Anda:\n' + shareUrl)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
+                                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`Halo *${mktShareModal.marketing || ''}*,\n\nBerikut link laporan invoice & komisi marketing Anda di *Simpati Konveksi* (diperbarui otomatis):\n\n📊 ${shareUrl}\n\nTerima kasih atas kerja kerasnya 🙏`)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
                                 </div>
                                 <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang punya link ini dapat melihat data invoice marketing ini.</p>
                                 <div className="flex justify-between items-center">
@@ -15817,8 +15891,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const sRemaining = Math.max(0, sTotals.total - sPaid);
                     const sClient = safeClientRows.find(c => !c.isDeleted && normalizeText(c.name) === normalizeText(sInv.customer));
                     const rawPhone = sClient?.phone ? String(sClient.phone).replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
-                    const waTagih = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nKami dari *Simpati Konveksi* ingin mengingatkan terkait tagihan invoice berikut:\n\n————————————————\n*DETAIL INVOICE*\n${sTotals.discount > 0 ? '• Subtotal      : ' + formatRupiah(sTotals.subtotal) + '\n• Diskon        : - ' + formatRupiah(sTotals.discount) + '\n' : ''}• Total         : ${formatRupiah(sTotals.total)}\n• Terbayar      : ${formatRupiah(sPaid)}\n• *Sisa Tagihan : ${formatRupiah(sRemaining)}*\n————————————————\n\nMohon bantuan Bapak/Ibu untuk dapat segera melakukan pembayaran atas tagihan tersebut.\n\n*Pembayaran dari Bapak/Ibu sangat berarti bagi kami*, karena sangat membantu kelancaran operasional perusahaan, kebutuhan produksi, serta *gaji karyawan kami* yang menjadi bagian penting dalam keberlangsungan *Simpati Konveksi*.\n\nKami sangat berharap Bapak/Ibu dapat membantu memproses pembayaran tersebut. Dukungan dari customer sangat membantu kami untuk terus menjaga kelancaran produksi dan memberikan pelayanan terbaik.\n\nTerima kasih banyak atas perhatian, bantuan, dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*.\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*\n\nDetail Invoice:\n${shareUrl}`;
-                    const waDp = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nAlhamdulillah, terima kasih atas kepercayaan Bapak/Ibu yang telah mempercayakan kebutuhan seragamnya kepada *Simpati Konveksi*.\n\nBerikut kami sampaikan *ringkasan nilai pesanan* Bapak/Ibu:\n\n————————————————\n*RINGKASAN NILAI PESANAN*\n${sTotals.discount > 0 ? '• Subtotal            : ' + formatRupiah(sTotals.subtotal) + '\n• Diskon              : - ' + formatRupiah(sTotals.discount) + '\n' : ''}• *Total Nilai Pesanan : ${formatRupiah(sTotals.total)}*\n————————————————\n\nMohon bantuan Bapak/Ibu untuk dapat melakukan pembayaran *uang muka (DP)* guna memulai proses produksi.\n\n*Pembayaran DP sangat kami butuhkan untuk pembelian bahan dan persiapan produksi*, agar proses pengerjaan pesanan dapat segera kami mulai dan berjalan dengan lancar sesuai rencana.\n\nUntuk konfirmasi nominal DP dan informasi pembayaran, silakan menghubungi kami langsung.\n\nTerima kasih atas bantuan, kepercayaan, dan kerja sama Bapak/Ibu kepada *Simpati Konveksi*.\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*\n\nDetail Invoice:\n${shareUrl}`;
+                    // Pesan WA: label pendek (tanpa spasi perataan), angka utama di baris sendiri, angka tidak jadi tautan nomor telepon
+                    const rincianDiskonWa = sTotals.discount > 0 ? `• Subtotal: ${rpWa(sTotals.subtotal)}\n• Diskon: −${rpWa(sTotals.discount)}\n` : '';
+                    const waTagih = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nKami dari *Simpati Konveksi* ingin mengingatkan terkait tagihan invoice berikut:\n\n🧾 *DETAIL INVOICE*\n${rincianDiskonWa}• Total: ${rpWa(sTotals.total)}\n• Sudah dibayar: ${rpWa(sPaid)}\n\n💳 *Sisa tagihan: ${rpWa(sRemaining)}*\n\nMohon bantuan Bapak/Ibu untuk dapat segera melakukan pembayaran atas tagihan tersebut.\n\n*Pembayaran dari Bapak/Ibu sangat berarti bagi kami*, karena sangat membantu kelancaran operasional perusahaan, kebutuhan produksi, serta *gaji karyawan kami* yang menjadi bagian penting dalam keberlangsungan *Simpati Konveksi*.\n\nKami sangat berharap Bapak/Ibu dapat membantu memproses pembayaran tersebut. Dukungan dari customer sangat membantu kami untuk terus menjaga kelancaran produksi dan memberikan pelayanan terbaik.\n\nTerima kasih banyak atas perhatian, bantuan, dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*.\n\n📄 Detail invoice:\n${shareUrl}\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`;
+                    const waDp = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nAlhamdulillah, terima kasih atas kepercayaan Bapak/Ibu yang telah mempercayakan kebutuhan seragamnya kepada *Simpati Konveksi*.\n\nBerikut kami sampaikan *ringkasan nilai pesanan* Bapak/Ibu:\n\n🧾 *RINGKASAN NILAI PESANAN*\n${rincianDiskonWa || ''}\n💰 *Total nilai pesanan: ${rpWa(sTotals.total)}*\n\nMohon bantuan Bapak/Ibu untuk dapat melakukan pembayaran *uang muka (DP)* guna memulai proses produksi.\n\n*Pembayaran DP sangat kami butuhkan untuk pembelian bahan dan persiapan produksi*, agar proses pengerjaan pesanan dapat segera kami mulai dan berjalan dengan lancar sesuai rencana.\n\nUntuk konfirmasi nominal DP dan informasi pembayaran, silakan menghubungi kami langsung.\n\nTerima kasih atas bantuan, kepercayaan, dan kerja sama Bapak/Ibu kepada *Simpati Konveksi*.\n\n📄 Detail invoice:\n${shareUrl}\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`;
                     const mkUrl = (msg) => rawPhone ? `https://wa.me/${rawPhone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
                     return (
                         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4">
@@ -17555,7 +17631,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 mb-4">
                                         <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
-                                        <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Halo, berikut link laporan investasi Anda di Simpati Konveksi:\n' + shareUrl)}`, '_blank')} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Kirim WhatsApp</button>
+                                        <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`*Assalamu'alaikum warahmatullahi wabarakatuh*\n\nYth. Bapak/Ibu *${shareModal.investor.name || ''}*,\n\nBerikut link laporan investasi & bagi hasil Bapak/Ibu di *Simpati Konveksi*. Laporan diperbarui otomatis.\n\n📊 Lihat laporan:\n${shareUrl}\n\nTerima kasih atas kepercayaannya 🙏\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`)}`, '_blank')} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Kirim WhatsApp</button>
                                     </div>
                                     <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang memiliki link ini dapat melihat laporan investasi. Cabut akses jika tidak diperlukan lagi.</p>
                                     <div className="flex justify-between items-center">
@@ -21340,67 +21416,65 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const commission  = safeMoney(rekap.marketingCommission);
 
                 const bonusSal    = safeMoney(rekap.bonusSalary);
+                // Label pendek tanpa spasi perataan (huruf di HP tidak sama lebar) → "Rp" selalu satu baris dengan angkanya
                 const incomeLines = [];
-                if (prodSalary  > 0) incomeLines.push(`  • Total Rincian Produksi  : *${formatRupiah(prodSalary)},-*`);
-                if (dailySal    > 0) incomeLines.push(`  • Total Fee Harian           : *${formatRupiah(dailySal)},-*`);
-                if (overtimeSal > 0) incomeLines.push(`  • Total Lembur                : *${formatRupiah(overtimeSal)},-*`);
-                if (commission  > 0) incomeLines.push(`  • Total Komisi Marketing : *${formatRupiah(commission)},-*`);
-                { const adjWa = getRekapKomisiPenyesuaian(rekap).reduce((t, p) => t + safeMoney(p.total), 0); if (Math.round(adjWa) !== 0) incomeLines.push(`    (termasuk penyesuaian komisi ${adjWa > 0 ? '+' : '-'}${formatRupiah(Math.abs(Math.round(adjWa)))},-)`); }
-                if (bonusSal    > 0) incomeLines.push(`  • Apresiasi Kinerja${rekap.bonusNote ? ` (${rekap.bonusNote})` : ''}  : *${formatRupiah(bonusSal)},-*`);
+                if (prodSalary  > 0) incomeLines.push(`• Produksi: *${rpWa(prodSalary)}*`);
+                if (dailySal    > 0) incomeLines.push(`• Fee harian: *${rpWa(dailySal)}*`);
+                if (overtimeSal > 0) incomeLines.push(`• Lembur: *${rpWa(overtimeSal)}*`);
+                if (commission  > 0) incomeLines.push(`• Komisi marketing: *${rpWa(commission)}*`);
+                { const adjWa = getRekapKomisiPenyesuaian(rekap).reduce((t, p) => t + safeMoney(p.total), 0); if (Math.round(adjWa) !== 0) incomeLines.push(`   (termasuk penyesuaian komisi ${adjWa > 0 ? '+' : '−'}${rpWa(Math.abs(Math.round(adjWa)))})`); }
+                if (bonusSal    > 0) incomeLines.push(`• Apresiasi kinerja${rekap.bonusNote ? ` (${rekap.bonusNote})` : ''}: *${rpWa(bonusSal)}*`);
+                const jmlKomponen = incomeLines.filter(l => l.startsWith('•')).length;
 
-                const incomeSection = incomeLines.length > 1
-                    ? `► *Rincian Pendapatan*\n${incomeLines.join('\n')}\n  • *Total Pendapatan : ${formatRupiah(gross)},-*`
-                    : incomeLines.length === 1
-                        ? incomeLines[0]
-                        : `  • Total Rincian Produksi : *${formatRupiah(gross)},-*`;
+                const incomeSection = jmlKomponen > 1
+                    ? `*Rincian pendapatan*\n${incomeLines.join('\n')}\n• Total pendapatan: *${rpWa(gross)}*`
+                    : incomeLines.length > 0
+                        ? `*Rincian pendapatan*\n${incomeLines.join('\n')}`
+                        : `*Rincian pendapatan*\n• Produksi: *${rpWa(gross)}*`;
 
                 // Kasbon & sisa
                 const snapshot   = rekap.employeeCashAdvanceSnapshot;
                 const sisaKasbon = snapshot ? Math.max(0, safeMoney(snapshot.remaining) - kasbon) : null;
                 const sisaLabel  = sisaKasbon !== null
-                    ? `\n  • Sisa Kasbon : *${formatRupiah(sisaKasbon)},-*${sisaKasbon === 0 ? ' (lunas)' : ''}`
+                    ? `\n• Sisa kasbon: *${rpWa(sisaKasbon)}*${sisaKasbon === 0 ? ' (lunas)' : ''}`
                     : '';
                 const kasbonSection = kasbon > 0
-                    ? `\n► *Potongan Kasbon*\n  • Dipotong : *${formatRupiah(kasbon)},-*${sisaLabel}\n`
+                    ? `\n\n*Potongan kasbon*\n• Dipotong: *−${rpWa(kasbon)}*${sisaLabel}`
                     : '';
-                const totalLine = `\n• *Total Diterima : ${formatRupiah(net)},-* ✔`;
+                const totalLine = `\n\n💰 *Total diterima: ${rpWa(net)}* ✅`;
                 const waPayments = Array.isArray(rekap.payments) ? rekap.payments.filter(p => safeMoney(p.amount) > 0) : [];
                 const waPaymentSection = waPayments.length > 0 ? (() => {
                     const totalPaid = waPayments.reduce((s, p) => s + safeMoney(p.amount), 0);
                     const dikasbon = getRekapKasbonLebihBayar(rekap, employees).reduce((t, k) => t + getCashAdvanceAmount(k), 0);
                     const sisa = Math.max(0, Math.round(net - (totalPaid - dikasbon)));
                     const lebih = Math.max(0, Math.round(totalPaid - dikasbon - net));
-                    const lines = waPayments.map((p, i) => `  • Termin ${i+1} (${p.date || '-'}) : *${formatRupiah(p.amount)},-*`).join('\n');
-                    const sisaLine = (dikasbon > 0 ? `\n  • Dijadikan kasbon (lebih bayar komisi) : *${formatRupiah(dikasbon)},-*` : '') + (lebih > 1
-                        ? `\n  • *Lebih Bayar : ${formatRupiah(lebih)},-*`
+                    const lines = waPayments.map((p, i) => `• Termin ${i+1} (${tglWa(p.date)}): *${rpWa(p.amount)}*`).join('\n');
+                    const sisaLine = (dikasbon > 0 ? `\n• Dijadikan kasbon (lebih bayar komisi): *${rpWa(dikasbon)}*` : '') + (lebih > 1
+                        ? `\n• *Lebih bayar: ${rpWa(lebih)}*`
                         : sisa > 0
-                        ? `\n  • *Sisa Belum Dibayar : ${formatRupiah(sisa)},-*`
-                        : `\n  • Lunas ✅`);
-                    return `\n\n► *Riwayat Pembayaran*\n${lines}\n  • Total Dibayar : *${formatRupiah(totalPaid)},-*${sisaLine}`;
+                        ? `\n⏳ *Sisa belum dibayar: ${rpWa(sisa)}*`
+                        : `\n✅ Lunas`);
+                    return `\n\n*Riwayat pembayaran*\n${lines}\n• Total dibayar: *${rpWa(totalPaid)}*${sisaLine}`;
                 })() : '';
 
                 const msg =
 `*Assalamu'alaikum warahmatullahi wabarakatuh*
 
-Alhamdulillah, kami informasikan rekapitulasi slip gaji atas nama *${nama}* sebagai berikut:
+Alhamdulillah, kami informasikan slip gaji atas nama *${nama}*:
 
-► *Slip Gaji*
+🧾 *SLIP GAJI*
+👤 ${nama} · ${divisi}
+📅 ${tglWa(tanggal)}
 
-• Nama    : *${nama}*
-• Divisi   : ${divisi}
-• Tanggal : ${tanggal}
-
-${incomeSection}
-${kasbonSection}${totalLine}${waPaymentSection}
+${incomeSection}${kasbonSection}${totalLine}${waPaymentSection}
 
 Mohon konfirmasi apabila perhitungan tersebut sudah sesuai. Jika tidak ada kendala, insyaAllah pembayaran akan segera kami proses.
 
 Mohon informasinya, dana ingin diterima melalui *TRANSFER* atau *CASH* ya.
 
-Terima kasih atas kerja keras dan dedikasinya selama ini.
-Semoga menjadi rezeki yang halal, berkah, dan membawa kebaikan. Aamiin.
+Terima kasih atas kerja keras dan dedikasinya selama ini. Semoga menjadi rezeki yang halal, berkah, dan membawa kebaikan. Aamiin.
 
-► Lihat Slip Gaji Lengkap:
+📄 Slip lengkap & PDF:
 ${getRekapShareLink(rekap)}
 
 *Wassalamu'alaikum warahmatullahi wabarakatuh*`;
@@ -27300,6 +27374,118 @@ ${getRekapShareLink(rekap)}
         const drvRekapKasKeluar = (r) => drvRekapLama(r)
             ? (drvRekapNet(r) > 0 ? [{ date: r.tanggalRekap, amount: drvRekapNet(r), lama: true }] : [])
             : drvRekapBayar(r).map(p => ({ date: p.date || r.tanggalRekap, amount: safeMoney(p.amount), method: p.method || '', note: p.note || '' }));
+        // ===== Link "Bukti Penyerahan Dana Operasional" untuk karyawan (#dana=<token>) =====
+        const DANA_KOLOM_SHARE = ['companyLogoMini', 'companyName', 'companySubtitle', 'companyContact', 'companyAddress', 'showSignatureOnPrint', 'signatureSize', 'printMode', 'logoSize'];
+        const caraDanaLabel = (d) => d && d.dari === 'tunai' ? '💵 Tunai (uang cash)' : '🏦 Transfer dari rekening kantor';
+        const htmlStrukDana = ({ d, tpl, bukti }) => {
+            const nama = d.karyawanNama || '-';
+            const judul = namaFileCetak('Bukti Dana', nama, fmtTglStruk(d.tanggal));
+            return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtmlText(judul)}</title><style>${STRUK_CSS}</style></head><body><div class="receipt">
+                ${kepalaStruk(tpl, 'BUKTI PENYERAHAN DANA OPERASIONAL')}
+                <div class="meta">
+                    <div class="row"><span class="lbl">Kepada</span><span class="val">${escapeHtmlText(nama)}</span></div>
+                    <div class="row"><span class="lbl">Tanggal</span><span class="val">${escapeHtmlText(fmtTglStruk(d.tanggal))}</span></div>
+                    <div class="row"><span class="lbl">Cara</span><span class="val">${d.dari === 'tunai' ? 'Tunai' : 'Transfer'}</span></div>
+                    ${d.keterangan ? `<div class="row"><span class="lbl">Ket.</span><span class="val">${escapeHtmlText(d.keterangan)}</span></div>` : ''}
+                </div>
+                <div class="total-box"><div class="row grand"><span>Nominal</span><span>${formatRupiah(safeMoney(d.nominal))}</span></div></div>
+                <div class="meta">
+                    <div class="row"><span class="lbl">Dicatat</span><span class="val">${escapeHtmlText(d.dicatatOleh || '-')}</span></div>
+                    <div class="row"><span class="lbl">No.</span><span style="font-size:9px;font-weight:bold">${escapeHtmlText(d.id)}</span></div>
+                </div>
+                ${bukti ? `<div class="section-title">Bukti</div><img src="${bukti}" style="display:block;width:100%;margin-top:4px;border:1px solid #000"/>` : ''}
+                ${ttdStruk(tpl, 'Penerima,', nama)}
+                <div style="text-align:center;font-size:9px;margin-top:8px">Dicetak ${escapeHtmlText(new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }))}</div>
+                </div></body></html>`;
+        };
+        const DanaPublicView = ({ token }) => {
+            const [st, setSt] = React.useState({ loading: true, error: '', d: null, tpl: {} });
+            const tplLengkapRef = React.useRef(null);
+            React.useEffect(() => {
+                let hidup = true;
+                (async () => {
+                    try {
+                        if (!supabaseClient) { setSt({ loading: false, error: 'Koneksi gagal. Periksa jaringan internet lalu muat ulang halaman.', d: null, tpl: {} }); return; }
+                        const [rows, tpl] = await Promise.all([
+                            ambilShareCocok('danaOperasional', 'shareToken', token),
+                            ambilPengaturanShare(DANA_KOLOM_SHARE).catch(() => ({})),
+                        ]);
+                        if (!hidup) return;
+                        const d = safeArray(rows).find(r => r && !r.isDeleted && r.shareToken === token && (!r.type || r.type === 'keluar'));
+                        if (!d) { setSt({ loading: false, error: 'Link tidak valid atau catatan dana sudah dihapus.', d: null, tpl: {} }); return; }
+                        const t = tpl && typeof tpl === 'object' ? { ...tpl } : {};
+                        if (t.companyLogoMini) t.companyLogo = t.companyLogoMini;
+                        setSt({ loading: false, error: '', d, tpl: t });
+                    } catch (e) {
+                        if (hidup) setSt({ loading: false, error: 'Gagal memuat data. Silakan coba lagi.', d: null, tpl: {} });
+                    }
+                })();
+                return () => { hidup = false; };
+            }, [token]);
+            const { loading, error, d, tpl } = st;
+            if (loading) return (
+                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-700 to-teal-600">
+                    <div className="text-center text-white/90 font-semibold text-sm"><div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>Memuat bukti dana…</div>
+                </div>
+            );
+            if (error || !d) return (
+                <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+                    <div data-dana-share-error className="bg-white rounded-2xl shadow p-8 max-w-sm w-full text-center">
+                        <div className="text-3xl mb-2">⚠️</div>
+                        <p className="font-bold text-gray-700">{error || 'Link tidak valid.'}</p>
+                        <p className="text-sm text-gray-400 mt-2">Silakan hubungi admin untuk informasi lebih lanjut.</p>
+                    </div>
+                </div>
+            );
+            const tglPanjang = (() => { const t = new Date(`${String(d.tanggal || '').slice(0, 10)}T00:00:00`); return isNaN(t.getTime()) ? (d.tanggal || '-') : t.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); })();
+            const buatHtml = async () => {
+                let gabung = tplLengkapRef.current || tpl;
+                if (!tplLengkapRef.current && supabaseClient) {
+                    try { const full = await ambilPengaturanShare(KOLOM_CETAK_SLIP); gabung = { ...tpl, ...full }; tplLengkapRef.current = gabung; } catch (e) {}
+                }
+                let bukti = '';
+                if (d.bukti) { try { bukti = isImgRef(d.bukti) ? (await loadImageRef(d.bukti)) || '' : d.bukti; } catch (e) { bukti = ''; } }
+                return htmlStrukDana({ d, tpl: gabung, bukti });
+            };
+            const baris = (lbl, val, extra = {}) => <div className="flex justify-between gap-3 py-2 border-t border-gray-100 first:border-t-0 text-[13px]"><span className="text-gray-500 shrink-0">{lbl}</span><b className="text-right text-gray-800 min-w-0 break-words" {...extra}>{val}</b></div>;
+            return (
+                <div data-dana-share className="min-h-screen bg-slate-100">
+                    <div className="max-w-md mx-auto pb-8">
+                        <div className="bg-gradient-to-br from-emerald-800 to-teal-600 text-white text-center px-4 pt-6 pb-14 sm:rounded-b-3xl">
+                            {tpl.companyLogo ? <img src={tpl.companyLogo} alt="" className="w-14 h-14 rounded-xl bg-white object-contain mx-auto p-1" /> : <div className="w-14 h-14 rounded-xl bg-white text-emerald-800 font-black text-2xl flex items-center justify-center mx-auto">S</div>}
+                            <div className="mt-2 font-black tracking-wide">{(tpl.companyName || 'SIMPATI KONVEKSI').toUpperCase()}</div>
+                            <div className="text-xs text-white/85">Bukti Penyerahan Dana Operasional</div>
+                        </div>
+                        <div className="-mt-10 px-3 space-y-3">
+                            <div className="bg-white rounded-2xl shadow-md p-4 text-center">
+                                <div className="text-[11px] font-black tracking-widest text-emerald-700">DANA DITERIMA</div>
+                                <div data-dana-share-nominal className="text-3xl font-black text-emerald-800 my-1 tabular-nums">{formatRupiah(safeMoney(d.nominal))}</div>
+                                <span data-dana-share-cara={d.dari === 'tunai' ? 'tunai' : 'rekening'} className="inline-block rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-1">{caraDanaLabel(d)}</span>
+                            </div>
+                            <div className="bg-white rounded-2xl px-4 py-1.5">
+                                {baris('Kepada', d.karyawanNama || '-')}
+                                {baris('Tanggal', tglPanjang)}
+                                {d.keterangan ? baris('Keterangan', d.keterangan) : null}
+                                {baris('Dicatat oleh', d.dicatatOleh || '-')}
+                                {baris('No. catatan', d.id, { className: 'text-right text-gray-800 font-mono text-[11px] break-all' })}
+                            </div>
+                            {d.bukti && (
+                                <div className="bg-white rounded-2xl p-3">
+                                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">{d.dari === 'tunai' ? 'Bukti serah terima' : 'Bukti transfer'}</div>
+                                    <button type="button" data-dana-share-bukti onClick={() => bukaPenampilGambar({ gambar: [{ label: 'Bukti', src: d.bukti }], awal: 0, judul: `Bukti · ${d.karyawanNama || '-'} · ${formatRupiah(safeMoney(d.nominal))}` })} className="block w-full" title="Ketuk untuk memperbesar">
+                                        <StoredImg src={d.bukti} alt="bukti" className="w-full max-h-72 object-contain rounded-xl bg-slate-50" placeholderClassName="w-full h-40 rounded-xl" />
+                                    </button>
+                                    <div className="text-[11px] text-gray-400 text-center mt-1">Ketuk foto untuk memperbesar</div>
+                                </div>
+                            )}
+                            <div data-dana-share-pdf><TombolPdfSlip buatHtml={buatHtml} namaFile={namaFileCetak('Bukti Dana', d.karyawanNama || 'Karyawan', fmtTglStruk(d.tanggal))} kunci={`${d.id}|${d._syncUpdatedAt || ''}`} /></div>
+                            <p className="text-center text-[11px] text-gray-400">Dana ini milik perusahaan untuk keperluan operasional.<br />Simpan bukti ini sebagai catatan Anda.</p>
+                        </div>
+                    </div>
+                    <PenampilGambarHost />
+                </div>
+            );
+        };
         const htmlStrukRekapGaji = ({ rekap, driver, trips, tarifs, tpl, sisaSekarang }) => {
             const per = periodeRekapGaji(rekap, trips);
             const info = infoKasbonRekap(rekap, sisaSekarang);
@@ -27650,7 +27836,7 @@ ${getRekapShareLink(rekap)}
                 const ket = String(trx.note || '').trim();
                 const tp = tipsTrip(trx);
                 const tpNote = String(trx.tipsNote || '').trim();
-                const msg = `Halo ${drv ? drv.name : 'Driver'},\n\nAda order pengiriman baru:\n${ket ? '📝 *Keterangan:* ' + ket + '\n\n' : ''}${tp > 0 ? '🎁 *Tip: ' + formatRupiah(tp) + '*' + (tpNote ? ' — ' + tpNote : '') + '\n\n' : ''}- Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n- Ongkir: ${formatRupiah(safeMoney(trx.ongkir))}\n- Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n\nKlik link untuk konfirmasi:\n${link}`;
+                const msg = `Halo *${drv ? drv.name : 'Driver'}*,\n\n🛵 *ORDER PENGIRIMAN BARU*\n${ket ? '📝 *' + ket + '*\n' : ''}📍 Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n🔁 Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n💰 Ongkir: *${rpWa(safeMoney(trx.ongkir))}*\n${tp > 0 ? '🎁 Tip: *' + rpWa(tp) + '*' + (tpNote ? ' — ' + tpNote : '') + '\n' : ''}\n👉 Ketuk link untuk konfirmasi:\n${link}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g,'').replace(/^0/,'62') : '';
                 const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
                 window.open(waUrl, '_blank');
@@ -28455,7 +28641,7 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d => d.id === rekap.driverId);
                 const pot = safeMoney(rekap.potonganKasbon);
                 const apr = safeMoney(rekap.apresiasi);
-                const msg = `Halo ${drv ? drv.name : (rekap.driverName || 'Driver')},\n\nBerikut slip gaji pengiriman${rekap.periodeDari ? ' periode ' + labelPeriodeRekap(rekap) : ''}:\n- Jumlah trip: ${rekap.jumlahTrip || 0}\n- Total ongkir: ${formatRupiah(safeMoney(rekap.totalOngkir))}\n${safeMoney(rekap.totalTips) > 0 ? `- 🎁 *Tip: ${formatRupiah(safeMoney(rekap.totalTips))}*\n` : ''}${apr > 0 ? `- ⭐ *Apresiasi: ${formatRupiah(apr)}*${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `- Potong kasbon: ${formatRupiah(pot)}\n` : ''}- *Gaji diterima: ${formatRupiah(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${drvRekapStatus(rekap) === 'lunas' ? '- Status: ✅ Sudah dibayar\n' : `- Status: ${DRV_STATUS_BAYAR_LABEL[drvRekapStatus(rekap)]}${drvRekapDibayar(rekap) > 0 ? ` · sudah dibayar ${formatRupiah(drvRekapDibayar(rekap))}` : ''} · *sisa ${formatRupiah(drvRekapSisa(rekap))}*\n`}${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\nRincian:\n${linkSlip(rekap)}`;
+                const msg = `Halo *${drv ? drv.name : (rekap.driverName || 'Driver')}*,\n\n🧾 *SLIP GAJI PENGIRIMAN*\n${rekap.periodeDari ? '📅 ' + labelPeriodeRekap(rekap) + '\n' : ''}\n• Jumlah trip: ${rekap.jumlahTrip || 0}\n• Total ongkir: ${rpWa(safeMoney(rekap.totalOngkir))}\n${safeMoney(rekap.totalTips) > 0 ? `• Tip: ${rpWa(safeMoney(rekap.totalTips))}\n` : ''}${apr > 0 ? `• Apresiasi: ${rpWa(apr)}${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `• Potong kasbon: −${rpWa(pot)}\n` : ''}\n💰 *Gaji diterima: ${rpWa(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${drvRekapStatus(rekap) === 'lunas' ? '✅ Sudah dibayar\n' : `⏳ ${DRV_STATUS_BAYAR_LABEL[drvRekapStatus(rekap)]}${drvRekapDibayar(rekap) > 0 ? ` · sudah dibayar ${rpWa(drvRekapDibayar(rekap))}` : ''} · sisa *${rpWa(drvRekapSisa(rekap))}*\n`}${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\n📄 Rincian & PDF:\n${linkSlip(rekap)}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
                 window.open(phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
             };
@@ -33336,6 +33522,7 @@ ${getRekapShareLink(rekap)}
             const [marketingShareToken] = useState(getMarketingShareTokenFromHash());
             const [invoiceShareToken] = useState(getInvoiceShareFromHash());
             const [promosiShareToken] = useState(getPromosiShareFromHash());
+            const [danaShareToken] = useState(getDanaShareFromHash());
             const [driverConfirmId] = useState(getDriverConfirmFromHash());
             const [driverRekapGajiShareId] = useState(getDriverRekapGajiFromHash());
             
@@ -33461,6 +33648,8 @@ ${getRekapShareLink(rekap)}
 
             useEffect(() => {
                 const syncPublicHash = () => {
+                    // Link bukti dana dibuka saat aplikasi sudah terbuka di tab yang sama → muat ulang agar halaman link tampil
+                    if (getDanaShareFromHash() !== (danaShareToken || '')) { window.location.reload(); return; }
                     setCustomerTrackingClient(getCustomerTrackingClientFromHash());
                     setRekapGajiShareId(getRekapGajiIdFromHash());
                 };
@@ -34794,9 +34983,9 @@ ${getRekapShareLink(rekap)}
 
                 const initData = async () => {
                     // Membuka link share = boleh langsung mencoba server sekali (jeda pengaman dari gangguan sebelumnya tidak menahan)
-                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId || customerTrackingClient || rekapGajiShareId) cloudHealth.allowProbeNow();
+                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId || customerTrackingClient || rekapGajiShareId) cloudHealth.allowProbeNow();
                     // Halaman share yang mengambil datanya sendiri: jangan muat (dan jangan simpan ke perangkat pengunjung) data utama
-                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) {
+                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) {
                         setIsReady(true);
                         return;
                     }
@@ -35166,7 +35355,7 @@ ${getRekapShareLink(rekap)}
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
                 // Mode share: tidak perlu sync — karyawan hanya lihat slip gaji statis
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
 
                 const refresh = () => {
                     lastRefreshRef.current = Date.now();
@@ -35624,7 +35813,7 @@ ${getRekapShareLink(rekap)}
             jalankanArsipRef.current = jalankanArsipOrder;
             useEffect(() => {
                 if (!isReady || !supabaseClient || authUser?.role !== 'Admin') return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 let batal = false;
                 const coba = () => {
                     if (batal || document.hidden) return;
@@ -36009,7 +36198,7 @@ ${getRekapShareLink(rekap)}
             drvSinkronFnRef.current = sinkronPerjalananDriver;
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 const jalan = () => { const f = drvSinkronFnRef.current; if (f) f(); };
                 window.addEventListener('simpati-driver-remote', jalan);
                 const awal = setTimeout(jalan, 2500);
@@ -36511,7 +36700,7 @@ ${getRekapShareLink(rekap)}
             // perubahan di cloud dicek (permintaan kecil); bila ada data lebih baru dari perangkat lain, dimuat dulu.
             appSinkron.cek = async (onPerbarui, kunciCek = null) => {
                 if (!supabaseClient || cloudHealth.isBlocked() || navigator.onLine === false) return false;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return false;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return false;
                 const remote = await fetchRemoteTimestamps();
                 if (!remote) return false;
                 const lokal = getTsCache();
@@ -36547,7 +36736,7 @@ ${getRekapShareLink(rekap)}
 
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 const retry = async () => {
                     if (navigator.onLine === false) return;
                     // Setelah rem darurat: jeda harus habis dulu, lalu cek server dengan 1 permintaan kecil (satu tab saja)
@@ -36692,7 +36881,7 @@ ${getRekapShareLink(rekap)}
             // Dipakai agar perangkat lain langsung mengecek Mode Pemeliharaan saat Admin mengubahnya.
             useEffect(() => {
                 if (!supabaseClient || !isReady) return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 let ch = null;
                 try {
                     ch = supabaseClient.channel('simpati-sinyal', { config: { broadcast: { self: false } } })
@@ -36837,7 +37026,7 @@ ${getRekapShareLink(rekap)}
             const runImageOffloadRef = useRef(runImageOffload);
             runImageOffloadRef.current = runImageOffload;
             const hasAuthUser = !!authUser;
-            const isShareView = !!(rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || driverConfirmId || driverRekapGajiShareId);
+            const isShareView = !!(rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId);
             useEffect(() => {
                 if (!isReady || !hasAuthUser || !supabaseClient || isShareView) return;
                 // Pertama kali 20 detik setelah siap (tidak tertunda oleh perubahan data), lalu dicek tiap 3 menit
@@ -37014,6 +37203,15 @@ ${getRekapShareLink(rekap)}
                 return (
                     <>
                         <InvoicePublicView token={invoiceShareToken} />
+                        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    </>
+                );
+            }
+
+            if (danaShareToken) {
+                return (
+                    <>
+                        <DanaPublicView token={danaShareToken} />
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     </>
                 );
