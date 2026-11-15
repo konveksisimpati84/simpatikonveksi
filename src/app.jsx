@@ -25744,13 +25744,6 @@ ${getRekapShareLink(rekap)}
             @media (prefers-reduced-motion:reduce){.aprK .hd,.aprK .tr,.aprK .stars span{animation:none}}
             .slipv .bar1{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(255,255,255,.97);border-top:1px solid #e2e8f0;padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px))}
             .slipv .bar1 .in{max-width:480px;margin:0 auto}
-            .pdfb-bt{width:100%;border:0;border-radius:14px;padding:14px;font-size:16px;font-weight:900;color:#fff;cursor:pointer;font-family:inherit;line-height:1.2}
-            .pdfb-bt.hitam{background:#0f172a;box-shadow:0 3px 0 #000}.pdfb-bt.abu{background:#64748b;cursor:wait}
-            .pdfb-bt.hijau{background:#16a34a;box-shadow:0 3px 0 #15803d}.pdfb-bt.biru{background:#2563eb;box-shadow:0 3px 0 #1d4ed8}
-            .pdfb-dua{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pdfb-dua.satu{grid-template-columns:1fr}.pdfb-dua .pdfb-bt{font-size:15px;padding:13px 6px}
-            .pdfb-siap{font-size:13px;font-weight:900;color:#15803d;text-align:center;margin-bottom:6px}
-            .pdfb-prog{height:6px;border-radius:99px;background:#e2e8f0;margin-top:8px;overflow:hidden}.pdfb-prog i{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#38bdf8);transition:width .25s}
-            .pdfb-ket{font-size:12px;text-align:center;margin-top:6px;color:#475569;overflow-wrap:anywhere}
         `;
         // Status bayar slip untuk link karyawan — aturan sama dengan Laporan Kinerja (getRekapPayBadge).
         // dikasbon: kelebihan bayar komisi yang dijadikan kasbon (tidak dihitung sebagai pembayaran gaji)
@@ -27359,6 +27352,16 @@ ${getRekapShareLink(rekap)}
         // Tombol PDF bersama untuk link slip karyawan & driver:
         // Simpan PDF → Menyiapkan PDF… → ✓ PDF siap: [💾 Simpan ke HP] [📤 Bagikan]. Bila gagal/waktu habis: pesan + "Coba lagi" (tidak macet).
         // buatHtml: async () => HTML nota; kunci: berubah bila data slip berubah (PDF lama dibuang).
+        // Gaya tombol PDF dipasang oleh tombolnya sendiri → tampil sama di semua halaman (slip gaji, slip driver, bukti dana)
+        const PDF_TOMBOL_CSS = `
+            .pdfb-bt{width:100%;border:0;border-radius:14px;padding:14px;font-size:16px;font-weight:900;color:#fff;cursor:pointer;font-family:inherit;line-height:1.2}
+            .pdfb-bt.hitam{background:#0f172a;box-shadow:0 3px 0 #000}.pdfb-bt.abu{background:#64748b;cursor:wait}
+            .pdfb-bt.hijau{background:#16a34a;box-shadow:0 3px 0 #15803d}.pdfb-bt.biru{background:#2563eb;box-shadow:0 3px 0 #1d4ed8}
+            .pdfb-dua{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pdfb-dua.satu{grid-template-columns:1fr}.pdfb-dua .pdfb-bt{font-size:15px;padding:13px 6px}
+            .pdfb-siap{font-size:13px;font-weight:900;color:#15803d;text-align:center;margin-bottom:6px}
+            .pdfb-prog{height:6px;border-radius:99px;background:#e2e8f0;margin-top:8px;overflow:hidden}.pdfb-prog i{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#38bdf8);transition:width .25s}
+            .pdfb-ket{font-size:12px;text-align:center;margin-top:6px;color:#475569;overflow-wrap:anywhere}
+        `;
         const TombolPdfSlip = ({ buatHtml, namaFile, kunci }) => {
             const [st, setSt] = React.useState({ tahap: 'awal', pesan: '', gagal: false });
             const [persen, setPersen] = React.useState(0);
@@ -27413,6 +27416,7 @@ ${getRekapShareLink(rekap)}
             const h = hasilRef.current;
             return (
                 <div className="pdfb" data-pdf-tahap={st.tahap}>
+                    <style>{PDF_TOMBOL_CSS}</style>
                     {st.tahap === 'siap' && h ? (
                         <>
                             <div className="pdfb-siap" data-pdf-siap>✓ PDF siap</div>
