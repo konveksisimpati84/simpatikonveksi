@@ -12567,7 +12567,41 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     )}
 
 
-                    {deleteConfirmId && bolehKelola && (
+                    {deleteConfirmId && bolehKelola && (() => {
+                        const recH = empDana.find(d => String(d.id) === String(deleteConfirmId));
+                        if (!recH || (recH.type && recH.type !== 'keluar')) return null;
+                        const nomH = safeMoney(recH.nominal);
+                        const tunaiH = recH.dari === 'tunai';
+                        const tglH = (() => { const p = String(recH.tanggal || '').split('-'); const bln = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']; return p.length === 3 ? `${parseInt(p[2], 10)} ${bln[parseInt(p[1], 10) - 1] || p[1]} ${p[0]}` : (recH.tanggal || '-'); })();
+                        const namaH = recH.karyawanNama || selectedEmp?.name || 'karyawan';
+                        const bisaSesuaikan = !!stats && stats.saldo > 0 && stats.hutang <= 0 && stats.defisit <= 0;
+                        return (
+                            <div data-dana-hapus-modal className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full max-h-[92vh] overflow-y-auto">
+                                    <h3 className="font-black text-gray-800 text-lg mb-3">Hapus Transfer?</h3>
+                                    <div data-dana-hapus-rinci className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 mb-3">
+                                        <span className="text-gray-500">Karyawan</span><b className="text-gray-800">{namaH}</b>
+                                        <span className="text-gray-500">Tanggal</span><b className="text-gray-800">{tglH}</b>
+                                        <span className="text-gray-500">Nominal</span><b className="text-gray-800 tabular-nums">{formatRupiah(nomH)}</b>
+                                        <span className="text-gray-500">Dikirim</span><b className="text-gray-800">{tunaiH ? 'Tunai (uang cash)' : 'Transfer'}</b>
+                                    </div>
+                                    <p data-dana-hapus-efek className="text-sm text-gray-600 leading-relaxed mb-3"><b className="text-gray-800">Hapus hanya jika transfer ini salah input.</b> Transfer dianggap tidak pernah terjadi: dana {namaH} berkurang {formatRupiah(nomH)} dan saldo {tunaiH ? 'tunai' : 'rekening'} di aplikasi naik lagi {formatRupiah(nomH)}.</p>
+                                    {bisaSesuaikan && (
+                                        <div data-dana-hapus-saran className="bg-amber-50 border border-amber-300 text-amber-800 rounded-xl px-3 py-2.5 text-sm leading-relaxed mb-3">
+                                            💡 <b>Uangnya dikembalikan {namaH}?</b> Jangan dihapus. Pakai <b>Penyesuaian Dana → Kembali ke rekening/tunai</b> supaya riwayat & tanggal kembalinya tercatat.
+                                            <div><button type="button" data-dana-hapus-ke-sesuaikan onClick={() => { setDeleteConfirmId(null); setNolkanForm({ ...emptyNolkanForm, nominal: String(Math.min(nomH, stats.saldo)) }); setShowNolkanForm(true); }} className="mt-2 px-3 py-1.5 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold">Buka Penyesuaian Dana</button></div>
+                                        </div>
+                                    )}
+                                    {recH.shareToken && <p data-dana-hapus-link className="text-xs text-gray-500 mb-3">🔗 Link bukti yang sudah dikirim ke karyawan tidak bisa dibuka lagi.</p>}
+                                    <div className="flex gap-2 justify-end">
+                                        <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-sm">Batal</button>
+                                        <button data-dana-hapus-ya onClick={() => handleDelete(deleteConfirmId)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm">Ya, Hapus (salah input)</button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                    {deleteConfirmId && bolehKelola && (() => { const r0 = empDana.find(d => String(d.id) === String(deleteConfirmId)); return !r0 || (r0.type && r0.type !== 'keluar'); })() && (
                         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
                                 <h3 className="font-black text-gray-800 text-lg mb-2">Hapus Catatan?</h3>
