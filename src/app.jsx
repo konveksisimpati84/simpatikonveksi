@@ -17998,7 +17998,559 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             return res;
         };
 
-        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null, driverRekapGaji = [], driverKasbon = [], danaOperasional = [], setExpenses = null }) => {
+        // ===== Posisi Uang → Untung / Rugi sebenarnya =====
+        // BERDIRI SENDIRI: hanya MEMBACA data & menghitung di tab Posisi Uang. Tidak menyimpan apa pun, tidak dipakai
+        // menu lain, dan tidak mengubah Laba Rugi / Buku Kas / Laporan Kinerja / rekap gaji.
+        // Semua pekerjaan dihitung walau belum dibayar / belum direkap:
+        //  - pendapatan = nilai invoice terbit (+ pemasukan lain), bahan = semua nota (lunas + belum dibayar)
+        //  - upah produksi = pcs order × upah per tahap yang diisi saat input order (tanpa menunggu setoran/rekap)
+        //  - gaji harian & lembur = log gaji harian tersimpan + scan absensi yang belum direkap (rumus "Siap direkap")
+        //  - komisi marketing & bagi hasil direksi = langsung dari invoice; pengeluaran tak tercatat = "Penyesuaian dana"
+        // SALINAN rumus "Siap direkap" (computeAutoAbsensiForEmp di Laporan Kinerja) agar tab ini tidak bergantung
+        // pada menu lain. Bila rumus di Laporan Kinerja diubah, ubah juga salinan ini — uji otomatis membandingkan keduanya.
+        const hitungAbsensiSiapRekapSalinan = (emp, { templates, rawLogsByPinDate, absensiEditByKey, includeGaps = false } = {}) => {
+            const ttm = (t) => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+            const pin = String(emp?.fingerPin || '').trim();
+            if (!pin || !getEmployeeSalaryTypes(emp).includes('Harian')) return { previewLogs: [], warnings: [] };
+            const empAssignment = safeArray(templates?.absensiShiftAssignments).find(a => String(a.pin) === pin);
+            const empPrimaryId = empAssignment ? safeArray(empAssignment.shifts).find(id => id !== 'shift3') : null;
+            const empHasShift3 = empAssignment ? safeArray(empAssignment.shifts).includes('shift3') : false;
+            const empPrimaryShift = empPrimaryId ? safeArray(templates?.absensiShifts).find(s => s.id === empPrimaryId) : null;
+            const empShift3obj = empHasShift3 ? safeArray(templates?.absensiShifts).find(s => s.id === 'shift3') : null;
+            const hasEmpShiftAssignment = !!(empAssignment && safeArray(empAssignment.shifts).length > 0);
+            const jmCfg = empPrimaryShift?.jamMasuk || templates?.absensiJamMasuk || '07:00';
+            const jpCfg = empPrimaryShift?.jamPulang || templates?.absensiJamPulang || '16:30';
+            const lmCfg = templates?.absensiLemburMulai || '18:00';
+            const lsCfg = templates?.absensiLemburSelesai || '21:00';
+            const ttLCfg = templates?.absensiTitikTengahLembur || '';
+            const toleransiMenit = getAbsensiToleransiMenit(templates);
+            const mMasukCfg = ttm(jmCfg), mPulangCfg = ttm(jpCfg);
+            const mLM = ttm(lmCfg), mLS = ttm(lsCfg);
+            // Titik tengah per shift (sama dengan menu Absensi Finger)
+            const mMid = getTitikTengahMenit(empPrimaryShift, templates?.absensiTitikTengah, jmCfg, jpCfg);
+            const standardMenit = (mMasukCfg != null && mPulangCfg != null) ? mPulangCfg - mMasukCfg : 0;
+            const rateKurang = safeMoney(emp.rateKurang) || 0;
+            const rateLebih = safeMoney(emp.rateLebih) || 0;
+            const existingAbsensiLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.fromAbsensi && l.absensiDateTo && l.rekapId && String(l.rekapId).trim() !== '');
+            const cutoffDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateTo).sort().reverse()[0] : null;
+            const today = toLocalDateStr();
+            // Hari sebelum cutoff yang belum pernah direkap (mis. tidak dicentang saat rekap) = "terlewat".
+            // Hanya disertakan bila diminta (modal rekap), tidak dicentang otomatis, dan dilewati jika tanggal itu sudah punya log gaji harian/lembur yang direkap.
+            const rekapedSalaryLogs = safeArray(emp.dailySalaryLogs).filter(l => !l.isDeleted && l.rekapId && String(l.rekapId).trim() !== '');
+            const coveredDayDates = new Set(rekapedSalaryLogs.filter(l => getDailySalaryLogTotal(l).daily > 0 || safeMoney(l.workDays) > 0).map(l => String(l.date)));
+            const coveredOtDates = new Set(rekapedSalaryLogs.filter(l => getDailySalaryLogTotal(l).overtime > 0 || safeMoney(l.overtimeCount) > 0).map(l => String(l.date)));
+            const firstAbsensiRekapDate = existingAbsensiLogs.length > 0 ? existingAbsensiLogs.map(l => l.absensiDateFrom || l.date).filter(Boolean).sort()[0] : null;
+            let startDate;
+            if (cutoffDate && includeGaps && firstAbsensiRekapDate) {
+                startDate = firstAbsensiRekapDate;
+            } else if (cutoffDate) {
+                const d = new Date(cutoffDate); d.setDate(d.getDate() + 1);
+                startDate = toLocalDateStr(d);
+            } else {
+                const allPinDates = [...(rawLogsByPinDate.get(pin) || new Map()).keys()].filter(Boolean).sort();
+                startDate = allPinDates[0] || null;
+            }
+            if (!startDate || startDate > today) return { previewLogs: [], warnings: [] };
+            const dates = [];
+            const cur = new Date(startDate); const end = new Date(today);
+            while (cur <= end) { dates.push(toLocalDateStr(cur)); cur.setDate(cur.getDate() + 1); }
+            const warnings = [];
+            const previewLogs = [];
+            const nowTs = new Date().toISOString();
+            dates.forEach(date => {
+                const isGap = !!(cutoffDate && date <= cutoffDate);
+                const skipDay = isGap && coveredDayDates.has(date);
+                const skipOt = isGap && coveredOtDates.has(date);
+                if (skipDay && skipOt) return;
+                const pinLogsByDate = rawLogsByPinDate.get(pin);
+                const dayLogs = (pinLogsByDate && pinLogsByDate.get(date)) || [];
+                // Untuk shift malam yang melewati tengah malam, ambil scan dari tanggal berikutnya sebagai kandidat pulang
+                const nextDate = (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return toLocalDateStr(d); })();
+                // Hanya scan dari tanggal berikutnya yang terjadi SEBELUM jam masuk normal (cegah scan pagi hari kerja dihitung sebagai jam pulang lembur)
+                const nextDayLogs = ((pinLogsByDate && pinLogsByDate.get(nextDate)) || []).filter(l => (ttm(l.jam) == null || mMasukCfg == null || ttm(l.jam) < mMasukCfg));
+                const override = absensiEditByKey.get(`${date}_${pin}`);
+                // Untuk shift malam: konversi jam dari tanggal berikutnya ke menit > 1440 agar bisa dibandingkan
+                const nextDayLogsShifted = nextDayLogs.map(l => ({ ...l, _shiftedJam: l.jam, _shiftedMinutes: (ttm(l.jam) ?? 0) + 1440 }));
+                const sorted = [...dayLogs].sort((a, b) => a.jam > b.jam ? 1 : -1);
+                const mShift3Masuk = empShift3obj ? ttm(empShift3obj.jamMasuk) : null;
+                const mPrimPulang = ttm(jpCfg);
+                const lembFloorBase = mShift3Masuk !== null ? mShift3Masuk : mLM;
+                // Shift 2 (jamPulang > lemburMulai, mis. 22:30 > 18:00) & tidak ada Shift 3:
+                // zona pulang diperluas sampai tengah malam agar scan lewat jadwal tetap tercatat
+                // Shift 1 (jamPulang ≤ lemburMulai, mis. 16:30 ≤ 18:00): gunakan lemburMulai sebagai batas
+                // Karyawan ber-shift tanpa Shift 3 tidak dihitung lembur: semua scan hari itu = scan kerja
+                // (pulang lewat jam mulai lembur tetap tercatat pulang, lalu mengikuti Akhir Scan shift)
+                const tanpaLembur = hasEmpShiftAssignment && !empHasShift3;
+                const mAktifBoundary = tanpaLembur ? 1440 : (mPrimPulang != null ? Math.max(lembFloorBase, mPrimPulang) : lembFloorBase);
+                const aktif = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) < mAktifBoundary);
+                let masukZone = mMid != null ? aktif.filter(e => ttm(e.jam) <= mMid) : aktif;
+                let pulangZone = mMid != null ? aktif.filter(e => ttm(e.jam) > mMid) : [];
+                // Konsisten dengan computeDayMetrics: scan tunggal di pulangZone diperlakukan sebagai masuk
+                if (masukZone.length === 0 && pulangZone.length > 0) {
+                    masukZone = [pulangZone[0]];
+                    pulangZone = pulangZone.slice(1);
+                }
+                // Hanya 1 scan sesudah jam lembur & belum ada scan pulang: itu scan pulang (1 scan tidak bisa jadi sesi lembur)
+                const lembAll = sorted.filter(e => ttm(e.jam) != null && ttm(e.jam) >= mAktifBoundary);
+                const shift3LewatMalam = empShift3obj != null && ttm(empShift3obj.jamPulang) != null && ttm(empShift3obj.jamPulang) < mAktifBoundary;
+                const lateAsPulang = (masukZone.length > 0 && pulangZone.length === 0 && lembAll.length === 1 && !shift3LewatMalam && !override?.jamLemburMasuk) ? lembAll[0] : null;
+                const rawMasuk = masukZone.length > 0 ? masukZone[0].jam : null;
+                const rawPulang = pulangZone.length > 0 ? pulangZone[pulangZone.length - 1].jam : (lateAsPulang ? lateAsPulang.jam : null);
+                // Ikuti Batas Scan shift (sama dengan menu Absensi Finger); jam yang diedit manual tidak diubah
+                const jamMasuk = override?.jamMasuk || clampJamKeBatasScan(rawMasuk, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
+                const jamPulang = override?.jamPulang || clampJamKeBatasScan(rawPulang, empPrimaryShift?.scanMulai, empPrimaryShift?.scanSelesai);
+                if (!isGap && jamMasuk && !jamPulang) warnings.push({ date, type: 'masuk_tanpa_pulang', jam: jamMasuk });
+                else if (!isGap && !jamMasuk && jamPulang) warnings.push({ date, type: 'pulang_tanpa_masuk', jam: jamPulang });
+                if (jamMasuk && jamPulang && !skipDay) {
+                    let dayAdjAmt = 0; let dayAdjDetails = [];
+                    if (standardMenit > 0 && (rateKurang > 0 || rateLebih > 0)) {
+                        // Selisih bersih dari jam kerja standar shift: datang awal & pulang lebih lama = lebih jam.
+                        // Selisih di bawah toleransi (menu Absensi Finger) tidak dihitung; di atasnya dihitung per menit.
+                        const actualMenit = ttm(jamPulang) - ttm(jamMasuk);
+                        const selisihMenit = hitungLebihKurangMenit(actualMenit - standardMenit, toleransiMenit);
+                        if (selisihMenit !== 0) {
+                            const selisihJam = Math.round(selisihMenit / 60 * 10) / 10;
+                            const amount = selisihMenit > 0 ? Math.round((selisihMenit / 60) * rateLebih) : -Math.round((Math.abs(selisihMenit) / 60) * rateKurang);
+                            if (amount !== 0) { dayAdjAmt = amount; dayAdjDetails = [{ date, selisihMenit, selisihJam, amount }]; }
+                        }
+                    }
+                    const dayAdjFields = {};
+                    if (dayAdjAmt !== 0) dayAdjFields.hourAdjustment = dayAdjAmt;
+                    if (dayAdjDetails.length > 0) dayAdjFields.hourAdjDetails = dayAdjDetails;
+                    previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-DAY-${emp.id}-${date}`, date, note: isGap ? `Hadir ${date} (terlewat)` : `Hadir ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 1, dailySalary: safeMoney(emp.dailySalary) || 0, overtimeCount: 0, overtimeRate: 0, ...dayAdjFields });
+                }
+                const shouldCalcLembur = empShift3obj != null ? true : !hasEmpShiftAssignment;
+                const mShift3Pulang = empShift3obj ? ttm(empShift3obj.jamPulang) : null;
+                const mLemburSelesaiRef = mShift3Pulang !== null ? mShift3Pulang : mLS;
+                const effectiveMidLembur = ttLCfg ? ttm(ttLCfg) : (mAktifBoundary != null && mLemburSelesaiRef != null ? (mAktifBoundary + mLemburSelesaiRef) / 2 : null);
+                const lembForLembur = shouldCalcLembur ? lembAll.filter(e => e !== lateAsPulang) : [];
+                const lMasukZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) <= effectiveMidLembur) : lembForLembur;
+                const lPulangZone = effectiveMidLembur != null ? lembForLembur.filter(e => ttm(e.jam) > effectiveMidLembur) : [];
+                const rawLMasuk = lMasukZone.length > 0 ? lMasukZone[0].jam : null;
+                const rawLPulang = lPulangZone.length > 0 ? lPulangZone[lPulangZone.length - 1].jam : null;
+                // Cross-midnight hanya untuk shift3 yang BENAR-BENAR melewati tengah malam
+                // (jamPulang secara menit < jamMasuk, artinya pulang di hari berikutnya)
+                const isShift3CrossMidnight = empShift3obj != null && mShift3Pulang != null && mShift3Pulang < mAktifBoundary;
+                const crossMidnightPulang = (!rawLPulang && rawLMasuk && nextDayLogsShifted.length > 0 && isShift3CrossMidnight)
+                    ? [...nextDayLogsShifted].sort((a, b) => b._shiftedMinutes - a._shiftedMinutes)[0]
+                    : null;
+                const jlMasuk = override?.jamLemburMasuk || rawLMasuk;
+                const jlPulang = override?.jamLemburPulang || rawLPulang;
+                const mLMasuk = ttm(jlMasuk);
+                // Cap lembur: shift3 sama-hari → max jam 00:00 tengah malam (1440 menit)
+                // shift3 cross-midnight → max jam pulang shift (misal 06:00 = 360+1440)
+                let mLPulang = jlPulang ? ttm(jlPulang) : (crossMidnightPulang ? crossMidnightPulang._shiftedMinutes : null);
+                if (mLPulang != null && empShift3obj != null) {
+                    const cappedPulang = isShift3CrossMidnight ? (mShift3Pulang != null ? mShift3Pulang + 1440 : 1440) : 1440;
+                    mLPulang = Math.min(mLPulang, cappedPulang);
+                }
+                const lemburMenit = (mLMasuk != null && mLPulang != null && mLPulang > mLMasuk) ? mLPulang - mLMasuk : 0;
+                if (shouldCalcLembur && lemburMenit >= 60 && !skipOt) {
+                    const lemburJam = Math.round(lemburMenit / 60 * 10) / 10;
+                    const lemburRate = safeMoney(emp.overtimeRate) || 0;
+                    if (lemburRate === 0 && !isGap) warnings.push({ date, type: 'lembur_rate_kosong', jam: jlMasuk });
+                    previewLogs.push({ _isAutoPreview: true, id: `PREVIEW-OT-${emp.id}-${date}`, date, note: isGap ? `Lembur ${date} (terlewat)` : `Lembur ${date}`, isGapDate: isGap, fromAbsensi: true, absensiDateFrom: date, absensiDateTo: date, rekapId: '', rekapDate: '', isDeleted: false, createdAt: nowTs, _syncUpdatedAt: nowTs, workDays: 0, dailySalary: 0, overtimeCount: lemburJam, overtimeRate: lemburRate });
+                }
+            });
+            if (previewLogs.length === 0 && warnings.length === 0) return { previewLogs: [], warnings: [] };
+            return { previewLogs, warnings, startDate, endDate: today };
+        };
+
+        const urPetaScan = (absensiRawLogs) => {
+            const byPin = new Map();
+            safeArray(absensiRawLogs).forEach(l => {
+                if (!l || l.isDeleted) return;
+                const pinKey = String(l.pin).trim();
+                let byDate = byPin.get(pinKey);
+                if (!byDate) { byDate = new Map(); byPin.set(pinKey, byDate); }
+                const list = byDate.get(l.tanggal);
+                if (list) list.push(l); else byDate.set(l.tanggal, [l]);
+            });
+            return byPin;
+        };
+        const urPetaKoreksi = (absensiEdits) => {
+            const map = new Map();
+            safeArray(absensiEdits).filter(isVisibleRecord).forEach(e => { if (!map.has(e.editKey)) map.set(e.editKey, e); });
+            return map;
+        };
+        const UR_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        const UR_BLN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        const urRingkas = (n) => {
+            const v = Math.round(safeMoney(n)); const a = Math.abs(v);
+            const t = a >= 1e9 ? `${(a / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 })} M` : a >= 1e6 ? `${(a / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })} jt` : a.toLocaleString('id-ID');
+            return `${v < 0 ? '−' : ''}Rp ${t}`;
+        };
+        const urKosong = () => ({ inv: 0, invBayar: 0, invBelum: 0, nInvBelum: 0, lain: 0, bahan: 0, bahanBelum: 0, nNotaBelum: 0, upah: 0, nOrder: 0, harian: 0, harianBelum: 0, manual: 0, ops: 0, komisi: 0, bhDireksi: 0, bhPromosi: 0, driver: 0, penyesuaian: 0 });
+        // Semua catatan dikumpulkan SEKALI per bulan ('YYYY-MM'); filter tahun/bulan tinggal menjumlahkan.
+        const hitungUntungRugiPosisi = ({ orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, danaOperasional, templates, absensiRawLogs, absensiEdits }) => {
+            const per = new Map();
+            const tambah = (tgl, k, v) => {
+                const b = String(tgl || '').slice(0, 7);
+                if (!/^\d{4}-\d{2}$/.test(b) || !v || !isFinite(v)) return;
+                let o = per.get(b); if (!o) { o = urKosong(); per.set(b, o); }
+                o[k] += v;
+            };
+            const invList = safeArray(invoices).filter(isVisibleRecord);
+            invList.forEach(inv => {
+                const total = safeMoney(getInvoiceTotals(inv).total);
+                const bayar = Math.min(total, safeMoney(getInvoicePaidTotal(inv)));
+                const belum = Math.max(0, total - bayar);
+                tambah(inv.date, 'inv', total);
+                tambah(inv.date, 'invBayar', bayar);
+                if (belum > 0.5) { tambah(inv.date, 'invBelum', belum); tambah(inv.date, 'nInvBelum', 1); }
+                tambah(inv.date, 'komisi', getInvoiceCommissionTotal(inv));
+            });
+            safeArray(expenses).filter(isVisibleRecord).forEach(e => {
+                const v = safeMoney(e.amount);
+                // Selisih kas dari "Cocokkan saldo" = pengeluaran/pemasukan yang tidak tercatat → baris Penyesuaian dana
+                if (e.sumberPosisi) tambah(e.date, 'penyesuaian', e.type === 'Uang Masuk' ? -v : v);
+                else if (e.type === 'Uang Masuk') tambah(e.date, 'lain', v);
+                else if (e.type === 'Uang Keluar') tambah(e.date, 'ops', v);
+            });
+            // Dana operasional karyawan yang "tidak kembali" (habis tanpa catatan)
+            safeArray(danaOperasional).filter(isVisibleRecord).forEach(d => { if (d.type === 'penyelesaian' && d.kembali === 'tidak') tambah(d.tanggal, 'penyesuaian', safeMoney(d.nominal)); });
+            safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => {
+                const debt = noteDebt(n);
+                tambah(n.date, 'bahan', noteTotal(n));
+                if (debt > 0.5) { tambah(n.date, 'bahanBelum', debt); tambah(n.date, 'nNotaBelum', 1); }
+            });
+            safeArray(orders).filter(isVisibleRecord).forEach(o => {
+                const pcs = Object.values(o.sizes || {}).reduce((s, q) => s + (parseInt(q, 10) || 0), 0);
+                const perPcs = getActiveProductionStageIds(o).reduce((s, st) => s + getProductionUnitPrice(o, st), 0);
+                if (pcs > 0 && perPcs > 0) { tambah(o.date, 'upah', pcs * perPcs); tambah(o.date, 'nOrder', 1); }
+            });
+            const rekapIds = new Set(safeArray(rekapKinerja).filter(isVisibleRecord).map(r => String(r.id)));
+            const rawLogsByPinDate = urPetaScan(absensiRawLogs);
+            const absensiEditByKey = urPetaKoreksi(absensiEdits);
+            safeArray(employees).filter(Boolean).forEach(emp => {
+                // Gaji harian & lembur yang sudah tersimpan (sudah direkap = angka rekap; belum direkap ikut dihitung)
+                getEmployeeDailySalaryLogs(emp).forEach(l => {
+                    const v = safeNumber(getDailySalaryLogTotal(l).total);
+                    tambah(l.date, 'harian', v);
+                    if (!l.rekapId || !rekapIds.has(String(l.rekapId))) tambah(l.date, 'harianBelum', v);
+                });
+                getEmployeeManualProductionLogs(emp).forEach(l => tambah(l.date, 'manual', safeMoney(l.qty) * safeMoney(l.unitPrice)));
+                if (emp.isDeleted) return;
+                // Scan absensi yang belum direkap: dihitung tiap hari begitu karyawan scan pulang / selesai lembur
+                const prev = hitungAbsensiSiapRekapSalinan(emp, { templates, rawLogsByPinDate, absensiEditByKey });
+                safeArray(prev.previewLogs).forEach(l => {
+                    const v = safeNumber(getDailySalaryLogTotal(l).total);
+                    tambah(l.date, 'harian', v); tambah(l.date, 'harianBelum', v);
+                });
+                // Bagi hasil direksi langsung dari invoice (persen per invoice; nominal sekali per bulan yang ada invoicenya)
+                const nilai = safeMoney(emp.bagiHasilNilai);
+                if (nilai > 0 && getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris')) {
+                    if (emp.bagiHasilTipe !== 'Nominal') invList.forEach(inv => { if (inv.date) tambah(inv.date, 'bhDireksi', Math.round(getInvoiceTotals(inv).productionTotal * nilai / 100)); });
+                    else new Set(invList.map(inv => String(inv.date || '').slice(0, 7)).filter(Boolean)).forEach(b => tambah(`${b}-01`, 'bhDireksi', nilai));
+                }
+            });
+            safeArray(bagiHasilPromosi).filter(isVisibleRecord).forEach(b => tambah(b.tanggal, 'bhPromosi', calcBagiHasil(b, invList).nominal));
+            safeArray(driverRekapGaji).filter(isVisibleRecord).forEach(r => tambah(r.tanggalRekap, 'driver', drvRekapBruto(r)));
+            return per;
+        };
+        const urTurunan = (o) => {
+            const pendapatan = o.inv + o.lain;
+            const produksi = o.bahan + o.upah + o.harian + o.manual;
+            const usahaTanpaPenyesuaian = o.ops + o.komisi + o.bhDireksi + o.bhPromosi + o.driver;
+            const usaha = usahaTanpaPenyesuaian + o.penyesuaian;
+            return { ...o, pendapatan, produksi, usahaTanpaPenyesuaian, usaha, labaKotor: pendapatan - produksi, laba: pendapatan - produksi - usaha };
+        };
+        const urJumlah = (per, cocok) => {
+            const t = urKosong();
+            per.forEach((o, b) => { if (cocok(b)) Object.keys(t).forEach(k => { t[k] += o[k]; }); });
+            return urTurunan(t);
+        };
+
+        const UntungRugiPosisi = ({ orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, danaOperasional, templates, absensiRawLogs, absensiEdits, posisiInfo = null, selisihLama = 0, tglMulai = '', namaPencetak = '', showToast }) => {
+            // Dihitung SESUDAH halaman tampil (tidak memperlambat saat Laporan Keuangan dibuka). Saat data berubah,
+            // angka lama tetap tampil sampai hitungan baru selesai.
+            const [per, setPer] = React.useState(null);
+            React.useEffect(() => {
+                const id = setTimeout(() => setPer(hitungUntungRugiPosisi({ orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, danaOperasional, templates, absensiRawLogs, absensiEdits })), 60);
+                return () => clearTimeout(id);
+            }, [orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, danaOperasional, templates, absensiRawLogs, absensiEdits]);
+            if (!per) return <UntungRugiMemuat />;
+            return <UntungRugiIsi per={per} templates={templates} posisiInfo={posisiInfo} selisihLama={selisihLama} tglMulai={tglMulai} namaPencetak={namaPencetak} showToast={showToast} />;
+        };
+        const UntungRugiMemuat = () => (
+            <div data-ur-memuat className="flex items-center gap-3 text-sm text-gray-500 py-6 justify-center"><IconRefresh spinning={true} /> Menghitung untung / rugi…</div>
+        );
+        const UntungRugiIsi = ({ per, templates, posisiInfo = null, selisihLama = 0, tglMulai = '', namaPencetak = '', showToast }) => {
+            const hariIni = toLocalDateStr();
+            const tahunIni = hariIni.slice(0, 4);
+            const bulanIni = hariIni.slice(0, 7);
+            const [tahun, setTahun] = React.useState(tahunIni);
+            const [bulan, setBulan] = React.useState(''); // '' = setahun; 'MM' = satu bulan
+            const daftarTahun = React.useMemo(() => [...new Set([tahunIni, ...[...per.keys()].map(b => b.slice(0, 4))])].filter(t => t <= tahunIni).sort().reverse(), [per, tahunIni]);
+            const awalPeriode = bulan ? `${tahun}-${bulan}` : `${tahun}-01`;
+            const t = React.useMemo(() => urJumlah(per, b => b.slice(0, 4) === tahun && (!bulan || b.slice(5, 7) === bulan)), [per, tahun, bulan]);
+            // Grafik per bulan: tahun berjalan sampai bulan ini; tahun lalu Jan–Des
+            const bulanGrafik = React.useMemo(() => {
+                const n = tahun === tahunIni ? Number(bulanIni.slice(5, 7)) : 12;
+                return Array.from({ length: n }, (_, i) => { const mm = String(i + 1).padStart(2, '0'); return { mm, i, ...urJumlah(per, b => b === `${tahun}-${mm}`) }; });
+            }, [per, tahun, tahunIni, bulanIni]);
+            const ingat = React.useMemo(() => {
+                let jml = 0, n = 0, thnAkhir = '';
+                per.forEach((o, b) => { if (b < awalPeriode && o.invBelum > 0) { jml += o.invBelum; n += o.nInvBelum; if (b.slice(0, 4) > thnAkhir) thnAkhir = b.slice(0, 4); } });
+                return { jml, n, thnAkhir };
+            }, [per, awalPeriode]);
+            const bulanAktif = bulanGrafik.filter(b => Math.abs(b.pendapatan) + Math.abs(b.produksi + b.usaha) > 0);
+            const terbaik = bulanAktif.length ? bulanAktif.reduce((a, b) => b.laba > a.laba ? b : a) : null;
+            const nUntung = bulanAktif.filter(b => b.laba >= 0).length;
+            const nRugi = bulanAktif.length - nUntung;
+            const untung = t.laba >= 0;
+            const margin = t.pendapatan > 0 ? t.laba / t.pendapatan * 100 : null;
+            const persen = (v, d = 1) => `${(Math.round(v * 10 ** d) / 10 ** d).toLocaleString('id-ID')}%`;
+            const labelPeriode = bulan ? `${UR_BULAN[Number(bulan) - 1]} ${tahun}` : `${tahun}${tahun === tahunIni ? ` (Jan–${UR_BLN[Number(bulanIni.slice(5, 7)) - 1]})` : ''}`;
+            const rataBulan = !bulan && bulanGrafik.length ? t.laba / bulanGrafik.length : null;
+            const fRp = (n) => formatRupiah(Math.round(n));
+            // Ke mana uang pendapatan
+            const komposisi = [
+                { k: 'Bahan', v: t.bahan, c: '#2a78d6' },
+                { k: 'Upah & gaji karyawan', v: t.upah + t.harian + t.manual, c: '#eb6834' },
+                { k: 'Biaya usaha', v: t.usahaTanpaPenyesuaian, c: '#1baf7a' },
+                { k: 'Tidak tercatat', v: Math.max(0, t.penyesuaian), c: '#eda100' },
+                ...(t.laba > 0 ? [{ k: 'Untung', v: t.laba, c: '#6250d6' }] : []),
+            ].filter(x => x.v > 0);
+            const dasarKomposisi = Math.max(t.pendapatan, komposisi.reduce((s, x) => s + x.v, 0)) || 1;
+            const per100 = (v) => Math.round(v / (t.pendapatan || 1) * 100000 / 100) * 100;
+            const pilihBulan = (mm) => { setBulan(mm); };
+            const lihatTahun = (th) => { setTahun(th); setBulan(''); };
+
+            const cetak = () => {
+                const e = escapeHtmlText;
+                const n = (v) => Math.round(v).toLocaleString('id-ID');
+                const nNeg = (v) => v < 0 ? `(${n(-v)})` : n(v);
+                const tglCetak = new Date().toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const maxAbs = Math.max(1, ...bulanGrafik.map(b => Math.abs(b.laba)));
+                const tabelBulan = bulan ? '' : `<div class="ph">A. Ringkasan per bulan</div><table class="pt"><thead><tr><th>Bulan</th><th>Pendapatan</th><th>Biaya</th><th>Untung / rugi</th><th>Margin</th></tr></thead><tbody>
+                    ${bulanGrafik.map(b => `<tr><td>${UR_BULAN[b.i]}</td><td>${n(b.pendapatan)}</td><td>${n(b.produksi + b.usaha)}</td><td class="${b.laba < 0 ? 'neg' : ''}">${nNeg(b.laba)}<span class="mb${b.laba < 0 ? ' neg' : ''}" style="width:${Math.round(Math.abs(b.laba) / maxAbs * 46)}px"></span></td><td class="${b.laba < 0 ? 'neg' : ''}">${b.pendapatan > 0 ? persen(b.laba / b.pendapatan * 100) : '-'}</td></tr>`).join('')}
+                    <tr class="tt"><td>Total</td><td>${n(t.pendapatan)}</td><td>${n(t.produksi + t.usaha)}</td><td>${nNeg(t.laba)}</td><td>${margin == null ? '-' : persen(margin)}</td></tr></tbody></table>`;
+                const baris = (l, v, sub) => `<tr><td${sub ? ' class="sub"' : ''}>${e(l)}</td><td>${nNeg(v)}</td></tr>`;
+                const tot = (l, v) => `<tr class="tt"><td>${e(l)}</td><td>${nNeg(v)}</td></tr>`;
+                const p = posisiInfo;
+                const posisiHtml = `<table class="pt">
+                    ${p ? baris('Rekening bank', p.rekening) + baris('Tunai', p.tunai) + baris('Dana operasional di karyawan', p.dana) + tot('Uang dipegang', p.pegang) : '<tr><td colspan="2">Titik mulai Posisi Uang belum diisi</td></tr>'}
+                    ${baris(`Uang di customer (${t.nInvBelum} invoice)`, t.invBelum)}
+                    ${baris(`Hutang ke vendor bahan (${t.nNotaBelum} nota)`, t.bahanBelum)}
+                    ${p ? baris('Gaji & komisi belum dibayar', p.gajiKomisiBelum) : ''}</table>`;
+                const ingatHtml = ingat.jml > 0.5 ? `<br><b>Pengingat:</b> masih ada tagihan invoice ${bulan ? 'sebelum periode ini' : 'tahun sebelumnya'} belum dibayar Rp ${n(ingat.jml)} (${ingat.n} invoice) — tidak termasuk laporan ini.` : '';
+                const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${e(namaFileCetak('Laporan Untung Rugi', labelPeriode))}</title><style>
+                    @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;font-size:11.5px;line-height:1.4;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+                    .kop{display:flex;align-items:center;gap:12px;border-bottom:3px double #111;padding-bottom:8px}.kop img{max-height:50px;max-width:110px}
+                    .kop .nm{font-size:17px;font-weight:800;letter-spacing:.03em}.kop .ss{font-size:10.5px;color:#555}.kop .mt{margin-left:auto;text-align:right;font-size:10.5px;color:#555}
+                    h1{text-align:center;font-size:15px;letter-spacing:.06em;margin:14px 0 2px}.per{text-align:center;color:#555;font-size:11px;margin-bottom:12px}
+                    .box{display:grid;grid-template-columns:repeat(4,1fr);border:1.5px solid #111;border-radius:6px;overflow:hidden;margin-bottom:12px}.box div{padding:7px 9px;border-right:1px solid #ccc}.box div:last-child{border-right:0;background:#f1f6f2}
+                    .box .l{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:#555;font-weight:700}.box .v{font-size:13.5px;font-weight:800;margin-top:2px}
+                    .ph{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin:12px 0 4px;padding-bottom:3px;border-bottom:1.5px solid #111}
+                    .pt{width:100%;border-collapse:collapse;font-size:11px}.pt th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:#444;border-bottom:1px solid #111;padding:3px 4px}
+                    .pt th:not(:first-child),.pt td:not(:first-child){text-align:right;white-space:nowrap}.pt td{padding:3px 4px;border-bottom:1px solid #e3e3e3}
+                    .pt tr.tt td{font-weight:800;border-top:1.5px solid #111;border-bottom:0;background:#f4f4f4}.pt td.sub{padding-left:14px;color:#444}.neg{color:#b42318}
+                    .mb{display:inline-block;height:7px;background:#2f7d4f;border-radius:2px;vertical-align:middle;margin-left:6px}.mb.neg{background:#b42318}
+                    .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}.note{margin-top:10px;font-size:10px;color:#444;border:1px dashed #bbb;border-radius:6px;padding:6px 8px}
+                    .ttd{display:flex;justify-content:space-between;margin-top:20px;font-size:11px;page-break-inside:avoid}.ttd div{width:200px;text-align:center}.ttd .g{height:55px}
+                    .foot{margin-top:14px;border-top:1px solid #ccc;padding-top:4px;font-size:9px;color:#777}</style></head><body>
+                    <div class="kop">${templates?.companyLogo ? `<img src="${e(templates.companyLogo)}" alt="logo">` : ''}<div><div class="nm">${e(templates?.companyName || 'SIMPATI KONVEKSI')}</div><div class="ss">Laporan internal — untuk Direktur</div></div><div class="mt">Dicetak: ${e(tglCetak)}${namaPencetak ? `<br>oleh ${e(namaPencetak)}` : ''}</div></div>
+                    <h1>LAPORAN UNTUNG RUGI</h1><div class="per">${e(labelPeriode)}</div>
+                    <div class="box"><div><div class="l">Pendapatan</div><div class="v">Rp ${n(t.pendapatan)}</div></div><div><div class="l">Total biaya</div><div class="v">Rp ${n(t.produksi + t.usaha)}</div></div><div><div class="l">Margin</div><div class="v">${margin == null ? '-' : persen(margin)}</div></div><div><div class="l">${untung ? 'Untung bersih' : 'Rugi bersih'}</div><div class="v${untung ? '' : ' neg'}">Rp ${nNeg(t.laba)}</div></div></div>
+                    ${tabelBulan}
+                    <div class="cols"><div><div class="ph">${bulan ? 'A' : 'B'}. Rincian</div><table class="pt">
+                        ${baris('Nilai invoice terbit', t.inv)}${baris('sudah dibayar', t.invBayar, 1)}${baris('belum dibayar', t.invBelum, 1)}${baris('Pemasukan lain', t.lain)}${tot('Pendapatan', t.pendapatan)}
+                        ${baris('Bahan', t.bahan, 1)}${baris('Upah produksi (dari order)', t.upah, 1)}${baris('Gaji harian & lembur', t.harian, 1)}${baris('Pekerjaan manual', t.manual, 1)}${tot('Laba kotor', t.labaKotor)}
+                        ${baris('Biaya operasional', t.ops, 1)}${baris('Komisi marketing', t.komisi, 1)}${baris('Bagi hasil direksi', t.bhDireksi, 1)}${baris('Bagi hasil promosi', t.bhPromosi, 1)}${baris('Gaji driver', t.driver, 1)}${baris('Penyesuaian dana (tidak tercatat)', t.penyesuaian, 1)}${tot(untung ? 'Untung bersih' : 'Rugi bersih', t.laba)}
+                    </table></div><div><div class="ph">${bulan ? 'B' : 'C'}. Posisi uang per ${e(fmtTglStruk(hariIni))}</div>${posisiHtml}
+                    <div class="note"><b>Catatan:</b> semua pekerjaan dihitung walau belum dibayar / belum direkap. Upah produksi dihitung dari input order; gaji harian dari absensi.${tglMulai ? ` Selisih sebelum titik mulai (${e(fmtTglStruk(tglMulai))}) tidak dihitung.` : ''} Angka dalam Rupiah.${ingatHtml}</div></div></div>
+                    <div class="ttd"><div>Dibuat oleh,<div class="g"></div>( ____________________ )<br>Admin Keuangan</div><div>Mengetahui,<div class="g"></div>( ____________________ )<br>Direktur</div></div>
+                    <div class="foot">${e(templates?.companyName || 'SIMPATI KONVEKSI')} · Laporan Untung Rugi ${e(labelPeriode)}</div>
+                    <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`;
+                const w = window.open('', '_blank');
+                if (!w) { if (showToast) showToast('Gagal mencetak. Harap izinkan Pop-up di browser Anda!', 'error'); return; }
+                w.document.open(); w.document.write(html); w.document.close(); w.focus();
+            };
+
+            // Grafik batang per bulan (hijau untung, merah rugi)
+            const grafik = (() => {
+                const W = 560, H = 220, L = 44, R = 8, T = 16, B = 24;
+                const vals = bulanGrafik.map(b => b.laba);
+                const atas = Math.max(0, ...vals), bawah = Math.min(0, ...vals);
+                const langkah = (() => { const r = Math.max(atas - bawah, 1) / 4; const p = 10 ** Math.floor(Math.log10(r)); return [1, 2, 2.5, 5, 10].map(m => m * p).find(s => s >= r) || r; })();
+                const maks = Math.ceil(atas / langkah) * langkah || langkah, min = Math.floor(bawah / langkah) * langkah;
+                const y = (v) => T + (maks - v) / (maks - min) * (H - T - B);
+                const n = 12, bw = (W - L - R) / n;
+                const garis = []; for (let v = min; v <= maks + 0.001; v += langkah) garis.push(v);
+                const label = (v) => { const a = Math.abs(v); return (v < 0 ? '−' : '') + (a >= 1e9 ? `${(a / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 1 })}M` : a >= 1e6 ? `${(a / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })}jt` : a >= 1e3 ? `${Math.round(a / 1e3)}rb` : `${Math.round(a)}`); };
+                const terbaikI = terbaik ? terbaik.i : -1;
+                const terburuk = bulanAktif.length ? bulanAktif.reduce((a, b) => b.laba < a.laba ? b : a) : null;
+                return (
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block" role="img" aria-label={`Untung rugi per bulan ${tahun}`}>
+                        {garis.map(v => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke={Math.abs(v) < 0.001 ? '#c3c2b7' : '#e7e6e0'} strokeWidth={Math.abs(v) < 0.001 ? 1.5 : 1} /><text x={L - 6} y={y(v) + 4} textAnchor="end" fontSize="10.5" fill="#898781">{label(v)}</text></g>)}
+                        {Array.from({ length: n }, (_, i) => {
+                            const b = bulanGrafik[i]; const cx = L + i * bw + bw / 2; const x = L + i * bw + bw * 0.18, w = bw * 0.64;
+                            const dipilih = bulan === String(i + 1).padStart(2, '0');
+                            if (!b) return <text key={i} x={cx} y={H - 6} textAnchor="middle" fontSize="11" fill="#c3c2b7">{UR_BLN[i]}</text>;
+                            const y0 = y(0), y1 = y(b.laba), top = Math.min(y0, y1), h = Math.max(b.laba === 0 ? 0 : 2, Math.abs(y1 - y0));
+                            return (
+                                <g key={i} data-ur-bar={b.mm} onClick={() => pilihBulan(dipilih ? '' : b.mm)} style={{ cursor: 'pointer' }}>
+                                    <title>{`${UR_BULAN[i]} ${tahun}\nPendapatan ${fRp(b.pendapatan)}\nBiaya ${fRp(b.produksi + b.usaha)}\n${b.laba < 0 ? 'Rugi' : 'Untung'} ${fRp(Math.abs(b.laba))}`}</title>
+                                    <rect x={L + i * bw} y={T} width={bw} height={H - T - B} fill={dipilih ? '#f1f5f9' : 'transparent'} />
+                                    {h > 0 && <rect x={x} y={top} width={w} height={h} rx={Math.min(4, h / 2)} fill={b.laba < 0 ? '#d03b3b' : '#0b8a3a'} />}
+                                    {(i === terbaikI || (terburuk && i === terburuk.i && terburuk.laba < 0)) && <text x={cx} y={b.laba >= 0 ? top - 5 : top + h + 12} textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#101511">{label(b.laba)}</text>}
+                                    <text x={cx} y={H - 6} textAnchor="middle" fontSize="11" fontWeight={dipilih ? 800 : 400} fill={dipilih ? '#101511' : '#5c655e'}>{UR_BLN[i]}</text>
+                                </g>
+                            );
+                        })}
+                    </svg>
+                );
+            })();
+
+            const Baris = ({ id, label, nilai, ket, tag, warna, sub }) => (
+                <tr data-ur-baris={id} data-ur-nilai={Math.round(nilai)} className="border-b border-gray-100">
+                    <td className={`py-2 pr-2 align-top ${sub ? 'pl-5 text-gray-500 text-[12.5px]' : ''}`}>
+                        {warna && <span className="inline-block w-2 h-2 rounded-sm mr-2 align-middle" style={{ background: warna }}></span>}{label}
+                        {tag && <span className={`inline-block whitespace-nowrap ml-1.5 align-middle text-[10px] font-black rounded px-1.5 py-px ${tag[1]}`}>{tag[0]}</span>}
+                        {ket && <span className="block text-[11.5px] text-gray-400 font-normal">{ket}</span>}
+                    </td>
+                    <td className="py-2 text-right align-top tabular-nums whitespace-nowrap font-semibold">{fRp(nilai)}</td>
+                </tr>
+            );
+            const Grup = ({ teks }) => <tr><td colSpan={2} className="pt-4 pb-1 text-[11px] font-black tracking-widest uppercase text-gray-400">{teks}</td></tr>;
+            const Total = ({ id, label, nilai }) => <tr data-ur-baris={id} data-ur-nilai={Math.round(nilai)} className="border-b-2 border-gray-800"><td className="py-2 font-black">{label}</td><td className="py-2 text-right font-black tabular-nums whitespace-nowrap">{fRp(nilai)}</td></tr>;
+            const ketBelum = (bayar, belum) => <>sudah dibayar {fRp(bayar)} + <b className="text-red-600">belum dibayar {fRp(belum)}</b></>;
+
+            return (
+                <div data-ur className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div>
+                            <div className="text-[11px] font-black tracking-widest uppercase text-gray-500">Untung / Rugi sebenarnya</div>
+                            <div className="text-xs text-gray-500">Hanya membaca data · semua pekerjaan dihitung walau belum dibayar / belum direkap</div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 ml-auto">
+                            <select data-ur-tahun value={tahun} onChange={e => lihatTahun(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">
+                                {daftarTahun.map(th => <option key={th} value={th}>Tahun {th}</option>)}
+                            </select>
+                            <select data-ur-bulan value={bulan} onChange={e => pilihBulan(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">
+                                <option value="">Setahun</option>
+                                {UR_BULAN.map((nm, i) => { const mm = String(i + 1).padStart(2, '0'); return (tahun < tahunIni || `${tahun}-${mm}` <= bulanIni) ? <option key={mm} value={mm}>{nm}</option> : null; })}
+                            </select>
+                            <button type="button" data-ur-cetak onClick={cetak} className="rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-3.5 py-2 text-sm font-black">🖨 Cetak / PDF</button>
+                        </div>
+                    </div>
+
+                    <div data-ur-laba={Math.round(t.laba)} className={`rounded-2xl p-5 text-white grid gap-4 sm:grid-cols-[1fr_auto] items-end ${untung ? 'bg-gradient-to-br from-emerald-950 to-emerald-700' : 'bg-gradient-to-br from-red-950 to-red-700'}`}>
+                        <div className="min-w-0">
+                            <div className="text-xs font-black tracking-widest uppercase opacity-80">{untung ? '✅ Untung bersih' : '⚠ Rugi bersih'} · {labelPeriode}</div>
+                            <div className="text-3xl sm:text-4xl font-black tabular-nums my-1 break-words">{fRp(t.laba)}</div>
+                            <div className="text-sm opacity-85">{rataBulan != null ? <>Rata-rata <b className="tabular-nums">{urRingkas(rataBulan)}</b> per bulan · </> : null}dari pendapatan <b className="tabular-nums">{urRingkas(t.pendapatan)}</b></div>
+                            <div className="flex flex-wrap gap-1.5 mt-2 text-xs font-bold">
+                                {margin != null && <span className="rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5">Margin {persen(margin)}</span>}
+                                {!bulan && bulanAktif.length > 0 && <span className="rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5">{nUntung} bulan untung · {nRugi} bulan rugi</span>}
+                                {!bulan && terbaik && terbaik.laba > 0 && <span className="rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5">Terbaik: {UR_BULAN[terbaik.i]}</span>}
+                            </div>
+                        </div>
+                        {margin != null && (
+                            <svg viewBox="0 0 100 100" className="hidden sm:block w-24 h-24" aria-label={`Margin ${persen(margin)}`}>
+                                <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,.18)" strokeWidth="12" />
+                                <circle cx="50" cy="50" r="40" fill="none" stroke={untung ? '#7ee2a8' : '#fca5a5'} strokeWidth="12" strokeLinecap="round" strokeDasharray={`${Math.max(0, Math.min(100, Math.abs(margin))) * 2.513} 251.3`} transform="rotate(-90 50 50)" />
+                                <text x="50" y="50" textAnchor="middle" fill="#fff" fontSize="16" fontWeight="800">{persen(margin)}</text>
+                                <text x="50" y="64" textAnchor="middle" fill="rgba(255,255,255,.75)" fontSize="9">margin</text>
+                            </svg>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                        {[['Pendapatan', t.pendapatan, 'nilai invoice + pemasukan lain', 'pendapatan'], ['Biaya produksi', t.produksi, 'bahan, upah, gaji harian', 'produksi'], ['Biaya usaha', t.usaha, 'operasional, komisi, dll', 'usaha'], ['Uang dipegang', posisiInfo ? posisiInfo.pegang : null, 'rekening + tunai + dana', 'pegang']].map(([l, v, s, id]) => (
+                            <div key={id} data-ur-kpi={id} className="bg-white border border-gray-200 rounded-2xl px-3.5 py-3 min-w-0">
+                                <div className="text-xs font-bold text-gray-500">{l}</div>
+                                <div className="text-lg sm:text-xl font-black tabular-nums mt-0.5">{v == null ? '—' : urRingkas(v)}</div>
+                                <div className="text-[11.5px] text-gray-400">{v == null ? 'isi titik mulai dulu' : s}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="grid gap-3 lg:grid-cols-[1.35fr_1fr] items-start">
+                        <div className="bg-white border border-gray-200 rounded-2xl p-4 min-w-0">
+                            <div className="font-black text-gray-800">Untung / rugi per bulan</div>
+                            <div className="text-xs text-gray-500 mb-2">{tahun} · ketuk batang untuk melihat rincian bulan itu{bulan ? ' (ketuk lagi untuk kembali setahun)' : ''}</div>
+                            <div data-ur-grafik>{grafik}</div>
+                            <div className="flex gap-4 text-xs text-gray-500 mt-1"><span className="inline-flex items-center gap-1.5"><i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#0b8a3a' }}></i>Untung</span><span className="inline-flex items-center gap-1.5"><i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#d03b3b' }}></i>Rugi</span></div>
+                        </div>
+                        <div data-ur-komposisi className="bg-white border border-gray-200 rounded-2xl p-4 min-w-0">
+                            <div className="font-black text-gray-800">Ke mana uang pendapatan</div>
+                            <div className="text-xs text-gray-500 mb-3">dari total pendapatan {urRingkas(t.pendapatan)}{t.laba < 0 ? ' — biaya melebihi pendapatan' : ''}</div>
+                            <div className="flex h-5 rounded-lg overflow-hidden gap-0.5 bg-white">{komposisi.map(x => <div key={x.k} title={x.k} style={{ width: `${x.v / dasarKomposisi * 100}%`, background: x.c }}></div>)}</div>
+                            <ul className="mt-3 space-y-2">
+                                {komposisi.map(x => (
+                                    <li key={x.k} className="grid grid-cols-[12px_1fr_auto] gap-2 items-center text-[13px]">
+                                        <i className="w-3 h-3 rounded-sm" style={{ background: x.c }}></i><span>{x.k}</span>
+                                        <span className="text-right tabular-nums font-semibold">{urRingkas(x.v)}<small className="block text-[11px] text-gray-400 font-normal">{t.pendapatan > 0 ? persen(x.v / t.pendapatan * 100) : '-'}</small></span>
+                                    </li>
+                                ))}
+                            </ul>
+                            {t.pendapatan > 0 && t.laba > 0 && <div data-ur-per100 className="text-[12.5px] text-gray-500 bg-gray-50 rounded-lg px-2.5 py-2 mt-3 leading-relaxed">Dari setiap <b>Rp 100.000</b> pendapatan, <b className="text-gray-800">Rp {per100(t.laba).toLocaleString('id-ID')}</b> jadi untung.</div>}
+                        </div>
+                    </div>
+
+                    <div className="bg-white border border-gray-200 rounded-2xl p-4">
+                        <div className="font-black text-gray-800">Belum dibayar</div>
+                        <div className="text-xs text-gray-500 mb-3">dari invoice &amp; nota {labelPeriode} · ikut filter tahun / bulan</div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <div data-ur-belum-cust={Math.round(t.invBelum)} className="border border-gray-200 rounded-xl p-3.5">
+                                <div className="flex justify-between gap-2 items-baseline"><b className="text-sm">📥 Uang di customer</b><span className="text-xs text-gray-500">{t.nInvBelum} invoice</span></div>
+                                <div className="text-2xl font-black tabular-nums mt-1">{fRp(t.invBelum)}</div>
+                                <div className="text-xs text-gray-500">tagihan invoice {labelPeriode} yang belum dibayar</div>
+                            </div>
+                            <div data-ur-belum-vendor={Math.round(t.bahanBelum)} className="border border-gray-200 rounded-xl p-3.5">
+                                <div className="flex justify-between gap-2 items-baseline"><b className="text-sm">📤 Hutang ke vendor bahan</b><span className="text-xs text-gray-500">{t.nNotaBelum} nota</span></div>
+                                <div className="text-2xl font-black tabular-nums mt-1">{fRp(t.bahanBelum)}</div>
+                                <div className="text-xs text-gray-500">nota bahan {labelPeriode} yang belum kita bayar</div>
+                            </div>
+                        </div>
+                        {ingat.jml > 0.5 && (
+                            <div data-ur-ingat={Math.round(ingat.jml)} className="mt-3 text-[12.5px] leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
+                                ⓘ Masih ada <b>tagihan invoice {bulan ? 'sebelum periode ini' : 'tahun sebelumnya'} {fRp(ingat.jml)}</b> ({ingat.n} invoice{ingat.thnAkhir ? `, terakhir tahun ${ingat.thnAkhir}` : ''}) — tidak dijumlahkan di sini.{' '}
+                                <button type="button" data-ur-ingat-lihat onClick={() => lihatTahun(ingat.thnAkhir || tahun)} className="font-black underline">Lihat tahun {ingat.thnAkhir || tahun} ›</button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="bg-white border border-gray-200 rounded-2xl p-4">
+                        <div className="font-black text-gray-800">Rincian untung / rugi</div>
+                        <div className="text-xs text-gray-500">{labelPeriode} · semua pekerjaan dihitung, walau belum dibayar atau belum direkap</div>
+                        <div className="overflow-x-auto"><table className="w-full text-sm">
+                            <tbody>
+                                <Grup teks="Pendapatan" />
+                                <Baris id="inv" label="Nilai invoice terbit" nilai={t.inv} ket={ketBelum(t.invBayar, t.invBelum)} />
+                                <Baris id="lain" label="Pemasukan lain" nilai={t.lain} />
+                                <Total id="pendapatan" label="Total pendapatan" nilai={t.pendapatan} />
+                                <Grup teks="Biaya produksi" />
+                                <Baris id="bahan" label="Bahan" nilai={t.bahan} warna="#2a78d6" ket={ketBelum(t.bahan - t.bahanBelum, t.bahanBelum)} />
+                                <Baris id="upah" label="Upah produksi" nilai={t.upah} warna="#eb6834" tag={['DARI ORDER', 'bg-blue-100 text-blue-800']} ket={`otomatis dari ${t.nOrder} order (upah sesuai yang diisi saat input order)`} />
+                                <Baris id="harian" label="Gaji harian & lembur" nilai={t.harian} warna="#eb6834" tag={['DARI ABSENSI', 'bg-amber-100 text-amber-800']} ket={`sama dengan "Siap direkap" di Laporan Kinerja${t.harianBelum > 0 ? ` · belum direkap ${fRp(t.harianBelum)}` : ''}`} />
+                                <Baris id="manual" label="Pekerjaan manual" nilai={t.manual} warna="#eb6834" ket="permak, ganti label, dll" />
+                                <Total id="labaKotor" label="Laba kotor" nilai={t.labaKotor} />
+                                <Grup teks="Biaya usaha" />
+                                <Baris id="ops" label="Biaya operasional" nilai={t.ops} warna="#1baf7a" />
+                                <Baris id="komisi" label="Komisi marketing" nilai={t.komisi} warna="#1baf7a" tag={['DARI INVOICE', 'bg-emerald-100 text-emerald-800']} ket="sudah maupun belum direkap" />
+                                <Baris id="bhDireksi" label="Bagi hasil direksi" nilai={t.bhDireksi} warna="#1baf7a" tag={['DARI INVOICE', 'bg-emerald-100 text-emerald-800']} ket="sudah maupun belum direkap" />
+                                <Baris id="bhPromosi" label="Bagi hasil promosi" nilai={t.bhPromosi} warna="#1baf7a" />
+                                <Baris id="driver" label="Gaji driver (SIJEK)" nilai={t.driver} warna="#1baf7a" />
+                                <Baris id="penyesuaian" label="Penyesuaian dana" nilai={t.penyesuaian} warna="#eda100" tag={['TIDAK TERCATAT', 'bg-red-100 text-red-800']} ket={'Selisih kas (Cocokkan saldo) & dana karyawan "tidak kembali"'} />
+                                <tr data-ur-baris="laba" data-ur-nilai={Math.round(t.laba)}><td className={`pt-3 text-base font-black ${untung ? 'text-emerald-700' : 'text-red-700'}`}>{untung ? 'Untung bersih' : 'Rugi bersih'}</td><td className={`pt-3 text-right text-base font-black tabular-nums whitespace-nowrap ${untung ? 'text-emerald-700' : 'text-red-700'}`}>{fRp(t.laba)}</td></tr>
+                            </tbody>
+                        </table></div>
+                    </div>
+
+                    {(selisihLama !== 0 && tglMulai) && (
+                        <div data-ur-selisih-lama={Math.round(selisihLama)} className="text-[12.5px] leading-relaxed bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-2.5 text-amber-900">
+                            ℹ <b>Selisih lama sebelum titik mulai</b> ({fmtTglStruk(tglMulai)}): {selisihLama < 0 ? 'uang keluar tidak tercatat' : 'uang lebih dari catatan'} <b>{fRp(Math.abs(selisihLama))}</b> — akumulasi bertahun-tahun, <b>tidak</b> dihitung ke untung/rugi bulan mana pun. Hanya informasi.
+                        </div>
+                    )}
+                    <div className="text-[12px] text-gray-400 leading-relaxed px-1">⚠ Perkiraan: upah dihitung saat order diinput, pendapatan saat invoice terbit — order yang baru di-invoice bulan berikutnya membuat untung bulan itu terlihat lebih kecil. Per tahun hasilnya seimbang.</div>
+                </div>
+            );
+        };
+
+        const LaporanKeuanganView = ({ orders, employees, rekapKinerja, expenses = [], invoices = [], clients = [], templates, setTemplates, showToast, purchaseNotes = [], bagiHasilPromosi = [], authUser = null, gajiSensitif = null, driverRekapGaji = [], driverKasbon = [], danaOperasional = [], setExpenses = null, absensiRawLogs = [], absensiEdits = [] }) => {
             // Gaji Direksi & Marketing: tanpa akses "Lihat", tetap DIHITUNG di semua total (kas & laba benar),
             // tapi ditampilkan gabungan tanpa nama/rincian per orang
             const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : authUser?.role === 'Admin';
@@ -19064,7 +19616,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         const baris = (label, nilai, extra = {}) => <div {...extra} className="flex justify-between gap-2 py-1 border-t border-white/25 text-[12.5px]"><span className="min-w-0">{label}</span><b className="whitespace-nowrap tabular-nums">{nilai}</b></div>;
                         const panah = (teks) => <div className="flex items-center justify-center text-slate-400 font-black text-3xl py-1 lg:py-0"><div className="text-center leading-none"><span className="hidden lg:inline">➜</span><span className="lg:hidden">⬇</span><div className="text-[10px] font-bold text-slate-500 mt-0.5">{teks}</div></div></div>;
                         const persenCukup = posisiPegang != null && posisiBayar.total > 0 ? Math.round(posisiPegang / posisiBayar.total * 100) : null;
-                        return (
+                        return (<>
+                            <div className="bg-gray-50 rounded-2xl border border-gray-100 p-3 sm:p-4 mb-4">
+                                <UntungRugiPosisi orders={orders} employees={employees} invoices={invoices} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} driverRekapGaji={driverRekapGaji} danaOperasional={danaOperasional} templates={templates} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits}
+                                    posisiInfo={saldoAkun ? { rekening: saldoAkun.rekening, tunai: saldoAkun.tunai, dana: danaKaryawan.pegang, pegang: posisiPegang, gajiKomisiBelum: posisiBayar.gaji + posisiBayar.komisi } : null}
+                                    selisihLama={posisiUang ? penyesuaianAwal : 0} tglMulai={posisiUang ? posisiUang.mulai.tanggal : ''} namaPencetak={authUser?.name || authUser?.username || ''} showToast={showToast} />
+                            </div>
                             <div data-posisi-uang className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5">
                                 <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                                     <div>
@@ -19224,7 +19781,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     );
                                 })()}
                             </div>
-                        );
+                        </>);
                     })()}
 
                     {/* Tab: Dashboard */}
@@ -36508,11 +37065,11 @@ ${getRekapShareLink(rekap)}
                 return () => { clearTimeout(t); if (idleId && typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleId); };
             }, [isReady, authUser]);
 
-            // Akun yang tidak bisa membuka Laporan Kinerja / Absensi Finger tidak perlu mengunduh data scan
+            // Akun yang tidak bisa membuka Laporan Kinerja / Absensi Finger / Laporan Keuangan (gaji harian di Posisi Uang) tidak perlu mengunduh data scan
             // (±1 MB) setiap ada perubahan data — hemat kuota HP karyawan.
             needsAbsensiRawRef.current = !authUser || (() => {
                 const menus = new Set(getAccountMenuAccess(authUser));
-                return menus.has('laporan') || menus.has('absensi_finger');
+                return menus.has('laporan') || menus.has('absensi_finger') || menus.has('laporan_keuangan');
             })();
 
             useEffect(() => {
@@ -37557,7 +38114,7 @@ ${getRekapShareLink(rekap)}
                                     karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
                                     onLihatNotaVendor={canOpen('pembelian_bahan') ? (vendor) => { setNotaVendorReq({ vendor, t: Date.now() }); setActiveTab('pembelian_bahan'); } : null} /></div>}
-                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={ordersTampil} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} danaOperasional={danaOperasional} setExpenses={updateExpenses} /></MenuBeku></div>}
+                                {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={ordersTampil} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} danaOperasional={danaOperasional} setExpenses={updateExpenses} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} /></MenuBeku></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={ordersTampil} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
                                 {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></MenuBeku></div>}
