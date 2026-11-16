@@ -18180,7 +18180,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const t = a >= 1e9 ? `${(a / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 })} M` : a >= 1e6 ? `${(a / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })} jt` : a.toLocaleString('id-ID');
             return `${v < 0 ? '−' : ''}Rp ${t}`;
         };
-        const urKosong = () => ({ inv: 0, invBayar: 0, invBelum: 0, nInvBelum: 0, lain: 0, bahan: 0, bahanBelum: 0, nNotaBelum: 0, upah: 0, nOrder: 0, harian: 0, harianBelum: 0, manual: 0, ops: 0, komisi: 0, bhDireksi: 0, bhPromosi: 0, driver: 0, penyesuaian: 0, selisihLama: 0 });
+        const urKosong = () => ({ inv: 0, invBayar: 0, invBelum: 0, nInvBelum: 0, lain: 0, bahan: 0, bahanBelum: 0, nNotaBelum: 0, upah: 0, nOrder: 0, harian: 0, harianBelum: 0, manual: 0, ops: 0, komisi: 0, bhDireksi: 0, bhPromosi: 0, driver: 0, penyesuaian: 0, selisihLama: 0, bhLama: 0, nBhLama: 0 });
         // Semua catatan dikumpulkan SEKALI per bulan ('YYYY-MM'); filter tahun/bulan tinggal menjumlahkan.
         const hitungUntungRugiPosisi = ({ orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, danaOperasional, templates, absensiRawLogs, absensiEdits, slNominal = 0, slDari = '', slSampai = '', mulaiAt = '' }) => {
             const per = new Map();
@@ -18191,6 +18191,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 o[k] += v;
             };
             const invList = safeArray(invoices).filter(isVisibleRecord);
+            const isDireksiEmp = (emp) => getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris');
+            const empDireksi = safeArray(employees).filter(e => e && isDireksiEmp(e));
             invList.forEach(inv => {
                 const total = safeMoney(getInvoiceTotals(inv).total);
                 const bayar = Math.min(total, safeMoney(getInvoicePaidTotal(inv)));
@@ -18198,7 +18200,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 tambah(inv.date, 'inv', total);
                 tambah(inv.date, 'invBayar', bayar);
                 if (belum > 0.5) { tambah(inv.date, 'invBelum', belum); tambah(inv.date, 'nInvBelum', 1); }
-                tambah(inv.date, 'komisi', getInvoiceCommissionTotal(inv));
+                // Komisi marketing: sama dengan Laporan Kinerja — Direktur/Komisaris tidak menerima komisi (mendapat bagi hasil)
+                if (!empDireksi.some(emp => isInvoiceOfMarketing(inv, emp))) tambah(inv.date, 'komisi', getInvoiceCommissionTotal(inv));
             });
             safeArray(expenses).filter(isVisibleRecord).forEach(e => {
                 const v = safeMoney(e.amount);
@@ -18238,13 +18241,43 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const v = safeNumber(getDailySalaryLogTotal(l).total);
                     tambah(l.date, 'harian', v); tambah(l.date, 'harianBelum', v);
                 });
-                // Bagi hasil direksi langsung dari invoice (persen per invoice; nominal sekali per bulan yang ada invoicenya)
-                const nilai = safeMoney(emp.bagiHasilNilai);
-                if (nilai > 0 && getEmployeeDivisions(emp).some(d => d === 'Direktur' || d === 'Komisaris')) {
-                    if (emp.bagiHasilTipe !== 'Nominal') invList.forEach(inv => { if (inv.date) tambah(inv.date, 'bhDireksi', Math.round(getInvoiceTotals(inv).productionTotal * nilai / 100)); });
-                    else new Set(invList.map(inv => String(inv.date || '').slice(0, 7)).filter(Boolean)).forEach(b => tambah(`${b}-01`, 'bhDireksi', nilai));
-                }
             });
+            // Bagi hasil direksi — aturan sama dengan Laporan Kinerja:
+            //  - bulan yang sudah direkap: angka di rekap (dibagi ke bulan bagi hasilnya)
+            //  - bulan berjalan yang belum direkap: dihitung otomatis dari invoice ("Siap direkap")
+            //  - bulan lama yang belum direkap: TIDAK dihitung (di Laporan Kinerja dicentang manual bila memang belum dibayar) → keterangan saja
+            const rekapList = safeArray(rekapKinerja).filter(isVisibleRecord);
+            const bulanRekapBH = (rk) => safeArray(rk.bagiHasilDireksiMonths).length ? safeArray(rk.bagiHasilDireksiMonths) : (rk.bagiHasilDireksiMonth ? [rk.bagiHasilDireksiMonth] : [String(rk.dateProcessed || '').slice(0, 7)].filter(Boolean));
+            const invById = new Map(invList.map(inv => [String(inv.id), inv]));
+            rekapList.filter(rk => safeMoney(rk.bagiHasilDireksiAmount) > 0).forEach(rk => {
+                const jml = safeMoney(rk.bagiHasilDireksiAmount);
+                const invRk = safeArray(rk.bagiHasilDireksiInvoiceIds).map(id => invById.get(String(id))).filter(inv => inv && inv.date);
+                const dasar = invRk.reduce((t, inv) => t + safeMoney(getInvoiceTotals(inv).productionTotal), 0);
+                if (dasar > 0) invRk.forEach(inv => tambah(inv.date, 'bhDireksi', jml * safeMoney(getInvoiceTotals(inv).productionTotal) / dasar));
+                else { const bln = bulanRekapBH(rk); bln.forEach(b => tambah(`${b}-01`, 'bhDireksi', jml / bln.length)); }
+            });
+            const bulanSekarang = toLocalMonthStr();
+            empDireksi.filter(emp => !emp.isDeleted && safeMoney(emp.bagiHasilNilai) > 0).forEach(emp => {
+                const nilai = safeMoney(emp.bagiHasilNilai);
+                const isPersen = emp.bagiHasilTipe !== 'Nominal';
+                const rekapBH = rekapList.filter(rk => String(rk.empId) === String(emp.id) && safeMoney(rk.bagiHasilDireksiAmount) > 0);
+                const direkap = new Set(rekapBH.filter(rk => !isPersen || !Array.isArray(rk.bagiHasilDireksiInvoiceIds)).flatMap(bulanRekapBH));
+                const invDirekap = new Set(isPersen ? rekapBH.flatMap(rk => safeArray(rk.bagiHasilDireksiInvoiceIds).map(String)) : []);
+                const perBulan = {};
+                invList.forEach(inv => {
+                    if (!inv.date) return;
+                    const m = String(inv.date).slice(0, 7);
+                    if (direkap.has(m) || invDirekap.has(String(inv.id))) return;
+                    (perBulan[m] = perBulan[m] || []).push(inv);
+                });
+                Object.entries(perBulan).forEach(([m, list]) => {
+                    if (m > bulanSekarang) return;
+                    const jml = isPersen ? list.reduce((t, inv) => t + Math.round(getInvoiceTotals(inv).productionTotal * nilai / 100), 0) : nilai;
+                    if (m === bulanSekarang) tambah(`${m}-01`, 'bhDireksi', jml);
+                    else tambah(`${m}-01`, 'bhLama', jml);
+                });
+            });
+            per.forEach(o => { o.nBhLama = o.bhLama > 0.5 ? 1 : 0; }); // jumlah BULAN (bukan per orang)
             safeArray(bagiHasilPromosi).filter(isVisibleRecord).forEach(b => tambah(b.tanggal, 'bhPromosi', calcBagiHasil(b, invList).nominal));
             safeArray(driverRekapGaji).filter(isVisibleRecord).forEach(r => tambah(r.tanggalRekap, 'driver', drvRekapBruto(r)));
             // Selisih lama (penyesuaian awal titik mulai) = uang yang tidak pernah tercatat sejak saldo kas awal.
@@ -18551,8 +18584,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <Total id="labaKotor" label="Laba kotor" nilai={t.labaKotor} />
                                 <Grup teks="Biaya usaha" />
                                 <Baris id="ops" label="Biaya operasional" nilai={t.ops} warna="#1baf7a" />
-                                <Baris id="komisi" label="Komisi marketing" nilai={t.komisi} warna="#1baf7a" tag={['DARI INVOICE', 'bg-emerald-100 text-emerald-800']} ket="sudah maupun belum direkap" />
-                                <Baris id="bhDireksi" label="Bagi hasil direksi" nilai={t.bhDireksi} warna="#1baf7a" tag={['DARI INVOICE', 'bg-emerald-100 text-emerald-800']} ket="sudah maupun belum direkap" />
+                                <Baris id="komisi" label="Komisi marketing" nilai={t.komisi} warna="#1baf7a" tag={['DARI INVOICE', 'bg-emerald-100 text-emerald-800']} ket="sudah maupun belum direkap · invoice yang marketingnya Direktur/Komisaris tidak dihitung (sama dengan Laporan Kinerja)" />
+                                <Baris id="bhDireksi" label="Bagi hasil direksi" nilai={t.bhDireksi} warna="#1baf7a" tag={['DARI INVOICE', 'bg-emerald-100 text-emerald-800']} ket={<>sudah direkap + bulan berjalan yang belum direkap (sama dengan Laporan Kinerja){t.bhLama > 0.5 && <span data-ur-bh-lama={Math.round(t.bhLama)} className="block text-amber-700 font-semibold">⚠ {t.nBhLama} bulan lama belum direkap ± {fRp(t.bhLama)} — tidak dihitung. Bila memang belum dibayar, rekap di Laporan Kinerja.</span>}</>} />
                                 <Baris id="bhPromosi" label="Bagi hasil promosi" nilai={t.bhPromosi} warna="#1baf7a" />
                                 <Baris id="driver" label="Gaji driver (SIJEK)" nilai={t.driver} warna="#1baf7a" />
                                 <Baris id="penyesuaian" label="Penyesuaian dana" nilai={t.penyesuaian} warna="#eda100" tag={['TIDAK TERCATAT', 'bg-red-100 text-red-800']} ket={'Selisih kas (Cocokkan saldo) & dana karyawan "tidak kembali"'} />
