@@ -18180,6 +18180,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const t = a >= 1e9 ? `${(a / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 })} M` : a >= 1e6 ? `${(a / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })} jt` : a.toLocaleString('id-ID');
             return `${v < 0 ? '−' : ''}Rp ${t}`;
         };
+        // 'YYYY-MM' digeser n bulan (negatif = mundur)
+        const urGeserBulan = (b, n) => { const y = Number(b.slice(0, 4)), m = Number(b.slice(5, 7)) - 1 + n; const yy = y + Math.floor(m / 12), mm = ((m % 12) + 12) % 12; return `${yy}-${String(mm + 1).padStart(2, '0')}`; };
+        const urNamaBulan = (b) => `${UR_BULAN[Number(b.slice(5, 7)) - 1]} ${b.slice(0, 4)}`;
         const urKosong = () => ({ inv: 0, invBayar: 0, invBelum: 0, nInvBelum: 0, lain: 0, bahan: 0, bahanBelum: 0, nNotaBelum: 0, upah: 0, nOrder: 0, harian: 0, harianBelum: 0, manual: 0, ops: 0, komisi: 0, bhDireksi: 0, bhPromosi: 0, driver: 0, penyesuaian: 0, selisihLama: 0, bhLama: 0, nBhLama: 0, bonus: 0, driverBelum: 0 });
         // Semua catatan dikumpulkan SEKALI per bulan ('YYYY-MM'); filter tahun/bulan tinggal menjumlahkan.
         const hitungUntungRugiPosisi = ({ orders, employees, invoices, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, driverRekapGaji, driverTransactions = [], drivers = [], danaOperasional, templates, absensiRawLogs, absensiEdits, slNominal = 0, slDari = '', slSampai = '', mulaiAt = '' }) => {
@@ -18338,16 +18341,36 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const hariIni = toLocalDateStr();
             const tahunIni = hariIni.slice(0, 4);
             const bulanIni = hariIni.slice(0, 7);
-            const [tahun, setTahun] = React.useState(tahunIni);
-            const [bulan, setBulan] = React.useState(''); // '' = setahun; 'MM' = satu bulan
+            // Periode: 'thn:YYYY' (setahun) · 'n:3|6|12' (N bulan terakhir, bulan ini ikut) · 'satu' (satu bulan) · 'rentang' (dari–sampai, boleh lintas tahun)
+            const [periode, setPeriode] = React.useState(`thn:${tahunIni}`);
+            const [bulanSatu, setBulanSatu] = React.useState(bulanIni);
+            const [rDari, setRDari] = React.useState(urGeserBulan(bulanIni, -5));
+            const [rSampai, setRSampai] = React.useState(bulanIni);
+            const [kembaliKe, setKembaliKe] = React.useState(null); // periode sebelum batang grafik diketuk
             const daftarTahun = React.useMemo(() => [...new Set([tahunIni, ...[...per.keys()].map(b => b.slice(0, 4))])].filter(t => t <= tahunIni).sort().reverse(), [per, tahunIni]);
-            const awalPeriode = bulan ? `${tahun}-${bulan}` : `${tahun}-01`;
-            const t = React.useMemo(() => urJumlah(per, b => b.slice(0, 4) === tahun && (!bulan || b.slice(5, 7) === bulan)), [per, tahun, bulan]);
-            // Grafik per bulan: tahun berjalan sampai bulan ini; tahun lalu Jan–Des
+            // Pilihan bulan: dari Januari tahun data paling awal (minimal 12 bulan terakhir) sampai bulan ini (terbaru di atas)
+            // → setiap batang grafik & bawaan "Dari" selalu ada di pilihan
+            const daftarBulan = React.useMemo(() => {
+                const awalData = [...per.keys()].filter(b => b <= bulanIni).sort()[0] || bulanIni;
+                const batas = [`${awalData.slice(0, 4)}-01`, urGeserBulan(bulanIni, -11)].sort()[0];
+                const out = []; for (let b = bulanIni; b >= batas && out.length < 240; b = urGeserBulan(b, -1)) out.push(b);
+                return out;
+            }, [per, bulanIni]);
+            const [awal, akhir] = (() => {
+                if (periode.startsWith('thn:')) { const y = periode.slice(4); return [`${y}-01`, y === tahunIni ? bulanIni : `${y}-12`]; }
+                if (periode.startsWith('n:')) return [urGeserBulan(bulanIni, -(Number(periode.slice(2)) - 1)), bulanIni];
+                if (periode === 'satu') return [bulanSatu, bulanSatu];
+                return rDari <= rSampai ? [rDari, rSampai] : [rSampai, rDari];
+            })();
+            const satuBulan = awal === akhir;
+            const tahun = akhir.slice(0, 4);
+            const awalPeriode = awal;
+            const t = React.useMemo(() => urJumlah(per, b => b >= awal && b <= akhir), [per, awal, akhir]);
+            // Grafik per bulan: semua bulan dalam periode (boleh lintas tahun)
             const bulanGrafik = React.useMemo(() => {
-                const n = tahun === tahunIni ? Number(bulanIni.slice(5, 7)) : 12;
-                return Array.from({ length: n }, (_, i) => { const mm = String(i + 1).padStart(2, '0'); return { mm, i, ...urJumlah(per, b => b === `${tahun}-${mm}`) }; });
-            }, [per, tahun, tahunIni, bulanIni]);
+                const out = []; for (let b = awal, i = 0; b <= akhir && i < 240; b = urGeserBulan(b, 1), i++) out.push({ b, i, ...urJumlah(per, k => k === b) });
+                return out;
+            }, [per, awal, akhir]);
             const ingat = React.useMemo(() => {
                 let jml = 0, n = 0, thnAkhir = '';
                 per.forEach((o, b) => { if (b < awalPeriode && o.invBelum > 0) { jml += o.invBelum; n += o.nInvBelum; if (b.slice(0, 4) > thnAkhir) thnAkhir = b.slice(0, 4); } });
@@ -18360,8 +18383,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const untung = t.laba >= 0;
             const margin = t.pendapatan > 0 ? t.laba / t.pendapatan * 100 : null;
             const persen = (v, d = 1) => `${(Math.round(v * 10 ** d) / 10 ** d).toLocaleString('id-ID')}%`;
-            const labelPeriode = bulan ? `${UR_BULAN[Number(bulan) - 1]} ${tahun}` : `${tahun}${tahun === tahunIni ? ` (Jan–${UR_BLN[Number(bulanIni.slice(5, 7)) - 1]})` : ''}`;
-            const rataBulan = !bulan && bulanGrafik.length ? t.laba / bulanGrafik.length : null;
+            const sdHari = (b) => b === bulanIni ? ` (s.d. ${Number(hariIni.slice(8, 10))})` : ''; // bulan berjalan belum penuh
+            const labelPeriode = periode.startsWith('thn:')
+                ? `${tahun}${tahun === tahunIni ? ` (Jan – ${UR_BLN[Number(bulanIni.slice(5, 7)) - 1]} s.d. ${Number(hariIni.slice(8, 10))})` : ''}`
+                : satuBulan ? `${urNamaBulan(awal)}${sdHari(awal)}` : `${urNamaBulan(awal)} – ${urNamaBulan(akhir)}${sdHari(akhir)}`;
+            const rataBulan = !satuBulan && bulanGrafik.length ? t.laba / bulanGrafik.length : null;
+            const kataSebelum = periode.startsWith('thn:') ? 'tahun sebelumnya' : 'sebelum periode ini';
             const fRp = (n) => formatRupiah(Math.round(n));
             // Rentang pembagian selisih lama (tanggal saldo kas awal → titik mulai)
             const slAda = Math.abs(safeMoney(selisihLama)) > 0.5 && /^\d{4}-\d{2}-\d{2}$/.test(String(tglMulai || ''));
@@ -18378,8 +18405,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             ].filter(x => x.v > 0);
             const dasarKomposisi = Math.max(t.pendapatan, komposisi.reduce((s, x) => s + x.v, 0)) || 1;
             const per100 = (v) => Math.round(v / (t.pendapatan || 1) * 100000 / 100) * 100;
-            const pilihBulan = (mm) => { setBulan(mm); };
-            const lihatTahun = (th) => { setTahun(th); setBulan(''); };
+            const gantiPeriode = (v) => { setPeriode(v); setKembaliKe(null); };
+            const lihatTahun = (th) => gantiPeriode(`thn:${th}`);
+            // Ketuk batang: buka rincian bulan itu; ketuk lagi: kembali ke periode sebelumnya
+            const ketukBulan = (b) => {
+                if (periode === 'satu' && bulanSatu === b && kembaliKe) { setPeriode(kembaliKe); setKembaliKe(null); return; }
+                if (periode !== 'satu') setKembaliKe(periode);
+                setBulanSatu(b); setPeriode('satu');
+            };
 
             const cetak = () => {
                 const e = escapeHtmlText;
@@ -18387,8 +18420,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const nNeg = (v) => v < 0 ? `(${n(-v)})` : n(v);
                 const tglCetak = new Date().toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
                 const maxAbs = Math.max(1, ...bulanGrafik.map(b => Math.abs(b.laba)));
-                const tabelBulan = bulan ? '' : `<div class="ph">A. Ringkasan per bulan</div><table class="pt"><thead><tr><th>Bulan</th><th>Pendapatan</th><th>Biaya</th><th>Untung / rugi</th><th>Margin</th></tr></thead><tbody>
-                    ${bulanGrafik.map(b => `<tr><td>${UR_BULAN[b.i]}</td><td>${n(b.pendapatan)}</td><td>${n(b.produksi + b.usaha)}</td><td class="${b.laba < 0 ? 'neg' : ''}">${nNeg(b.laba)}<span class="mb${b.laba < 0 ? ' neg' : ''}" style="width:${Math.round(Math.abs(b.laba) / maxAbs * 46)}px"></span></td><td class="${b.laba < 0 ? 'neg' : ''}">${b.pendapatan > 0 ? persen(b.laba / b.pendapatan * 100) : '-'}</td></tr>`).join('')}
+                const tabelBulan = satuBulan ? '' : `<div class="ph">A. Ringkasan per bulan</div><table class="pt"><thead><tr><th>Bulan</th><th>Pendapatan</th><th>Biaya</th><th>Untung / rugi</th><th>Margin</th></tr></thead><tbody>
+                    ${bulanGrafik.map(b => `<tr><td>${urNamaBulan(b.b)}${sdHari(b.b)}</td><td>${n(b.pendapatan)}</td><td>${n(b.produksi + b.usaha)}</td><td class="${b.laba < 0 ? 'neg' : ''}">${nNeg(b.laba)}<span class="mb${b.laba < 0 ? ' neg' : ''}" style="width:${Math.round(Math.abs(b.laba) / maxAbs * 46)}px"></span></td><td class="${b.laba < 0 ? 'neg' : ''}">${b.pendapatan > 0 ? persen(b.laba / b.pendapatan * 100) : '-'}</td></tr>`).join('')}
                     <tr class="tt"><td>Total</td><td>${n(t.pendapatan)}</td><td>${n(t.produksi + t.usaha)}</td><td>${nNeg(t.laba)}</td><td>${margin == null ? '-' : persen(margin)}</td></tr></tbody></table>`;
                 const baris = (l, v, sub) => `<tr><td${sub ? ' class="sub"' : ''}>${e(l)}</td><td>${nNeg(v)}</td></tr>`;
                 const tot = (l, v) => `<tr class="tt"><td>${e(l)}</td><td>${nNeg(v)}</td></tr>`;
@@ -18398,7 +18431,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     ${baris(`Uang di customer (${t.nInvBelum} invoice)`, t.invBelum)}
                     ${baris(`Hutang ke vendor bahan (${t.nNotaBelum} nota)`, t.bahanBelum)}
                     ${p ? baris('Gaji & komisi belum dibayar', p.gajiKomisiBelum) : ''}</table>`;
-                const ingatHtml = ingat.jml > 0.5 ? `<br><b>Pengingat:</b> masih ada tagihan invoice ${bulan ? 'sebelum periode ini' : 'tahun sebelumnya'} belum dibayar Rp ${n(ingat.jml)} (${ingat.n} invoice) — tidak termasuk laporan ini.` : '';
+                const ingatHtml = ingat.jml > 0.5 ? `<br><b>Pengingat:</b> masih ada tagihan invoice ${kataSebelum} belum dibayar Rp ${n(ingat.jml)} (${ingat.n} invoice) — tidak termasuk laporan ini.` : '';
                 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${e(namaFileCetak('Laporan Untung Rugi', labelPeriode))}</title><style>
                     @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;font-size:11.5px;line-height:1.4;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
                     .kop{display:flex;align-items:center;gap:12px;border-bottom:3px double #111;padding-bottom:8px}.kop img{max-height:50px;max-width:110px}
@@ -18418,11 +18451,11 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <h1>LAPORAN UNTUNG RUGI</h1><div class="per">${e(labelPeriode)}</div>
                     <div class="box"><div><div class="l">Pendapatan</div><div class="v">Rp ${n(t.pendapatan)}</div></div><div><div class="l">Total biaya</div><div class="v">Rp ${n(t.produksi + t.usaha)}</div></div><div><div class="l">Margin</div><div class="v">${margin == null ? '-' : persen(margin)}</div></div><div><div class="l">${untung ? 'Untung bersih' : 'Rugi bersih'}</div><div class="v${untung ? '' : ' neg'}">Rp ${nNeg(t.laba)}</div></div></div>
                     ${tabelBulan}
-                    <div class="cols"><div><div class="ph">${bulan ? 'A' : 'B'}. Rincian</div><table class="pt">
+                    <div class="cols"><div><div class="ph">${satuBulan ? 'A' : 'B'}. Rincian</div><table class="pt">
                         ${baris('Nilai invoice terbit', t.inv)}${baris('sudah dibayar', t.invBayar, 1)}${baris('belum dibayar', t.invBelum, 1)}${baris('Pemasukan lain', t.lain)}${tot('Pendapatan', t.pendapatan)}
                         ${baris('Bahan', t.bahan, 1)}${baris('Upah produksi (dari order)', t.upah, 1)}${baris('Gaji harian & lembur', t.harian, 1)}${baris('Pekerjaan manual', t.manual, 1)}${baris('Bonus karyawan', t.bonus, 1)}${tot('Laba kotor', t.labaKotor)}
                         ${baris('Biaya operasional', t.ops, 1)}${baris('Komisi marketing', t.komisi, 1)}${baris('Bagi hasil direksi', t.bhDireksi, 1)}${baris('Bagi hasil promosi', t.bhPromosi, 1)}${baris('Gaji driver', t.driver, 1)}${baris('Penyesuaian dana (tidak tercatat)', t.penyesuaian, 1)}${slAda ? baris('Selisih sebelum titik mulai (dibagi rata)', t.selisihLama, 1) : ''}${tot(untung ? 'Untung bersih' : 'Rugi bersih', t.laba)}
-                    </table></div><div><div class="ph">${bulan ? 'B' : 'C'}. Posisi uang per ${e(fmtTglStruk(hariIni))}</div>${posisiHtml}
+                    </table></div><div><div class="ph">${satuBulan ? 'B' : 'C'}. Posisi uang per ${e(fmtTglStruk(hariIni))}</div>${posisiHtml}
                     <div class="note"><b>Catatan:</b> semua pekerjaan dihitung walau belum dibayar / belum direkap. Upah produksi dihitung dari input order; gaji harian dari absensi.${slAda ? ` Termasuk selisih sebelum titik mulai (${e(fmtTglStruk(tglMulai))}) ${slKeluar >= 0 ? 'uang keluar tidak tercatat' : 'uang lebih dari catatan'} Rp ${n(Math.abs(slKeluar))}, dibagi rata per hari sejak ${e(fmtTglStruk(slAwal))}.` : ''} Angka dalam Rupiah.${ingatHtml}</div></div></div>
                     <div class="ttd"><div>Dibuat oleh,<div class="g"></div>( ____________________ )<br>Admin Keuangan</div><div>Mengetahui,<div class="g"></div>( ____________________ )<br>Direktur</div></div>
                     <div class="foot">${e(templates?.companyName || 'SIMPATI KONVEKSI')} · Laporan Untung Rugi ${e(labelPeriode)}</div>
@@ -18440,26 +18473,29 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const langkah = (() => { const r = Math.max(atas - bawah, 1) / 4; const p = 10 ** Math.floor(Math.log10(r)); return [1, 2, 2.5, 5, 10].map(m => m * p).find(s => s >= r) || r; })();
                 const maks = Math.ceil(atas / langkah) * langkah || langkah, min = Math.floor(bawah / langkah) * langkah;
                 const y = (v) => T + (maks - v) / (maks - min) * (H - T - B);
-                const n = 12, bw = (W - L - R) / n;
+                const n = Math.max(1, bulanGrafik.length), bw = (W - L - R) / n;
+                const fsBln = n > 18 ? 8.5 : n > 12 ? 9.5 : 11;
+                const lintasTahun = bulanGrafik.length > 0 && bulanGrafik[0].b.slice(0, 4) !== bulanGrafik[bulanGrafik.length - 1].b.slice(0, 4);
+                const labelBln = (b, i) => `${UR_BLN[Number(b.slice(5, 7)) - 1]}${lintasTahun && (i === 0 || b.slice(5, 7) === '01') ? ` '${b.slice(2, 4)}` : ''}`;
                 const garis = []; for (let v = min; v <= maks + 0.001; v += langkah) garis.push(v);
                 const label = (v) => { const a = Math.abs(v); return (v < 0 ? '−' : '') + (a >= 1e9 ? `${(a / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 1 })}M` : a >= 1e6 ? `${(a / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })}jt` : a >= 1e3 ? `${Math.round(a / 1e3)}rb` : `${Math.round(a)}`); };
                 const terbaikI = terbaik ? terbaik.i : -1;
                 const terburuk = bulanAktif.length ? bulanAktif.reduce((a, b) => b.laba < a.laba ? b : a) : null;
                 return (
-                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block" role="img" aria-label={`Untung rugi per bulan ${tahun}`}>
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block" role="img" aria-label={`Untung rugi per bulan ${labelPeriode}`}>
                         {garis.map(v => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke={Math.abs(v) < 0.001 ? '#c3c2b7' : '#e7e6e0'} strokeWidth={Math.abs(v) < 0.001 ? 1.5 : 1} /><text x={L - 6} y={y(v) + 4} textAnchor="end" fontSize="10.5" fill="#898781">{label(v)}</text></g>)}
                         {Array.from({ length: n }, (_, i) => {
                             const b = bulanGrafik[i]; const cx = L + i * bw + bw / 2; const x = L + i * bw + bw * 0.18, w = bw * 0.64;
-                            const dipilih = bulan === String(i + 1).padStart(2, '0');
-                            if (!b) return <text key={i} x={cx} y={H - 6} textAnchor="middle" fontSize="11" fill="#c3c2b7">{UR_BLN[i]}</text>;
+                            const dipilih = false;
+                            if (!b) return null;
                             const y0 = y(0), y1 = y(b.laba), top = Math.min(y0, y1), h = Math.max(b.laba === 0 ? 0 : 2, Math.abs(y1 - y0));
                             return (
-                                <g key={i} data-ur-bar={b.mm} onClick={() => pilihBulan(dipilih ? '' : b.mm)} style={{ cursor: 'pointer' }}>
-                                    <title>{`${UR_BULAN[i]} ${tahun}\nPendapatan ${fRp(b.pendapatan)}\nBiaya ${fRp(b.produksi + b.usaha)}\n${b.laba < 0 ? 'Rugi' : 'Untung'} ${fRp(Math.abs(b.laba))}`}</title>
+                                <g key={b.b} data-ur-bar={b.b} onClick={() => ketukBulan(b.b)} style={{ cursor: 'pointer' }}>
+                                    <title>{`${urNamaBulan(b.b)}${sdHari(b.b)}\nPendapatan ${fRp(b.pendapatan)}\nBiaya ${fRp(b.produksi + b.usaha)}\n${b.laba < 0 ? 'Rugi' : 'Untung'} ${fRp(Math.abs(b.laba))}`}</title>
                                     <rect x={L + i * bw} y={T} width={bw} height={H - T - B} fill={dipilih ? '#f1f5f9' : 'transparent'} />
                                     {h > 0 && <rect x={x} y={top} width={w} height={h} rx={Math.min(4, h / 2)} fill={b.laba < 0 ? '#d03b3b' : '#0b8a3a'} />}
                                     {(i === terbaikI || (terburuk && i === terburuk.i && terburuk.laba < 0)) && <text x={cx} y={b.laba >= 0 ? top - 5 : top + h + 12} textAnchor="middle" fontSize="10.5" fontWeight="700" fill="#101511">{label(b.laba)}</text>}
-                                    <text x={cx} y={H - 6} textAnchor="middle" fontSize="11" fontWeight={dipilih ? 800 : 400} fill={dipilih ? '#101511' : '#5c655e'}>{UR_BLN[i]}</text>
+                                    <text x={cx} y={H - 6} textAnchor="middle" fontSize={fsBln} fill="#5c655e">{labelBln(b.b, i)}</text>
                                 </g>
                             );
                         })}
@@ -18489,16 +18525,20 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="text-xs text-gray-500">Hanya membaca data · semua pekerjaan dihitung walau belum dibayar / belum direkap</div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 ml-auto">
-                            <select data-ur-tahun value={tahun} onChange={e => lihatTahun(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">
-                                {daftarTahun.map(th => <option key={th} value={th}>Tahun {th}</option>)}
+                            <select data-ur-periode value={periode} onChange={e => gantiPeriode(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">
+                                {daftarTahun.map(th => <option key={th} value={`thn:${th}`}>{th === tahunIni ? `Tahun ini (${th})` : `Tahun ${th}`}</option>)}
+                                <option value="n:3">3 bulan terakhir</option>
+                                <option value="n:6">6 bulan terakhir</option>
+                                <option value="n:12">12 bulan terakhir</option>
+                                <option value="satu">Satu bulan…</option>
+                                <option value="rentang">Dari bulan … sampai bulan …</option>
                             </select>
-                            <select data-ur-bulan value={bulan} onChange={e => pilihBulan(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">
-                                <option value="">Setahun</option>
-                                {UR_BULAN.map((nm, i) => { const mm = String(i + 1).padStart(2, '0'); return (tahun < tahunIni || `${tahun}-${mm}` <= bulanIni) ? <option key={mm} value={mm}>{nm}</option> : null; })}
-                            </select>
+                            {periode === 'satu' && <select data-ur-satu value={bulanSatu} onChange={e => { setBulanSatu(e.target.value); setKembaliKe(null); }} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">{daftarBulan.map(b => <option key={b} value={b}>{urNamaBulan(b)}</option>)}</select>}
+                            {periode === 'rentang' && <span className="inline-flex flex-wrap items-center gap-1.5"><span className="text-xs font-bold text-gray-500">Dari</span><select data-ur-dari value={rDari} onChange={e => setRDari(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">{daftarBulan.map(b => <option key={b} value={b}>{urNamaBulan(b)}</option>)}</select><span className="text-xs font-bold text-gray-500">sampai</span><select data-ur-sampai value={rSampai} onChange={e => setRSampai(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">{daftarBulan.map(b => <option key={b} value={b}>{urNamaBulan(b)}</option>)}</select></span>}
                             <button type="button" data-ur-cetak onClick={cetak} className="rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-3.5 py-2 text-sm font-black">🖨 Cetak / PDF</button>
                         </div>
                     </div>
+                    <div data-ur-label className="text-[12.5px] text-gray-500 -mt-1">Menampilkan: <b className="text-gray-800">{labelPeriode}</b> · {bulanGrafik.length} bulan</div>
 
                     <div data-ur-laba={Math.round(t.laba)} className={`rounded-2xl p-5 text-white grid gap-4 sm:grid-cols-[1fr_auto] items-end ${untung ? 'bg-gradient-to-br from-emerald-950 to-emerald-700' : 'bg-gradient-to-br from-red-950 to-red-700'}`}>
                         <div className="min-w-0">
@@ -18507,8 +18547,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <div className="text-sm opacity-85">{rataBulan != null ? <>Rata-rata <b className="tabular-nums">{urRingkas(rataBulan)}</b> per bulan · </> : null}dari pendapatan <b className="tabular-nums">{urRingkas(t.pendapatan)}</b>{Math.abs(t.selisihLama) > 0.5 ? ' · termasuk selisih lama yang tidak tercatat' : ''}</div>
                             <div className="flex flex-wrap gap-1.5 mt-2 text-xs font-bold">
                                 {margin != null && <span className="rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5">Margin {persen(margin)}</span>}
-                                {!bulan && bulanAktif.length > 0 && <span className="rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5">{nUntung} bulan untung · {nRugi} bulan rugi</span>}
-                                {!bulan && terbaik && terbaik.laba > 0 && <span className="rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5">Terbaik: {UR_BULAN[terbaik.i]}</span>}
+                                {!satuBulan && bulanAktif.length > 0 && <span className="rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5">{nUntung} bulan untung · {nRugi} bulan rugi</span>}
+                                {!satuBulan && terbaik && terbaik.laba > 0 && <span className="rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5">Terbaik: {urNamaBulan(terbaik.b)}</span>}
                             </div>
                         </div>
                         {margin != null && (
@@ -18534,7 +18574,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     <div className="grid gap-3 lg:grid-cols-[1.35fr_1fr] items-start">
                         <div className="bg-white border border-gray-200 rounded-2xl p-4 min-w-0">
                             <div className="font-black text-gray-800">Untung / rugi per bulan</div>
-                            <div className="text-xs text-gray-500 mb-2">{tahun} · ketuk batang untuk melihat rincian bulan itu{bulan ? ' (ketuk lagi untuk kembali setahun)' : ''}</div>
+                            <div className="text-xs text-gray-500 mb-2">{labelPeriode} · ketuk batang untuk melihat rincian bulan itu{periode === 'satu' && kembaliKe ? ' (ketuk lagi untuk kembali)' : ''}</div>
                             <div data-ur-grafik>{grafik}</div>
                             <div className="flex gap-4 text-xs text-gray-500 mt-1"><span className="inline-flex items-center gap-1.5"><i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#0b8a3a' }}></i>Untung</span><span className="inline-flex items-center gap-1.5"><i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: '#d03b3b' }}></i>Rugi</span></div>
                         </div>
@@ -18556,7 +18596,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
 
                     <div className="bg-white border border-gray-200 rounded-2xl p-4">
                         <div className="font-black text-gray-800">Belum dibayar</div>
-                        <div className="text-xs text-gray-500 mb-3">dari invoice &amp; nota {labelPeriode} · ikut filter tahun / bulan</div>
+                        <div className="text-xs text-gray-500 mb-3">dari invoice &amp; nota {labelPeriode} · ikut periode</div>
                         <div className="grid gap-3 sm:grid-cols-2">
                             <div data-ur-belum-cust={Math.round(t.invBelum)} className="border border-gray-200 rounded-xl p-3.5">
                                 <div className="flex justify-between gap-2 items-baseline"><b className="text-sm">📥 Uang di customer</b><span className="text-xs text-gray-500">{t.nInvBelum} invoice</span></div>
@@ -18571,7 +18611,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                         {ingat.jml > 0.5 && (
                             <div data-ur-ingat={Math.round(ingat.jml)} className="mt-3 text-[12.5px] leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
-                                ⓘ Masih ada <b>tagihan invoice {bulan ? 'sebelum periode ini' : 'tahun sebelumnya'} {fRp(ingat.jml)}</b> ({ingat.n} invoice{ingat.thnAkhir ? `, terakhir tahun ${ingat.thnAkhir}` : ''}) — tidak dijumlahkan di sini.{' '}
+                                ⓘ Masih ada <b>tagihan invoice {kataSebelum} {fRp(ingat.jml)}</b> ({ingat.n} invoice{ingat.thnAkhir ? `, terakhir tahun ${ingat.thnAkhir}` : ''}) — tidak dijumlahkan di sini.{' '}
                                 <button type="button" data-ur-ingat-lihat onClick={() => lihatTahun(ingat.thnAkhir || tahun)} className="font-black underline">Lihat tahun {ingat.thnAkhir || tahun} ›</button>
                             </div>
                         )}
