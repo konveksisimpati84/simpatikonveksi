@@ -21028,6 +21028,12 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [bonusNote, setBonusNote] = useState('');
             const [bonusEdit, setBonusEdit] = useState(null); // { rekapId, amount, note } — ubah bonus rekap yang sudah jadi
             const [isRekapProcessing, setIsRekapProcessing] = useState(false);
+            // Tanggal rekap pilihan admin di Rekap Gabungan (bawaan: hari ini). Rekap tampil di daftar sesuai tanggal ini.
+            const [tanggalRekap, setTanggalRekap] = useState('');
+            // Rekap yang baru dibuat dengan tanggal bukan hari ini: { id, empName, tanggal } → pemberitahuan "ada di halaman …"
+            const [rekapBaruInfo, setRekapBaruInfo] = useState(null);
+            const [sorotRekapId, setSorotRekapId] = useState(null);
+            const [lompatRekapId, setLompatRekapId] = useState(null);
             // printOptions dihapus — pilihan direkap kini langsung dikontrol oleh selectedKeys per kategori
             const [expandedRekapIds, setExpandedRekapIds] = useState({});
             const [expandedInputIds, setExpandedInputIds] = useState({});
@@ -21816,6 +21822,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setCashAdvanceDeductionNote(potonganLebih > 0 ? `Potongan kasbon lebih bayar komisi${tglAsal.length ? ` (rekap ${tglAsal.join(', ')})` : ''}` : '');
                 setBonusSalary('');
                 setBonusNote('');
+                setTanggalRekap(toLocalDateStr());
             };
 
             const toggleModalRekapItem = (item) => {
@@ -21965,12 +21972,19 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     setIsRekapProcessing(false);
                     return;
                 }
-                // Cegah double-rekap: pastikan tidak ada rekap lain yang sedang dibuat untuk karyawan + tanggal yang sama
+                // Tanggal rekap pilihan admin (bawaan hari ini; tidak boleh tanggal ke depan)
                 const todayStr = toLocalDateStr();
+                const tglRekap = tanggalRekap || todayStr;
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(tglRekap) || tglRekap < '2000-01-01' || tglRekap > todayStr) {
+                    showToast(tglRekap > todayStr ? "Tanggal rekap tidak boleh lebih dari hari ini." : "Tanggal rekap belum benar.", "error");
+                    setIsRekapProcessing(false);
+                    return;
+                }
+                // Cegah double-rekap: pastikan tidak ada rekap lain untuk karyawan + tanggal rekap yang sama
                 const existingSameDay = safeArray(rekapKinerja).filter(isVisibleRecord).some(rk =>
-                    String(rk.empId) === String(modalData.empId) && rk.dateProcessed === todayStr
+                    String(rk.empId) === String(modalData.empId) && rk.dateProcessed === tglRekap
                 );
-                if (existingSameDay && !window.confirm(`Sudah ada rekap untuk ${empForRekap.name} hari ini. Tetap buat rekap baru?`)) {
+                if (existingSameDay && !window.confirm(`Sudah ada rekap untuk ${empForRekap.name} ${tglRekap === todayStr ? 'hari ini' : `tanggal ${fmtTglStruk(tglRekap)}`}. Tetap buat rekap baru?`)) {
                     setIsRekapProcessing(false);
                     return;
                 }
@@ -22032,7 +22046,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     empId: modalData.empId,
                     empName: empForRekap?.name || '',
                     division: empForRekap ? getEmployeeDivisions(empForRekap).join(', ') : '',
-                    dateProcessed: toLocalDateStr(),
+                    dateProcessed: tglRekap,
                     items: selectedItems,
                     total: selectedTotal,
                     totalWage: selectedWage,
@@ -22137,9 +22151,13 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setCashAdvanceDeductionNote('');
                 setBonusSalary('');
                 setBonusNote('');
+                setTanggalRekap('');
                 setIsRekapProcessing(false);
                 const emp = visibleEmployees.find(e => String(e.id) === String(newRekap.empId));
-                showToast("Laporan direkap dan siap dicetak.", "success");
+                setSorotRekapId(null);
+                setRekapListPage(1); // rekap baru tanggal hari ini langsung terlihat di atas
+                setRekapBaruInfo(tglRekap !== todayStr ? { id: newRekap.id, empName: newRekap.empName, tanggal: tglRekap } : null);
+                showToast(tglRekap !== todayStr ? `Laporan direkap tanggal ${fmtTglStruk(tglRekap)} dan siap dicetak.` : "Laporan direkap dan siap dicetak.", "success");
                 if (emp) {
                     triggerPrint({ ...newRekap, empName: emp.name, division: getEmployeeDivisions(emp).join(', ') });
                 }
@@ -22658,6 +22676,24 @@ ${getRekapShareLink(rekap)}
             const modalDeduction = Math.min(safeMoney(cashAdvanceDeduction), modalGrossSalary, modalCashAdvanceSummary.remaining);
             const modalHasPrintableIncome = modalPrintableGross > 0;
             const modalHasAnySelected = modalSelectedItems.length > 0 || (modalData?.selectedDailyKeys?.size || 0) > 0 || (modalData?.selectedOvertimeKeys?.size || 0) > 0 || (modalData?.selectedMarketingKeys?.size || 0) > 0 || modalBagiHasilDireksiAmount > 0;
+            // Tanggal pekerjaan terakhir yang ikut direkap (produksi, manual, harian/lembur, invoice komisi) → saran & peringatan tanggal rekap
+            const modalTglKerjaTerakhir = (() => {
+                if (!modalData) return '';
+                let maks = '';
+                const catat = (d) => { const t = String(d || ''); const tgl = t.includes('T') ? toLocalDateStr(t) : t.slice(0, 10); if (/^\d{4}-\d{2}-\d{2}$/.test(tgl) && tgl > maks) maks = tgl; };
+                modalSelectedItems.forEach(item => {
+                    if (item.isManual) { catat(item.manualDate); return; }
+                    const order = safeArray(safeOrdersForReport).find(o => String(o.id) === String(item.orderId));
+                    if (!order) return;
+                    safeArray(item.logIds).forEach(l => { const wl = safeArray(order.progress?.[l.stageId]?.workLogs).find(w => String(w.id) === String(l.logId)); if (wl) catat(wl.submittedAt || wl.checkAfterChangedAt || wl.createdAt); });
+                });
+                [...selectedDailyLogs, ...selectedOvertimeLogs].forEach(log => catat(log.absensiDateTo || log.date));
+                selectedMarketingInvoices.forEach(inv => catat(inv.date));
+                return maks;
+            })();
+            const modalHariIni = toLocalDateStr();
+            const modalTglRekap = tanggalRekap || modalHariIni;
+            const modalAkhirBulanLalu = (() => { const d = new Date(`${modalHariIni.slice(0, 7)}-01T00:00:00`); d.setDate(0); return toLocalDateStr(d); })();
             const visibleRekaps = safeRekapForReport
                 .filter(isVisibleRecord)
                 .filter(rekap => {
@@ -22729,6 +22765,25 @@ ${getRekapShareLink(rekap)}
             const sebagianCount = visibleRekaps.filter(r => getRekapPayBadge(r) === 'Dibayar Sebagian').length;
             const lunasCount = visibleRekaps.filter(r => getRekapPayBadge(r) === 'Sudah Dibayar').length;
             const { page: rekapListPage, setPage: setRekapListPage, totalPages: rekapListTotalPages, paged: pagedRekaps, total: rekapListTotal } = usePagination(sortedRekaps, 15);
+            // Posisi rekap yang baru dibuat dengan tanggal lama (bisa di halaman 2, 3, …)
+            const posisiRekapBaru = rekapBaruInfo ? sortedRekaps.findIndex(r => String(r.id) === String(rekapBaruInfo.id)) : -1;
+            const rekapBaruMasihAda = !!rekapBaruInfo && safeRekapForReport.some(r => isVisibleRecord(r) && String(r.id) === String(rekapBaruInfo.id)); // tetap tampil walau tersembunyi oleh pencarian
+            React.useEffect(() => {
+                if (!lompatRekapId || activeReportTab !== 'rekap') return;
+                const idx = sortedRekaps.findIndex(r => String(r.id) === String(lompatRekapId));
+                if (idx < 0) return;
+                setRekapListPage(Math.floor(idx / 15) + 1);
+                setLompatRekapId(null);
+                setTimeout(() => { const el = [...document.querySelectorAll(`[data-rk-row="${lompatRekapId}"]`)].find(x => x.offsetParent); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 80);
+            }, [lompatRekapId, activeReportTab, sortedRekaps]);
+            const lihatRekapBaru = () => {
+                if (!rekapBaruInfo) return;
+                // Bila tersembunyi oleh filter status / pencarian, tampilkan semua dulu
+                if (posisiRekapBaru < 0) { setRekapStatusFilter('semua'); setSearchInput(''); setSearchTerm(''); }
+                setActiveReportTab('rekap');
+                setSorotRekapId(rekapBaruInfo.id);
+                setLompatRekapId(rekapBaruInfo.id);
+            };
             const pinnedRekapSummary = pinnedRekapIds.size === 0 ? { net: 0, paid: 0, sisa: 0, count: 0 } : visibleRekaps
                 .filter(r => pinnedRekapIds.has(r.id))
                 .reduce((acc, r) => {
@@ -22969,6 +23024,17 @@ ${getRekapShareLink(rekap)}
                         <button onClick={() => setActiveReportTab('rekap')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'rekap' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Rekap Kinerja</button>
                         <button onClick={() => setActiveReportTab('ranking')} className={`pb-2 px-1 font-bold text-sm border-b-2 transition-colors ${activeReportTab === 'ranking' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>🏆 Ranking Produksi</button>
                     </div>
+                    {rekapBaruInfo && rekapBaruMasihAda && (
+                        <div data-rk-baru-info className="flex flex-wrap items-center justify-between gap-2 bg-violet-50 border border-violet-300 text-violet-900 rounded-xl px-4 py-2.5 text-sm">
+                            <span>✅ Rekap <b>{rekapBaruInfo.empName || '-'}</b> tercatat <b>{fmtTglStruk(rekapBaruInfo.tanggal)}</b>{posisiRekapBaru >= 0
+                                ? (posisiRekapBaru === 0 ? ' — ada paling atas di Daftar Rekap Kinerja.' : <> — ada di <b>halaman {Math.floor(posisiRekapBaru / 15) + 1}</b> Daftar Rekap Kinerja (urutan ke-{posisiRekapBaru + 1}).</>)
+                                : ' — tidak terlihat karena filter / pencarian di Daftar Rekap Kinerja.'}</span>
+                            <span className="flex items-center gap-1.5">
+                                <button type="button" data-rk-baru-lihat onClick={lihatRekapBaru} className="px-3 py-1 rounded-lg bg-white border border-violet-300 font-black text-violet-800 hover:bg-violet-100">Lihat ›</button>
+                                <button type="button" data-rk-baru-tutup onClick={() => { setRekapBaruInfo(null); setSorotRekapId(null); }} title="Tutup" className="px-2 py-1 rounded-lg text-violet-700 hover:bg-violet-100 font-black">✕</button>
+                            </span>
+                        </div>
+                    )}
                     <Card>
                         <div className="flex flex-col sm:flex-row gap-3">
                             <div className="flex-1">
@@ -23359,7 +23425,7 @@ ${getRekapShareLink(rekap)}
                                         const komisiSelisih = getRekapKomisiSelisih(rekap);
                                         const lebihBayarDesktop = getRekapLebihBayar(rekap);
                                         return (
-                                            <tr key={rekap.id} className={`border-t border-gray-100 hover:brightness-95 transition-all ${isPinned ? 'bg-orange-100/75' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75' : payBadge === 'Lebih Bayar' ? 'bg-violet-100/75' : 'bg-red-100/75'}`}>
+                                            <tr key={rekap.id} data-rk-row={rekap.id} data-rk-sorot={sorotRekapId === rekap.id ? '1' : undefined} style={sorotRekapId === rekap.id ? { outline: '2px solid #7c3aed', outlineOffset: '-2px' } : undefined} className={`border-t border-gray-100 hover:brightness-95 transition-all ${isPinned ? 'bg-orange-100/75' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75' : payBadge === 'Lebih Bayar' ? 'bg-violet-100/75' : 'bg-red-100/75'}`}>
                                                 <td className="p-3 text-center">
                                                     <button onClick={() => setPinnedRekapIds(prev => { const next = new Set(prev); isPinned ? next.delete(rekap.id) : next.add(rekap.id); return next; })} title={isPinned ? 'Lepas Sematan' : 'Sematkan'} className={`text-base leading-none transition-opacity ${isPinned ? 'opacity-100' : 'opacity-30 hover:opacity-70'}`}>📌</button>
                                                 </td>
@@ -23404,7 +23470,7 @@ ${getRekapShareLink(rekap)}
                                     const komisiSelisihMobile = getRekapKomisiSelisih(rekap);
                                     const lebihBayarMobile = getRekapLebihBayar(rekap);
                                     return (
-                                        <div key={rekap.id} className={`px-4 py-3 border-l-4 ${isPinned ? 'bg-orange-100/75 border-l-orange-500' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75 border-l-green-600' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75 border-l-amber-500' : payBadge === 'Lebih Bayar' ? 'bg-violet-100/75 border-l-violet-500' : 'bg-red-100/75 border-l-red-500'}`}>
+                                        <div key={rekap.id} data-rk-row={rekap.id} data-rk-sorot={sorotRekapId === rekap.id ? '1' : undefined} style={sorotRekapId === rekap.id ? { outline: '2px solid #7c3aed', outlineOffset: '-2px' } : undefined} className={`px-4 py-3 border-l-4 ${isPinned ? 'bg-orange-100/75 border-l-orange-500' : payBadge === 'Sudah Dibayar' ? 'bg-green-100/75 border-l-green-600' : payBadge === 'Dibayar Sebagian' ? 'bg-amber-100/75 border-l-amber-500' : payBadge === 'Lebih Bayar' ? 'bg-violet-100/75 border-l-violet-500' : 'bg-red-100/75 border-l-red-500'}`}>
                                             <div className="flex items-start gap-2 mb-1.5">
                                                 <button onClick={() => setPinnedRekapIds(prev => { const next = new Set(prev); isPinned ? next.delete(rekap.id) : next.add(rekap.id); return next; })} className={`text-sm leading-none transition-opacity shrink-0 mt-0.5 ${isPinned ? 'opacity-100' : 'opacity-30'}`}>📌</button>
                                                 <div className="flex-1 min-w-0">
@@ -23791,6 +23857,28 @@ ${getRekapShareLink(rekap)}
                                         </div>
                                     )}
 
+                                    {/* Tanggal rekap: bawaan hari ini; rekap tampil di Daftar Rekap Kinerja sesuai tanggal ini */}
+                                    <div data-rk-tgl-box className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                        <h4 className="font-black text-blue-900 mb-2 text-sm">📅 Tanggal Rekap</h4>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <input type="date" data-rk-tgl value={modalTglRekap} max={modalHariIni} onChange={e => setTanggalRekap(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm font-bold bg-white" />
+                                            {[['hari', 'Hari ini', modalHariIni], ['akhir', `Akhir bulan lalu (${fmtTglStruk(modalAkhirBulanLalu)})`, modalAkhirBulanLalu], ...(modalTglKerjaTerakhir && modalTglKerjaTerakhir < modalHariIni && modalTglKerjaTerakhir !== modalAkhirBulanLalu ? [['kerja', `Tanggal kerja terakhir (${fmtTglStruk(modalTglKerjaTerakhir)})`, modalTglKerjaTerakhir]] : [])].map(([k, label, v]) => (
+                                                <button key={k} type="button" data-rk-tgl-pilih={k} onClick={() => setTanggalRekap(v)} className={`text-xs font-bold px-3 py-1.5 rounded-full border ${modalTglRekap === v ? 'border-blue-600 bg-white text-blue-700 ring-1 ring-blue-600' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'}`}>{label}</button>
+                                            ))}
+                                        </div>
+                                        <div data-rk-tgl-ket className="mt-2 text-xs text-blue-900 bg-white border border-dashed border-blue-200 rounded-lg px-3 py-2 space-y-0.5">
+                                            {modalTglRekap > modalHariIni
+                                                ? <div className="text-red-700 font-bold">Tanggal rekap tidak boleh lebih dari hari ini.</div>
+                                                : <>
+                                                    <div>Rekap tercatat tanggal <b>{fmtTglStruk(modalTglRekap)}</b> dan muncul di Daftar Rekap Kinerja sesuai tanggal itu.</div>
+                                                    {modalTglRekap.slice(0, 7) !== modalHariIni.slice(0, 7) && <div>Gaji ini masuk Laporan Keuangan bulan <b>{new Date(`${modalTglRekap.slice(0, 7)}-01T00:00:00`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}</b>.</div>}
+                                                </>}
+                                        </div>
+                                        {modalTglRekap <= modalHariIni && modalTglKerjaTerakhir && modalTglRekap < modalTglKerjaTerakhir && (
+                                            <div data-rk-tgl-warn className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">⚠️ Ada pekerjaan sesudah tanggal ini (s.d. <b>{fmtTglStruk(modalTglKerjaTerakhir)}</b>). Pastikan tanggalnya benar.</div>
+                                        )}
+                                    </div>
+
                                     {/* Kasbon & Total Akhir */}
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                         <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
@@ -23833,7 +23921,7 @@ ${getRekapShareLink(rekap)}
                                     </div>
                                 </div>
                                 <div className="flex justify-end space-x-3 px-5 py-4 bg-gray-50 border-t border-gray-200">
-                                    <button onClick={() => { setModalData(null); setCashAdvanceDeduction(''); setCashAdvanceDeductionNote(''); setBonusSalary(''); setBonusNote(''); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-bold text-gray-700">Batal</button>
+                                    <button onClick={() => { setModalData(null); setCashAdvanceDeduction(''); setCashAdvanceDeductionNote(''); setBonusSalary(''); setBonusNote(''); setTanggalRekap(''); }} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-bold text-gray-700">Batal</button>
                                     <button onClick={executeRekapAndPrint} disabled={!modalHasAnySelected} className={`px-4 py-2 rounded-lg text-sm font-black text-white flex items-center gap-2 ${!modalHasAnySelected ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}><IconPrinter /> Proses & Cetak</button>
                                 </div>
                             </div>
@@ -27901,7 +27989,7 @@ ${getRekapShareLink(rekap)}
                         <div class="meta">
                             <div class="meta-row"><span class="meta-label">Nama</span><span class="meta-value">${data.empName}</span></div>
                             <div class="meta-row"><span class="meta-label">Jabatan</span><span class="meta-value">${data.division}</span></div>
-                            <div class="meta-row"><span class="meta-label">Tanggal Cetak</span><span class="meta-value">${data.dateProcessed}</span></div>
+                            <div class="meta-row"><span class="meta-label">Tanggal Rekap</span><span class="meta-value">${data.dateProcessed}</span></div>
                             <div class="meta-row"><span class="meta-label">ID Rekap</span><span class="meta-value">${data.id}</span></div>
                         </div>
 
