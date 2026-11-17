@@ -21811,7 +21811,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 }
                 const flatBHInvoices = Object.values(bhInvoicesByMonth).flat();
                 const hasBHData = flatBHInvoices.length > 0;
-                setModalData({ empId, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount: 0, bagiHasilDireksiSelected: hasBHData && bagiHasilDireksiSelectedKeys.size > 0, bagiHasilDireksiSelectedKeys, bagiHasilDireksiMonth: '', bagiHasilDireksiMonths: [], bagiHasilDireksiInvoicesByMonth: bhInvoicesByMonth, bagiHasilDireksiInvoices: flatBHInvoices, totalInvoiceBulan: flatBHInvoices.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0) });
+                // Rekap ulang sesudah "Edit Rekap": pakai lagi tanggal rekap yang dikembalikan (bila belum diganti rekap baru)
+                const tglDariEdit = (() => {
+                    const milikEmp = safeArray(rekapKinerja).filter(r => r && String(r.empId) === String(empId));
+                    const dikembalikan = milikEmp.filter(r => r.isDeleted && r.restoredForEdit && /^\d{4}-\d{2}-\d{2}$/.test(String(r.dateProcessed || '')))
+                        .sort((a, b) => String(b.deletedAt || '').localeCompare(String(a.deletedAt || '')))[0];
+                    if (!dikembalikan) return '';
+                    const sudahDiganti = milikEmp.some(r => isVisibleRecord(r) && String(waktuRekapDibuat(r)) > String(dikembalikan.deletedAt || ''));
+                    return sudahDiganti || dikembalikan.dateProcessed > toLocalDateStr() ? '' : dikembalikan.dateProcessed;
+                })();
+                setModalData({ empId, tglDariEdit, allItems: items || [], selectedKeys, selectedDailyKeys, selectedOvertimeKeys, selectedMarketingKeys, autoPreviewLogs: previewLogs, absensiWarnings: warnings, bagiHasilDireksiAmount: 0, bagiHasilDireksiSelected: hasBHData && bagiHasilDireksiSelectedKeys.size > 0, bagiHasilDireksiSelectedKeys, bagiHasilDireksiMonth: '', bagiHasilDireksiMonths: [], bagiHasilDireksiInvoicesByMonth: bhInvoicesByMonth, bagiHasilDireksiInvoices: flatBHInvoices, totalInvoiceBulan: flatBHInvoices.reduce((s, inv) => s + getInvoiceTotals(inv).total, 0) });
                 setSelectedItemKeys(new Set());
                 // Kasbon dari lebih bayar komisi otomatis diisikan sebagai potongan (masih bisa diubah)
                 const kasbonLebih = getEmployeeCashAdvances(emp).filter(isKasbonLebihBayar).filter(k => getCashAdvanceRemaining(k) > 0);
@@ -21822,7 +21831,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 setCashAdvanceDeductionNote(potonganLebih > 0 ? `Potongan kasbon lebih bayar komisi${tglAsal.length ? ` (rekap ${tglAsal.join(', ')})` : ''}` : '');
                 setBonusSalary('');
                 setBonusNote('');
-                setTanggalRekap(toLocalDateStr());
+                setTanggalRekap(tglDariEdit || toLocalDateStr());
             };
 
             const toggleModalRekapItem = (item) => {
@@ -22693,6 +22702,18 @@ ${getRekapShareLink(rekap)}
             })();
             const modalHariIni = toLocalDateStr();
             const modalTglRekap = tanggalRekap || modalHariIni;
+            // Tanggal kasbon terakhir yang ikut dipotong di rekap ini (urutan potong sama dengan saat disimpan)
+            const modalTglKasbonDipotong = (() => {
+                if (!(modalDeduction > 0) || !modalEmployee) return '';
+                let maks = '';
+                alokasiPotonganKasbon(modalEmployee.cashAdvances, modalDeduction).forEach((jml, item) => {
+                    if (!(jml > 0)) return;
+                    const t = String(item.date || item.createdAt || '');
+                    const tgl = t.includes('T') ? toLocalDateStr(t) : t.slice(0, 10);
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(tgl) && tgl > maks) maks = tgl;
+                });
+                return maks;
+            })();
             const modalAkhirBulanLalu = (() => { const d = new Date(`${modalHariIni.slice(0, 7)}-01T00:00:00`); d.setDate(0); return toLocalDateStr(d); })();
             const visibleRekaps = safeRekapForReport
                 .filter(isVisibleRecord)
@@ -22966,7 +22987,11 @@ ${getRekapShareLink(rekap)}
                         safeArray(data?.workLogs).forEach(l => {
                             if (!l || l.isDeleted || !(getWorkLogSubmittedQty(l) > 0)) return;
                             if (!l.isReported && !l.checkAfter) return;
-                            if (rankMonth && !(l.submittedAt || l.checkAfterChangedAt || l.createdAt || '').startsWith(rankMonth)) return;
+                            if (rankMonth) {
+                                // Bulan kerja menurut tanggal WIB (stempel waktu tersimpan dalam UTC)
+                                const t = String(l.submittedAt || l.checkAfterChangedAt || l.createdAt || '');
+                                if ((t.includes('T') ? toLocalMonthStr(t) : t.slice(0, 7)) !== rankMonth) return;
+                            }
                             const emp = empById.get(String(l.empId));
                             if (!emp || !bolehLihat(emp)) return;
                             const row = ensure(String(l.empId), emp);
@@ -23874,6 +23899,12 @@ ${getRekapShareLink(rekap)}
                                                     {modalTglRekap.slice(0, 7) !== modalHariIni.slice(0, 7) && <div>Gaji ini masuk Laporan Keuangan bulan <b>{new Date(`${modalTglRekap.slice(0, 7)}-01T00:00:00`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}</b>.</div>}
                                                 </>}
                                         </div>
+                                        {modalData?.tglDariEdit && modalTglRekap === modalData.tglDariEdit && modalTglRekap !== modalHariIni && (
+                                            <div data-rk-tgl-edit className="mt-2 text-xs text-blue-900">↺ Tanggal diambil dari rekap yang dikembalikan untuk diedit ({fmtTglStruk(modalData.tglDariEdit)}). Bisa diganti bila perlu.</div>
+                                        )}
+                                        {modalTglRekap <= modalHariIni && modalTglKasbonDipotong && modalTglRekap < modalTglKasbonDipotong && (
+                                            <div data-rk-tgl-kasbon className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">⚠️ Kasbon yang dipotong baru diberikan tanggal <b>{fmtTglStruk(modalTglKasbonDipotong)}</b> — sesudah tanggal rekap. Potongan akan tercatat sebelum kasbonnya ada.</div>
+                                        )}
                                         {modalTglRekap <= modalHariIni && modalTglKerjaTerakhir && modalTglRekap < modalTglKerjaTerakhir && (
                                             <div data-rk-tgl-warn className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">⚠️ Ada pekerjaan sesudah tanggal ini (s.d. <b>{fmtTglStruk(modalTglKerjaTerakhir)}</b>). Pastikan tanggalnya benar.</div>
                                         )}
