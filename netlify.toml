@@ -35,6 +35,19 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
+# Pasang di HP seperti aplikasi: service worker & manifest selalu dicek ke server (pembaruan langsung terpakai)
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "no-cache"
+
 [[headers]]
   for = "/*.js"
   [headers.values]

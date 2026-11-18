@@ -3,7 +3,7 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="app-versi" content="v2026.11.18-2">
+    <meta name="app-versi" content="v2026.11.18-3">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simpati Konveksi - Manajemen Produksi</title>
     <!-- Ikon tab browser & layar utama HP: logo Simpati Konveksi. File favicon.ico, favicon-32.png & apple-touch-icon.png
@@ -13,6 +13,21 @@
     <link rel="icon" type="image/png" sizes="16x16" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB9ElEQVR4AZySTU8TQRzGn5ldui3INiJtrYtHrMYYowbkRkq8aXzFon4BvRg/ASe+h/EocjFy0UAWaxXfgijGYNuYGmNjYjRBli7bnd0ZZwohvFwW/skz/8kzz/83hxnq3L477N5/sOg9mwq8aZtHksyqGefOvWtUO3tmLH6jkIudG9Ji+UESSTIbHynkaP/pMUotqxeGQUAIdqW4QTQre4QSTaPYa1GN7n14/dINgBACgjEwbxUry8twGw00lByntRecr49sbS2ACAKwb1X8m3iI35NPsPDqJUozNt6USph9UcT861nwMADUJb6PcGkJ3PMkSWANIE1XhqhpIpnNIuc3MZDJoO/AfvSnUuitLIJVyvA+zWNl6imcycdg32sSCAmQ1ODvH2hdXWC1Gli1DPz8Af7lM4KFj2BFG7TZhPvchjv3vpXhqy6IrgMEEgCoDtqxDx35IXSev4hk4SbMC5fQ3jeA9sE8kiO3YF6XnjzrvHwV5pVh6FYPICcp5Pu39RxuBePHT0BPZ6Cn0tC6u2EcPYbEyVNoO2RJPw39YBYqq85pIgFVVC0KQgiB6thUJBYDMYxNzs7tGmCnH9mhIgx55PT2IA855fV6FV5T/iIhnyW6hJwJ678qNHw7N+qNPyr703bozxRFJKns+MRX/u7D6H8AAAD//yBDj+sAAAAGSURBVAMA0i8kr76vRH4AAAAASUVORK5CYII=">
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-title" content="Simpati">
+    <!-- Bisa dipasang di HP seperti aplikasi ("Instal aplikasi" di Chrome): manifest.webmanifest, sw.js & icon-*.png
+         ada di samping index.html (WAJIB ikut di-upload saat deploy). Link share (#rekap-gaji=, #invoice-share=, dll.)
+         untuk customer / karyawan tidak ditawari pasang aplikasi & tidak memasang service worker. -->
+    <meta name="theme-color" content="#0f172a">
+    <script>
+    (function () {
+        try {
+            if (/^#[a-z-]+=/.test(location.hash || '')) return;
+            var l = document.createElement('link'); l.rel = 'manifest'; l.href = '/manifest.webmanifest'; document.head.appendChild(l);
+            if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+                window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(function () {}); });
+            }
+        } catch (e) { /* abaikan */ }
+    })();
+    </script>
     <meta name="description" content="Sistem Manajemen Produksi Simpati Konveksi" />
     <meta name="robots" content="noindex, nofollow" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />

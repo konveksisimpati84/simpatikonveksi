@@ -13,6 +13,21 @@
     <link rel="icon" type="image/png" sizes="16x16" href="__IKON_16__">
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-title" content="Simpati">
+    <!-- Bisa dipasang di HP seperti aplikasi ("Instal aplikasi" di Chrome): manifest.webmanifest, sw.js & icon-*.png
+         ada di samping index.html (WAJIB ikut di-upload saat deploy). Link share (#rekap-gaji=, #invoice-share=, dll.)
+         untuk customer / karyawan tidak ditawari pasang aplikasi & tidak memasang service worker. -->
+    <meta name="theme-color" content="#0f172a">
+    <script>
+    (function () {
+        try {
+            if (/^#[a-z-]+=/.test(location.hash || '')) return;
+            var l = document.createElement('link'); l.rel = 'manifest'; l.href = '/manifest.webmanifest'; document.head.appendChild(l);
+            if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+                window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(function () {}); });
+            }
+        } catch (e) { /* abaikan */ }
+    })();
+    </script>
     <meta name="description" content="Sistem Manajemen Produksi Simpati Konveksi" />
     <meta name="robots" content="noindex, nofollow" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />

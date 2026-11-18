@@ -274,6 +274,12 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   "Simpan ke HP" membuka menu Apple berisi "Simpan ke File"). Bila lebih dari 25 detik, tombol kembali "Coba lagi".
 - **Ikon aplikasi**: `favicon.ico`, `favicon-32.png` dan `apple-touch-icon.png` (logo kotak Simpati) ada di samping `index.html`
   dan **wajib ikut di-upload saat deploy** — dipakai tab browser (termasuk Safari/Chrome iPhone & iPad) dan ikon layar utama HP.
+- **Pasang di HP seperti aplikasi** (Chrome Android: menu ⋮ → *Instal aplikasi* / *Tambahkan ke layar utama*):
+  `manifest.webmanifest`, `sw.js`, `icon-192.png`, `icon-512.png`, `icon-maskable-192.png`, `icon-maskable-512.png`
+  ada di samping `index.html` dan **wajib ikut di-upload saat deploy**. Ikon Android dibuat dari `src/logo-kotak-sumber.png`
+  dengan `node scripts/buat-ikon-aplikasi.cjs` (tanpa bingkai merah agar rapi saat dipotong bulat). `sw.js` selalu
+  mengambil halaman dari server dulu (versi baru langsung terpakai); hanya saat tanpa internet halaman terakhir dipakai.
+  Link share (`#rekap-gaji=`, `#invoice-share=`, dll.) tidak ditawari pasang & tidak memasang service worker.
 - **Offline**: Aplikasi tetap bisa digunakan saat offline; data tersimpan di perangkat (IndexedDB) dan sync saat kembali online
 - **Print**: Fitur cetak menggunakan `window.open()` — pastikan browser mengizinkan pop-up dari domain Netlify Anda
 - **Browser**: Chrome/Edge 90+, Firefox 88+, Safari 14+. Tidak mendukung Internet Explorer
