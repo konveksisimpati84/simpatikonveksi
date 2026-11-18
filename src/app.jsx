@@ -31348,6 +31348,24 @@ ${getRekapShareLink(rekap)}
             const [hiddenBuiltinPresets, setHiddenBuiltinPresets] = React.useState(() => readHppCache(DB_KEY_HIDDEN_PRESETS)?.value ?? []);
             const [editingPresetId, setEditingPresetId] = React.useState(null);
             const [editingPresetTitle, setEditingPresetTitle] = React.useState('');
+            // Bar preset ringkas: daftar "Semua preset" (cari, dikelompokkan, mode Kelola) + 4 preset terakhir dipakai
+            const [presetPanelBuka, setPresetPanelBuka] = React.useState(false);
+            const [presetCari, setPresetCari] = React.useState('');
+            const [presetKelola, setPresetKelola] = React.useState(false);
+            const PRESET_TERAKHIR_KEY = 'simpati_hpp_preset_terakhir'; // per perangkat
+            const [presetTerakhir, setPresetTerakhir] = React.useState(() => { try { const v = JSON.parse(localStorage.getItem('simpati_hpp_preset_terakhir') || '[]'); return Array.isArray(v) ? v.map(String).slice(0, 4) : []; } catch (e) { return []; } });
+            const catatPresetDipakai = (key) => setPresetTerakhir(prev => {
+                const next = [String(key), ...prev.filter(k => k !== String(key))].slice(0, 4);
+                try { localStorage.setItem(PRESET_TERAKHIR_KEY, JSON.stringify(next)); } catch (e) { /* abaikan */ }
+                return next;
+            });
+            const presetBarRef = React.useRef(null);
+            React.useEffect(() => {
+                if (!presetPanelBuka) return;
+                const tutup = (e) => { if (presetBarRef.current && !presetBarRef.current.contains(e.target)) { setPresetPanelBuka(false); setPresetKelola(false); } };
+                document.addEventListener('mousedown', tutup); document.addEventListener('touchstart', tutup);
+                return () => { document.removeEventListener('mousedown', tutup); document.removeEventListener('touchstart', tutup); };
+            }, [presetPanelBuka]);
             const [savedOrders, setSavedOrders] = React.useState(() => readHppCache(DB_KEY_ORDERS)?.value ?? []);
             const [activeMaterials, setActiveMaterials] = React.useState([
                 { masterId: 'MAT-1', usagePerPcs: 0.25 },
@@ -31773,6 +31791,18 @@ ${getRekapShareLink(rekap)}
                 setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom('');
                 showToast(`Preset "${preset.title}" dimuat!`, 'success');
             };
+            // Semua preset (bawaan yang tidak disembunyikan + buatan sendiri), dikelompokkan otomatis dari namanya
+            const PRESET_GRUP = [['Kaos & Polo', /kaos|polo|oblong/i], ['Kemeja', /kemeja/i], ['Jas & Jaket', /\bjas\b|jaket|almamater|blazer/i], ['Celana & Rok', /celana|\brok\b|stelan|setelan|training/i], ['Jilbab', /jilbab|kerudung|hijab/i], ['Rompi', /rompi/i], ['Lainnya', /[\s\S]*/]];
+            const daftarPreset = [
+                ...(hiddenBuiltinPresets.includes('kaos') ? [] : [{ key: 'bawaan:kaos', title: 'Kaos', bawaan: 'kaos', pakai: loadPresetKaos }]),
+                ...(hiddenBuiltinPresets.includes('kemeja') ? [] : [{ key: 'bawaan:kemeja', title: 'Kemeja', bawaan: 'kemeja', pakai: loadPresetKemeja }]),
+                ...safeArray(customPresets).filter(Boolean).map(p => ({ key: String(p.id), title: String(p.title || '(tanpa nama)'), preset: p, nBahan: safeArray(p.materials).length, pakai: () => loadCustomPreset(p) })),
+            ];
+            const normPreset = (t) => String(t || '').toLowerCase().replace(/\s+/g, ' ').trim();
+            const jumlahNamaPreset = daftarPreset.reduce((m, x) => { const k = normPreset(x.title); m[k] = (m[k] || 0) + 1; return m; }, {});
+            const presetTerakhirTampil = presetTerakhir.map(k => daftarPreset.find(x => x.key === k)).filter(Boolean);
+            const pakaiPreset = (item) => { item.pakai(); catatPresetDipakai(item.key); setPresetPanelBuka(false); setPresetCari(''); setPresetKelola(false); };
+            const hapusPreset = (item) => { if (!item.preset) return; if (!window.confirm(`Hapus preset "${item.title}"?`)) return; deleteCustomPreset(item.preset.id); };
             const saveCurrentAsPreset = () => {
                 const title = (orderName || 'Preset Baru').trim();
                 const newPreset = { id:'PRESET-'+Date.now(), title, orderName:title, waste:orderWaste, materials:JSON.parse(JSON.stringify(activeMaterials)), labor:JSON.parse(JSON.stringify(activeLabor)), bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct };
@@ -32168,46 +32198,83 @@ ${getRekapShareLink(rekap)}
                                     <button onClick={() => { cloudHealth.allowProbeNow(); hppLoad(HPP_ALL_KEYS); }} className="font-bold px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700">Coba lagi</button>
                                 </div>
                             )}
-                            {/* Preset bar */}
-                            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs font-bold text-slate-600 uppercase tracking-wider whitespace-nowrap">
-                                        <i className="fa-solid fa-wand-magic-sparkles text-amber-500 mr-1"></i>Preset:
-                                    </span>
-                                    {!hppPresetsReady && <span className="text-xs text-slate-400 italic"><i className="fa-solid fa-spinner fa-spin mr-1"></i>Memuat preset…</span>}
-                                    {hppPresetsReady && !hiddenBuiltinPresets.includes('kaos') && (
-                                        <span className="inline-flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
-                                            <button onClick={loadPresetKaos} className="text-xs text-white font-semibold px-3 py-1.5 hover:bg-slate-700 transition">Kaos</button>
-                                            <button onClick={() => hideBuiltinPreset('kaos')} className="text-slate-400 hover:text-rose-400 px-1.5 py-1.5 hover:bg-slate-700 transition" title="Sembunyikan"><i className="fa-solid fa-xmark text-xs"></i></button>
+                            {/* Preset bar: 1 baris (Semua preset + 4 terakhir dipakai); ubah nama / hapus hanya di mode Kelola */}
+                            <div ref={presetBarRef} data-preset-bar className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                                    <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+                                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider whitespace-nowrap">
+                                            <i className="fa-solid fa-wand-magic-sparkles text-amber-500 mr-1"></i>Preset
                                         </span>
-                                    )}
-                                    {hppPresetsReady && !hiddenBuiltinPresets.includes('kemeja') && (
-                                        <span className="inline-flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
-                                            <button onClick={loadPresetKemeja} className="text-xs text-white font-semibold px-3 py-1.5 hover:bg-slate-700 transition">Kemeja</button>
-                                            <button onClick={() => hideBuiltinPreset('kemeja')} className="text-slate-400 hover:text-rose-400 px-1.5 py-1.5 hover:bg-slate-700 transition" title="Sembunyikan"><i className="fa-solid fa-xmark text-xs"></i></button>
-                                        </span>
-                                    )}
-                                    {hppPresetsReady && customPresets.map(p => (
-                                        <span key={p.id} className="inline-flex items-center text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg px-2 py-1 font-semibold gap-1">
-                                            {editingPresetId === p.id ? (
-                                                <input autoFocus type="text" value={editingPresetTitle}
-                                                    onChange={e => setEditingPresetTitle(e.target.value)}
-                                                    onBlur={saveRenamePreset}
-                                                    onKeyDown={e => { if (e.key === 'Enter') saveRenamePreset(); if (e.key === 'Escape') { setEditingPresetId(null); setEditingPresetTitle(''); } }}
-                                                    className="text-xs font-semibold text-indigo-800 bg-white border border-indigo-300 rounded px-1.5 py-0.5 w-28 outline-none focus:ring-1 focus:ring-indigo-400" />
-                                            ) : (
-                                                <button onClick={() => loadCustomPreset(p)} className="hover:underline flex items-center gap-1">
-                                                    <i className="fa-solid fa-star text-amber-500 text-[10px]"></i>{p.title}
-                                                </button>
-                                            )}
-                                            {editingPresetId !== p.id && <button onClick={() => startRenamePreset(p)} className="text-indigo-300 hover:text-indigo-600 transition" title="Ubah nama"><i className="fa-solid fa-pen text-[10px]"></i></button>}
-                                            <button onClick={() => deleteCustomPreset(p.id)} className="text-indigo-300 hover:text-rose-600 transition" title="Hapus"><i className="fa-solid fa-xmark text-xs"></i></button>
-                                        </span>
-                                    ))}
+                                        {!hppPresetsReady && <span className="text-xs text-slate-400 italic"><i className="fa-solid fa-spinner fa-spin mr-1"></i>Memuat preset…</span>}
+                                        {hppPresetsReady && (
+                                            <button type="button" data-preset-buka onClick={() => { setPresetPanelBuka(v => !v); setPresetKelola(false); setEditingPresetId(null); }}
+                                                className={`inline-flex items-center gap-2 whitespace-nowrap text-xs font-bold text-indigo-700 border rounded-xl px-3 py-1.5 transition ${presetPanelBuka ? 'bg-indigo-50 border-indigo-400' : 'bg-white border-indigo-200 hover:bg-indigo-50'}`}>
+                                                <i className="fa-solid fa-folder-open text-amber-500"></i>Semua preset
+                                                <span className="bg-indigo-100 text-indigo-700 rounded-full px-2 text-[11px]">{daftarPreset.length}</span>
+                                                <i className={`fa-solid ${presetPanelBuka ? 'fa-chevron-up' : 'fa-chevron-down'} text-[10px]`}></i>
+                                            </button>
+                                        )}
+                                        {hppPresetsReady && presetTerakhirTampil.length > 0 && <span className="text-xs text-slate-400 whitespace-nowrap">Terakhir dipakai:</span>}
+                                        {hppPresetsReady && presetTerakhirTampil.map(item => (
+                                            <button type="button" key={item.key} data-preset-terakhir={item.key} onClick={() => pakaiPreset(item)} className="inline-flex items-center gap-1 text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg px-2 py-1 font-semibold hover:bg-indigo-100 max-w-[14rem]">
+                                                <i className="fa-solid fa-star text-amber-500 text-[10px] shrink-0"></i><span className="truncate">{item.title}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button onClick={saveCurrentAsPreset} className="self-start sm:self-auto text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm whitespace-nowrap">
+                                        <i className="fa-solid fa-bookmark text-amber-300"></i>+ Simpan Preset Ini
+                                    </button>
                                 </div>
-                                <button onClick={saveCurrentAsPreset} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm whitespace-nowrap">
-                                    <i className="fa-solid fa-bookmark text-amber-300"></i>+ Simpan Preset Ini
-                                </button>
+                                {hppPresetsReady && presetPanelBuka && (() => {
+                                    const q = normPreset(presetCari);
+                                    const cocok = daftarPreset.filter(x => !q || normPreset(x.title).includes(q));
+                                    const grup = PRESET_GRUP.map(([g, re]) => [g, cocok.filter(x => PRESET_GRUP.find(([, r2]) => r2.test(x.title))[0] === g)]).filter(([, xs]) => xs.length);
+                                    return (
+                                        <div data-preset-panel className="mt-3 border border-slate-200 rounded-2xl overflow-hidden max-w-xl shadow-lg">
+                                            <div className="flex items-center gap-2 p-2.5 border-b border-slate-100 bg-slate-50">
+                                                <input type="text" data-preset-cari value={presetCari} onChange={e => setPresetCari(e.target.value)} placeholder="Cari preset… (mis. kemeja)" className="flex-1 min-w-0 text-sm px-3 py-2 border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-indigo-400 outline-none" />
+                                                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 whitespace-nowrap cursor-pointer select-none">
+                                                    <input type="checkbox" data-preset-kelola checked={presetKelola} onChange={e => { setPresetKelola(e.target.checked); setEditingPresetId(null); }} className="w-4 h-4 accent-indigo-600" />Kelola
+                                                </label>
+                                            </div>
+                                            <div className="max-h-80 overflow-y-auto py-1">
+                                                {grup.map(([g, xs]) => (
+                                                    <div key={g}>
+                                                        <div className="px-3 pt-2 pb-1 text-[10.5px] font-black uppercase tracking-widest text-slate-400">{g} · {xs.length}</div>
+                                                        {xs.map(item => (
+                                                            <div key={item.key} data-preset-item={item.key} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50">
+                                                                {item.preset && editingPresetId === item.preset.id ? (
+                                                                    <input autoFocus type="text" value={editingPresetTitle}
+                                                                        onChange={e => setEditingPresetTitle(e.target.value)}
+                                                                        onBlur={saveRenamePreset}
+                                                                        onKeyDown={e => { if (e.key === 'Enter') saveRenamePreset(); if (e.key === 'Escape') { setEditingPresetId(null); setEditingPresetTitle(''); } }}
+                                                                        className="flex-1 min-w-0 text-sm font-semibold text-indigo-800 bg-white border border-indigo-300 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-400" />
+                                                                ) : (
+                                                                    <button type="button" data-preset-pilih onClick={() => { if (!presetKelola) pakaiPreset(item); }} className={`flex-1 min-w-0 text-left text-sm font-semibold text-slate-800 flex items-center gap-1.5 ${presetKelola ? 'cursor-default' : 'hover:text-indigo-700'}`}>
+                                                                        <i className="fa-solid fa-star text-amber-500 text-[10px] shrink-0"></i>
+                                                                        <span className="truncate">{item.title}</span>
+                                                                        {jumlahNamaPreset[normPreset(item.title)] > 1 && <span data-preset-kembar className="shrink-0 text-[10px] font-black text-amber-700 bg-amber-100 rounded-full px-1.5 py-0.5">nama sama</span>}
+                                                                    </button>
+                                                                )}
+                                                                <span className="text-[11px] text-slate-400 whitespace-nowrap">{item.bawaan ? 'bawaan' : `${item.nBahan} bahan`}</span>
+                                                                {presetKelola && (
+                                                                    <span className="flex gap-1 shrink-0">
+                                                                        {item.preset && editingPresetId !== item.preset.id && <button type="button" data-preset-ubah onClick={() => startRenamePreset(item.preset)} className="text-[11px] font-bold text-slate-600 border border-slate-200 bg-white rounded-lg px-2 py-0.5 hover:bg-slate-100"><i className="fa-solid fa-pen text-[9px] mr-1"></i>Ubah nama</button>}
+                                                                        {item.preset
+                                                                            ? <button type="button" data-preset-hapus onClick={() => hapusPreset(item)} className="text-[11px] font-bold text-rose-600 border border-rose-200 bg-rose-50 rounded-lg px-2 py-0.5 hover:bg-rose-100"><i className="fa-solid fa-xmark mr-1"></i>Hapus</button>
+                                                                            : <button type="button" data-preset-sembunyi onClick={() => hideBuiltinPreset(item.bawaan)} className="text-[11px] font-bold text-slate-500 border border-slate-200 bg-white rounded-lg px-2 py-0.5 hover:bg-slate-100">Sembunyikan</button>}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ))}
+                                                {cocok.length === 0 && <div className="px-3 py-4 text-sm text-slate-400 text-center">{daftarPreset.length === 0 ? 'Belum ada preset. Isi kalkulator lalu tekan "+ Simpan Preset Ini".' : `Tidak ada preset "${presetCari}"`}</div>}
+                                            </div>
+                                            {presetKelola && <div className="px-3 py-2 text-[11px] text-amber-800 bg-amber-50 border-t border-amber-100">Mode Kelola: ubah nama atau hapus preset. Matikan "Kelola" untuk memilih preset.</div>}
+                                        </div>
+                                    );
+                                })()}
                             </div>
 
                             {/* Order Info */}
