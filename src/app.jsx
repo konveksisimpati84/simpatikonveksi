@@ -4627,6 +4627,22 @@
         // Diisi oleh aplikasi utama: cek(onPerbarui) → true bila ada data lebih baru dari perangkat lain (lalu sudah dimuat);
         // ambilOrder(id) → order terbaru (termasuk arsip).
         const appSinkron = { cek: null, ambilOrder: null };
+        // ===== Kolom angka berisi 0 =====
+        // Saat kolom yang isinya tepat "0" diketuk/diklik, angka 0 langsung terblok sehingga ketikan pertama menggantikannya
+        // (tidak menjadi "05"). Angka lain (mis. 115000) tidak diblok agar tidak terhapus tanpa sengaja.
+        if (typeof document !== 'undefined' && typeof window !== 'undefined' && !window.__pilihNolPasang) {
+            window.__pilihNolPasang = true;
+            let nolBaruFokus = null;
+            document.addEventListener('focusin', (e) => {
+                const el = e.target;
+                if (!el || el.tagName !== 'INPUT' || el.readOnly || el.disabled || !['number', 'text', 'tel'].includes(el.type)) return;
+                if (String(el.value).trim() !== '0') return;
+                nolBaruFokus = el;
+                setTimeout(() => { try { if (document.activeElement === el && String(el.value).trim() === '0') el.select(); } catch (err) { /* abaikan */ } }, 0);
+            }, true);
+            // Klik yang memfokuskan kolom jangan membatalkan blok (Safari/Chrome menaruh kursor saat tombol mouse dilepas)
+            document.addEventListener('mouseup', (e) => { if (nolBaruFokus && e.target === nolBaruFokus) e.preventDefault(); nolBaruFokus = null; }, true);
+        }
         const tulisJendela = (w, teks) => { try { if (w && w.document && !w.closed) { w.document.open(); w.document.write('<p style="font-family:Arial,sans-serif;padding:24px;color:#475569">' + teks + '</p>'); } } catch (e) {} };
         const cekSebelumCetak = async (w) => {
             if (!appSinkron.cek) return false;
@@ -31257,6 +31273,25 @@ ${getRekapShareLink(rekap)}
         };
 
         // ── HPP KALKULATOR ────────────────────────────────────────────────────────
+        // Kolom angka yang boleh KOSONG saat diketik (tidak langsung terisi 0/1 lagi).
+        // Kolom kosong / bukan angka / 0 dihitung `kosong` (sama seperti rumus lama `parseFloat(x) || kosong`);
+        // saat keluar dari kolom yang kosong, tampil lagi angka yang dipakai hitungan.
+        const InputAngka = ({ value, onNilai, kosong = 0, bulat = false, onBlur, ...rest }) => {
+            const keAngka = (t) => { const n = bulat ? parseInt(t, 10) : parseFloat(t); return Number.isFinite(n) && n !== 0 ? n : kosong; };
+            const tampil = (v) => (v == null || v === '' ? '' : String(v));
+            const [teks, setTeks] = React.useState(tampil(value));
+            // Nilai diubah dari luar (preset, tombol, slider, reset) → tampilkan nilai baru
+            React.useEffect(() => { if (keAngka(teks) !== keAngka(tampil(value))) setTeks(tampil(value)); }, [value]);
+            return <input type="number" {...rest} value={teks}
+                onChange={e => { setTeks(e.target.value); onNilai(keAngka(e.target.value)); }}
+                onBlur={e => {
+                    // Kosong, bukan angka, atau 0 yang dihitung sebagai `kosong` (mis. jumlah order 0 → 1): tampilkan angka yang dipakai hitungan
+                    const n = parseFloat(teks);
+                    if (String(teks).trim() === '' || !Number.isFinite(n) || keAngka(teks) !== n) setTeks(tampil(value == null || value === '' ? kosong : value));
+                    if (onBlur) onBlur(e);
+                }} />;
+        };
+
         const HppKalkulatorView = ({ supabaseClient, showToast, templates }) => {
             const DB_KEY_MATERIALS   = 'hpp_master_materials';
             const DB_KEY_LABOR       = 'hpp_master_labor';
@@ -32189,14 +32224,14 @@ ${getRekapShareLink(rekap)}
                                     <div>
                                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Jumlah Order (Qty Pcs)</label>
                                         <div className="relative">
-                                            <input type="number" value={orderQty} onChange={e => setOrderQty(parseFloat(e.target.value) || 1)} min="1" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-bold text-sm pr-12 transition" />
+                                            <InputAngka data-angka="orderQty" value={orderQty} onNilai={setOrderQty} kosong={1} min="1" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-bold text-sm pr-12 transition" />
                                             <span className="absolute right-4 top-2.5 text-slate-400 font-semibold text-xs">Pcs</span>
                                         </div>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Toleransi Waste Kain (%)</label>
                                         <div className="relative">
-                                            <input type="number" value={orderWaste} onChange={e => setOrderWaste(parseFloat(e.target.value) || 0)} min="0" max="30" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-bold text-sm pr-10 transition" />
+                                            <InputAngka data-angka="orderWaste" value={orderWaste} onNilai={setOrderWaste} min="0" max="30" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-bold text-sm pr-10 transition" />
                                             <span className="absolute right-4 top-2.5 text-slate-400 font-semibold text-xs">%</span>
                                         </div>
                                     </div>
@@ -32254,7 +32289,7 @@ ${getRekapShareLink(rekap)}
                                                                 </td>
                                                                 <td className="py-2.5 px-2 text-center">
                                                                     <div className="flex items-center justify-center gap-1">
-                                                                        <input type="number" step="0.01" value={item.usagePerPcs} onChange={e => updateMaterialItem(idx, 'usagePerPcs', e.target.value)} className="w-16 text-center text-xs p-1.5 border border-slate-300 rounded-lg font-bold" />
+                                                                        <InputAngka data-angka="usagePerPcs" step="0.01" value={item.usagePerPcs} onNilai={v => updateMaterialItem(idx, 'usagePerPcs', v)} className="w-16 text-center text-xs p-1.5 border border-slate-300 rounded-lg font-bold" />
                                                                         <span className="text-slate-500 text-[11px]">{curMat.unit}</span>
                                                                     </div>
                                                                 </td>
@@ -32371,7 +32406,7 @@ ${getRekapShareLink(rekap)}
                                                             <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
                                                             <div className="relative">
                                                                 <span className="absolute left-3 top-2.5 text-slate-400 font-medium text-xs">Rp</span>
-                                                                <input type="number" value={val} onChange={e => setter(parseFloat(e.target.value) || 0)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500" />
+                                                                <InputAngka value={val} onNilai={setter} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500" />
                                                             </div>
                                                         </div>
                                                     ))}
@@ -32387,7 +32422,7 @@ ${getRekapShareLink(rekap)}
                                                     <label className="block text-xs font-semibold text-slate-600 mb-1">BOP Rate (%)</label>
                                                     <div className="flex items-center gap-3">
                                                         <div className="relative flex-1">
-                                                            <input type="number" min="1" max="50" step="0.5" value={bopPctRate} onChange={e => setBopPctRate(parseFloat(e.target.value) || 0)} className="w-full pr-8 pl-3 py-2 bg-slate-50 border border-amber-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500" />
+                                                            <InputAngka min="1" max="50" step="0.5" value={bopPctRate} onNilai={setBopPctRate} className="w-full pr-8 pl-3 py-2 bg-slate-50 border border-amber-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500" />
                                                             <span className="absolute right-3 top-2.5 text-slate-400 text-xs font-medium">%</span>
                                                         </div>
                                                         <span className="text-xs text-amber-700 font-bold whitespace-nowrap">{formatRp(calc.bopPerPcs)}/pcs</span>
@@ -32415,20 +32450,20 @@ ${getRekapShareLink(rekap)}
                                                             <label className="block text-[11px] font-semibold text-slate-600 mb-1">Total Overhead/Bulan</label>
                                                             <div className="relative">
                                                                 <span className="absolute left-2 top-2 text-slate-400 font-medium text-[11px]">Rp</span>
-                                                                <input type="number" value={bopJamOverhead} onChange={e => setBopJamOverhead(parseFloat(e.target.value)||0)} className="w-full pl-8 pr-2 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-amber-500" />
+                                                                <InputAngka value={bopJamOverhead} onNilai={setBopJamOverhead} className="w-full pl-8 pr-2 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-amber-500" />
                                                             </div>
                                                         </div>
                                                         <div>
                                                             <label className="block text-[11px] font-semibold text-slate-600 mb-1">Jumlah Pekerja Jahit</label>
-                                                            <input type="number" min="1" value={bopJamPekerja} onChange={e => setBopJamPekerja(parseFloat(e.target.value)||1)} className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-amber-500" />
+                                                            <InputAngka min="1" value={bopJamPekerja} onNilai={setBopJamPekerja} kosong={1} className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-amber-500" />
                                                         </div>
                                                         <div>
                                                             <label className="block text-[11px] font-semibold text-slate-600 mb-1">Jam Kerja/Hari</label>
-                                                            <input type="number" min="1" max="24" value={bopJamPerHari} onChange={e => setBopJamPerHari(parseFloat(e.target.value)||8)} className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-amber-500" />
+                                                            <InputAngka min="1" max="24" value={bopJamPerHari} onNilai={setBopJamPerHari} kosong={8} className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-amber-500" />
                                                         </div>
                                                         <div>
                                                             <label className="block text-[11px] font-semibold text-slate-600 mb-1">Hari Kerja/Bulan</label>
-                                                            <input type="number" min="1" max="31" value={bopJamHariPerBulan} onChange={e => setBopJamHariPerBulan(parseFloat(e.target.value)||25)} className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-amber-500" />
+                                                            <InputAngka min="1" max="31" value={bopJamHariPerBulan} onNilai={setBopJamHariPerBulan} kosong={25} className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-amber-500" />
                                                         </div>
                                                     </div>
                                                     <div className="flex justify-between items-center text-[11px] pt-2 border-t border-amber-200">
@@ -32440,7 +32475,7 @@ ${getRekapShareLink(rekap)}
                                                     <label className="block text-xs font-semibold text-slate-600 mb-1">Waktu Pengerjaan Produk Ini (menit/pcs)</label>
                                                     <div className="flex items-center gap-3">
                                                         <div className="relative flex-1">
-                                                            <input type="number" min="1" value={bopJamMenitPerPcs} onChange={e => setBopJamMenitPerPcs(parseFloat(e.target.value)||0)} className="w-full pr-14 pl-3 py-2 bg-slate-50 border border-amber-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500" />
+                                                            <InputAngka min="1" value={bopJamMenitPerPcs} onNilai={setBopJamMenitPerPcs} className="w-full pr-14 pl-3 py-2 bg-slate-50 border border-amber-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500" />
                                                             <span className="absolute right-3 top-2.5 text-slate-400 text-xs font-medium">menit</span>
                                                         </div>
                                                         <span className="text-xs text-amber-700 font-bold whitespace-nowrap">{formatRp(calc.bopPerPcs)}/pcs</span>
@@ -32472,7 +32507,7 @@ ${getRekapShareLink(rekap)}
                                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Komisi Marketing (%)</label>
                                                 <div className="flex items-center gap-2">
                                                     <div className="relative flex-1">
-                                                        <input type="number" min="0" max="50" step="0.5" value={komisiPct} onChange={e => setKomisiPct(parseFloat(e.target.value) || 0)} className="w-full pr-8 pl-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-rose-500" />
+                                                        <InputAngka min="0" max="50" step="0.5" value={komisiPct} onNilai={setKomisiPct} className="w-full pr-8 pl-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-rose-500" />
                                                         <span className="absolute right-3 top-2.5 text-slate-400 font-medium text-xs">%</span>
                                                     </div>
                                                     <span className="text-xs text-rose-600 font-bold whitespace-nowrap">{formatRp(calc.komisiPerPcs)}/pcs</span>
@@ -32483,7 +32518,7 @@ ${getRekapShareLink(rekap)}
                                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Dana Entertain / Representasi (%)</label>
                                                 <div className="flex items-center gap-2">
                                                     <div className="relative flex-1">
-                                                        <input type="number" min="0" max="50" step="0.5" value={entertainPct} onChange={e => setEntertainPct(parseFloat(e.target.value) || 0)} className="w-full pr-8 pl-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-rose-500" />
+                                                        <InputAngka min="0" max="50" step="0.5" value={entertainPct} onNilai={setEntertainPct} className="w-full pr-8 pl-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-rose-500" />
                                                         <span className="absolute right-3 top-2.5 text-slate-400 font-medium text-xs">%</span>
                                                     </div>
                                                     <span className="text-xs text-rose-600 font-bold whitespace-nowrap">{formatRp(calc.entertainPerPcs)}/pcs</span>
@@ -32554,7 +32589,7 @@ ${getRekapShareLink(rekap)}
                                                 </label>
                                                 <div className="relative">
                                                     <span className="absolute left-3 top-2.5 text-slate-400 font-bold text-sm">Rp</span>
-                                                    <input type="number" value={customPrice} onChange={e => { setCustomPrice(parseFloat(e.target.value) || 0); setIsPriceManual(true); }} className="w-full pl-10 pr-3 py-2.5 bg-emerald-50 border-2 border-emerald-400 text-emerald-900 rounded-xl text-base font-extrabold focus:ring-2 focus:ring-emerald-500" />
+                                                    <InputAngka data-angka="customPrice" value={customPrice} onNilai={v => { setCustomPrice(v); setIsPriceManual(true); }} className="w-full pl-10 pr-3 py-2.5 bg-emerald-50 border-2 border-emerald-400 text-emerald-900 rounded-xl text-base font-extrabold focus:ring-2 focus:ring-emerald-500" />
                                                 </div>
                                                 <div className="flex items-center justify-between mt-1">
                                                     <p className="text-[11px] text-slate-500">Rekomendasi: {formatRp(calc.recPrice)}</p>
@@ -32663,8 +32698,8 @@ ${getRekapShareLink(rekap)}
                                                             <div className="flex gap-2 items-center mb-3">
                                                                 <div className="relative flex-1">
                                                                     <span className="absolute left-3 top-2.5 text-slate-400 font-bold text-sm">Rp</span>
-                                                                    <input type="number" step={500} value={negoHargaTawar}
-                                                                        onChange={e => setNegoHargaTawar(parseFloat(e.target.value)||0)}
+                                                                    <InputAngka step={500} value={negoHargaTawar}
+                                                                        onNilai={setNegoHargaTawar}
                                                                         className="w-full pl-10 pr-3 py-2.5 bg-orange-50 border-2 border-orange-300 text-orange-900 rounded-xl text-base font-extrabold focus:ring-2 focus:ring-orange-400" />
                                                                 </div>
                                                                 <button onClick={() => setNegoHargaTawar(recP)} className="text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-200 px-3 py-2.5 rounded-xl font-semibold whitespace-nowrap hover:bg-indigo-100 transition">Reset Rekomen</button>
@@ -33190,13 +33225,13 @@ ${getRekapShareLink(rekap)}
                                                                 placeholder={"Detail spesifikasi (opsional)\n- lengan panjang\n- bordir 3 titik"} />
                                                         </td>
                                                         <td className="py-2 px-1">
-                                                            <input type="number" value={qi.estQty} onChange={e => updateQuotationItem(qi.id, 'estQty', parseInt(e.target.value)||0)}
+                                                            <InputAngka bulat value={qi.estQty} onNilai={v => updateQuotationItem(qi.id, 'estQty', v)}
                                                                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 focus:ring-1 focus:ring-indigo-400 outline-none text-xs" />
                                                             <input type="text" value={qi.estQtyDisplay || ''} onChange={e => updateQuotationItem(qi.id, 'estQtyDisplay', e.target.value)}
                                                                 className="w-full mt-1 border border-slate-100 rounded-lg px-2 py-1 text-center text-slate-400 focus:ring-1 focus:ring-indigo-300 outline-none text-[11px]" placeholder="mis. 100-500 Pcs" />
                                                         </td>
                                                         <td className="py-2 px-1">
-                                                            <input type="number" value={qi.unitPrice} onChange={e => updateQuotationItem(qi.id, 'unitPrice', parseFloat(e.target.value)||0)}
+                                                            <InputAngka value={qi.unitPrice} onNilai={v => updateQuotationItem(qi.id, 'unitPrice', v)}
                                                                 className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-slate-800 focus:ring-1 focus:ring-indigo-400 outline-none text-xs" />
                                                         </td>
                                                         <td className="py-2 px-1">
@@ -34050,7 +34085,7 @@ ${getRekapShareLink(rekap)}
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Harga Standard (Rp)</label>
-                                                <input type="number" value={editDraft.price || 0} onChange={e => setEditDraft(d => ({ ...d, price: e.target.value }))}
+                                                <InputAngka value={editDraft.price || 0} onNilai={v => setEditDraft(d => ({ ...d, price: v }))}
                                                     className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition" />
                                             </div>
                                         </>
@@ -34063,7 +34098,7 @@ ${getRekapShareLink(rekap)}
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Tarif Borongan / Pcs (Rp)</label>
-                                                <input type="number" value={editDraft.rate || 0} onChange={e => setEditDraft(d => ({ ...d, rate: e.target.value }))}
+                                                <InputAngka value={editDraft.rate || 0} onNilai={v => setEditDraft(d => ({ ...d, rate: v }))}
                                                     className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none transition" />
                                             </div>
                                         </>
