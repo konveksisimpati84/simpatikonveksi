@@ -1,6 +1,7 @@
 // Membuat ikon aplikasi Android (dipasang dari Chrome) dari logo kotak Simpati resolusi tinggi.
 // Gaya "B": tanpa bingkai merah — tulisan "Konveksi Simpati" di atas putih.
 //   icon-192.png, icon-512.png                 → purpose "any"
+//   apple-touch-icon.png (180 px)             → ikon layar utama iPhone / iPad
 //   icon-maskable-192.png, icon-maskable-512.png → purpose "maskable" (isi diperkecil 85% agar tetap utuh
 //                                                 saat HP memotong ikon menjadi bulat / kotak tumpul)
 // Jalankan sekali bila logo berubah: node scripts/buat-ikon-aplikasi.cjs  (butuh Playwright + Chromium)
@@ -41,6 +42,8 @@ const dataUri = 'data:image/png;base64,' + fs.readFileSync(sumber).toString('bas
         return {
             'icon-192.png': buat(192, 1), 'icon-512.png': buat(512, 1),
             'icon-maskable-192.png': buat(192, 0.85), 'icon-maskable-512.png': buat(512, 0.85),
+            // Ikon layar utama iPhone / iPad (Safari): gaya sama dengan Android, sudut dibulatkan sendiri oleh iOS
+            'apple-touch-icon.png': buat(180, 1),
             latar,
         };
     }, dataUri);
