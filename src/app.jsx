@@ -182,6 +182,13 @@
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         };
         const toLocalMonthStr = (value = new Date()) => toLocalDateStr(value).slice(0, 7);
+        // Sisa hari dari hari ini (WIB) ke tanggal 'YYYY-MM-DD': 0 = hari ini, -1 = kemarin, 1 = besok. NaN bila tanggal kosong.
+        // (Menghitung dari jam sekarang memberi hasil salah 1 hari antara 00.00–06.59 WIB.)
+        const sisaHariKe = (tgl) => {
+            const t = String(tgl || '').slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return NaN;
+            return Math.round((new Date(`${t}T00:00:00`) - new Date(`${toLocalDateStr()}T00:00:00`)) / 864e5);
+        };
         // SHA-256 murni JS (sinkron, tidak bergantung crypto.subtle yang hanya ada di HTTPS) — untuk mengacak password akun
         const sha256Hex = (text) => {
             const bytes = new TextEncoder().encode(String(text));
@@ -8263,7 +8270,7 @@ window.addEventListener('load',function(){
             const getOrderColorKey = (order) => {
                 if (order.status === 'Terkirim') return 'terkirim';
                 if (order.status === 'Siap Kirim') return 'siap';
-                const d = Math.ceil((new Date(order.deadline) - new Date()) / 86400000);
+                const d = sisaHariKe(order.deadline);
                 if (d < 0) return 'terlambat';
                 if (d <= 7) return 'mendekati';
                 if (d <= 14) return 'sedang';
@@ -9072,10 +9079,7 @@ window.addEventListener('load',function(){
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {pagedProductionOrders.map(order => {
-                            const today = new Date();
-                            const deadlineDate = new Date(order.deadline);
-                            const diffTime = deadlineDate - today;
-                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            const diffDays = sisaHariKe(order.deadline);
                             
                             let cardColor = "bg-white border-gray-200";
                             let indicatorColor = "bg-blue-500 group-hover:bg-blue-600";
@@ -9596,7 +9600,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                                         <div className="text-[10px] text-gray-400">Avail: {totalAvailOrder}</div>
                                                                     </div>
                                                                     <div className="w-24 text-center hidden md:block flex-shrink-0">
-                                                                        <div className={`text-[10px] font-bold ${order.deadline && new Date(order.deadline) < new Date() ? 'text-red-600' : 'text-gray-500'}`}>{order.deadline || '-'}</div>
+                                                                        <div className={`text-[10px] font-bold ${order.deadline && sisaHariKe(order.deadline) < 0 ? 'text-red-600' : 'text-gray-500'}`}>{order.deadline || '-'}</div>
                                                                     </div>
                                                                     <div className="w-24 text-center flex-shrink-0">
                                                                         {isDone ? (
