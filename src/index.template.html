@@ -209,6 +209,21 @@
         .animate-tv-urgent { animation: tv-urgent 2s infinite; }
 
         @keyframes boot-spin { to { transform: rotate(360deg); } }
+
+        /* Tabel di pop-up yang bisa digeser di HP: kolom centang & kolom pertama (tanggal / invoice) tetap diam di kiri */
+        @media (max-width: 767px) {
+            [data-geser-tabel] table { min-width: 560px; }
+            [data-geser-tabel] tr > :nth-child(1) { position: sticky; left: 0; z-index: 1; background-color: #fff; }
+            [data-geser-tabel] tr > :nth-child(2) { position: sticky; left: 2rem; z-index: 1; background-color: #fff; box-shadow: 2px 0 0 #e5e7eb; }
+            [data-geser-tabel][data-geser-satu] tr > :nth-child(1) { box-shadow: 2px 0 0 #e5e7eb; }
+            [data-geser-tabel][data-geser-satu] tr > :nth-child(2) { position: static; box-shadow: none; }
+            [data-geser-tabel] thead tr { background-color: inherit; }
+            [data-geser-tabel] thead tr > *, [data-geser-tabel] tr[class^="bg-"] > *, [data-geser-tabel] tr[class*=" bg-"] > * { background-color: inherit; }
+            [data-geser-tabel] thead { background-clip: padding-box; }
+            [data-geser-tabel] tr > [colspan], [data-geser-tabel] tr > [colspan] + * { position: static; box-shadow: none; }
+        }
+        @keyframes geser-dorong { 50% { transform: translateX(4px); } }
+        .geser-dorong { display: inline-block; animation: geser-dorong 1.6s ease-in-out infinite; }
     </style>
     <!-- Tailwind: CSS dibuat sekali saat build (scripts/build.cjs), bukan disusun di browser. Diletakkan di akhir <head> seperti dulu oleh Tailwind CDN agar urutan prioritas gaya sama. -->
     <style id="tailwind-css">/*__TAILWIND_CSS__*/</style>

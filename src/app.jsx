@@ -5316,8 +5316,8 @@ ${blocks}
 
                     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm min-w-[860px]">
-                                <thead>
+                            <table className="w-full text-sm block md:table md:min-w-[860px]">
+                                <thead className="hidden md:table-header-group">
                                     <tr className="bg-gray-50 text-left text-gray-600 text-xs uppercase tracking-wide">
                                         <th className="p-3 w-10"><input type="checkbox" data-belanja-check-all checked={allChecked} onChange={e => toggleIds(pageIds, e.target.checked)} className="w-4 h-4 accent-teal-600" /></th>
                                         <th className="p-3">Bahan</th>
@@ -5328,7 +5328,7 @@ ${blocks}
                                         <th className="p-3">Status</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="block md:table-row-group">
                                     {view === 'bahan' && pgBahan.paged.map(g => {
                                         const ids = g.lines.map(l => l.id);
                                         const baru = g.baruCount > 0;
@@ -5336,12 +5336,12 @@ ${blocks}
                                         // Angka x/y bila semua order punya jumlah kebutuhan; selain itu cukup jumlah order yang sudah dibeli
                                         const extra = g.need != null && g.bought > 0 ? `${fmtBelanjaQty(g.bought)}/${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : (g.status === 'sebagian' && g.lines.length > 1 ? `${g.doneCount}/${g.lines.length} order` : '');
                                         return (
-                                            <tr key={g.id} data-belanja-row data-belanja-baru={baru ? '1' : '0'} className={`border-t border-gray-100 align-top ${on ? 'bg-teal-50/60' : baru ? 'bg-orange-50/60' : ''}`}>
-                                                <td className={`p-3 ${garisBaru(baru)}`}><input type="checkbox" checked={on} onChange={e => toggleIds(ids, e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
-                                                <td className="p-3">{bahanCell(g.name, g.code)}{baru && <div>{tandaBaru()}</div>}</td>
-                                                <td className="p-3 text-gray-700">{g.color || '-'}</td>
-                                                <td className="p-3 text-right font-bold whitespace-nowrap">{g.need != null ? `${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : <span className="text-xs font-normal text-gray-400">jumlah belum diisi</span>}{stokKet(g)}</td>
-                                                <td className="p-3">
+                                            <tr key={g.id} data-belanja-row data-belanja-baru={baru ? '1' : '0'} className={`relative grid grid-cols-2 gap-x-3 gap-y-1.5 pl-11 pr-3 py-3 md:table-row border-t border-gray-100 align-top ${on ? 'bg-teal-50/60' : baru ? 'bg-orange-50/60' : ''}`}>
+                                                <td className={`absolute left-3 top-3 md:static md:p-3 ${garisBaru(baru)}`}><input type="checkbox" checked={on} onChange={e => toggleIds(ids, e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
+                                                <td className="col-span-2 md:p-3">{bahanCell(g.name, g.code)}{baru && <div>{tandaBaru()}</div>}</td>
+                                                <td data-label="Warna" className="md:p-3 text-gray-700 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none">{g.color || '-'}</td>
+                                                <td data-label="Total kebutuhan" className="md:p-3 md:text-right font-bold whitespace-nowrap before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none">{g.need != null ? `${fmtBelanjaQty(g.need)}${unitTxt(g.unit)}` : <span className="text-xs font-normal text-gray-400">jumlah belum diisi</span>}{stokKet(g)}</td>
+                                                <td data-label="Untuk order" className="col-span-2 md:p-3 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none">
                                                     {g.lines.map(l => (
                                                         <div key={l.id} className="text-xs text-gray-700 leading-5">
                                                             <span className="font-bold text-blue-700">{l.orderId}</span> {l.order.client || ''}{l.order.type ? ` · ${l.order.type}` : ''}{l.needTotal != null ? ` — ${fmtBelanjaQty(l.needTotal)}${unitTxt(l.unit)}` : ''}
@@ -5353,28 +5353,28 @@ ${blocks}
                                                     ))}
                                                     {tagSatuanBeda(g.key)}
                                                 </td>
-                                                <td className="p-3"><BelanjaVendorInput value={g.vendor || ''} mixed={g.vendor == null} listId="belanja-vendor-list" onCommit={(v) => setVendor(g.lines, v)} />{catatanTxt(g.catatan)}</td>
-                                                <td className="p-3">{statusBadge(g.status, extra, g.dariStok)}{g.status === 'sebagian' && kurangLebih(g.kurang, 0, g.unit)}{g.status === 'lengkap' && g.need != null && kurangLebih(0, g.bought - g.need, g.unit)}{catatBtn(g.lines, g.done)}</td>
+                                                <td data-label="Vendor" className="col-span-2 md:p-3 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none"><BelanjaVendorInput value={g.vendor || ''} mixed={g.vendor == null} listId="belanja-vendor-list" onCommit={(v) => setVendor(g.lines, v)} />{catatanTxt(g.catatan)}</td>
+                                                <td data-label="Status" className="col-span-2 md:p-3 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none">{statusBadge(g.status, extra, g.dariStok)}{g.status === 'sebagian' && kurangLebih(g.kurang, 0, g.unit)}{g.status === 'lengkap' && g.need != null && kurangLebih(0, g.bought - g.need, g.unit)}{catatBtn(g.lines, g.done)}</td>
                                             </tr>
                                         );
                                     })}
                                     {view === 'order' && pgOrder.paged.map(og => (
                                         <React.Fragment key={og.order.id}>
-                                            <tr data-belanja-order-head className="bg-gray-50 border-t border-gray-200">
-                                                <td className="p-3"><input type="checkbox" checked={og.lines.every(l => checked.has(l.id))} onChange={e => toggleIds(og.lines.map(l => l.id), e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
-                                                <td colSpan={5} className="p-3 font-black text-gray-800">
+                                            <tr data-belanja-order-head className="flex items-start gap-3 px-3 py-2.5 md:table-row bg-gray-50 border-t border-gray-200">
+                                                <td className="md:p-3"><input type="checkbox" checked={og.lines.every(l => checked.has(l.id))} onChange={e => toggleIds(og.lines.map(l => l.id), e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
+                                                <td colSpan={5} className="md:p-3 font-black text-gray-800 min-w-0">
                                                     📋 {og.order.id} · {og.order.client || '-'}{og.order.type ? ` · ${og.order.type}` : ''}{og.order.deadline ? ` · DL ${og.order.deadline}` : ''}
                                                     {og.total && <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${og.total.done === og.total.n ? 'bg-green-100 text-green-800' : og.total.done > 0 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}`}>{og.total.done} dari {og.total.n} bahan lengkap</span>}
                                                 </td>
                                             </tr>
                                             {og.lines.map(l => (
-                                                <tr key={l.id} data-belanja-row data-belanja-baru={l.cetakState === 'baru' ? '1' : '0'} className={`border-t border-gray-100 align-top ${checked.has(l.id) ? 'bg-teal-50/60' : l.cetakState === 'baru' ? 'bg-orange-50/60' : ''}`}>
-                                                    <td className={`p-3 ${garisBaru(l.cetakState === 'baru')}`}><input type="checkbox" checked={checked.has(l.id)} onChange={e => toggleIds([l.id], e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
-                                                    <td className="p-3">{bahanCell(l.name, l.code)}{l.cetakState === 'baru' && tandaBaru(true)}{tagSatuanBeda(l.kunciBaku || l.key)}</td>
-                                                    <td className="p-3 text-gray-700">{l.color || '-'}</td>
-                                                    <td className="p-3 text-right whitespace-nowrap">{l.need != null ? `${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : <span className="text-xs text-gray-400">jumlah belum diisi</span>}{stokKet(l)}</td>
-                                                    <td className="p-3"><BelanjaVendorInput value={l.vendor} listId="belanja-vendor-list" onCommit={(v) => setVendor([l], v)} />{catatanTxt(l.catatan ? [l.catatan] : [])}</td>
-                                                    <td className="p-3">{statusBadge(l.status, lineExtra(l), l.dariStok)}{kurangLebih(l.status === 'sebagian' ? l.kurang : 0, l.lebih, l.unit)}{catatBtn([l], l.done)}</td>
+                                                <tr key={l.id} data-belanja-row data-belanja-baru={l.cetakState === 'baru' ? '1' : '0'} className={`relative grid grid-cols-2 gap-x-3 gap-y-1.5 pl-11 pr-3 py-3 md:table-row border-t border-gray-100 align-top ${checked.has(l.id) ? 'bg-teal-50/60' : l.cetakState === 'baru' ? 'bg-orange-50/60' : ''}`}>
+                                                    <td className={`absolute left-3 top-3 md:static md:p-3 ${garisBaru(l.cetakState === 'baru')}`}><input type="checkbox" checked={checked.has(l.id)} onChange={e => toggleIds([l.id], e.target.checked)} className="w-4 h-4 accent-teal-600" /></td>
+                                                    <td className="col-span-2 md:p-3">{bahanCell(l.name, l.code)}{l.cetakState === 'baru' && tandaBaru(true)}{tagSatuanBeda(l.kunciBaku || l.key)}</td>
+                                                    <td data-label="Warna" className="md:p-3 text-gray-700 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none">{l.color || '-'}</td>
+                                                    <td data-label="Kebutuhan" className="md:p-3 md:text-right whitespace-nowrap before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none">{l.need != null ? `${fmtBelanjaQty(l.need)}${unitTxt(l.unit)}` : <span className="text-xs text-gray-400">jumlah belum diisi</span>}{stokKet(l)}</td>
+                                                    <td data-label="Vendor" className="col-span-2 md:p-3 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none"><BelanjaVendorInput value={l.vendor} listId="belanja-vendor-list" onCommit={(v) => setVendor([l], v)} />{catatanTxt(l.catatan ? [l.catatan] : [])}</td>
+                                                    <td data-label="Status" className="col-span-2 md:p-3 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-gray-400 md:before:content-none">{statusBadge(l.status, lineExtra(l), l.dariStok)}{kurangLebih(l.status === 'sebagian' ? l.kurang : 0, l.lebih, l.unit)}{catatBtn([l], l.done)}</td>
                                                 </tr>
                                             ))}
                                         </React.Fragment>
@@ -14273,7 +14273,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                             <button type="button" onClick={() => setForm(prev => ({ ...prev, bagiHasilType: 'Rp' }))} className={`px-3 py-2 text-sm font-bold transition-colors ${form.bagiHasilType === 'Rp' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Rp</button>
                                             <button type="button" onClick={() => setForm(prev => ({ ...prev, bagiHasilType: 'Rp/pcs' }))} className={`px-3 py-2 text-sm font-bold transition-colors ${form.bagiHasilType === 'Rp/pcs' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>Rp/pcs</button>
                                         </div>
-                                        <input type="number" min="0" step="any" className="flex-1 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" placeholder={form.bagiHasilType === '%' ? 'Persen (misal: 5)' : form.bagiHasilType === 'Rp/pcs' ? 'Nominal per pcs (misal: 2000)' : 'Nominal Rupiah'} value={form.bagiHasilValue} onChange={e => setForm(prev => ({ ...prev, bagiHasilValue: e.target.value }))} />
+                                        <input type="number" min="0" step="any" className="flex-1 min-w-0 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none text-sm" placeholder={form.bagiHasilType === '%' ? 'Persen (misal: 5)' : form.bagiHasilType === 'Rp/pcs' ? 'Nominal per pcs (misal: 2000)' : 'Nominal Rupiah'} value={form.bagiHasilValue} onChange={e => setForm(prev => ({ ...prev, bagiHasilValue: e.target.value }))} />
                                     </div>
                                     {previewNominal > 0 && (
                                         <div className="mt-1.5 text-xs text-teal-700 font-bold">
@@ -23770,13 +23770,13 @@ ${getRekapShareLink(rekap)}
                                                 <span className="font-black text-sm">Rincian Gaji Harian</span>
                                                 <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalDailySalary)}</span>
                                             </div>
-                                            <table className="w-full text-xs">
+                                            <TandaGeser teks="kolom gaji ada di kanan" /><div data-geser-tabel className="overflow-x-auto"><table className="w-full text-xs">
                                                 <thead className="bg-indigo-50 text-indigo-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalAllDailyLogs.length>0&&modalAllDailyLogs.every(l=>modalData?.selectedDailyKeys?.has(String(l.id||l.date)))} onChange={()=>toggleAllModalDailyItems(modalAllDailyLogs)}/></th><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Hari Masuk</th><th className="py-2 px-3 text-right">Gaji Harian</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
                                                 <tbody>
                                                     {modalAllDailyLogs.map((log,idx)=>{const t=getDailySalaryLogTotal(log);const isSel=modalData?.selectedDailyKeys?.has(String(log.id||log.date));const hasAdj=log.hourAdjDetails?.length>0;const isAuto=!!log._isAutoPreview;const _dayNamesRek=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];return(<React.Fragment key={`daily-${idx}`}><tr className={`border-t ${isSel?'bg-indigo-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalDailyItem(log)}/></td><td className="py-2 px-3"><div>{log.date||'-'}</div>{log.date&&<div className="text-[10px] text-indigo-400 font-semibold">{_dayNamesRek[new Date(log.date+'T00:00:00').getDay()]}</div>}</td><td className="py-2 px-3"><div className="flex flex-wrap items-center gap-1">{isAuto&&<span className="text-[10px] font-black bg-amber-100 text-amber-700 border border-amber-300 rounded px-1.5 py-0.5 leading-none">AUTO</span>}<span>{log.note||'Masuk Kerja'}</span></div></td><td className="py-2 px-3 text-right">{log.workDays||0} hari</td><td className="py-2 px-3 text-right">{formatRupiah(log.dailySalary)}</td><td className="py-2 px-3 text-right font-black text-indigo-700">{formatRupiah(t.daily)}</td></tr>{hasAdj&&<tr className={`${isSel?'bg-indigo-50/60':''}`}><td colSpan="6" className="px-3 pb-2 pt-0"><div className="ml-6 border-l-2 border-indigo-200 pl-2 space-y-0.5">{log.hourAdjDetails.map((d,i)=><div key={i} className="flex justify-between text-[11px]"><span className="text-gray-500">{d.date} {formatSelisihJamLabel(d)}</span><span className={d.amount>0?'text-green-700 font-bold':'text-red-600 font-bold'}>{d.amount>0?'+':''}{formatRupiah(d.amount)}</span></div>)}{log.hourAdjDetails.length>1&&<div className="flex justify-between text-[11px] border-t border-indigo-200 pt-0.5 mt-0.5"><span className="text-gray-600 font-semibold">Penyesuaian Jam Kerja</span><span className={t.adj>0?'text-green-700 font-black':'text-red-600 font-black'}>{t.adj>0?'+':''}{formatRupiah(t.adj)}</span></div>}</div></td></tr>}</React.Fragment>);})}
                                                     <tr className="bg-indigo-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Gaji Harian</td><td className="py-2 px-3 text-right text-indigo-800">{formatRupiah(modalDailySalary)}</td></tr>
                                                 </tbody>
-                                            </table>
+                                            </table></div>
                                         </div>
                                     )}
 
@@ -23787,13 +23787,13 @@ ${getRekapShareLink(rekap)}
                                                 <span className="font-black text-sm">Rincian Gaji Lembur</span>
                                                 <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalOvertimeSalary)}</span>
                                             </div>
-                                            <table className="w-full text-xs">
+                                            <TandaGeser teks="kolom gaji ada di kanan" /><div data-geser-tabel className="overflow-x-auto"><table className="w-full text-xs">
                                                 <thead className="bg-sky-50 text-sky-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalAllOvertimeLogs.length>0&&modalAllOvertimeLogs.every(l=>modalData?.selectedOvertimeKeys?.has(String(l.id||l.date)))} onChange={()=>toggleAllModalOvertimeItems(modalAllOvertimeLogs)}/></th><th className="py-2 px-3 text-left">Tanggal</th><th className="py-2 px-3 text-left">Keterangan</th><th className="py-2 px-3 text-right">Jumlah Lembur</th><th className="py-2 px-3 text-right">Nominal Lembur</th><th className="py-2 px-3 text-right">Subtotal</th></tr></thead>
                                                 <tbody>
                                                     {modalAllOvertimeLogs.map((log,idx)=>{const t=getDailySalaryLogTotal(log);const isSel=modalData?.selectedOvertimeKeys?.has(String(log.id||log.date));const isAuto=!!log._isAutoPreview;const _dayNamesOt=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];return(<tr key={`ot-${idx}`} className={`border-t ${isSel?'bg-sky-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalOvertimeItem(log)}/></td><td className="py-2 px-3"><div>{log.date||'-'}</div>{log.date&&<div className="text-[10px] text-sky-400 font-semibold">{_dayNamesOt[new Date(log.date+'T00:00:00').getDay()]}</div>}</td><td className="py-2 px-3"><div className="flex flex-wrap items-center gap-1">{isAuto&&<span className="text-[10px] font-black bg-amber-100 text-amber-700 border border-amber-300 rounded px-1.5 py-0.5 leading-none">AUTO</span>}<span>{log.note||'Lembur'}</span></div></td><td className="py-2 px-3 text-right">{log.overtimeCount||0}x</td><td className="py-2 px-3 text-right">{formatRupiah(log.overtimeRate)}</td><td className="py-2 px-3 text-right font-black text-sky-700">{formatRupiah(t.overtime)}</td></tr>);})}
                                                     <tr className="bg-sky-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Gaji Lembur</td><td className="py-2 px-3 text-right text-sky-800">{formatRupiah(modalOvertimeSalary)}</td></tr>
                                                 </tbody>
-                                            </table>
+                                            </table></div>
                                         </div>
                                     )}
 
@@ -23804,13 +23804,13 @@ ${getRekapShareLink(rekap)}
                                                 <span className="font-black text-sm">Rincian Komisi Marketing</span>
                                                 <span className="text-sm font-bold bg-white/20 px-2 py-0.5 rounded">{formatRupiah(modalMarketingCommission)}</span>
                                             </div>
-                                            <table className="w-full text-xs">
+                                            <TandaGeser teks="kolom komisi ada di kanan" /><div data-geser-tabel className="overflow-x-auto"><table className="w-full text-xs">
                                                 <thead className="bg-purple-50 text-purple-900"><tr><th className="py-2 px-3 text-center w-8"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={modalMarketingInvoices.length>0&&modalMarketingInvoices.every(i=>modalData?.selectedMarketingKeys?.has(String(i.id)))} onChange={()=>toggleAllModalMarketingItems(modalMarketingInvoices)}/></th><th className="py-2 px-3 text-left">Invoice / Order</th><th className="py-2 px-3 text-left">Nama Klien</th><th className="py-2 px-3 text-center">Status Bayar</th><th className="py-2 px-3 text-right">Nilai Produksi</th><th className="py-2 px-3 text-right">Komisi</th></tr></thead>
                                                 <tbody>
                                                     {modalMarketingInvoices.map((inv,idx)=>{const isSel=modalData?.selectedMarketingKeys?.has(String(inv.id));const ps=getInvoicePaymentStatus(inv);const psBadge=ps==='Lunas'?<span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Lunas</span>:ps==='Termin'?<span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">Termin</span>:<span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Pending</span>;return(<tr key={`mkt-${idx}`} className={`border-t ${isSel?'bg-purple-50':''}`}><td className="py-2 px-3 text-center"><input type="checkbox" className="w-3.5 h-3.5 rounded" checked={!!isSel} onChange={()=>toggleModalMarketingItem(inv)}/></td><td className="py-2 px-3 font-bold text-blue-700">{inv.id}<div className="text-gray-500 font-normal">{inv.date||'-'}</div></td><td className="py-2 px-3">{inv.customer||'-'}</td><td className="py-2 px-3 text-center">{psBadge}</td><td className="py-2 px-3 text-right">{formatRupiah(getInvoiceTotals(inv).productionTotal)}</td><td className="py-2 px-3 text-right font-black text-purple-700">{formatRupiah(getInvoiceCommissionTotal(inv))}<div className="text-[10px] font-semibold text-gray-500">{labelTarifKomisi(inv.commissionType, inv.commissionValue)}</div></td></tr>);})}
                                                     <tr className="bg-purple-100 font-bold border-t-2"><td colSpan="5" className="py-2 px-3 text-right">Total Komisi Marketing</td><td className="py-2 px-3 text-right text-purple-800">{formatRupiah(modalMarketingCommission)}</td></tr>
                                                 </tbody>
-                                            </table>
+                                            </table></div>
                                         </div>
                                     )}
 
@@ -24510,7 +24510,9 @@ ${getRekapShareLink(rekap)}
                                             )}
                                             <div>
                                                 <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Detail Pekerjaan ({(rekap.items || []).length} item)</div>
-                                                <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                                                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                                <TandaGeser teks="harga & subtotal ada di kanan" />
+                                                <div data-geser-tabel data-geser-satu className="overflow-x-auto">
                                                     <table className="w-full text-xs text-left">
                                                         <thead className="bg-gray-50"><tr className="border-b text-gray-500"><th className="p-2.5 font-semibold">Order / Klien</th><th className="p-2.5 font-semibold">Jenis</th><th className="p-2.5 font-semibold">Tahap</th><th className="p-2.5 font-semibold">Ukuran</th><th className="p-2.5 font-semibold text-right">Qty</th><th className="p-2.5 font-semibold text-right">Harga</th><th className="p-2.5 font-semibold text-right">Subtotal</th></tr></thead>
                                                         <tbody>
@@ -24526,7 +24528,7 @@ ${getRekapShareLink(rekap)}
                                                                 </tr>
                                                             ))}
                                                         </tbody>
-                                                    </table>
+                                                    </table></div>
                                                 </div>
                                             </div>
                                             {(() => {
@@ -31277,6 +31279,13 @@ ${getRekapShareLink(rekap)}
         };
 
         // ── HPP KALKULATOR ────────────────────────────────────────────────────────
+        // Tanda kecil "geser ⟶" di atas tabel yang bisa digeser ke samping (hanya tampil di HP)
+        const TandaGeser = ({ teks = 'kolom jumlah ada di kanan' }) => (
+            <div data-tanda-geser className="md:hidden flex items-center justify-between gap-2 px-3 py-1 text-[11px] font-bold text-indigo-600 bg-white border-b border-gray-100">
+                <span className="geser-dorong">geser ⟶</span><span className="font-semibold text-gray-400 truncate">{teks}</span>
+            </div>
+        );
+
         // Kolom angka yang boleh KOSONG saat diketik (tidak langsung terisi 0/1 lagi).
         // Kolom kosong / bukan angka / 0 dihitung `kosong` (sama seperti rumus lama `parseFloat(x) || kosong`);
         // saat keluar dari kolom yang kosong, tampil lagi angka yang dipakai hitungan.
@@ -32261,8 +32270,8 @@ ${getRekapShareLink(rekap)}
                                             </button>
                                         </div>
                                         <div className="overflow-x-auto">
-                                            <table className="w-full text-left text-xs">
-                                                <thead>
+                                            <table data-hpp-bahan className="w-full text-left text-xs block md:table">
+                                                <thead className="hidden md:table-header-group">
                                                     <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-100 font-semibold">
                                                         <th className="pb-3 w-1/3">Pilih Bahan</th>
                                                         <th className="pb-3 text-center">Pemakaian / Pcs</th>
@@ -32273,13 +32282,13 @@ ${getRekapShareLink(rekap)}
                                                         <th className="pb-3 w-8"></th>
                                                     </tr>
                                                 </thead>
-                                                <tbody className="divide-y divide-slate-100">
+                                                <tbody className="block md:table-row-group divide-y divide-slate-100">
                                                     {activeMaterials.map((item, idx) => {
                                                         const { mat, usageWaste, costPcs, totalReq, rowCost } = calc.bbbRows[idx] || {};
                                                         const curMat = mat || masterMaterials.find(m => m.id === item.masterId) || { price:0, unit:'-' };
                                                         return (
-                                                            <tr key={idx} className="hover:bg-slate-50 transition">
-                                                                <td className="py-2.5 pr-2">
+                                                            <tr key={idx} className="relative grid grid-cols-2 gap-x-3 gap-y-2 py-3 md:table-row hover:bg-slate-50 transition">
+                                                                <td className="col-span-2 pr-9 md:pr-2 md:py-2.5">
                                                                     <SearchableSelect
                                                                         value={item.masterId}
                                                                         onChange={val => updateMaterialItem(idx, 'masterId', val)}
@@ -32291,17 +32300,17 @@ ${getRekapShareLink(rekap)}
                                                                         }))}
                                                                     />
                                                                 </td>
-                                                                <td className="py-2.5 px-2 text-center">
-                                                                    <div className="flex items-center justify-center gap-1">
+                                                                <td data-label="Pemakaian / pcs" className="col-span-2 md:py-2.5 md:px-2 md:text-center before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">
+                                                                    <div className="flex items-center justify-start md:justify-center gap-1">
                                                                         <InputAngka data-angka="usagePerPcs" step="0.01" value={item.usagePerPcs} onNilai={v => updateMaterialItem(idx, 'usagePerPcs', v)} className="w-16 text-center text-xs p-1.5 border border-slate-300 rounded-lg font-bold" />
                                                                         <span className="text-slate-500 text-[11px]">{curMat.unit}</span>
                                                                     </div>
                                                                 </td>
-                                                                <td className="py-2.5 px-2 text-center font-bold text-slate-700 text-[11px]">{totalReq !== undefined ? Number(totalReq.toFixed(2)).toLocaleString('id-ID') : 0} {curMat.unit}</td>
-                                                                <td className="py-2.5 px-2 text-right font-medium text-slate-600">{formatRp(curMat.price)}</td>
-                                                                <td className="py-2.5 px-2 text-right font-semibold text-indigo-600">{formatRp(costPcs)}</td>
-                                                                <td className="py-2.5 px-2 text-right font-extrabold text-slate-800">{formatRp(rowCost)}</td>
-                                                                <td className="py-2.5 pl-2 text-center">
+                                                                <td data-label="Total kebutuhan" className="md:py-2.5 md:px-2 md:text-center font-bold text-slate-700 text-[11px] before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">{totalReq !== undefined ? Number(totalReq.toFixed(2)).toLocaleString('id-ID') : 0} {curMat.unit}</td>
+                                                                <td data-label="Harga satuan" className="md:py-2.5 md:px-2 md:text-right font-medium text-slate-600 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">{formatRp(curMat.price)}</td>
+                                                                <td data-label="Biaya / pcs" className="md:py-2.5 md:px-2 md:text-right font-semibold text-indigo-600 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">{formatRp(costPcs)}</td>
+                                                                <td data-label="Total batch" className="md:py-2.5 md:px-2 md:text-right font-extrabold text-slate-800 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">{formatRp(rowCost)}</td>
+                                                                <td className="absolute right-0 top-3 md:static md:py-2.5 md:pl-2 text-center">
                                                                     <button onClick={() => removeMaterialRow(idx)} className="text-slate-400 hover:text-rose-500 p-1"><i className="fa-solid fa-trash-can"></i></button>
                                                                 </td>
                                                             </tr>
@@ -32331,8 +32340,8 @@ ${getRekapShareLink(rekap)}
                                             </button>
                                         </div>
                                         <div className="overflow-x-auto">
-                                            <table className="w-full text-left text-xs">
-                                                <thead>
+                                            <table data-hpp-upah className="w-full text-left text-xs block md:table">
+                                                <thead className="hidden md:table-header-group">
                                                     <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-100 font-semibold">
                                                         <th className="pb-3 w-1/2">Jenis Pekerjaan</th>
                                                         <th className="pb-3 text-right">Tarif Borongan / Pcs</th>
@@ -32340,13 +32349,13 @@ ${getRekapShareLink(rekap)}
                                                         <th className="pb-3 w-10"></th>
                                                     </tr>
                                                 </thead>
-                                                <tbody className="divide-y divide-slate-100">
+                                                <tbody className="block md:table-row-group divide-y divide-slate-100">
                                                     {activeLabor.map((item, idx) => {
                                                         const { lab, rowCost } = calc.btklRows[idx] || {};
                                                         const curLab = lab || masterLabor.find(l => l.id === item.masterId) || { rate:0 };
                                                         return (
-                                                            <tr key={idx} className="hover:bg-slate-50 transition">
-                                                                <td className="py-2.5 pr-2">
+                                                            <tr key={idx} className="relative grid grid-cols-2 gap-x-3 gap-y-2 py-3 md:table-row hover:bg-slate-50 transition">
+                                                                <td className="col-span-2 pr-9 md:pr-2 md:py-2.5">
                                                                     <SearchableSelect
                                                                         value={item.masterId}
                                                                         onChange={val => updateLaborItem(idx, 'masterId', val)}
@@ -32358,9 +32367,9 @@ ${getRekapShareLink(rekap)}
                                                                         }))}
                                                                     />
                                                                 </td>
-                                                                <td className="py-2.5 px-2 text-right font-bold text-slate-700">{formatRp(curLab.rate)}</td>
-                                                                <td className="py-2.5 px-2 text-right font-extrabold text-slate-800">{formatRp(rowCost)}</td>
-                                                                <td className="py-2.5 pl-2 text-center">
+                                                                <td data-label="Tarif / pcs" className="md:py-2.5 md:px-2 md:text-right font-bold text-slate-700 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">{formatRp(curLab.rate)}</td>
+                                                                <td data-label="Total biaya batch" className="md:py-2.5 md:px-2 md:text-right font-extrabold text-slate-800 before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">{formatRp(rowCost)}</td>
+                                                                <td className="absolute right-0 top-3 md:static md:py-2.5 md:pl-2 text-center">
                                                                     <button onClick={() => removeLaborRow(idx)} className="text-slate-400 hover:text-rose-500 p-1"><i className="fa-solid fa-trash-can"></i></button>
                                                                 </td>
                                                             </tr>
@@ -38261,7 +38270,7 @@ ${getRekapShareLink(rekap)}
                                 {templates?.companyLogo ? (
                                     <img src={templates.companyLogo} alt="Logo" className="max-h-8 object-contain bg-white/5 p-0.5 rounded" />
                                 ) : (
-                                    <h1 className="font-bold text-red-500 text-lg tracking-wider truncate">{templates?.companyName || 'SIMPATI'}</h1>
+                                    <h1 data-judul-atas className="font-bold text-red-500 text-base tracking-wide min-[380px]:text-lg min-[380px]:tracking-wider truncate">{templates?.companyName || 'SIMPATI'}</h1>
                                 )}
                                 <span className="text-slate-400 text-xs hidden xs:inline truncate max-w-[120px]">{navItems.find(n => n.id === activeTab)?.label}</span>
                             </div>
@@ -39209,7 +39218,44 @@ ${getRekapShareLink(rekap)}
                                     </div>
                                 ) : (
                                     <>
-                                    <div className="overflow-x-auto">
+                                    {/* HP: satu karyawan satu kartu (tanpa geser ke samping); layar lebar: tabel */}
+                                    <div data-absensi-kartu className="md:hidden space-y-2">
+                                        {dailyRows.map(row => {
+                                            const hasLembur = row.lemburMenit > 0 || !!row.jamLemburMasuk;
+                                            const isLate = row.status === 'Terlambat';
+                                            const mIn = timeToMinutes(row.jamMasuk);
+                                            const mOut = timeToMinutes(row.jamPulang);
+                                            const pagiDurMenit = (mIn != null && mOut != null && mOut > mIn) ? mOut - mIn : null;
+                                            const lemDurLabel = row.lemburMenit > 0 ? durasiLabel(row.lemburMenit) : null;
+                                            return (
+                                                <div key={`k-${row.pin}-${row.tanggal}`} className="border border-gray-200 rounded-xl p-3 space-y-2" style={isLate ? { borderLeft: '3px solid #EF4444' } : hasLembur ? { borderLeft: '3px solid #F97316' } : undefined}>
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <div className="font-semibold text-gray-800 text-sm leading-tight">{row.nama}{row.hasCustomShift && <span className="ml-1 text-[10px] text-purple-500 font-bold" title="Shift khusus">⚙</span>}{row.override && <span className="ml-1 text-[10px] text-blue-500 font-bold">[edit]</span>}{row.note && <span className="ml-1 text-[11px]" title={row.note}>📝</span>}</div>
+                                                            <div className="text-[10px] text-gray-400 font-mono">PIN: {row.pin}</div>
+                                                            {canCekScan && row.override?.editedByName && <div className="text-[10px] font-bold text-orange-800 bg-orange-100 rounded px-1.5 py-0.5 mt-0.5 inline-block">✏ diedit oleh {row.override.editedByName} · {fmtWaktuEdit(row.override.editedAt)}</div>}
+                                                        </div>
+                                                        <div className="shrink-0">{operasiBadge(row)}</div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-1.5 text-xs">
+                                                        <div className="bg-gray-50 rounded-lg px-2 py-1.5"><div className="text-[10px] text-gray-500">Masuk – pulang</div>
+                                                            <div className="font-black tabular-nums"><span className={isLate ? 'text-red-600' : 'text-green-700'}>{row.jamMasuk || '—'}</span> – {row.jamPulang ? <span className="text-blue-700">{row.jamPulang}</span> : row.jamMasuk ? <span className="text-gray-400 font-semibold italic">belum pulang</span> : '—'}</div>
+                                                            {(row.jamMasuk && row.rawMasuk && row.rawMasuk !== row.jamMasuk && !row.override?.jamMasuk) || (row.rawPulang && row.rawPulang !== row.jamPulang && !row.override?.jamPulang) ? <div className="text-[9px] text-gray-400">scan {row.rawMasuk || '—'} – {row.rawPulang || '—'}</div> : null}</div>
+                                                        <div className="bg-gray-50 rounded-lg px-2 py-1.5"><div className="text-[10px] text-gray-500">Jam kerja</div>
+                                                            <div className="font-black tabular-nums text-purple-700">{pagiDurMenit != null ? durasiLabel(pagiDurMenit) : '—'}</div>
+                                                            {row.lebihKurangMenit > 0 && <div className="text-[10px] font-bold text-emerald-700">+{durasiLabel(row.lebihKurangMenit)} lebih jam</div>}
+                                                            {row.lebihKurangMenit < 0 && <div className="text-[10px] font-bold text-red-600">−{durasiLabel(-row.lebihKurangMenit)} kurang jam</div>}</div>
+                                                        <div className="bg-gray-50 rounded-lg px-2 py-1.5"><div className="text-[10px] text-gray-500">Lembur</div>
+                                                            {row.lemburMenit > 0 ? <><div className="font-black tabular-nums text-orange-700">🌙 {lemDurLabel}</div><div className="text-[10px] text-gray-500 tabular-nums">{row.jamLemburMasuk} – {row.jamLemburPulang}</div></>
+                                                                : row.jamLemburMasuk ? <><div className="text-[10px] text-orange-500 italic font-semibold">sedang lembur</div><div className="text-[10px] text-gray-500 tabular-nums">mulai {row.jamLemburMasuk}</div></>
+                                                                : <div className="font-black text-gray-300">—</div>}</div>
+                                                        <button onClick={() => setDetailRow(row)} className="rounded-lg border border-blue-200 text-blue-600 font-bold hover:bg-blue-50" title="Lihat detail">👁 Detail</button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="hidden md:block overflow-x-auto">
                                         <table className="w-full text-sm" style={{tableLayout:'fixed',minWidth:'760px'}}>
                                             <colgroup>
                                                 <col style={{width:'18%'}} />
@@ -39519,7 +39565,31 @@ ${getRekapShareLink(rekap)}
                                         <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Detail Kehadiran Harian</span>
                                         <span className="text-[10px] text-gray-400 italic">Jam kerja = jam pulang − jam masuk · Lembur = sesi tambahan</span>
                                     </div>
-                                    <div className="overflow-x-auto">
+                                    {/* HP: satu tanggal satu kartu (tanpa geser ke samping); layar lebar: tabel */}
+                                    <div data-rekap-absensi-kartu className="md:hidden divide-y divide-gray-100">
+                                        {rekapDetail.map(day => {
+                                            const isLate = day.status === 'Terlambat';
+                                            const hasLembur = day.lemburMenit > 0;
+                                            return (
+                                                <div key={`k-${day.d}`} className={`px-3 py-2.5 flex items-start gap-3 ${!day.jamMasuk ? 'bg-red-50' : day.isWeekend ? 'bg-gray-50' : ''}`} style={day.jamMasuk && !day.isWeekend && isLate ? { borderLeft: '3px solid #EF4444' } : day.jamMasuk && !day.isWeekend && hasLembur ? { borderLeft: '3px solid #f97316' } : undefined}>
+                                                    <div className="w-9 shrink-0 text-center"><div className="text-sm font-black tabular-nums text-gray-800">{String(day.d).padStart(2, '0')}</div><div className="text-[9px] uppercase tracking-wide text-gray-400">{HARI_SHORT[day.dow]}</div></div>
+                                                    {!day.jamMasuk ? <div className="flex-1 pt-1"><span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-400 border border-dashed border-red-200 italic">Tidak Hadir</span></div> : (
+                                                        <div className="flex-1 min-w-0 space-y-1">
+                                                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${isLate ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>{isLate ? 'Terlambat' : 'Hadir'}</span>
+                                                                <span className="text-xs font-black tabular-nums"><span className={isLate ? 'text-red-700' : 'text-green-700'}>{day.jamMasuk}</span> – {day.jamPulang ? <span className="text-blue-700">{day.jamPulang}</span> : <span className="text-gray-400 italic font-semibold">belum</span>}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-3 text-[11px] text-gray-600 flex-wrap">
+                                                                <span>⏱ Kerja <b className="text-purple-700 tabular-nums">{day.kerjaMenit > 0 ? rkDurLabel(day.kerjaMenit) : '—'}</b></span>
+                                                                <span>🌙 Lembur <b className="text-orange-700 tabular-nums">{hasLembur ? rkDurLabel(day.lemburMenit) : '—'}</b>{hasLembur && day.jamLemburMasuk ? <span className="text-gray-400 tabular-nums"> ({day.jamLemburMasuk}–{day.jamLemburPulang || '…'})</span> : null}</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="hidden md:block overflow-x-auto">
                                         <table className="w-full text-sm" style={{tableLayout:'fixed',minWidth:'600px'}}>
                                             <colgroup>
                                                 <col style={{width:'9%'}} />
