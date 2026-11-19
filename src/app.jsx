@@ -1216,6 +1216,13 @@
             if (total > 0 && paid >= total - 0.01) return 'Lunas';
             return 'Dibayar Sebagian';
         };
+        // Pembayaran terakhir nota: tanggal bayar terbaru; bila tanggalnya sama, yang dicatat paling akhir
+        const bayarTerakhirNota = (note) => {
+            const ps = safeArray(note && note.payments).map((p, i) => ({ p, i })).filter(x => x.p && (parseFloat(x.p.amount) || 0) > 0 && /^\d{4}-\d{2}-\d{2}/.test(String(x.p.date || '')));
+            if (!ps.length) return null;
+            ps.sort((a, b) => String(b.p.date).slice(0, 10).localeCompare(String(a.p.date).slice(0, 10)) || b.i - a.i);
+            return ps[0].p;
+        };
         // Satu-satunya tempat menghitung semua nilai form nota — dipakai display DAN validasi
         const calcNoteForm = (form) => {
             const validItems = safeArray(form.items).filter(it => String(it.name || '').trim());
@@ -10449,7 +10456,67 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [notaBulan, setNotaBulan] = useState('');
             // Dari Dana Operasional → "Lihat ›": tampilkan hanya nota itu (terbuka)
             const [notaFokus, setNotaFokus] = useState(null); // { id, empName }
-            useEffect(() => { setNotePage(1); }, [noteSearch, filterStatus, sortBy, vendorSaring, notaTahun, notaBulan, notaFokus]);
+            // "💳 Baru dibayar": saring nota menurut TANGGAL BAYAR (semua | hari | tujuh | bulan)
+            const [bayarRentang, setBayarRentang] = useState('semua');
+            const [bayarDdBuka, setBayarDdBuka] = useState(false);
+            const [bayarDdKanan, setBayarDdKanan] = useState(false);
+            const bayarDdRef = useRef(null);
+            // Setelah Simpan Pembayaran: pita "✓ Pembayaran … dicatat · Lihat ›" → loncat & sorot nota itu
+            const [notaBaruBayar, setNotaBaruBayar] = useState(null); // { id, vendor, tgl }
+            const [sorotNotaId, setSorotNotaId] = useState(null);
+            const lompatNotaRef = useRef(null);
+            const lompatHalRef = useRef(0);
+            useEffect(() => { if (lompatNotaRef.current) return; setNotePage(1); }, [noteSearch, filterStatus, sortBy, vendorSaring, notaTahun, notaBulan, notaFokus, bayarRentang]);
+            useEffect(() => {
+                if (!bayarDdBuka) return undefined;
+                const luar = (e) => { if (bayarDdRef.current && !bayarDdRef.current.contains(e.target)) setBayarDdBuka(false); };
+                document.addEventListener('mousedown', luar); document.addEventListener('touchstart', luar);
+                return () => { document.removeEventListener('mousedown', luar); document.removeEventListener('touchstart', luar); };
+            }, [bayarDdBuka]);
+            // Loncat ke nota yang baru dibayar: pindah ke halamannya, gulir ke kartunya, sorot ±4 detik
+            useEffect(() => {
+                const id = lompatNotaRef.current;
+                if (!id) return;
+                const hal = lompatHalRef.current;
+                if (hal > 0 && hal !== notePage) { setNotePage(hal); return; }
+                lompatNotaRef.current = null;
+                setTimeout(() => {
+                    const el = [...document.querySelectorAll('[data-nota-kartu]')].find(x => x.getAttribute('data-nota-kartu') === String(id));
+                    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }, 150);
+                setTimeout(() => setSorotNotaId(cur => (cur === id ? null : cur)), 4500);
+            });
+            const hariIniNota = toLocalDateStr();
+            const awalRentangBayar = (r) => {
+                if (r === 'hari') return hariIniNota;
+                if (r === 'tujuh') { const d = new Date(); d.setDate(d.getDate() - 6); return toLocalDateStr(d); }
+                if (r === 'bulan') return hariIniNota.slice(0, 7) + '-01';
+                return '';
+            };
+            const RENTANG_BAYAR = [{ id: 'hari', label: 'hari ini' }, { id: 'tujuh', label: '7 hari terakhir' }, { id: 'bulan', label: 'bulan ini' }];
+            // Nota punya pembayaran pada rentang tanggal bayar (sampai hari ini)
+            const dibayarDalam = (note, r) => {
+                const awal = awalRentangBayar(r);
+                if (!awal) return true;
+                return safeArray(note && note.payments).some(p => { const t = String((p && p.date) || '').slice(0, 10); return p && (parseFloat(p.amount) || 0) > 0 && t >= awal && t <= hariIniNota; });
+            };
+            const lihatNotaBaruBayar = () => {
+                const info = notaBaruBayar;
+                setNotaBaruBayar(null);
+                if (!info) return;
+                const n = safeArray(purchaseNotes).find(x => x && x.id === info.id && !x.isDeleted);
+                if (!n) return;
+                const t = String(info.tgl || '').slice(0, 10);
+                const r = RENTANG_BAYAR.map(x => x.id).find(id => t >= awalRentangBayar(id) && t <= hariIniNota) || 'semua';
+                setFilterStatus('Semua'); setNoteSearch(''); setVendorSaring(null); setNotaFokus(null);
+                setBayarRentang(r);
+                if (r === 'semua') { setNotaTahun(''); setNotaBulan(''); }
+                setSortBy('dibayar');
+                setExpandedNotes(prev => ({ ...prev, [n.id]: true }));
+                setSorotNotaId(n.id);
+                lompatNotaRef.current = n.id;
+                lompatHalRef.current = 0;
+            };
             useEffect(() => {
                 if (!bukaNotaVendor || !bukaNotaVendor.vendor) return;
                 setBahanTab('nota');
@@ -10459,6 +10526,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setNotaTahun('');
                 setNotaBulan('');
                 setNotaFokus(null);
+                setBayarRentang('semua');
                 setVendorSaring({ key: vendorKunci(bukaNotaVendor.vendor), name: bukaNotaVendor.vendor });
             }, [bukaNotaVendor && bukaNotaVendor.t]);
             const [expandedNotes, setExpandedNotes] = useState({});
@@ -10470,6 +10538,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 setVendorSaring(null);
                 setNotaTahun('');
                 setNotaBulan('');
+                setBayarRentang('semua');
                 setNotaFokus({ id: String(bukaNotaDana.id), empName: bukaNotaDana.empName || '' });
                 setExpandedNotes(prev => ({ ...prev, [bukaNotaDana.id]: true }));
             }, [bukaNotaDana && bukaNotaDana.t]);
@@ -10712,6 +10781,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 }));
                 setQuickPayNoteId(null);
                 setQuickPayForm({ date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
+                setNotaBaruBayar({ id: noteId, vendor: normalizeVendorName(targetNote.vendor), tgl: newPayment.date });
                 showToast('Pembayaran dicatat.', 'success');
             };
 
@@ -10756,12 +10826,22 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     if (!noteSearch.trim()) return true;
                     const term = noteSearch.toLowerCase();
                     const itemsText = safeArray(note.items).map(it => [it.name, it.code, it.color, it.orderId, it.instansi, (() => { const o = safeOrders.find(x => String(x.id) === String(it.orderId)); return o ? o.client + ' ' + o.type : ''; })()].join(' ')).join(' ');
-                    const paymentMethodsText = safeArray(note.payments).map(p => p.method || '').join(' ');
+                    // Cari juga tanggal bayar: 2026-11-19, 19/11/2026, 19/11
+                    const paymentMethodsText = safeArray(note.payments).map(p => { const t = String((p && p.date) || '').slice(0, 10); const m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/); return [p.method || '', t, m ? `${m[3]}/${m[2]}/${m[1]} ${m[3]}/${m[2]}` : ''].join(' '); }).join(' ');
                     return [note.vendor, note.date, note.note, note.method, noteStatus(note), itemsText, paymentMethodsText].join(' ').toLowerCase().includes(term);
                 };
-                const filteredNotes = periodNotes.filter(cocokFilterNota);
-                const cariLuarPeriode = noteSearch.trim() ? luarPeriodeNotes.filter(cocokFilterNota).length : 0;
+                // "💳 Baru dibayar" aktif: patokan TANGGAL BAYAR, periode tanggal beli tidak dipakai (nota lama yang baru dibayar ikut tampil)
+                const bayarAktif = bayarRentang !== 'semua';
+                const filteredNotes = (bayarAktif ? allNotes : periodNotes).filter(n => cocokFilterNota(n) && dibayarDalam(n, bayarRentang));
+                const cariLuarPeriode = noteSearch.trim() && !bayarAktif ? luarPeriodeNotes.filter(cocokFilterNota).length : 0;
+                const jumlahRentangBayar = (r) => allNotes.filter(n => dibayarDalam(n, r)).length;
                 const notes = [...filteredNotes].sort((a, b) => {
+                    if (sortBy === 'dibayar') {
+                        // Terakhir dibayar di atas; nota tanpa pembayaran di bawah (urut tanggal beli terbaru)
+                        const pa = bayarTerakhirNota(a), pb = bayarTerakhirNota(b);
+                        if (!pa || !pb) return (pa ? -1 : pb ? 1 : 0) || (b.date || '').localeCompare(a.date || '');
+                        return String(pb.date).slice(0, 10).localeCompare(String(pa.date).slice(0, 10)) || (b._syncUpdatedAt || '').localeCompare(a._syncUpdatedAt || '');
+                    }
                     if (sortBy === 'terlama')   return (a.date || '').localeCompare(b.date || '');
                     if (sortBy === 'terbesar')  return noteTotal(b) - noteTotal(a);
                     if (sortBy === 'terkecil')  return noteTotal(a) - noteTotal(b);
@@ -10778,8 +10858,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     if (dateDiff !== 0) return dateDiff;
                     return (b._syncUpdatedAt || '').localeCompare(a._syncUpdatedAt || '');
                 });
-                const useGrouped = sortBy === 'terbaru' || sortBy === 'terlama';
+                const useGrouped = sortBy === 'terbaru' || sortBy === 'terlama' || sortBy === 'dibayar';
                 const noteTotalPages = Math.max(1, Math.ceil(notes.length / NOTE_PAGE_SIZE));
+                if (lompatNotaRef.current) { const i = notes.findIndex(n => n.id === lompatNotaRef.current); lompatHalRef.current = i >= 0 ? Math.floor(i / NOTE_PAGE_SIZE) + 1 : 0; }
                 const safeNotePage = Math.min(notePage, noteTotalPages);
                 const pagedNotes = notes.slice((safeNotePage - 1) * NOTE_PAGE_SIZE, safeNotePage * NOTE_PAGE_SIZE);
                 const pagedNoteSet = new Set(pagedNotes);
@@ -10804,9 +10885,19 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const jumlahVendor = new Set(periodNotes.map(n => normalizeVendorName(n.vendor))).size;
                 const jumlahBelumLunas = allBelum.length + allSebagian.length;
                 const grouped = {};
-                if (useGrouped) notes.forEach(note => { const k = (note.date || '').slice(0, 7); if (!grouped[k]) grouped[k] = []; grouped[k].push(note); });
-                const groupKeys = Object.keys(grouped).sort((a, b) => sortBy === 'terlama' ? a.localeCompare(b) : b.localeCompare(a));
+                // Urutan "Terakhir dibayar": kelompok per tanggal bayar terakhir ('~' = belum ada pembayaran, paling bawah)
+                const kunciGrup = (note) => { if (sortBy !== 'dibayar') return (note.date || '').slice(0, 7); const pt = bayarTerakhirNota(note); return pt ? String(pt.date).slice(0, 10) : '~'; };
+                if (useGrouped) notes.forEach(note => { const k = kunciGrup(note); if (!grouped[k]) grouped[k] = []; grouped[k].push(note); });
+                const groupKeys = Object.keys(grouped).sort((a, b) => sortBy === 'terlama' ? a.localeCompare(b) : sortBy === 'dibayar' && (a === '~' || b === '~') ? (a === '~') - (b === '~') : b.localeCompare(a));
+                const kemarinNota = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return toLocalDateStr(d); })();
                 const formatBulan = (key) => {
+                    if (sortBy === 'dibayar') {
+                        if (key === '~') return 'Belum ada pembayaran';
+                        if (key === hariIniNota) return 'Dibayar hari ini';
+                        if (key === kemarinNota) return 'Dibayar kemarin';
+                        const t = new Date(`${key}T00:00:00`);
+                        return 'Dibayar ' + (isNaN(t.getTime()) ? key : t.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+                    }
                     if (!key) return '-';
                     const [y, m] = key.split('-');
                     const bulan = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -10818,6 +10909,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     { val: 'terbesar', label: '⬆ Tagihan Terbesar' },
                     { val: 'terkecil', label: '⬇ Tagihan Terkecil' },
                     { val: 'hutang',   label: '⚠ Hutang Terbesar' },
+                    { val: 'dibayar',  label: '💳 Terakhir dibayar' },
                 ];
 
                 const statCards = [
@@ -10838,7 +10930,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                     const isQuickPayOpen = quickPayNoteId === note.id;
                     const isExpanded = !!expandedNotes[note.id];
                     return (
-                        <div key={note.id} className="rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all" style={{ border: `1.5px solid ${st.bar}22` }}>
+                        <div key={note.id} data-nota-kartu={note.id} data-nota-sorot={sorotNotaId === note.id ? '1' : undefined} className={`rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all ${sorotNotaId === note.id ? 'ring-4 ring-violet-500 ring-offset-2' : ''}`} style={{ border: `1.5px solid ${st.bar}22` }}>
                             {/* Compact header — always visible, clickable to expand */}
                             <div
                                 onClick={() => toggleNote(note.id)}
@@ -10881,6 +10973,13 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     <span className="text-[10px] font-bold" style={{ color: st.text }}>{pct}%</span>
                                                 </div>
                                             )}
+                                            {(() => {
+                                                const pt = bayarTerakhirNota(note);
+                                                if (!pt) return null;
+                                                const m = String(pt.date).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                                                const ket = String(pt.note || '').trim();
+                                                return <div data-nota-bayar-terakhir className="mt-1"><span className="inline-block max-w-full break-words leading-snug text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5">💳 Dibayar {m ? `${m[3]}/${m[2]}` : pt.date} · {formatRupiah(parseFloat(pt.amount) || 0)}{ket ? ` (${ket.length > 24 ? ket.slice(0, 24) + '…' : ket})` : ''}</span></div>;
+                                            })()}
                                         </div>
                                         {/* Right: total + item count + chevron */}
                                         <div className="text-right shrink-0">
@@ -11549,13 +11648,20 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         <button type="button" onClick={() => setVendorSaring(null)} className="text-xs font-bold text-blue-700 bg-white border border-blue-200 rounded-lg px-2.5 py-1">✕ Tampilkan semua nota</button>
                                     </div>
                                 )}
+                                {notaBaruBayar && (
+                                    <div data-nota-baru-bayar className="flex items-center gap-2 bg-violet-50 border border-violet-200 text-violet-900 rounded-xl px-3 py-2 text-sm">
+                                        <span className="min-w-0">✓ Pembayaran <b>{notaBaruBayar.vendor}</b> dicatat</span>
+                                        <button type="button" data-nota-baru-lihat onClick={lihatNotaBaruBayar} className="ml-auto shrink-0 font-black text-violet-700 hover:underline">Lihat ›</button>
+                                        <button type="button" data-nota-baru-tutup onClick={() => setNotaBaruBayar(null)} title="Tutup" className="shrink-0 w-6 h-6 rounded-full hover:bg-violet-100 font-black text-violet-500 text-xs">✕</button>
+                                    </div>
+                                )}
                                 <div className="flex flex-col sm:flex-row gap-2">
                                     <div className="relative flex-1">
                                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
                                         <input
                                             type="text"
                                             className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
-                                            placeholder="Cari vendor, tanggal, nama bahan, kode, no. order, klien..."
+                                            placeholder="Cari vendor, tanggal beli / bayar, nama bahan, kode, no. order, klien..."
                                             value={noteSearch}
                                             onChange={e => setNoteSearch(e.target.value)}
                                         />
@@ -11581,10 +11687,28 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             <button key={s} onClick={() => setFilterStatus(s)}
                                                 className="px-3 py-2 text-[11px] font-bold rounded-xl border transition-all whitespace-nowrap"
                                                 style={active ? { background: tc, color: 'white', borderColor: tc } : { background: bg, color: tc, borderColor: 'transparent' }}
-                                            >{s === 'Semua' ? `Semua (${periodNotes.length})` : s}</button>
+                                            >{s === 'Semua' ? `Semua (${bayarAktif ? allNotes.length : periodNotes.length})` : s}</button>
                                         );
                                     })}
+                                    <div ref={bayarDdRef} className="relative flex items-center gap-1">
+                                        <button type="button" data-bayar-dd onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setBayarDdKanan(r.left + 240 > window.innerWidth); setBayarDdBuka(b => !b); }}
+                                            className={`px-3 py-2 text-[11px] font-bold rounded-xl border transition-all whitespace-nowrap ${bayarAktif ? 'bg-emerald-700 border-emerald-700 text-white' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+                                            💳 {bayarAktif ? `Dibayar ${(RENTANG_BAYAR.find(x => x.id === bayarRentang) || {}).label} (${notes.length})` : 'Baru dibayar'} ▾
+                                        </button>
+                                        {bayarAktif && <button type="button" data-bayar-dd-hapus onClick={() => { setBayarRentang('semua'); setBayarDdBuka(false); }} title="Tampilkan semua nota" className="w-7 h-7 rounded-full text-emerald-800 hover:bg-emerald-50 font-black text-xs">✕</button>}
+                                        {bayarDdBuka && (
+                                            <div data-bayar-dd-menu className={`absolute top-full mt-1 z-30 w-60 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-1 ${bayarDdKanan ? 'right-0' : 'left-0'}`}>
+                                                {[{ id: 'semua', label: 'Semua nota (tidak disaring)' }, ...RENTANG_BAYAR.map(x => ({ id: x.id, label: `Dibayar ${x.label}`, n: jumlahRentangBayar(x.id) }))].map((o, i) => (
+                                                    <button key={o.id} type="button" data-bayar-pilih={o.id} onClick={() => { setBayarRentang(o.id); setBayarDdBuka(false); }}
+                                                        className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-left text-[13px] ${i === 0 ? 'mb-1 border-b border-gray-100' : ''} ${bayarRentang === o.id ? 'bg-emerald-50 text-emerald-800 font-black' : 'text-gray-700 hover:bg-gray-50'}`}>
+                                                        <span>{o.label}</span>{o.n !== undefined && <span className="text-xs font-bold text-gray-500 shrink-0">{o.n} nota</span>}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
+                                {bayarAktif && <div data-bayar-info className="text-[11px] text-emerald-800 px-1">💳 Menampilkan nota yang <b>dibayar {(RENTANG_BAYAR.find(x => x.id === bayarRentang) || {}).label}</b> menurut tanggal bayar (termasuk nota beli bulan/tahun lalu).</div>}
                             </div>
                         )}
 
@@ -11628,12 +11752,12 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             </div>
                                             <div>
                                                 <div className="font-black text-gray-800 text-sm leading-none">{formatBulan(groupKey)}</div>
-                                                <div className="text-[10px] text-gray-400 mt-0.5">{groupNotes.length} nota</div>
+                                                <div className="text-[10px] text-gray-400 mt-0.5">{groupNotes.length} nota{sortBy === 'dibayar' && groupKey !== '~' ? ' · menurut tanggal bayar terakhir' : ''}</div>
                                             </div>
                                         </div>
                                         <div className="text-right">
                                             <div className="font-black text-gray-800 text-sm" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(groupTotal)}</div>
-                                            <div className="text-[10px] text-gray-400">total bulan ini</div>
+                                            <div className="text-[10px] text-gray-400">{sortBy === 'dibayar' ? 'total nota' : 'total bulan ini'}</div>
                                         </div>
                                     </div>
                                     <div className="space-y-2.5">
