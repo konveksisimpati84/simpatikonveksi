@@ -994,7 +994,7 @@
         const adoptImageRefs = (target, other) => {
             if (!target || !other || typeof target !== 'object' || typeof other !== 'object') return target;
             let out = target;
-            [...IMG_RECORD_FIELDS, 'bukti'].forEach(f => {
+            [...IMG_RECORD_FIELDS, 'bukti', 'fotoNota'].forEach(f => {
                 if (isInlineImage(out[f]) && imgRefMatchesInline(other[f], out[f])) { if (out === target) out = { ...target }; out[f] = other[f]; }
             });
             if (Array.isArray(out.payments) && Array.isArray(other.payments) && out.payments.some(p => isInlineImage(p?.proofImage))) {
@@ -1560,6 +1560,14 @@
         const getDanaShareFromHash = () => {
             const hash = window.location.hash || '';
             const prefix = '#dana=';
+            if (!hash.startsWith(prefix)) return '';
+            try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
+        };
+
+        // Link status nota pembelian untuk vendor (#nota-vendor=<token>)
+        const getNotaVendorShareFromHash = () => {
+            const hash = window.location.hash || '';
+            const prefix = '#nota-vendor=';
             if (!hash.startsWith(prefix)) return '';
             try { return decodeURIComponent(hash.slice(prefix.length)); } catch(e) { return ''; }
         };
@@ -10400,6 +10408,34 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             const [instansiComboState, setInstansiComboState] = useState({});
             const [quickPayNoteId, setQuickPayNoteId] = useState(null);
             const [quickPayForm, setQuickPayForm] = useState({ date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' });
+            // Foto nota vendor, bukti transfer per pembayaran & link status untuk vendor
+            const [kirimNota, setKirimNota] = useState(null); // { id, token }
+            const [fotoSibuk, setFotoSibuk] = useState(''); // kunci slot foto yang sedang diproses
+            const ubahNotaFoto = (id, fn) => {
+                const now = new Date().toISOString();
+                setPurchaseNotes(prev => safeArray(prev).map(n => n && n.id === id ? { ...fn(n), _syncUpdatedAt: now } : n), { segera: true });
+            };
+            const pilihFotoNota = async (file, kunci, simpan, pesan = 'Foto disimpan.') => {
+                if (!file) return;
+                setFotoSibuk(kunci);
+                try { simpan(await kompresFotoBukti(file)); if (pesan) showToast(pesan, 'success'); }
+                catch (e) { showToast((e && e.message) || 'Foto tidak bisa dibaca.', 'error'); }
+                finally { setFotoSibuk(''); }
+            };
+            // data kosong = hapus foto
+            const simpanFotoNota = (noteId, data) => ubahNotaFoto(noteId, n => { const { fotoNota, ...rest } = n; return data ? { ...rest, fotoNota: data } : rest; });
+            const simpanBuktiBayar = (noteId, payId, data) => ubahNotaFoto(noteId, n => ({ ...n, payments: safeArray(n.payments).map(p => { if (!p || String(p.id) !== String(payId)) return p; const { proofImage, ...rest } = p; return data ? { ...rest, proofImage: data } : rest; }) }));
+            const galeriNota = (note) => [
+                ...(note.fotoNota ? [{ label: `Nota vendor · ${note.date || '-'}`, src: note.fotoNota, kunci: 'nota' }] : []),
+                ...safeArray(note.payments).filter(p => p && p.proofImage).map((p, i) => ({ label: `Bukti bayar · ${p.date || '-'} · ${formatRupiah(parseFloat(p.amount) || 0)}`, src: p.proofImage, kunci: 'pay:' + p.id })),
+            ];
+            const lihatFotoNota = (note, kunci) => { const g = galeriNota(note); if (!g.length) return; bukaPenampilGambar({ gambar: g.map(x => ({ label: x.label, src: x.src })), awal: Math.max(0, g.findIndex(x => x.kunci === kunci)), judul: `Nota ${normalizeVendorName(note.vendor)} · ${note.date || '-'}` }); };
+            const tokenAcak = () => { try { const a = new Uint8Array(10); window.crypto.getRandomValues(a); return 'NV-' + [...a].map(b => b.toString(16).padStart(2, '0')).join(''); } catch (e) { return genId('NV-') + Math.random().toString(36).slice(2, 8); } };
+            const bukaKirimNota = (note) => {
+                let token = note.shareToken;
+                if (!token) { token = tokenAcak(); ubahNotaFoto(note.id, n => (n.shareToken ? n : { ...n, shareToken: token })); }
+                setKirimNota({ id: note.id, token });
+            };
             const [noteSearch, setNoteSearch] = useState('');
             const [filterStatus, setFilterStatus] = useState('Semua');
             // Daftar nota dibagi per halaman; ringkasan & total tetap dari semua nota
@@ -10601,7 +10637,23 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 const nextNotes = editNoteId
                     ? currentNotes.map(n => n.id === editNoteId ? note : n)
                     : [note, ...currentNotes];
-                setPurchaseNotes(editNoteId ? prev => prev.map(n => n.id === editNoteId ? note : n) : prev => [note, ...prev], { segera: true });
+                // Foto nota, link vendor & bukti transfer diatur dari kartu nota (bukan form) → ambil dari data terbaru agar tidak hilang
+                const pakaiLampiran = (lama) => {
+                    if (!lama) return note;
+                    const bayarLama = new Map(safeArray(lama.payments).filter(p => p && p.id != null).map(p => [String(p.id), p]));
+                    return {
+                        ...note,
+                        ...(lama.fotoNota ? { fotoNota: lama.fotoNota } : {}),
+                        ...(lama.shareToken ? { shareToken: lama.shareToken } : {}),
+                        payments: note.payments.map(p => {
+                            const lp = bayarLama.get(String(p.id));
+                            if (!lp) return p;
+                            const { proofImage, ...rest } = p;
+                            return lp.proofImage ? { ...rest, proofImage: lp.proofImage } : rest;
+                        }),
+                    };
+                };
+                setPurchaseNotes(editNoteId ? prev => prev.map(n => n.id === editNoteId ? pakaiLampiran(n) : n) : prev => [note, ...prev], { segera: true });
 
                 const newLinkedOrderIds = new Set(fc.validItems.map(it => String(it.orderId || '').trim()).filter(Boolean));
 
@@ -10652,7 +10704,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (tot > 0 && currentPaid + amt > tot + 0.01) { showToast('Jumlah bayar melebihi sisa hutang.', 'error'); return; }
                 // Buat payment baru sekali di sini, lalu ambil existingPayments dari state terkini di dalam updater
                 // agar tidak ada stale closure jika sync terjadi antara validasi dan save
-                const newPayment = { id: genId('PAY-'), date: quickPayForm.date || toLocalDateStr(now), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '', operasionalKaryawanId: quickPayForm.operasionalKaryawanId || '' };
+                const newPayment = { id: genId('PAY-'), date: quickPayForm.date || toLocalDateStr(now), amount: amt, method: quickPayForm.method || 'Transfer', note: quickPayForm.note || '', operasionalKaryawanId: quickPayForm.operasionalKaryawanId || '', ...(quickPayForm.proofImage ? { proofImage: quickPayForm.proofImage } : {}) };
                 setPurchaseNotes(prev => prev.map(n => {
                     if (n.id !== noteId) return n;
                     const existing = safeArray(normalizeNote(n).payments);
@@ -10845,16 +10897,43 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             {isExpanded && (
                                 <div className="bg-white border-t" style={{ borderColor: `${st.bar}22` }}>
                                     <div className="px-5 py-4 space-y-3">
-                                        {/* Payment history */}
+                                        {/* Foto nota vendor (1 per nota) */}
+                                        <div data-nota-foto className="flex items-center gap-2.5 flex-wrap">
+                                            {note.fotoNota ? (<>
+                                                <button type="button" data-nota-foto-lihat onClick={() => lihatFotoNota(note, 'nota')} title="Lihat foto nota (bisa diperbesar)" className="w-12 h-12 rounded-lg overflow-hidden border border-teal-200 bg-slate-50 shrink-0"><StoredImg src={note.fotoNota} alt="nota" className="w-full h-full object-cover" placeholderClassName="w-full h-full" /></button>
+                                                <div className="text-xs min-w-0">
+                                                    <div className="font-bold text-gray-700">📄 Foto nota vendor</div>
+                                                    <div className="flex items-center gap-3 mt-1 leading-none">
+                                                        <label className="text-teal-700 font-bold cursor-pointer py-1">Ganti<input type="file" accept="image/*" className="hidden" data-nota-foto-input onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; pilihFotoNota(f, 'nota:' + note.id, d => simpanFotoNota(note.id, d)); }} /></label>
+                                                        <button type="button" data-nota-foto-hapus onClick={() => { if (window.confirm('Hapus foto nota ini?')) simpanFotoNota(note.id, ''); }} className="text-red-600 font-bold py-1 leading-none">Hapus</button>
+                                                    </div>
+                                                </div>
+                                            </>) : (
+                                                <label data-nota-foto-tambah className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-teal-300 bg-teal-50 text-teal-800 text-xs font-bold cursor-pointer">📷 + Foto nota vendor<input type="file" accept="image/*" className="hidden" data-nota-foto-input onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; pilihFotoNota(f, 'nota:' + note.id, d => simpanFotoNota(note.id, d)); }} /></label>
+                                            )}
+                                            {fotoSibuk === 'nota:' + note.id && <span className="text-xs text-gray-500">Memproses foto…</span>}
+                                        </div>
+                                        {/* Payment history — tiap pembayaran punya bukti transfer sendiri */}
                                         {safeArray(note.payments).length > 0 && (
                                             <div className="space-y-1">
                                                 {safeArray(note.payments).map((p, pi) => (
-                                                    <div key={p.id || pi} className="flex items-center gap-2 text-[11px] text-gray-500 bg-emerald-50 rounded-lg px-3 py-1.5">
+                                                    <div key={p.id || pi} data-nota-bayar={p.id || ''} className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[11px] text-gray-500 bg-emerald-50 rounded-lg px-3 py-1.5">
                                                         <span className="text-emerald-600 font-black">✓</span>
                                                         <span className="font-bold text-gray-700">{p.date}</span>
                                                         <span className="font-black text-emerald-700" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatRupiah(parseFloat(p.amount) || 0)}</span>
                                                         <span className="text-gray-400">via {p.method || '-'}</span>
                                                         {p.note && <span className="text-gray-400 italic">· {p.note}</span>}
+                                                        {p.id != null && (
+                                                            <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                                                                {fotoSibuk === 'pay:' + p.id && <span className="text-gray-500">Memproses…</span>}
+                                                                {p.proofImage ? (<>
+                                                                    <button type="button" data-nota-bukti-lihat={p.id} onClick={() => lihatFotoNota(note, 'pay:' + p.id)} title="Lihat bukti transfer (bisa diperbesar)" className="w-8 h-8 rounded-md overflow-hidden border border-blue-200 bg-white shrink-0"><StoredImg src={p.proofImage} alt="bukti" className="w-full h-full object-cover" placeholderClassName="w-full h-full" /></button>
+                                                                    <button type="button" data-nota-bukti-hapus={p.id} onClick={() => { if (window.confirm('Hapus foto bukti transfer pembayaran ini?')) simpanBuktiBayar(note.id, p.id, ''); }} title="Hapus bukti" className="w-6 h-6 rounded-full text-red-600 hover:bg-red-50 font-black">✕</button>
+                                                                </>) : (
+                                                                    <label data-nota-bukti-tambah={p.id} title="Lampirkan foto bukti transfer pembayaran ini" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-blue-300 bg-white text-blue-700 font-bold cursor-pointer">📎 Bukti<input type="file" accept="image/*" className="hidden"  onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; pilihFotoNota(f, 'pay:' + p.id, d => simpanBuktiBayar(note.id, p.id, d)); }} /></label>
+                                                                )}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 ))}
                                             </div>
@@ -10971,8 +11050,18 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                         )}
                                                     </>);
                                                 })()}
+                                                <div data-qp-bukti className="flex items-center gap-2 flex-wrap">
+                                                    {quickPayForm.proofImage ? (<>
+                                                        <img src={quickPayForm.proofImage} alt="bukti" className="w-10 h-10 rounded-md object-cover border border-blue-200" />
+                                                        <span className="text-xs font-bold text-blue-800">📎 Bukti transfer terlampir</span>
+                                                        <button type="button" data-qp-bukti-hapus onClick={() => setQuickPayForm(f => ({ ...f, proofImage: '' }))} className="text-xs font-bold text-red-600">Hapus</button>
+                                                    </>) : (
+                                                        <label data-qp-bukti-tambah className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-blue-300 bg-white text-blue-700 text-xs font-bold cursor-pointer">📎 Foto bukti transfer <span className="font-normal text-gray-500">(opsional)</span><input type="file" accept="image/*" className="hidden" data-qp-bukti-input onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; pilihFotoNota(f, 'qp:' + note.id, d => setQuickPayForm(q => ({ ...q, proofImage: d })), ''); }} /></label>
+                                                    )}
+                                                    {fotoSibuk === 'qp:' + note.id && <span className="text-xs text-gray-500">Memproses foto…</span>}
+                                                </div>
                                                 <div className="flex gap-2">
-                                                    <button onClick={() => saveQuickPay(note.id)} className="flex-1 py-1.5 text-xs font-black text-white rounded-lg" style={{ background: 'linear-gradient(135deg,#059669,#0D7F78)' }}>Simpan Pembayaran</button>
+                                                    <button onClick={() => saveQuickPay(note.id)} disabled={fotoSibuk === 'qp:' + note.id} className="flex-1 py-1.5 text-xs font-black text-white rounded-lg disabled:opacity-60" style={{ background: 'linear-gradient(135deg,#059669,#0D7F78)' }}>Simpan Pembayaran</button>
                                                     <button onClick={() => setQuickPayNoteId(null)} className="px-3 py-1.5 text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Batal</button>
                                                 </div>
                                             </div>
@@ -10983,6 +11072,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                             {status !== 'Lunas' && (
                                                 <button onClick={() => { setQuickPayNoteId(isQuickPayOpen ? null : note.id); setQuickPayForm({ date: toLocalDateStr(), amount: '', method: 'Transfer', note: '', operasionalKaryawanId: '' }); }} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-colors" style={{ color: '#059669', background: '#ECFDF5', borderColor: '#6EE7B7' }}>💳 Catat Bayar</button>
                                             )}
+                                            <button type="button" data-nota-kirim-vendor onClick={() => bukaKirimNota(note)} className="px-3.5 py-1.5 text-xs font-bold rounded-lg border border-green-600 bg-green-600 hover:bg-green-700 text-white transition-colors">💬 Kirim ke vendor</button>
                                             <button onClick={() => {
                                                 setEditNoteId(note.id);
                                                 const items = safeArray(note.items).length > 0 ? safeArray(note.items).map(it => ({ ...emptyItem(), ...it, discountRp: String(it.discountRp || ''), discountPct: String(it.discountPct || '') })) : [emptyItem()];
@@ -11068,6 +11158,38 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                             </div>
                         </div>
 
+                        {kirimNota && (() => {
+                            const nk = safeArray(purchaseNotes).find(x => x && x.id === kirimNota.id);
+                            if (!nk) return null;
+                            const url = linkNotaVendor(nk.shareToken || kirimNota.token);
+                            const pesan = pesanWaNotaVendor(nk, url);
+                            const salin = async () => {
+                                try { await navigator.clipboard.writeText(url); showToast('Link disalin.', 'success'); }
+                                catch (e) { window.prompt('Salin link:', url); }
+                            };
+                            const stNota = noteStatus(nk);
+                            return (
+                                <div className="fixed inset-0 z-[120] bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setKirimNota(null)}>
+                                    <div data-nota-kirim-modal className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[94vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                                        <div className="flex items-center justify-between gap-2 px-5 py-3 rounded-t-2xl bg-gradient-to-r from-green-600 to-emerald-600 text-white">
+                                            <b className="text-base min-w-0 truncate">💬 Kirim ke {normalizeVendorName(nk.vendor)}</b>
+                                            <button type="button" onClick={() => setKirimNota(null)} title="Tutup" className="w-8 h-8 shrink-0 rounded-full bg-white/20 hover:bg-white/30 font-black">✕</button>
+                                        </div>
+                                        <div className="px-5 py-4 space-y-3 overflow-y-auto">
+                                            <div className="text-xs text-gray-600">Status: <b data-nota-kirim-status className={stNota === 'Lunas' ? 'text-emerald-700' : stNota === 'Dibayar Sebagian' ? 'text-amber-700' : 'text-red-700'}>{stNota}</b> · pesan otomatis menyesuaikan status.</div>
+                                            <div data-nota-kirim-pesan className="rounded-xl bg-[#d9fdd3] border border-green-200 px-3 py-2 text-[13px] whitespace-pre-wrap break-words text-gray-800">{pesan.replace(/\u2060/g, '').replace(/\*/g, '')}</div>
+                                            <a data-nota-kirim-wa href={`https://api.whatsapp.com/send?text=${encodeURIComponent(pesan)}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center rounded-xl bg-green-600 hover:bg-green-700 text-white font-black py-3">Kirim lewat WhatsApp</a>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <button type="button" data-nota-kirim-salin onClick={salin} className="rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold py-2.5">🔗 Salin link</button>
+                                                <a data-nota-kirim-buka href={url} target="_blank" rel="noopener noreferrer" className="text-center rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold py-2.5">👁 Lihat halaman</a>
+                                            </div>
+                                            <p className="text-xs text-gray-500">WhatsApp akan meminta Anda memilih kontak vendor. Link tetap sama — vendor selalu melihat status pembayaran terbaru.</p>
+                                            <p className="text-[11px] text-gray-400 break-all">{url}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                         {noteFormOpen && (() => { const fc = calcNoteForm(noteForm); const _noteFormEl = (
                             <div className="bg-white rounded-2xl shadow-xl border border-blue-100">
                                 {/* Form header */}
@@ -28385,6 +28507,204 @@ ${getRekapShareLink(rekap)}
                 </div>
             );
         };
+        // ===== Link status nota pembelian untuk vendor (#nota-vendor=<token>) =====
+        // Vendor hanya melihat nota itu: rincian bahan, total, pembayaran + bukti transfer, foto nota & status.
+        // Order / instansi pemesan, sumber dana karyawan & catatan internal TIDAK ditampilkan.
+        const linkNotaVendor = (token) => `${window.location.origin}${window.location.pathname}#nota-vendor=${encodeURIComponent(token)}`;
+        const tglNotaWa = (s) => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(s || '-'); };
+        // Label pembayaran untuk vendor: catatan "DP / termin / pelunasan" boleh tampil, catatan lain (bisa berisi info internal) tidak
+        const labelBayarVendor = (p, i) => {
+            const c = String(p?.note || '').trim();
+            return /^(dp|uang muka|termin|cicilan|angsuran|pelunasan|lunas|bayar|pembayaran)\b[\w\s\-./]{0,20}$/i.test(c) ? c : `Pembayaran ke-${i + 1}`;
+        };
+        const metodeBayarVendor = (m) => { const x = String(m || '').trim(); return /^cash$|^tunai$/i.test(x) ? 'Tunai' : x || 'Transfer'; };
+        const pesanWaNotaVendor = (note, url) => {
+            const vendor = normalizeVendorName(note.vendor);
+            const total = noteTotal(note), paid = notePaid(note), sisa = Math.max(0, total - paid);
+            const status = noteStatus(note);
+            const pays = safeArray(note.payments).filter(p => p && safeMoney(p.amount) > 0);
+            const terakhir = pays.length ? [...pays].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))[pays.length - 1] : null;
+            const salam = [`Assalamu'alaikum, Bapak/Ibu *${vendor}*.`, ``];
+            const tutup = [`Hormat kami,`, `*Simpati Konveksi*`];
+            if (status === 'Lunas') return [...salam,
+                `Dengan ini kami sampaikan bahwa nota tanggal ${tglNotaWa(note.date)} sebesar *${rpWa(total)}* telah *LUNAS* ✅`,
+                ...(terakhir ? [`Pembayaran terakhir: ${rpWa(safeMoney(terakhir.amount))} (${tglNotaWa(terakhir.date)}).`] : []),
+                ``, `Rincian & bukti transfer:`, url, ``, `Terima kasih atas kerja samanya.`, ...tutup].join('\n');
+            if (paid > 0) return [...salam,
+                `Kami informasikan pembayaran nota tanggal ${tglNotaWa(note.date)}:`, ``,
+                ...(terakhir ? [`✅ Dibayar (${labelBayarVendor(terakhir, pays.indexOf(terakhir))}): *${rpWa(safeMoney(terakhir.amount))}*`] : []),
+                `💰 Total terbayar: ${rpWa(paid)} dari ${rpWa(total)}`,
+                `⏳ Sisa: *${rpWa(sisa)}*`,
+                ``, `Rincian & bukti transfer:`, url, ``, `Terima kasih atas kerja samanya.`, ...tutup].join('\n');
+            return [...salam,
+                `Terima kasih, nota pembelian tanggal ${tglNotaWa(note.date)} sebesar *${rpWa(total)}* sudah kami terima dan catat. Mohon maaf, pembayaran belum dapat kami lakukan saat ini dan akan *segera kami selesaikan*. Terima kasih atas pengertiannya.`,
+                ``, `Rincian nota:`, url, ``, ...tutup].join('\n');
+        };
+        const NOTA_VENDOR_KOLOM_SHARE = ['companyLogoMini', 'companyName', 'companySubtitle', 'companyContact', 'companyAddress', 'showSignatureOnPrint', 'signatureSize', 'printMode', 'logoSize'];
+        const NOTA_VENDOR_GAYA = {
+            'Lunas': { label: 'LUNAS', grad: 'from-emerald-700 to-teal-600', bar: '#10b981', teks: 'text-emerald-800', pita: 'bg-emerald-100 text-emerald-800' },
+            'Dibayar Sebagian': { label: 'DIBAYAR SEBAGIAN', grad: 'from-amber-600 to-orange-500', bar: '#f59e0b', teks: 'text-amber-800', pita: 'bg-amber-100 text-amber-900' },
+            'Belum Dibayar': { label: 'BELUM DIBAYAR', grad: 'from-rose-700 to-red-600', bar: '#ef4444', teks: 'text-red-800', pita: 'bg-red-100 text-red-800' },
+        };
+        // Salinan di HP (untuk dibuka ulang cepat) tanpa foto berisi langsung — foto disimpan terpisah di perangkat
+        const notaVendorUntukCache = (n) => n ? { ...n, fotoNota: isInlineImage(n.fotoNota) ? '' : n.fotoNota, payments: safeArray(n.payments).map(p => (p && isInlineImage(p.proofImage) ? { ...p, proofImage: '' } : p)) } : n;
+        const htmlStrukNotaVendor = ({ n, tpl, foto, bukti }) => {
+            const vendor = normalizeVendorName(n.vendor);
+            const judul = namaFileCetak('Nota', vendor, fmtTglStruk(n.date));
+            const items = safeArray(n.items);
+            const itemsTotal = items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+            const gd = getNoteGlobalDiscount(n, itemsTotal);
+            const total = noteTotal(n), paid = notePaid(n), sisa = Math.max(0, total - paid);
+            const pays = safeArray(n.payments).filter(p => p && safeMoney(p.amount) > 0);
+            const status = noteStatus(n);
+            return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtmlText(judul)}</title><style>${STRUK_CSS}</style></head><body><div class="receipt">
+                ${kepalaStruk(tpl, 'NOTA PEMBELIAN BAHAN')}
+                <div class="meta">
+                    <div class="row"><span class="lbl">Vendor</span><span class="val">${escapeHtmlText(vendor)}</span></div>
+                    <div class="row"><span class="lbl">Tanggal</span><span class="val">${escapeHtmlText(fmtTglStruk(n.date))}</span></div>
+                    <div class="row"><span class="lbl">Status</span><span class="val ${status === 'Lunas' ? 'green' : 'red'}">${escapeHtmlText(NOTA_VENDOR_GAYA[status]?.label || status)}</span></div>
+                </div>
+                <div class="section-title">Rincian bahan</div>
+                ${items.map(it => `<div class="item-row"><span>${escapeHtmlText([it.name, it.code, it.color].filter(Boolean).join(' · ') || '-')}<small>${escapeHtmlText(`${it.qty || 0} ${it.unit || ''} × ${formatRupiah(getMaterialUnitPrice(it))}`)}${getMaterialLineSubtotal(it) !== getMaterialLineTotal(it) ? ` · diskon ${escapeHtmlText(formatRupiah(getMaterialLineSubtotal(it) - getMaterialLineTotal(it)))}` : ''}</small></span><span>${formatRupiah(getMaterialLineTotal(it))}</span></div>`).join('')}
+                <div class="total-box">
+                    ${gd > 0 ? `<div class="row"><span>Diskon nota</span><span class="red">- ${formatRupiah(gd)}</span></div>` : ''}
+                    <div class="row grand"><span>Total</span><span>${formatRupiah(total)}</span></div>
+                    ${pays.map((p, i) => `<div class="row"><span>${escapeHtmlText(labelBayarVendor(p, i))} · ${escapeHtmlText(fmtTglStruk(p.date))}</span><span class="green">${formatRupiah(safeMoney(p.amount))}</span></div>`).join('')}
+                    ${status === 'Lunas' ? `<div class="row grand green"><span>LUNAS</span><span>✓</span></div>` : `<div class="row grand red"><span>Sisa</span><span>${formatRupiah(sisa)}</span></div>`}
+                </div>
+                ${bukti.filter(b => b.src).map(b => `<div class="section-title">Bukti transfer · ${escapeHtmlText(b.label)}</div><img src="${b.src}" style="display:block;width:100%;margin-top:4px;border:1px solid #000"/>`).join('')}
+                ${foto ? `<div class="section-title">Foto nota vendor</div><img src="${foto}" style="display:block;width:100%;margin-top:4px;border:1px solid #000"/>` : ''}
+                <div class="footer">Dicetak ${escapeHtmlText(new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }))}</div>
+                </div></body></html>`;
+        };
+        const NotaVendorPublicView = ({ token }) => {
+            const CACHE_KEY = `simpati_nota_vendor_${token}`;
+            const [st, setSt] = React.useState(() => {
+                const c = bacaCacheShare(CACHE_KEY);
+                return c && c.n ? { loading: false, error: '', n: c.n, tpl: c.tpl || {}, dariCache: true } : { loading: true, error: '', n: null, tpl: {}, dariCache: false };
+            });
+            const tplLengkapRef = React.useRef(null);
+            React.useEffect(() => {
+                let hidup = true;
+                (async () => {
+                    try {
+                        if (!supabaseClient) { if (hidup) setSt(s => s.n ? s : { loading: false, error: 'Koneksi gagal. Periksa jaringan internet lalu muat ulang halaman.', n: null, tpl: {} }); return; }
+                        const [rows, tpl] = await Promise.all([
+                            ambilShareCocok('purchaseNotes', 'shareToken', token),
+                            ambilPengaturanShare(NOTA_VENDOR_KOLOM_SHARE).catch(() => ({})),
+                        ]);
+                        if (!hidup) return;
+                        const n = safeArray(rows).find(r => r && !r.isDeleted && r.shareToken === token);
+                        if (!n) { hapusCacheShare(CACHE_KEY); setSt({ loading: false, error: 'Link tidak valid atau nota sudah dihapus.', n: null, tpl: {} }); return; }
+                        const t = tpl && typeof tpl === 'object' ? { ...tpl } : {};
+                        if (t.companyLogoMini) t.companyLogo = t.companyLogoMini;
+                        setSt({ loading: false, error: '', n, tpl: t, dariCache: false });
+                        simpanCacheShare(CACHE_KEY, { n: notaVendorUntukCache(n), tpl: t });
+                    } catch (e) {
+                        if (hidup) setSt(s => s.n ? { ...s, dariCache: false } : { loading: false, error: 'Gagal memuat data. Silakan coba lagi.', n: null, tpl: {} });
+                    }
+                })();
+                return () => { hidup = false; };
+            }, [token]);
+            const { loading, error, n, tpl } = st;
+            if (loading) return (
+                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-700 to-teal-700">
+                    <div className="text-center text-white/90 font-semibold text-sm"><div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4"></div>Memuat nota pembelian…</div>
+                </div>
+            );
+            if (error || !n) return (
+                <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+                    <div data-nv-error className="bg-white rounded-2xl shadow p-8 max-w-sm w-full text-center">
+                        <div className="text-3xl mb-2">⚠️</div>
+                        <p className="font-bold text-gray-700">{error || 'Link tidak valid.'}</p>
+                        <p className="text-sm text-gray-400 mt-2">Silakan hubungi Simpati Konveksi untuk informasi lebih lanjut.</p>
+                    </div>
+                </div>
+            );
+            const vendor = normalizeVendorName(n.vendor);
+            const items = safeArray(n.items);
+            const itemsTotal = items.reduce((s, it) => s + getMaterialLineTotal(it), 0);
+            const gd = getNoteGlobalDiscount(n, itemsTotal);
+            const total = noteTotal(n), paid = notePaid(n), sisa = Math.max(0, total - paid);
+            const status = noteStatus(n);
+            const legacySebagian = !n.payments && n.paymentStatus === 'Dibayar Sebagian';
+            const gaya = NOTA_VENDOR_GAYA[status] || NOTA_VENDOR_GAYA['Belum Dibayar'];
+            const pct = total > 0 ? Math.min(100, Math.round(paid / total * 100)) : (status === 'Lunas' ? 100 : 0);
+            const pays = safeArray(n.payments).filter(p => p && safeMoney(p.amount) > 0);
+            const galeri = [
+                ...pays.map((p, i) => p.proofImage ? { label: `Bukti ${labelBayarVendor(p, i)} · ${tglNotaWa(p.date)} · ${formatRupiah(safeMoney(p.amount))}`, src: p.proofImage, payId: String(p.id) } : null).filter(Boolean),
+                ...(n.fotoNota ? [{ label: `Nota vendor · ${tglNotaWa(n.date)}`, src: n.fotoNota, nota: true }] : []),
+            ];
+            const lihat = (cocok) => { const i = Math.max(0, galeri.findIndex(cocok)); bukaPenampilGambar({ gambar: galeri.map(g => ({ label: g.label, src: g.src })), awal: i, judul: `Nota ${vendor} · ${tglNotaWa(n.date)}` }); };
+            const buatHtml = async () => {
+                let gabung = tplLengkapRef.current || tpl;
+                if (!tplLengkapRef.current && supabaseClient) {
+                    try { const full = await ambilPengaturanShare(KOLOM_CETAK_SLIP); gabung = { ...tpl, ...full }; tplLengkapRef.current = gabung; } catch (e) {}
+                }
+                const muat = async (v) => { if (!v) return ''; try { return isImgRef(v) ? (await loadImageRef(v)) || '' : v; } catch (e) { return ''; } };
+                const [foto, ...bukti] = await Promise.all([muat(n.fotoNota), ...pays.map(p => muat(p.proofImage))]);
+                return htmlStrukNotaVendor({ n, tpl: gabung, foto, bukti: pays.map((p, i) => ({ label: `${labelBayarVendor(p, i)} · ${fmtTglStruk(p.date)}`, src: bukti[i] })) });
+            };
+            return (
+                <div data-nv-share className="min-h-screen bg-slate-100">
+                    <div className="max-w-md mx-auto pb-8">
+                        <div className={`bg-gradient-to-br ${gaya.grad} text-white text-center px-4 pt-6 pb-14 sm:rounded-b-3xl`}>
+                            {tpl.companyLogo ? <img src={tpl.companyLogo} alt="" className="w-14 h-14 rounded-xl bg-white object-contain mx-auto p-1" /> : <div className="w-14 h-14 rounded-xl bg-white text-slate-800 font-black text-2xl flex items-center justify-center mx-auto">S</div>}
+                            <div className="mt-2 font-black tracking-wide">{(tpl.companyName || 'SIMPATI KONVEKSI').toUpperCase()}</div>
+                            <div className="text-xs text-white/85">Nota Pembelian Bahan · untuk {vendor}</div>
+                        </div>
+                        <div className="-mt-10 px-3 space-y-3">
+                            <div data-nv-status={status} className="bg-white rounded-2xl shadow-md p-4 text-center">
+                                <div className="text-[11px] font-black tracking-widest text-gray-500">STATUS PEMBAYARAN</div>
+                                <div className={`text-2xl font-black my-1 ${gaya.teks}`}>{gaya.label}</div>
+                                <div data-nv-ringkas className="text-sm text-gray-600 tabular-nums">{status === 'Lunas' ? <>Total <b>{formatRupiah(total)}</b> sudah dibayar penuh</> : legacySebagian ? <>Total <b>{formatRupiah(total)}</b> · sebagian sudah dibayar</> : paid > 0 ? <>Terbayar <b>{formatRupiah(paid)}</b> · sisa <b className="text-red-700">{formatRupiah(sisa)}</b></> : <>Total <b>{formatRupiah(total)}</b> · pembayaran menyusul</>}</div>
+                                {!legacySebagian && <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: gaya.bar }}></div></div>}
+                            </div>
+                            <div className="bg-white rounded-2xl p-4">
+                                <div className="text-[11px] font-black tracking-widest text-gray-500 mb-2">RINCIAN NOTA · {tglNotaWa(n.date).toUpperCase()}</div>
+                                {items.map((it, i) => (
+                                    <div key={it.id || i} data-nv-item className="flex justify-between gap-3 py-2 border-t border-gray-100 first:border-t-0 text-[13px]">
+                                        <div className="min-w-0"><div className="font-bold text-gray-800 break-words">{[it.name, it.code, it.color].filter(Boolean).join(' · ') || '-'}</div><div className="text-xs text-gray-500 tabular-nums">{it.qty || 0} {it.unit || ''} × {formatRupiah(getMaterialUnitPrice(it))}{getMaterialLineSubtotal(it) !== getMaterialLineTotal(it) ? ` · diskon ${formatRupiah(getMaterialLineSubtotal(it) - getMaterialLineTotal(it))}` : ''}</div></div>
+                                        <b className="shrink-0 tabular-nums text-gray-800">{formatRupiah(getMaterialLineTotal(it))}</b>
+                                    </div>
+                                ))}
+                                {gd > 0 && <div className="flex justify-between gap-3 py-2 border-t border-gray-100 text-[13px] text-orange-700"><span>Diskon nota</span><b className="tabular-nums">- {formatRupiah(gd)}</b></div>}
+                                <div data-nv-total className="flex justify-between gap-3 pt-2 mt-1 border-t-2 border-dashed border-gray-200 font-black text-gray-900"><span>Total</span><span className="tabular-nums">{formatRupiah(total)}</span></div>
+                            </div>
+                            <div className="bg-white rounded-2xl p-4">
+                                <div className="text-[11px] font-black tracking-widest text-gray-500 mb-2">PEMBAYARAN & BUKTI TRANSFER</div>
+                                {pays.length === 0 && <div className="text-sm text-gray-500 py-1">{legacySebagian ? 'Rincian pembayaran tidak tercatat.' : status === 'Lunas' ? 'Sudah dibayar penuh.' : 'Belum ada pembayaran.'}</div>}
+                                {pays.map((p, i) => (
+                                    <div key={p.id || i} data-nv-bayar className="flex items-center gap-3 py-2 border-t border-gray-100 first:border-t-0">
+                                        {p.proofImage
+                                            ? <button type="button" data-nv-bukti={p.id} onClick={() => lihat(g => g.payId === String(p.id))} className="w-12 h-12 shrink-0 rounded-lg overflow-hidden border border-blue-200 bg-slate-50" title="Ketuk untuk memperbesar"><StoredImg src={p.proofImage} alt="bukti" className="w-full h-full object-cover" placeholderClassName="w-full h-full" /></button>
+                                            : <div className="w-12 h-12 shrink-0 rounded-lg border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 text-center leading-tight">tanpa<br />bukti</div>}
+                                        <div className="flex-1 min-w-0 text-[13px]"><div className="font-bold text-gray-800">{labelBayarVendor(p, i)}</div><div className="text-xs text-gray-500">{tglNotaWa(p.date)} · {metodeBayarVendor(p.method)}</div></div>
+                                        <b className="shrink-0 tabular-nums text-emerald-700 text-[13px]">{formatRupiah(safeMoney(p.amount))}</b>
+                                    </div>
+                                ))}
+                                {status === 'Lunas'
+                                    ? <div className="flex justify-between gap-3 pt-2 mt-1 border-t-2 border-dashed border-gray-200 font-black text-emerald-700"><span>LUNAS</span><span>✓</span></div>
+                                    : !legacySebagian && <div data-nv-sisa className="flex justify-between gap-3 pt-2 mt-1 border-t-2 border-dashed border-gray-200 font-black text-red-700"><span>Sisa</span><span className="tabular-nums">{formatRupiah(sisa)}</span></div>}
+                                {galeri.some(g => !g.nota) && <div className="text-[11px] text-gray-400 text-center mt-2">Ketuk foto bukti untuk memperbesar</div>}
+                            </div>
+                            {n.fotoNota && (
+                                <div className="bg-white rounded-2xl p-3">
+                                    <div className="text-[11px] font-black tracking-widest text-gray-500 mb-2">FOTO NOTA VENDOR</div>
+                                    <button type="button" data-nv-foto-nota onClick={() => lihat(g => g.nota)} className="block w-full" title="Ketuk untuk memperbesar">
+                                        <StoredImg src={n.fotoNota} alt="nota" className="w-full max-h-72 object-contain rounded-xl bg-slate-50" placeholderClassName="w-full h-40 rounded-xl" />
+                                    </button>
+                                    <div className="text-[11px] text-gray-400 text-center mt-1">Ketuk foto untuk memperbesar</div>
+                                </div>
+                            )}
+                            <div data-nv-pdf><TombolPdfSlip buatHtml={buatHtml} namaFile={namaFileCetak('Nota', vendor, fmtTglStruk(n.date))} kunci={`${n.id}|${n._syncUpdatedAt || ''}`} /></div>
+                            <p className="text-center text-[11px] text-gray-400">Halaman ini selalu menampilkan status pembayaran terbaru.</p>
+                        </div>
+                    </div>
+                    <PenampilGambarHost />
+                </div>
+            );
+        };
         const htmlStrukRekapGaji = ({ rekap, driver, trips, tarifs, tpl, sisaSekarang }) => {
             const per = periodeRekapGaji(rekap, trips);
             const info = infoKasbonRekap(rekap, sisaSekarang);
@@ -34515,6 +34835,7 @@ ${getRekapShareLink(rekap)}
             const [invoiceShareToken] = useState(getInvoiceShareFromHash());
             const [promosiShareToken] = useState(getPromosiShareFromHash());
             const [danaShareToken] = useState(getDanaShareFromHash());
+            const [notaVendorShareToken] = useState(getNotaVendorShareFromHash());
             const [driverConfirmId] = useState(getDriverConfirmFromHash());
             const [driverRekapGajiShareId] = useState(getDriverRekapGajiFromHash());
             
@@ -34642,6 +34963,7 @@ ${getRekapShareLink(rekap)}
                 const syncPublicHash = () => {
                     // Link bukti dana dibuka saat aplikasi sudah terbuka di tab yang sama → muat ulang agar halaman link tampil
                     if (getDanaShareFromHash() !== (danaShareToken || '')) { window.location.reload(); return; }
+                    if (getNotaVendorShareFromHash() !== (notaVendorShareToken || '')) { window.location.reload(); return; }
                     setCustomerTrackingClient(getCustomerTrackingClientFromHash());
                     setRekapGajiShareId(getRekapGajiIdFromHash());
                 };
@@ -35975,9 +36297,9 @@ ${getRekapShareLink(rekap)}
 
                 const initData = async () => {
                     // Membuka link share = boleh langsung mencoba server sekali (jeda pengaman dari gangguan sebelumnya tidak menahan)
-                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId || customerTrackingClient || rekapGajiShareId) cloudHealth.allowProbeNow();
+                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId || customerTrackingClient || rekapGajiShareId) cloudHealth.allowProbeNow();
                     // Halaman share yang mengambil datanya sendiri: jangan muat (dan jangan simpan ke perangkat pengunjung) data utama
-                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) {
+                    if (investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId) {
                         setIsReady(true);
                         return;
                     }
@@ -36347,7 +36669,7 @@ ${getRekapShareLink(rekap)}
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
                 // Mode share: tidak perlu sync — karyawan hanya lihat slip gaji statis
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId) return;
 
                 const refresh = () => {
                     lastRefreshRef.current = Date.now();
@@ -36805,7 +37127,7 @@ ${getRekapShareLink(rekap)}
             jalankanArsipRef.current = jalankanArsipOrder;
             useEffect(() => {
                 if (!isReady || !supabaseClient || authUser?.role !== 'Admin') return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 let batal = false;
                 const coba = () => {
                     if (batal || document.hidden) return;
@@ -37190,7 +37512,7 @@ ${getRekapShareLink(rekap)}
             drvSinkronFnRef.current = sinkronPerjalananDriver;
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 const jalan = () => { const f = drvSinkronFnRef.current; if (f) f(); };
                 window.addEventListener('simpati-driver-remote', jalan);
                 const awal = setTimeout(jalan, 2500);
@@ -37692,7 +38014,7 @@ ${getRekapShareLink(rekap)}
             // perubahan di cloud dicek (permintaan kecil); bila ada data lebih baru dari perangkat lain, dimuat dulu.
             appSinkron.cek = async (onPerbarui, kunciCek = null) => {
                 if (!supabaseClient || cloudHealth.isBlocked() || navigator.onLine === false) return false;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return false;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId) return false;
                 const remote = await fetchRemoteTimestamps();
                 if (!remote) return false;
                 const lokal = getTsCache();
@@ -37728,7 +38050,7 @@ ${getRekapShareLink(rekap)}
 
             useEffect(() => {
                 if (!isReady || !supabaseClient) return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 const retry = async () => {
                     if (navigator.onLine === false) return;
                     // Setelah rem darurat: jeda harus habis dulu, lalu cek server dengan 1 permintaan kecil (satu tab saja)
@@ -37873,7 +38195,7 @@ ${getRekapShareLink(rekap)}
             // Dipakai agar perangkat lain langsung mengecek Mode Pemeliharaan saat Admin mengubahnya.
             useEffect(() => {
                 if (!supabaseClient || !isReady) return;
-                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId) return;
+                if (rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId) return;
                 let ch = null;
                 try {
                     ch = supabaseClient.channel('simpati-sinyal', { config: { broadcast: { self: false } } })
@@ -37899,8 +38221,8 @@ ${getRekapShareLink(rekap)}
             // ===== Pindahkan gambar lama (desain order & bukti bayar invoice) ke baris cloud terpisah =====
             // Bertahap, satu per satu, hanya satu tab, berhenti saat server bermasalah. Data order/invoice
             // hanya menyimpan penanda 'img:...' sehingga jauh lebih ringan diunduh & disimpan.
-            const imgOffloadDataRef = useRef({ orders: [], invoices: [], danaOperasional: [] });
-            imgOffloadDataRef.current = { orders, invoices, danaOperasional };
+            const imgOffloadDataRef = useRef({ orders: [], invoices: [], danaOperasional: [], purchaseNotes: [] });
+            imgOffloadDataRef.current = { orders, invoices, danaOperasional, purchaseNotes };
             const imgOffloadBusyRef = useRef(false);
             const [imgOffloadProgress, setImgOffloadProgress] = useState(null); // { done, total } selama gambar lama dipindah
             const imgOffloadSkipRef = useRef(new Set()); // gambar yang ditolak server (bukan karena server sakit): tidak dicoba lagi sesi ini
@@ -37923,6 +38245,14 @@ ${getRekapShareLink(rekap)}
                 safeArray(imgOffloadDataRef.current.danaOperasional).forEach(d => {
                     if (d && d.id != null && isInlineImage(d.bukti)) tasks.push({ kind: 'dana', id: String(d.id), value: d.bukti, ref: `${IMG_REF_PREFIX}d:${d.id}:${hashImageString(d.bukti)}`, deleted: !!d.isDeleted });
                 });
+                // Foto nota vendor & bukti transfer per pembayaran (Pembelian Bahan)
+                safeArray(imgOffloadDataRef.current.purchaseNotes).forEach(n => {
+                    if (!n || n.id == null) return;
+                    if (isInlineImage(n.fotoNota)) tasks.push({ kind: 'nota', id: String(n.id), value: n.fotoNota, ref: `${IMG_REF_PREFIX}n:${n.id}:${hashImageString(n.fotoNota)}`, deleted: !!n.isDeleted });
+                    safeArray(n.payments).forEach(pay => {
+                        if (pay && pay.id != null && isInlineImage(pay.proofImage)) tasks.push({ kind: 'notaPay', id: String(n.id), payId: String(pay.id), value: pay.proofImage, ref: `${IMG_REF_PREFIX}np:${n.id}:${pay.id}:${hashImageString(pay.proofImage)}`, deleted: !!n.isDeleted });
+                    });
+                });
                 // Yang masih aktif dulu, yang sudah dihapus belakangan
                 return tasks.sort((a, b) => Number(a.deleted) - Number(b.deleted));
             };
@@ -37930,6 +38260,22 @@ ${getRekapShareLink(rekap)}
                 const ordersDone = done.filter(d => d.kind === 'order');
                 const invDone = done.filter(d => d.kind === 'invoice');
                 const danaDone = done.filter(d => d.kind === 'dana');
+                const notaDone = done.filter(d => d.kind === 'nota' || d.kind === 'notaPay');
+                if (notaDone.length) {
+                    // Hanya diganti bila fotonya masih sama (tidak diganti / dihapus pengguna selama proses)
+                    const byNota = new Map(notaDone.filter(d => d.kind === 'nota').map(d => [d.id, d]));
+                    const byPay = new Map(notaDone.filter(d => d.kind === 'notaPay').map(d => [d.id + '|' + d.payId, d]));
+                    const hitNota = (n) => { const d = byNota.get(String(n?.id)); return d && n.fotoNota === d.value ? d : null; };
+                    const hitPay = (n, pay) => { const d = byPay.get(String(n?.id) + '|' + String(pay?.id)); return d && pay.proofImage === d.value ? d : null; };
+                    const kena = (n) => !!n && (!!hitNota(n) || safeArray(n.payments).some(pay => hitPay(n, pay)));
+                    if (safeArray(imgOffloadDataRef.current.purchaseNotes).some(kena)) updatePurchaseNotes(prev => safeArray(prev).map(n => {
+                        if (!kena(n)) return n;
+                        const dn = hitNota(n);
+                        const out = { ...n, ...(dn ? { fotoNota: dn.ref } : {}) };
+                        if (Array.isArray(n.payments) && n.payments.some(pay => hitPay(n, pay))) out.payments = n.payments.map(pay => { const d = hitPay(n, pay); return d ? { ...pay, proofImage: d.ref } : pay; });
+                        return out;
+                    }));
+                }
                 if (danaDone.length) {
                     const byId = new Map(danaDone.map(d => [d.id, d]));
                     // Hanya diganti bila fotonya masih sama (tidak diganti pengguna selama proses)
@@ -38018,7 +38364,7 @@ ${getRekapShareLink(rekap)}
             const runImageOffloadRef = useRef(runImageOffload);
             runImageOffloadRef.current = runImageOffload;
             const hasAuthUser = !!authUser;
-            const isShareView = !!(rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || driverConfirmId || driverRekapGajiShareId);
+            const isShareView = !!(rekapGajiShareId || customerTrackingClient || investorShareToken || marketingShareToken || invoiceShareToken || promosiShareToken || danaShareToken || notaVendorShareToken || driverConfirmId || driverRekapGajiShareId);
             useEffect(() => {
                 if (!isReady || !hasAuthUser || !supabaseClient || isShareView) return;
                 // Pertama kali 20 detik setelah siap (tidak tertunda oleh perubahan data), lalu dicek tiap 3 menit
@@ -38032,7 +38378,7 @@ ${getRekapShareLink(rekap)}
                 // Gambar baru (order baru / bukti bayar baru) dipindah ±15 detik setelah disimpan
                 const t = setTimeout(() => runImageOffloadRef.current(), 15000);
                 return () => clearTimeout(t);
-            }, [orders, invoices, danaOperasional]);
+            }, [orders, invoices, danaOperasional, purchaseNotes]);
 
             const handleSyncBadgeClick = async () => {
                 if (navigator.onLine === false) { showToast('Perangkat sedang offline. Data akan dikirim otomatis saat internet tersambung.', 'error'); return; }
@@ -38204,6 +38550,15 @@ ${getRekapShareLink(rekap)}
                 return (
                     <>
                         <DanaPublicView token={danaShareToken} />
+                        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                    </>
+                );
+            }
+
+            if (notaVendorShareToken) {
+                return (
+                    <>
+                        <NotaVendorPublicView token={notaVendorShareToken} />
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     </>
                 );

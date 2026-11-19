@@ -46,6 +46,7 @@
                 ['#rekap-gaji=', 'rekapKinerja', 'id', true],
                 ['#driver-rekap-gaji=', 'driverRekapGaji', 'id', true],
                 ['#dana=', 'danaOperasional', 'shareToken', true],
+                ['#nota-vendor=', 'purchaseNotes', 'shareToken', true],
                 ['#invoice-share=', 'invoices', 'invoiceShareToken', false],
                 ['#promosi-share=', 'bagiHasilPromosi', 'shareToken', false],
                 ['#investor-share=', 'investors', 'shareToken', false],
@@ -240,7 +241,7 @@
         try {
             // Tulisan saat memuat sesuai jenis link yang dibuka (aplikasi utama tetap "Memuat aplikasi...")
             var h = location.hash || '', el = document.getElementById('boot-teks'), t = '';
-            var daftar = [['#invoice-share=', 'Memuat tagihan invoice...'], ['#rekap-gaji=', 'Memuat slip gaji...'], ['#driver-rekap-gaji=', 'Memuat slip gaji...'], ['#driver-confirm=', 'Memuat order pengiriman...'], ['#dana=', 'Memuat bukti dana...'], ['#promosi-share=', 'Memuat bagi hasil promosi...'], ['#investor-share=', 'Memuat laporan investasi...'], ['#marketing-share=', 'Memuat laporan marketing...'], ['#customer-tracking=', 'Memuat status pesanan...']];
+            var daftar = [['#invoice-share=', 'Memuat tagihan invoice...'], ['#rekap-gaji=', 'Memuat slip gaji...'], ['#driver-rekap-gaji=', 'Memuat slip gaji...'], ['#driver-confirm=', 'Memuat order pengiriman...'], ['#dana=', 'Memuat bukti dana...'], ['#nota-vendor=', 'Memuat nota pembelian...'], ['#promosi-share=', 'Memuat bagi hasil promosi...'], ['#investor-share=', 'Memuat laporan investasi...'], ['#marketing-share=', 'Memuat laporan marketing...'], ['#customer-tracking=', 'Memuat status pesanan...']];
             for (var i = 0; i < daftar.length; i++) if (h.indexOf(daftar[i][0]) === 0) { t = daftar[i][1]; break; }
             if (el && t) el.textContent = t;
         } catch (e) {}
