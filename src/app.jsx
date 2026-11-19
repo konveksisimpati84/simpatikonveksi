@@ -392,6 +392,11 @@
         const IconDocSearch = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z"/></svg>;
         const IconTrendUp = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>;
         const IconWallet = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8V5.5A1.5 1.5 0 0015.5 4H5a2 2 0 00-2 2m0 0a2 2 0 002 2h14a1 1 0 011 1v9a2 2 0 01-2 2H5a2 2 0 01-2-2V6zm13.5 8h.01"/></svg>;
+        // Baris tombol kartu daftar di HP (pola A): tombol berlabel (ikon di atas tulisan) selebar kartu, otomatis turun
+        // ke baris berikutnya bila layar sempit / huruf HP besar; Hapus berupa ikon kecil di ujung kanan.
+        const HP_AKSI_BAR = 'flex flex-wrap gap-1 mt-2 [&_svg]:w-4 [&_svg]:h-4';
+        const HP_AKSI_BTN = 'flex-auto inline-flex flex-col items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-lg text-xs leading-tight font-bold whitespace-nowrap transition-colors';
+        const HP_AKSI_HAPUS = 'flex-none ml-auto w-10 inline-flex items-center justify-center py-1.5 rounded-lg transition-colors';
         const IconShieldUser = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3l7 3v5c0 4.6-3 8.5-7 10-4-1.5-7-5.4-7-10V6l7-3zM8.8 16.2a3.4 3.4 0 016.4 0"/><circle cx="12" cy="10.6" r="2.1" strokeWidth="2"/></svg>;
         const IconTag = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>;
         const IconEye = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>;
@@ -6215,14 +6220,15 @@ ${blocks}
                             {paginatedOrders.map(order => {
                                 const revisiQty = (order.revisiItems||[]).reduce((s,i)=>s+(parseInt(i.qty)||0),0);
                                 return (
-                                    <div key={order.id} className={`px-1 py-3 flex items-start gap-2 ${dashPins.pinSet.has(String(order.id)) ? 'bg-amber-50 rounded-lg' : ''}`}>
+                                    <div key={order.id} data-hp-kartu="order" className={`px-1 py-3 ${dashPins.pinSet.has(String(order.id)) ? 'bg-amber-50 rounded-lg' : ''}`}>
+                                        <div className="flex items-start gap-2">
                                         {pinButton(order)}
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap mb-1">
                                                 <span className="text-blue-600 font-bold text-sm">{order.id}</span>
                                                 <Badge status={statusTampilOrder(order, statusBahan)} ket={keteranganStatusBahan(order, statusBahan)} />
                                             </div>
-                                            <div className="font-semibold text-gray-800 text-sm truncate">{order.client}</div>
+                                            <div className="font-semibold text-gray-800 text-sm break-words">{order.client}</div>
                                             <div className="text-xs text-gray-500 mt-0.5">
                                                 {order.type} ({order.total} pcs)
                                                 {revisiQty > 0 && <span className="ml-1 inline-flex items-center bg-orange-100 text-orange-700 text-xs font-bold px-1.5 py-0.5 rounded">⚠ {revisiQty} pcs revisi</span>}
@@ -6230,11 +6236,11 @@ ${blocks}
                                             <div className="text-xs text-gray-400 mt-0.5">⏰ {order.deadline}</div>
                                             <DashIsianBadge order={order} />
                                         </div>
-                                        <div className="flex gap-1 items-center shrink-0">
-                                            <button onClick={() => openEditModal(order)} className="text-blue-500 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-md transition-colors" title="Edit"><IconEdit /></button>
-                                            <button onClick={() => printLembarKerjaOrder(order, { templates, showToast })} className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-md transition-colors" title="Cetak SPK" data-dash-spk={order.id}><IconPrinter className="w-5 h-5" /></button>
-                                            <button onClick={() => bukaKonfirmasiDuplikat(order.id)} className="text-teal-600 bg-teal-50 hover:bg-teal-100 p-1.5 rounded-md transition-colors" title="Duplikat Order" data-dash-dup={order.id}><IconCopy /></button>
-                                            <button onClick={() => setDeleteConfirmId(order.id)} className="text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-md transition-colors" title="Hapus"><IconTrash /></button>
+                                        </div>
+                                        <div data-hp-aksi className={HP_AKSI_BAR}>
+                                            <button onClick={() => openEditModal(order)} className={`${HP_AKSI_BTN} text-blue-600 bg-blue-50 hover:bg-blue-100`} title="Edit"><IconEdit /> Edit</button>
+                                            <button onClick={() => printLembarKerjaOrder(order, { templates, showToast })} className={`${HP_AKSI_BTN} text-indigo-600 bg-indigo-50 hover:bg-indigo-100`} title="Cetak SPK" data-dash-spk={order.id}><IconPrinter className="w-5 h-5" /> SPK</button>
+                                            <button onClick={() => bukaKonfirmasiDuplikat(order.id)} className={`${HP_AKSI_BTN} text-teal-600 bg-teal-50 hover:bg-teal-100`} title="Duplikat Order" data-dash-dup={order.id}><IconCopy /> Duplikat</button>
                                             {order.status === 'Terkirim' && (
                                                 <button onClick={() => {
                                                     const hasSJ = (riwayatPengiriman || []).filter(isVisibleRecord).some(r => (r.items || []).some(item => item.orderId === order.id));
@@ -6246,8 +6252,9 @@ ${blocks}
                                                     }
                                                     setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, isArchived: true } : o));
                                                     showToast("Order dipindahkan ke Riwayat!", "success");
-                                                }} className="text-purple-600 bg-purple-50 hover:bg-purple-100 p-1.5 rounded-md transition-colors" title="Arsipkan"><IconArchive /></button>
+                                                }} className={`${HP_AKSI_BTN} text-purple-600 bg-purple-50 hover:bg-purple-100`} title="Arsipkan"><IconArchive /> Arsip</button>
                                             )}
+                                            <button onClick={() => setDeleteConfirmId(order.id)} className={`${HP_AKSI_HAPUS} text-red-500 bg-red-50 hover:bg-red-100`} title="Hapus"><IconTrash /></button>
                                         </div>
                                     </div>
                                 );
@@ -7259,10 +7266,10 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                 return (
                                     <React.Fragment key={emp.id}>
                                         {/* Mobile card - hidden on sm+ */}
-                                        <div className={`sm:hidden px-4 py-3 flex items-start gap-3 border-l-4 ${borderColor} ${rowBg}`}>
-                                            <div className="flex-1 min-w-0">
+                                        <div data-hp-kartu="karyawan" className={`sm:hidden px-4 py-3 border-l-4 ${borderColor} ${rowBg}`}>
+                                            <div className="min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                                                    <span className="font-bold text-gray-900 text-sm">{emp.name}</span>
+                                                    <span className="font-bold text-gray-900 text-sm break-words min-w-0">{emp.name}</span>
                                                     <Badge status={emp.status || 'Aktif'} />
                                                 </div>
                                                 <div className="text-xs text-gray-400 truncate">{getEmployeeDivisions(emp).join(', ') || '-'}</div>
@@ -7276,12 +7283,12 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="flex gap-1 items-center shrink-0">
-                                                <button onClick={() => { setProfileEmp({...emp}); setKeahlianInput(''); }} className="text-indigo-500 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg" title="Data Pribadi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></button>
-                                                <button onClick={() => openCashAdvanceModal(emp)} className="text-orange-600 bg-orange-50 hover:bg-orange-100 p-1.5 rounded-lg" title="Kasbon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></button>
-                                                <button onClick={() => openDailySalaryModal(emp)} className="text-green-700 bg-green-50 hover:bg-green-100 p-1.5 rounded-lg" title="Gaji Harian"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg></button>
-                                                <button onClick={() => setEditEmp({...emp, status: emp.status || 'Aktif', salaryTypes: getEmployeeSalaryTypes(emp), divisions: getEmployeeDivisions(emp)})} className="text-blue-500 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-lg" title="Edit"><IconEdit /></button>
-                                                <button onClick={() => setDeleteConfirmId(emp.id)} className="text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg" title="Hapus"><IconTrash /></button>
+                                            <div data-hp-aksi className={HP_AKSI_BAR}>
+                                                <button onClick={() => { setProfileEmp({...emp}); setKeahlianInput(''); }} className={`${HP_AKSI_BTN} text-indigo-600 bg-indigo-50 hover:bg-indigo-100`} title="Data Pribadi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Data</button>
+                                                <button onClick={() => openCashAdvanceModal(emp)} className={`${HP_AKSI_BTN} text-orange-600 bg-orange-50 hover:bg-orange-100`} title="Kasbon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Kasbon</button>
+                                                <button onClick={() => openDailySalaryModal(emp)} className={`${HP_AKSI_BTN} text-green-700 bg-green-50 hover:bg-green-100`} title="Gaji Harian"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg> Gaji</button>
+                                                <button onClick={() => setEditEmp({...emp, status: emp.status || 'Aktif', salaryTypes: getEmployeeSalaryTypes(emp), divisions: getEmployeeDivisions(emp)})} className={`${HP_AKSI_BTN} text-blue-600 bg-blue-50 hover:bg-blue-100`} title="Edit"><IconEdit /> Edit</button>
+                                                <button onClick={() => setDeleteConfirmId(emp.id)} className={`${HP_AKSI_HAPUS} text-red-500 bg-red-50 hover:bg-red-100`} title="Hapus"><IconTrash /></button>
                                             </div>
                                         </div>
                                         {/* Desktop row - hidden on mobile */}
@@ -12505,7 +12512,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         const iconChar = isPenyelesaian ? '✓' : isTalangan ? '↑' : '↓';
                                         const amtCls = isPenyelesaian ? 'text-amber-800' : isTalangan ? 'text-red-800' : 'text-green-800';
                                         return (
-                                        <div key={d.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${bgBorder}`}>
+                                        <div key={d.id} data-hp-kartu="dana" className={`flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-2 px-4 py-3 rounded-xl border ${bgBorder}`}>
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${iconCls}`}>{iconChar}</div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
@@ -12520,10 +12527,10 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <div className="text-xs text-gray-500">{d.tanggal}{d.keterangan ? ` · ${d.keterangan}` : ''}</div>
                                                 <div data-dana-pencatat className="text-[11px] text-gray-500 mt-0.5">✍ Dicatat oleh: <b className="font-semibold">{d.dicatatOleh || '—'}</b>{d.diubahOleh ? <span> · diubah oleh {d.diubahOleh}</span> : null}</div>
                                             </div>
-                                            {bolehKelola && <div className="flex gap-1 flex-shrink-0">
-                                                {!isPenyelesaian && !isTalangan && <button title="Kirim ke karyawan" data-dana-kirim={d.id} onClick={() => bukaKirimDana(d)} className="p-1.5 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors text-sm leading-none">📤</button>}
-                                                {!isPenyelesaian && <button title="Edit" onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar', dari: d.dari === 'tunai' ? 'tunai' : 'rekening', bukti: d.bukti || '' }); setShowForm(true); }} className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
-                                                <button title="Hapus" onClick={() => setDeleteConfirmId(d.id)} className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>
+                                            {bolehKelola && <div data-hp-aksi className="basis-full md:basis-auto flex flex-wrap md:flex-nowrap gap-1 md:flex-shrink-0 [&_svg]:w-4 [&_svg]:h-4 md:[&_svg]:w-5 md:[&_svg]:h-5">
+                                                {!isPenyelesaian && !isTalangan && <button title="Kirim ke karyawan" data-dana-kirim={d.id} onClick={() => bukaKirimDana(d)} className="flex-auto md:flex-none inline-flex flex-col md:flex-row items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-lg text-xs leading-tight font-bold whitespace-nowrap transition-colors border bg-white md:bg-green-50 hover:bg-green-100 text-green-700 border-green-200"><span className="text-sm leading-none">📤</span><span className="md:hidden">Kirim</span></button>}
+                                                {!isPenyelesaian && <button title="Edit" onClick={() => { setEditId(d.id); setForm({ tanggal: d.tanggal, nominal: String(d.nominal), keterangan: d.keterangan || '', type: d.type || 'keluar', dari: d.dari === 'tunai' ? 'tunai' : 'rekening', bukti: d.bukti || '' }); setShowForm(true); }} className="flex-auto md:flex-none inline-flex flex-col md:flex-row items-center justify-center gap-0.5 px-1.5 py-1.5 rounded-lg text-xs leading-tight font-bold whitespace-nowrap transition-colors border bg-white md:bg-purple-50 hover:bg-purple-100 text-purple-600 border-purple-200 md:border-purple-100"><IconEdit /><span className="md:hidden">Edit</span></button>}
+                                                <button title="Hapus" onClick={() => setDeleteConfirmId(d.id)} className="flex-none ml-auto md:ml-0 w-10 md:w-auto inline-flex items-center justify-center py-1.5 md:px-1.5 rounded-lg bg-white md:bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 md:border-red-100 transition-colors"><IconTrash /></button>
                                             </div>}
                                         </div>
                                         );
@@ -13255,26 +13262,22 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                     {(isAdmin || !item.sumberPosisi) && <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>}
                                                 </div>
                                             </div>
-                                            <div className={`md:hidden px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg}`}>
-                                                <div className="flex items-start gap-3">
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2 mb-0.5">
+                                            <div data-hp-kartu="biaya" className={`md:hidden px-4 py-3 border-b border-gray-100 last:border-b-0 border-l-4 ${borderColor} ${rowBg}`}>
+                                                <div className="min-w-0">
+                                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-0.5">
                                                             <span className="text-xs text-gray-500 font-mono shrink-0">{item.date}</span>
                                                             <Badge status={item.type} />
+                                                            <span className="ml-auto shrink-0">{payStatusBadge(status)}</span>
                                                         </div>
-                                                        <button type="button" onClick={() => openDetail(item)} className="block max-w-full text-left font-bold text-gray-900 text-sm truncate hover:underline">{title}</button>{item.sumberPosisi && <span data-biaya-posisi className="inline-block mt-0.5 mr-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5">dari Posisi Uang</span>}{showCat && <span className="inline-block mt-0.5 text-[10px] font-bold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-0.5">{item.category}</span>}
-                                                        <div className="text-xs text-gray-400 truncate">{item.party || <span className="italic">—</span>}{item.note ? ` · ${item.note}` : ''}</div>
-                                                        <div className={`text-sm font-black mt-1 ${isMasuk ? 'text-green-700' : 'text-red-700'}`}>{formatRupiah(item.amount)}{!isMasuk && paid > 0 && <span className="text-[10px] font-normal text-gray-400 ml-1">· Bayar: {formatRupiah(paid)}</span>}</div>
-                                                    </div>
-                                                    <div className="shrink-0 flex flex-col items-end gap-1.5">
-                                                        {payStatusBadge(status)}
-                                                        <div className="flex gap-1 mt-0.5">
-                                                            <button onClick={() => openDetail(item)} title="Rincian" className="p-1.5 rounded-lg border transition-colors bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100"><IconEye /></button>
-                                                            {!item.sumberPosisi && <button onClick={() => startEdit(item)} title="Edit" className="p-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-100 transition-colors"><IconEdit /></button>}
-                                                            <button onClick={() => printReceipt(item)} title="Cetak" className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors"><IconPrinter /></button>
-                                                            {(isAdmin || !item.sumberPosisi) && <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 transition-colors"><IconTrash /></button>}
-                                                        </div>
-                                                    </div>
+                                                        <button type="button" onClick={() => openDetail(item)} className="block max-w-full text-left font-bold text-gray-900 text-sm break-words hover:underline">{title}</button>{item.sumberPosisi && <span data-biaya-posisi className="inline-block mt-0.5 mr-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5">dari Posisi Uang</span>}{showCat && <span className="inline-block mt-0.5 text-[10px] font-bold text-gray-600 bg-white/70 border border-gray-200 rounded-full px-2 py-0.5">{item.category}</span>}
+                                                        <div className="text-xs text-gray-500 break-words">{item.party || <span className="italic">—</span>}{item.note ? ` · ${item.note}` : ''}</div>
+                                                        <div className={`text-sm font-black mt-1 ${isMasuk ? 'text-green-700' : 'text-red-700'}`}>{formatRupiah(item.amount)}{!isMasuk && paid > 0 && <span className="text-[10px] font-normal text-gray-500 ml-1">· Bayar: {formatRupiah(paid)}</span>}</div>
+                                                </div>
+                                                <div data-hp-aksi className={HP_AKSI_BAR}>
+                                                    <button onClick={() => openDetail(item)} title="Rincian" className={`${HP_AKSI_BTN} border bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-200`}><IconEye /> Rincian</button>
+                                                    {!item.sumberPosisi && <button onClick={() => startEdit(item)} title="Edit" className={`${HP_AKSI_BTN} border bg-purple-50 hover:bg-purple-100 text-purple-600 border-purple-200`}><IconEdit /> Edit</button>}
+                                                    <button onClick={() => printReceipt(item)} title="Cetak" className={`${HP_AKSI_BTN} border bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200`}><IconPrinter /> Cetak</button>
+                                                    {(isAdmin || !item.sumberPosisi) && <button onClick={() => setDeleteConfirmId(item.id)} title="Hapus" className={`${HP_AKSI_HAPUS} border bg-red-50 hover:bg-red-100 text-red-600 border-red-200`}><IconTrash /></button>}
                                                 </div>
                                             </div>
                                         </React.Fragment>
@@ -13895,9 +13898,9 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                 const borderColor = s.receivable > 0 ? 'border-l-red-400' : s.saldoDp > 0 ? 'border-l-green-400' : 'border-l-blue-300';
                                 return (
                                     <React.Fragment key={client.id}>
-                                        <div className={`md:hidden px-4 py-3 flex items-start gap-3 border-l-4 ${borderColor} hover:bg-gray-50/70 transition-colors`}>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-bold text-gray-900 text-sm truncate">{client.name}</div>
+                                        <div data-hp-kartu="klien" className={`md:hidden px-4 py-3 border-l-4 ${borderColor} hover:bg-gray-50/70 transition-colors`}>
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-gray-900 text-sm break-words">{client.name}</div>
                                                 {safeArray(client.namaLain).length > 0 && <div data-klien-nama-lain className="text-[11px] text-gray-500 truncate">Nama lain: {client.namaLain.join(', ')}</div>}
                                                 <div className="text-xs text-gray-400 truncate">{client.address || '-'}</div>
                                                 <div className="text-xs text-gray-500 mt-0.5">{client.pic || '-'}{client.phone ? ` · ${client.phone}` : ''}</div>
@@ -13907,10 +13910,10 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                     {s.receivable > 0 && <span className="font-bold text-red-600">Piutang: {formatRupiah(s.receivable)}</span>}
                                                 </div>
                                             </div>
-                                            <div className="flex gap-1 items-center shrink-0">
-                                                <button onClick={() => setSelectedClient(client)} className="text-green-700 bg-green-50 hover:bg-green-100 p-1.5 rounded-lg" title="Saldo Klien"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></button>
-                                                <button onClick={() => { setEditId(client.id); setForm(client); }} className="text-purple-600 bg-purple-50 hover:bg-purple-100 p-1.5 rounded-lg" title="Edit"><IconEdit /></button>
-                                                <button onClick={() => setDeleteClientConfirmId(client.id)} className="text-red-500 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg" title="Hapus"><IconTrash /></button>
+                                            <div data-hp-aksi className={HP_AKSI_BAR}>
+                                                <button onClick={() => setSelectedClient(client)} className={`${HP_AKSI_BTN} text-green-700 bg-green-50 hover:bg-green-100`} title="Saldo Klien"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg> Saldo Klien</button>
+                                                <button onClick={() => { setEditId(client.id); setForm(client); }} className={`${HP_AKSI_BTN} text-purple-600 bg-purple-50 hover:bg-purple-100`} title="Edit"><IconEdit /> Edit</button>
+                                                <button onClick={() => setDeleteClientConfirmId(client.id)} className={`${HP_AKSI_HAPUS} text-red-500 bg-red-50 hover:bg-red-100`} title="Hapus"><IconTrash /></button>
                                             </div>
                                         </div>
                                         <div className={`hidden md:grid grid-cols-12 gap-2 px-4 py-2.5 items-center border-l-4 ${borderColor} hover:bg-gray-50/70 transition-colors`}>
@@ -14342,7 +14345,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                             return (
                                 <div key={bhp.id} data-bhp-kartu={bhp.id} className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ border: '1px solid #f0f0f0', borderLeft: `4px solid ${statusColor.stripe}` }}>
                                     <div className="p-4">
-                                        <div className="flex items-start gap-3">
+                                        <div className="flex flex-wrap md:flex-nowrap items-start gap-x-3 gap-y-2">
                                             {/* Avatar */}
                                             <div className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-black" style={{ background: `linear-gradient(135deg, ${statusColor.stripe}, ${statusColor.bar})` }}>{initials}</div>
                                             {/* Info */}
@@ -14374,17 +14377,17 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                                 )}
                                             </div>
                                             {/* Icon action buttons */}
-                                            <div className="flex items-center gap-1 shrink-0 ml-1">
-                                                <button title="Rincian & Pembayaran" onClick={() => setDetailId(prev => prev === bhp.id ? null : bhp.id)} className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors" style={{ background: isOpen ? '#eff6ff' : '#f9fafb', color: isOpen ? '#2563eb' : '#6b7280' }}>
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">{isOpen ? <polyline points="18 15 12 9 6 15"/> : <polyline points="6 9 12 15 18 9"/>}</svg>
+                                            <div data-hp-aksi className="basis-full md:basis-auto flex flex-wrap md:flex-nowrap items-stretch md:items-center gap-1 md:shrink-0 md:ml-1">
+                                                <button title="Rincian & Pembayaran" onClick={() => setDetailId(prev => prev === bhp.id ? null : bhp.id)} className="flex-auto md:flex-none md:h-8 md:w-8 px-1.5 py-1.5 md:p-0 inline-flex flex-col md:flex-row items-center justify-center gap-0.5 rounded-lg text-xs leading-tight font-bold whitespace-nowrap transition-colors" style={{ background: isOpen ? '#eff6ff' : '#f9fafb', color: isOpen ? '#2563eb' : '#6b7280' }}>
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">{isOpen ? <polyline points="18 15 12 9 6 15"/> : <polyline points="6 9 12 15 18 9"/>}</svg><span className="md:hidden">Rincian</span>
                                                 </button>
-                                                <button title="Kirim via WhatsApp" onClick={() => openShareModal(bhp)} className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors" style={{ background: '#f0fdf4', color: '#16a34a' }}>
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                                                <button title="Kirim via WhatsApp" onClick={() => openShareModal(bhp)} className="flex-auto md:flex-none md:h-8 md:w-8 px-1.5 py-1.5 md:p-0 inline-flex flex-col md:flex-row items-center justify-center gap-0.5 rounded-lg text-xs leading-tight font-bold whitespace-nowrap transition-colors" style={{ background: '#f0fdf4', color: '#16a34a' }}>
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span className="md:hidden">WA</span>
                                                 </button>
-                                                <button title="Edit" onClick={() => startEdit(bhp)} className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors" style={{ background: '#faf5ff', color: '#7c3aed' }}>
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                <button title="Edit" onClick={() => startEdit(bhp)} className="flex-auto md:flex-none md:h-8 md:w-8 px-1.5 py-1.5 md:p-0 inline-flex flex-col md:flex-row items-center justify-center gap-0.5 rounded-lg text-xs leading-tight font-bold whitespace-nowrap transition-colors" style={{ background: '#faf5ff', color: '#7c3aed' }}>
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg><span className="md:hidden">Edit</span>
                                                 </button>
-                                                <button title="Hapus" onClick={() => setDeleteConfirmId(bhp.id)} className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors" style={{ background: '#fff1f2', color: '#e11d48' }}>
+                                                <button title="Hapus" onClick={() => setDeleteConfirmId(bhp.id)} className="flex-none ml-auto md:ml-0 w-10 md:w-8 md:h-8 inline-flex items-center justify-center rounded-lg transition-colors" style={{ background: '#fff1f2', color: '#e11d48' }}>
                                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
                                                 </button>
                                             </div>
