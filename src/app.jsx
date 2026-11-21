@@ -31903,6 +31903,55 @@ ${getRekapShareLink(rekap)}
             const [bulkKategoriOpen,      setBulkKategoriOpen]      = React.useState(false);
             const [bulkKategoriValue,     setBulkKategoriValue]     = React.useState('');
             const [bulkKategoriCustom,    setBulkKategoriCustom]    = React.useState('');
+            // Kategori kustom yang pernah dipakai di Riwayat → muncul lagi di daftar pilihan.
+            // Beda huruf besar/kecil atau spasi dianggap kategori yang sama (dipakai ejaan yang paling sering dipakai).
+            const KAT_BARU = '__kategori_baru__';
+            const rapiKat = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+            const kunciKat = (s) => rapiKat(s).toLowerCase();
+            const kategoriAnda = React.useMemo(() => {
+                const kunciPreset = new Set(PRESET_CATEGORIES.map(kunciKat));
+                const grup = new Map();
+                (Array.isArray(savedOrders) ? savedOrders : []).forEach(o => {
+                    const r = rapiKat(o && o.kategori); if (!r) return;
+                    const k = r.toLowerCase(); if (kunciPreset.has(k)) return;
+                    if (!grup.has(k)) grup.set(k, { n: 0, ejaan: new Map() });
+                    const g = grup.get(k); g.n++; g.ejaan.set(r, (g.ejaan.get(r) || 0) + 1);
+                });
+                const out = [...grup].map(([k, g]) => { let label = '', max = 0; g.ejaan.forEach((c, e) => { if (c > max) { max = c; label = e; } }); return { kunci: k, label, n: g.n }; });
+                return out.sort((a, b) => a.label.localeCompare(b.label, 'id', { sensitivity: 'base' }));
+            }, [savedOrders]);
+            const kanonKat = (s) => {
+                const r = rapiKat(s); if (!r) return '';
+                const k = r.toLowerCase();
+                const pr = PRESET_CATEGORIES.find(c => c.toLowerCase() === k); if (pr) return pr;
+                const ad = kategoriAnda.find(c => c.kunci === k); return ad ? ad.label : r;
+            };
+            // Nilai pilihan dropdown + teks ketikan → kategori yang disimpan
+            const kategoriDariPilihan = (pilih, ketik) => pilih === KAT_BARU ? kanonKat(ketik) : kanonKat(pilih);
+            // Nilai dropdown untuk kategori yang sudah tersimpan
+            const pilihanDariKategori = (kat) => kanonKat(kat);
+            const opsiKategori = (nilai) => {
+                const ada = kategoriAnda.some(c => c.label === nilai) || PRESET_CATEGORIES.includes(nilai) || !nilai || nilai === KAT_BARU;
+                return (<>
+                    <option value="">-- Tanpa Kategori --</option>
+                    {PRESET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {(kategoriAnda.length > 0 || !ada) && (
+                        <optgroup label="Kategori Anda">
+                            {kategoriAnda.map(c => <option key={c.kunci} value={c.label}>{c.label} ({c.n})</option>)}
+                            {!ada && <option value={nilai}>{nilai}</option>}
+                        </optgroup>
+                    )}
+                    <option value={KAT_BARU}>+ Kategori baru...</option>
+                </>);
+            };
+            const petunjukKategori = (ketik) => {
+                const r = rapiKat(ketik); if (!r) return null;
+                const k = kanonKat(r);
+                const sudahAda = PRESET_CATEGORIES.includes(k) || kategoriAnda.some(c => c.label === k);
+                return sudahAda
+                    ? <p data-kat-petunjuk="ada" className="text-[11px] text-emerald-700 mt-1 leading-snug">✓ Sudah ada <b>{k}</b> — otomatis disimpan ke kategori itu.</p>
+                    : <p data-kat-petunjuk="baru" className="text-[11px] text-slate-500 mt-1 leading-snug">Kategori baru: <b>{k}</b></p>;
+            };
             const [matSearch,  setMatSearch]  = React.useState('');
             const [matPage,    setMatPage]    = React.useState(1);
             const [lbrSearch,  setLbrSearch]  = React.useState('');
@@ -32278,7 +32327,7 @@ ${getRekapShareLink(rekap)}
                         qty: calc.qty, waste: orderWaste,
                         hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
                         projectedProfit: formatRp(calc.profitTotal),
-                        kategori: orderKategori === 'Custom' ? (orderKategoriCustom.trim() || '') : orderKategori,
+                        kategori: kategoriDariPilihan(orderKategori, orderKategoriCustom),
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
                         bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct,
@@ -32294,7 +32343,7 @@ ${getRekapShareLink(rekap)}
                         qty: calc.qty, waste: orderWaste,
                         hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
                         projectedProfit: formatRp(calc.profitTotal),
-                        kategori: orderKategori === 'Custom' ? (orderKategoriCustom.trim() || '') : orderKategori,
+                        kategori: kategoriDariPilihan(orderKategori, orderKategoriCustom),
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
                         bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct,
@@ -32322,10 +32371,7 @@ ${getRekapShareLink(rekap)}
                 if (item.komisiPct !== undefined)    setKomisiPct(item.komisiPct); else setKomisiPct(0);
                 if (item.entertainPct !== undefined) setEntertainPct(item.entertainPct); else setEntertainPct(0);
                 if (item.sellingPrice !== undefined) { setCustomPrice(item.sellingPrice); setIsPriceManual(true); } else { setIsPriceManual(false); }
-                const cat = item.kategori || '';
-                if (PRESET_CATEGORIES.includes(cat)) { setOrderKategori(cat); setOrderKategoriCustom(''); }
-                else if (cat) { setOrderKategori('Custom'); setOrderKategoriCustom(cat); }
-                else { setOrderKategori(''); setOrderKategoriCustom(''); }
+                setOrderKategori(pilihanDariKategori(item.kategori)); setOrderKategoriCustom('');
                 setEditingOrderId(item.id);
                 setActiveSection('calculator');
                 showToast(`"${item.name}" dimuat — perubahan akan diupdate ke riwayat.`, 'info');
@@ -32733,19 +32779,18 @@ ${getRekapShareLink(rekap)}
                                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Nama Produk / Order Pesanan</label>
                                         <input type="text" value={orderName} onChange={e => setOrderName(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-800 font-semibold text-sm transition" placeholder="Contoh: Kemeja PDL Almamater" />
                                         <input type="text" value={orderDetail} onChange={e => setOrderDetail(e.target.value)} className="w-full mt-2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-500 text-xs transition" placeholder="Detail / spesifikasi produk (opsional, muncul di surat penawaran)" />
-                                        <div className="mt-2 flex gap-2 items-center">
+                                        <div className="mt-2 flex gap-2 items-start">
                                             <div className="flex-1">
                                                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Kategori</label>
-                                                <select value={orderKategori} onChange={e => { setOrderKategori(e.target.value); setOrderKategoriCustom(''); }} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-600 text-xs transition">
-                                                    <option value="">-- Tanpa Kategori --</option>
-                                                    {PRESET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                                                    <option value="Custom">Kustom...</option>
+                                                <select data-kat-pilih="kalkulator" value={orderKategori} onChange={e => { setOrderKategori(e.target.value); setOrderKategoriCustom(''); }} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-600 text-xs transition">
+                                                    {opsiKategori(orderKategori)}
                                                 </select>
                                             </div>
-                                            {orderKategori === 'Custom' && (
-                                                <div className="flex-1">
+                                            {orderKategori === KAT_BARU && (
+                                                <div className="flex-1 min-w-0">
                                                     <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Nama Kategori</label>
-                                                    <input type="text" value={orderKategoriCustom} onChange={e => setOrderKategoriCustom(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-600 text-xs transition" placeholder="Contoh: Polri, Instansi..." />
+                                                    <input data-kat-ketik="kalkulator" type="text" value={orderKategoriCustom} onChange={e => setOrderKategoriCustom(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 text-slate-600 text-xs transition" placeholder="Contoh: Polri, Instansi..." />
+                                                    {petunjukKategori(orderKategoriCustom)}
                                                 </div>
                                             )}
                                         </div>
@@ -33342,18 +33387,19 @@ ${getRekapShareLink(rekap)}
                                             {bulkKategoriOpen && (
                                                 <div className="absolute right-0 top-10 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 min-w-[220px]">
                                                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Pilih Kategori</p>
-                                                    <select value={bulkKategoriValue} onChange={e => { setBulkKategoriValue(e.target.value); setBulkKategoriCustom(''); }}
+                                                    <select data-kat-pilih="banyak" value={bulkKategoriValue} onChange={e => { setBulkKategoriValue(e.target.value); setBulkKategoriCustom(''); }}
                                                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-xs mb-2">
-                                                        <option value="">-- Tanpa Kategori --</option>
-                                                        {PRESET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                                                        <option value="Custom">Kustom...</option>
+                                                        {opsiKategori(bulkKategoriValue)}
                                                     </select>
-                                                    {bulkKategoriValue === 'Custom' && (
-                                                        <input type="text" value={bulkKategoriCustom} onChange={e => setBulkKategoriCustom(e.target.value)}
-                                                            placeholder="Nama kategori..." className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-xs mb-2" />
+                                                    {bulkKategoriValue === KAT_BARU && (
+                                                        <div className="mb-2">
+                                                            <input data-kat-ketik="banyak" type="text" value={bulkKategoriCustom} onChange={e => setBulkKategoriCustom(e.target.value)}
+                                                                placeholder="Nama kategori..." className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-xs" />
+                                                            {petunjukKategori(bulkKategoriCustom)}
+                                                        </div>
                                                     )}
                                                     <div className="flex gap-2">
-                                                        <button onClick={() => { const kat = bulkKategoriValue === 'Custom' ? (bulkKategoriCustom.trim()||'') : bulkKategoriValue; saveBulkKategori(selectedHistoryIds, kat); }}
+                                                        <button data-kat-simpan="banyak" onClick={() => { const kat = kategoriDariPilihan(bulkKategoriValue, bulkKategoriCustom); saveBulkKategori(selectedHistoryIds, kat); }}
                                                             className="flex-1 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold py-2 rounded-xl transition">Simpan</button>
                                                         <button onClick={() => setBulkKategoriOpen(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold py-2 rounded-xl transition">Batal</button>
                                                     </div>
@@ -33381,19 +33427,19 @@ ${getRekapShareLink(rekap)}
                                         <p className="text-xs text-slate-400 mt-1">Hitung HPP produk di tab Kalkulator lalu klik "Simpan Perhitungan".</p>
                                     </div>
                                 ) : (() => {
-                                    const allCats = [...new Set(savedOrders.map(o => o.kategori || '').filter(Boolean))];
+                                    const allCats = [...new Set(savedOrders.map(o => kanonKat(o.kategori)).filter(Boolean))];
                                     const sortedCats = [...PRESET_CATEGORIES.filter(c => allCats.includes(c)), ...allCats.filter(c => !PRESET_CATEGORIES.includes(c)).sort()];
-                                    const hasUncategorized = savedOrders.some(o => !o.kategori);
+                                    const hasUncategorized = savedOrders.some(o => !kanonKat(o.kategori));
                                     const filteredOrders = historyKategoriFilter === 'Semua' ? savedOrders
-                                        : historyKategoriFilter === '__lainnya__' ? savedOrders.filter(o => !o.kategori)
-                                        : savedOrders.filter(o => o.kategori === historyKategoriFilter);
+                                        : historyKategoriFilter === '__lainnya__' ? savedOrders.filter(o => !kanonKat(o.kategori))
+                                        : savedOrders.filter(o => kanonKat(o.kategori) === historyKategoriFilter);
                                     return (
                                     <>
                                         {/* Tab kategori */}
                                         {(sortedCats.length > 0 || hasUncategorized) && (
                                             <div className="flex gap-1.5 flex-wrap mb-4 pb-3 border-b border-slate-100">
                                                 {['Semua', ...sortedCats, ...(hasUncategorized ? ['__lainnya__'] : [])].map(cat => {
-                                                    const label = cat === 'Semua' ? `Semua (${savedOrders.length})` : cat === '__lainnya__' ? `Lainnya (${savedOrders.filter(o => !o.kategori).length})` : `${cat} (${savedOrders.filter(o => o.kategori === cat).length})`;
+                                                    const label = cat === 'Semua' ? `Semua (${savedOrders.length})` : cat === '__lainnya__' ? `Lainnya (${savedOrders.filter(o => !kanonKat(o.kategori)).length})` : `${cat} (${savedOrders.filter(o => kanonKat(o.kategori) === cat).length})`;
                                                     const isActive = historyKategoriFilter === cat;
                                                     return (
                                                         <button key={cat} onClick={() => { setHistoryKategoriFilter(cat); setSelectedHistoryIds(new Set()); }}
@@ -33445,21 +33491,19 @@ ${getRekapShareLink(rekap)}
                                                             <td className="py-3 px-1">
                                                                 <div className="flex items-center gap-2 flex-wrap">
                                                                     <p className="font-bold text-slate-800">{item.name}</p>
-                                                                    {item.kategori && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 whitespace-nowrap">{item.kategori}</span>}
+                                                                    {kanonKat(item.kategori) && <span data-kat-lencana className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 whitespace-nowrap">{kanonKat(item.kategori)}</span>}
                                                                 </div>
                                                                 {editingKategoriId === item.id ? (
                                                                     <div className="flex gap-1.5 items-center mt-1.5 flex-wrap">
-                                                                        <select value={editingKategoriValue} onChange={e => { setEditingKategoriValue(e.target.value); setEditingKategoriCustom(''); }}
-                                                                            className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-xs">
-                                                                            <option value="">-- Tanpa Kategori --</option>
-                                                                            {PRESET_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                                                                            <option value="Custom">Kustom...</option>
+                                                                        <select data-kat-pilih="item" value={editingKategoriValue} onChange={e => { setEditingKategoriValue(e.target.value); setEditingKategoriCustom(''); }}
+                                                                            className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-xs max-w-full">
+                                                                            {opsiKategori(editingKategoriValue)}
                                                                         </select>
-                                                                        {editingKategoriValue === 'Custom' && (
-                                                                            <input type="text" value={editingKategoriCustom} onChange={e => setEditingKategoriCustom(e.target.value)}
+                                                                        {editingKategoriValue === KAT_BARU && (
+                                                                            <input data-kat-ketik="item" type="text" value={editingKategoriCustom} onChange={e => setEditingKategoriCustom(e.target.value)}
                                                                                 placeholder="Nama kategori..." className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-xs w-28" />
                                                                         )}
-                                                                        <button onClick={() => { const kat = editingKategoriValue === 'Custom' ? (editingKategoriCustom.trim()||'') : editingKategoriValue; saveItemKategori(item.id, kat); }}
+                                                                        <button data-kat-simpan="item" onClick={() => { const kat = kategoriDariPilihan(editingKategoriValue, editingKategoriCustom); saveItemKategori(item.id, kat); }}
                                                                             className="bg-violet-600 hover:bg-violet-500 text-white px-2 py-1 rounded-lg text-xs font-bold transition">✓</button>
                                                                         <button onClick={() => setEditingKategoriId(null)}
                                                                             className="bg-slate-100 hover:bg-slate-200 text-slate-500 px-2 py-1 rounded-lg text-xs font-bold transition">✕</button>
@@ -33474,7 +33518,7 @@ ${getRekapShareLink(rekap)}
                                                             <td className="py-3 px-1 text-right font-extrabold text-indigo-600">{item.projectedProfit}</td>
                                                             <td className="py-3 px-1 text-center">
                                                                 <div className="flex items-center justify-center gap-1.5">
-                                                                    <button onClick={() => { setEditingKategoriId(item.id); const cat = item.kategori||''; if(PRESET_CATEGORIES.includes(cat)){setEditingKategoriValue(cat);setEditingKategoriCustom('');}else if(cat){setEditingKategoriValue('Custom');setEditingKategoriCustom(cat);}else{setEditingKategoriValue('');setEditingKategoriCustom('');} }} title="Edit Kategori" className="bg-violet-50 hover:bg-violet-100 text-violet-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-tag text-xs"></i></button>
+                                                                    <button onClick={() => { setEditingKategoriId(item.id); setEditingKategoriValue(pilihanDariKategori(item.kategori)); setEditingKategoriCustom(''); }} title="Edit Kategori" className="bg-violet-50 hover:bg-violet-100 text-violet-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-tag text-xs"></i></button>
                                                                     <button onClick={() => loadHistoryItem(item)} title="Buka di Kalkulator" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-1.5 rounded-lg transition"><i className="fa-solid fa-folder-open text-xs"></i></button>
                                                                     <button onClick={() => {
                                                                         const qi = { id:'QI-'+Date.now(), description: item.name, estQty: item.qty, estQtyDisplay: '', unitPrice: item.sellingPrice||0, discountType:'pct', discountValue:0 };
