@@ -1,5 +1,5 @@
-// Membuat gambar kartu link WhatsApp (og:image) dari logo kotak Simpati: kartu-wa.jpg (1200×630, desain A "putih bersih").
-// Logo & tombol "Ketuk untuk membuka" berada di zona tengah (630 px) agar tetap utuh saat WhatsApp memotong menjadi kotak kecil.
+// Membuat gambar kartu link WhatsApp (og:image) dari logo kotak Simpati: kartu-wa.jpg (1200×630, desain A "putih bersih", logo saja).
+// Logo berada di zona tengah (630 px) agar tetap utuh saat WhatsApp memotong menjadi kotak kecil.
 // Latar putih logo dibuat transparan (tanpa kotak putih). Jalankan bila logo berubah: node scripts/buat-kartu-wa.cjs (butuh Playwright + Chromium)
 const fs = require('fs');
 const path = require('path');
@@ -38,24 +38,17 @@ if (!fs.existsSync(sumber)) { console.error('src/logo-kotak-sumber.png tidak ada
       g.putImageData(src, 0, 0); return c;
     };
     const W = 1200, H = 630;
-    const pill = (g, x, y, w, h, isi, teks, warnaTeks) => {
-      g.fillStyle = 'rgba(0,0,0,0.18)'; g.beginPath(); g.roundRect(x, y + 7, w, h, h / 2); g.fill();
-      g.fillStyle = isi; g.beginPath(); g.roundRect(x, y, w, h, h / 2); g.fill();
-      g.fillStyle = warnaTeks; g.textAlign = 'center'; g.textBaseline = 'middle'; let fs = 54;
-      do { g.font = `800 ${fs}px Roboto, "Segoe UI", Arial, sans-serif`; fs -= 2; } while (g.measureText(teks).width > w - 60 && fs > 24);
-      g.fillText(teks, x + w / 2, y + h / 2 + 2);
-    };
     const desain = {};
-    const gambar = (nama, latar, logoMode, tombol) => {
+    const gambar = (nama, latar, logoMode) => {
       const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
       latar(g);
-      const L = mk(logoMode); const tw = 600, th = tw * lh / lw, ty = 110;
+      // logo saja, di tengah: lebar 560 px (muat di potongan kotak 630 px dengan sisa tepi)
+      const L = mk(logoMode); const tw = 560, th = tw * lh / lw, ty = Math.round((H - 22 - th) / 2);
       g.imageSmoothingQuality = 'high'; g.drawImage(L, (W - tw) / 2, ty, tw, th);
-      const bw = 600, bh = 120; pill(g, (W - bw) / 2, ty + th + 55, bw, bh, tombol[0], 'Ketuk untuk membuka ›', tombol[1]);
       desain[nama] = c.toDataURL('image/jpeg', 0.88).split(',')[1];
     };
     // A. Putih bersih + cahaya lembut + pita merah tipis
-    gambar('A', (g) => { const r = g.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, 700); r.addColorStop(0, '#ffffff'); r.addColorStop(1, '#f1f5f9'); g.fillStyle = r; g.fillRect(0, 0, W, H); g.fillStyle = '#dc2626'; g.fillRect(0, H - 16, W, 16); g.fillStyle = '#fca5a5'; g.fillRect(0, H - 22, W, 6); }, 'asli', ['#16a34a', '#ffffff']);
+    gambar('A', (g) => { const r = g.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, 700); r.addColorStop(0, '#ffffff'); r.addColorStop(1, '#f1f5f9'); g.fillStyle = r; g.fillRect(0, 0, W, H); g.fillStyle = '#dc2626'; g.fillRect(0, H - 16, W, 16); g.fillStyle = '#fca5a5'; g.fillRect(0, H - 22, W, 6); }, 'asli');
     return desain;
   }, logo);
   fs.writeFileSync(path.join(root, 'kartu-wa.jpg'), Buffer.from(out.A, 'base64'));
