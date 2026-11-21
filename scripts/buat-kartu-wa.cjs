@@ -1,4 +1,4 @@
-// Membuat gambar kartu link WhatsApp (og:image) dari logo kotak Simpati: kartu-wa.jpg (1200×630, desain A "putih bersih", logo saja).
+// Membuat gambar kartu link WhatsApp (og:image) dari logo kotak Simpati: kartu-wa.jpg (1200×630, logo Simpati saja di latar putih polos).
 // Logo berada di zona tengah (630 px) agar tetap utuh saat WhatsApp memotong menjadi kotak kecil.
 // Latar putih logo dibuat transparan (tanpa kotak putih). Jalankan bila logo berubah: node scripts/buat-kartu-wa.cjs (butuh Playwright + Chromium)
 const fs = require('fs');
@@ -43,12 +43,12 @@ if (!fs.existsSync(sumber)) { console.error('src/logo-kotak-sumber.png tidak ada
       const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
       latar(g);
       // logo saja, di tengah: lebar 560 px (muat di potongan kotak 630 px dengan sisa tepi)
-      const L = mk(logoMode); const tw = 560, th = tw * lh / lw, ty = Math.round((H - 22 - th) / 2);
+      const L = mk(logoMode); const tw = 560, th = tw * lh / lw, ty = Math.round((H - th) / 2);
       g.imageSmoothingQuality = 'high'; g.drawImage(L, (W - tw) / 2, ty, tw, th);
       desain[nama] = c.toDataURL('image/jpeg', 0.88).split(',')[1];
     };
-    // A. Putih bersih + cahaya lembut + pita merah tipis
-    gambar('A', (g) => { const r = g.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, 700); r.addColorStop(0, '#ffffff'); r.addColorStop(1, '#f1f5f9'); g.fillStyle = r; g.fillRect(0, 0, W, H); g.fillStyle = '#dc2626'; g.fillRect(0, H - 16, W, 16); g.fillStyle = '#fca5a5'; g.fillRect(0, H - 22, W, 6); }, 'asli');
+    // Latar putih polos, tanpa pita/garis
+    gambar('A', (g) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H); }, 'asli');
     return desain;
   }, logo);
   fs.writeFileSync(path.join(root, 'kartu-wa.jpg'), Buffer.from(out.A, 'base64'));
