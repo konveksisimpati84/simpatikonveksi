@@ -89,7 +89,7 @@ const templateSb = template.replace("'__SB_URL__'", () => JSON.stringify(sbUrl).
 const ikon = { __IKON_16__: ['ikon-16.png', 'image/png'] };
 // File ikon di samping index.html (dipakai Safari/Chrome iPhone & iPad, layar utama HP)
 // + file agar bisa dipasang di HP seperti aplikasi (manifest, service worker, ikon Android)
-['favicon.ico', 'favicon-32.png', 'apple-touch-icon.png', 'manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png'].forEach(f => { if (!fs.existsSync(path.join(root, f))) fail(`file ikon ${f} tidak ada di folder utama`); });
+['favicon.ico', 'favicon-32.png', 'apple-touch-icon.png', 'manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png', 'kartu-wa.jpg'].forEach(f => { if (!fs.existsSync(path.join(root, f))) fail(`file ikon ${f} tidak ada di folder utama`); });
 let templateIkon = templateSb;
 for (const [ph, [file, mime]] of Object.entries(ikon)) {
     if (!templateIkon.includes(ph)) fail(`template harus berisi ${ph}`);

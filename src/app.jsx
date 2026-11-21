@@ -309,6 +309,8 @@
         // ===== Pesan WhatsApp =====
         // Rupiah untuk pesan WA: tanda tak terlihat (word joiner) setelah titik ribuan agar WhatsApp tidak menjadikan angka
         // seperti "1.537.000" tautan nomor telepon (hijau bergaris). Angka yang terlihat tetap sama.
+        // Nama sudah diawali sapaan (Bu / Pak / Ibu / Bapak / Sdr …) → jangan ditambah "Bapak/Ibu" lagi di pesan WA
+        const punyaSapaan = (nama) => /^\s*(bapak|ibu|bu|pak|sdr|sdri|saudara|saudari|kak|mas|mbak|mba|bpk|yth)\b\.?/i.test(String(nama || ''));
         const rpWa = (num) => formatRupiah(num).replace(/\./g, '.\u2060');
         // Tanggal untuk pesan WA: "13 November 2026" (bukan 2026-11-13 yang dijadikan tautan oleh WhatsApp)
         const tglWa = (d) => { const v = String(d || '').slice(0, 10); const t = new Date(`${v}T00:00:00`); return /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(t.getTime()) ? t.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : String(d || '-'); };
@@ -12236,7 +12238,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 `📅 ${tglWa(d.tanggal)}`,
                 ...(d.keterangan ? [`📝 ${d.keterangan}`] : []),
                 ``,
-                `📄 Bukti & PDF:`,
+                `👇 Ketuk untuk melihat bukti dana & Simpan PDF:`,
                 url,
                 ``,
                 `Terima kasih 🙏`,
@@ -14404,7 +14406,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const waText = [
                     `*Assalamu'alaikum warahmatullahi wabarakatuh*`,
                     ``,
-                    `Kepada Bapak/Ibu`,
+                    punyaSapaan(bhp.nama) ? `Kepada` : `Kepada Bapak/Ibu`,
                     `*${bhp.nama},*`,
                     ``,
                     `Alhamdulillah, kami mengucapkan terima kasih yang sebesar-besarnya karena Bapak/Ibu telah membantu mempromosikan dan merekomendasikan *Simpati Konveksi* kepada orang-orang di sekitar Bapak/Ibu.`,
@@ -14427,7 +14429,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                     ``,
                     `Kami akan segera proses transfer setelah menerima konfirmasi dari Bapak/Ibu. 🙏`,
                     ``,
-                    `📄 Detail lengkap:`,
+                    `👇 Ketuk untuk melihat rincian bagi hasil:`,
                     url,
                     ``,
                     `Sekali lagi, terima kasih atas kepercayaan dan dukungan Bapak/Ibu kepada *Simpati Konveksi*. Semoga kerja sama kita bisa terus berlanjut dan membawa manfaat bagi kita semua.`,
@@ -16225,7 +16227,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 break-all text-xs text-gray-600">{shareUrl}</div>
                                 <div className="grid grid-cols-2 gap-2 mb-4">
                                     <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
-                                    <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(`Halo *${mktShareModal.marketing || ''}*,\n\nBerikut link laporan invoice & komisi marketing Anda di *Simpati Konveksi* (diperbarui otomatis):\n\n📊 ${shareUrl}\n\nTerima kasih atas kerja kerasnya 🙏`)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
+                                    <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(`Halo *${mktShareModal.marketing || ''}*,\n\nBerikut link laporan invoice & komisi marketing Anda di *Simpati Konveksi* (diperbarui otomatis):\n\n👇 Ketuk untuk melihat laporan invoice & komisi:\n${shareUrl}\n\nTerima kasih atas kerja kerasnya 🙏`)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
                                 </div>
                                 <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang punya link ini dapat melihat data invoice marketing ini.</p>
                                 <div className="flex justify-between items-center">
@@ -16246,8 +16248,8 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const rawPhone = sClient?.phone ? String(sClient.phone).replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
                     // Pesan WA: label pendek (tanpa spasi perataan), angka utama di baris sendiri, angka tidak jadi tautan nomor telepon
                     const rincianDiskonWa = sTotals.discount > 0 ? `• Subtotal: ${rpWa(sTotals.subtotal)}\n• Diskon: −${rpWa(sTotals.discount)}\n` : '';
-                    const waTagih = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nKami dari *Simpati Konveksi* ingin mengingatkan terkait tagihan invoice berikut:\n\n🧾 *DETAIL INVOICE*\n${rincianDiskonWa}• Total: ${rpWa(sTotals.total)}\n• Sudah dibayar: ${rpWa(sPaid)}\n\n💳 *Sisa tagihan: ${rpWa(sRemaining)}*\n\nMohon bantuan Bapak/Ibu untuk dapat segera melakukan pembayaran atas tagihan tersebut.\n\n*Pembayaran dari Bapak/Ibu sangat berarti bagi kami*, karena sangat membantu kelancaran operasional perusahaan, kebutuhan produksi, serta *gaji karyawan kami* yang menjadi bagian penting dalam keberlangsungan *Simpati Konveksi*.\n\nKami sangat berharap Bapak/Ibu dapat membantu memproses pembayaran tersebut. Dukungan dari customer sangat membantu kami untuk terus menjaga kelancaran produksi dan memberikan pelayanan terbaik.\n\nTerima kasih banyak atas perhatian, bantuan, dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*.\n\n📄 Detail invoice:\n${shareUrl}\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`;
-                    const waDp = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n*Kepada Bapak/Ibu*\n*${sInv.customer},*\n\nAlhamdulillah, terima kasih atas kepercayaan Bapak/Ibu yang telah mempercayakan kebutuhan seragamnya kepada *Simpati Konveksi*.\n\nBerikut kami sampaikan *ringkasan nilai pesanan* Bapak/Ibu:\n\n🧾 *RINGKASAN NILAI PESANAN*\n${rincianDiskonWa || ''}\n💰 *Total nilai pesanan: ${rpWa(sTotals.total)}*\n\nMohon bantuan Bapak/Ibu untuk dapat melakukan pembayaran *uang muka (DP)* guna memulai proses produksi.\n\n*Pembayaran DP sangat kami butuhkan untuk pembelian bahan dan persiapan produksi*, agar proses pengerjaan pesanan dapat segera kami mulai dan berjalan dengan lancar sesuai rencana.\n\nUntuk konfirmasi nominal DP dan informasi pembayaran, silakan menghubungi kami langsung.\n\nTerima kasih atas bantuan, kepercayaan, dan kerja sama Bapak/Ibu kepada *Simpati Konveksi*.\n\n📄 Detail invoice:\n${shareUrl}\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`;
+                    const waTagih = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n${punyaSapaan(sInv.customer) ? '*Kepada*' : '*Kepada Bapak/Ibu*'}\n*${sInv.customer},*\n\nKami dari *Simpati Konveksi* ingin mengingatkan terkait tagihan invoice berikut:\n\n🧾 *DETAIL INVOICE*\n${rincianDiskonWa}• Total: ${rpWa(sTotals.total)}\n• Sudah dibayar: ${rpWa(sPaid)}\n\n💳 *Sisa tagihan: ${rpWa(sRemaining)}*\n\nMohon bantuan Bapak/Ibu untuk dapat segera melakukan pembayaran atas tagihan tersebut.\n\n*Pembayaran dari Bapak/Ibu sangat berarti bagi kami*, karena sangat membantu kelancaran operasional perusahaan, kebutuhan produksi, serta *gaji karyawan kami* yang menjadi bagian penting dalam keberlangsungan *Simpati Konveksi*.\n\nKami sangat berharap Bapak/Ibu dapat membantu memproses pembayaran tersebut. Dukungan dari customer sangat membantu kami untuk terus menjaga kelancaran produksi dan memberikan pelayanan terbaik.\n\nTerima kasih banyak atas perhatian, bantuan, dan kepercayaan Bapak/Ibu kepada *Simpati Konveksi*.\n\n👇 Ketuk untuk melihat detail tagihan & cara bayar:\n${shareUrl}\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`;
+                    const waDp = `*Assalamu'alaikum warahmatullahi wabarakatuh*\n\n${punyaSapaan(sInv.customer) ? '*Kepada*' : '*Kepada Bapak/Ibu*'}\n*${sInv.customer},*\n\nAlhamdulillah, terima kasih atas kepercayaan Bapak/Ibu yang telah mempercayakan kebutuhan seragamnya kepada *Simpati Konveksi*.\n\nBerikut kami sampaikan *ringkasan nilai pesanan* Bapak/Ibu:\n\n🧾 *RINGKASAN NILAI PESANAN*\n${rincianDiskonWa || ''}\n💰 *Total nilai pesanan: ${rpWa(sTotals.total)}*\n\nMohon bantuan Bapak/Ibu untuk dapat melakukan pembayaran *uang muka (DP)* guna memulai proses produksi.\n\n*Pembayaran DP sangat kami butuhkan untuk pembelian bahan dan persiapan produksi*, agar proses pengerjaan pesanan dapat segera kami mulai dan berjalan dengan lancar sesuai rencana.\n\nUntuk konfirmasi nominal DP dan informasi pembayaran, silakan menghubungi kami langsung.\n\nTerima kasih atas bantuan, kepercayaan, dan kerja sama Bapak/Ibu kepada *Simpati Konveksi*.\n\n👇 Ketuk untuk melihat detail tagihan & cara bayar:\n${shareUrl}\n\n*Simpati Konveksi*\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`;
                     const mkUrl = (msg) => rawPhone ? `https://api.whatsapp.com/send?phone=${rawPhone}&text=${encodeURIComponent(msg)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
                     return (
                         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4">
@@ -17984,7 +17986,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 mb-4">
                                         <button onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Link berhasil disalin!', 'success'); }} className="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm">Salin Link</button>
-                                        <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(`*Assalamu'alaikum warahmatullahi wabarakatuh*\n\nYth. Bapak/Ibu *${shareModal.investor.name || ''}*,\n\nBerikut link laporan investasi & bagi hasil Bapak/Ibu di *Simpati Konveksi*. Laporan diperbarui otomatis.\n\n📊 Lihat laporan:\n${shareUrl}\n\nTerima kasih atas kepercayaannya 🙏\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`)}`, '_blank')} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Kirim WhatsApp</button>
+                                        <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(`*Assalamu'alaikum warahmatullahi wabarakatuh*\n\nYth. ${punyaSapaan(shareModal.investor.name) ? '' : 'Bapak/Ibu '}*${shareModal.investor.name || ''}*,\n\nBerikut link laporan investasi & bagi hasil Bapak/Ibu di *Simpati Konveksi*. Laporan diperbarui otomatis.\n\n👇 Ketuk untuk melihat laporan investasi:\n${shareUrl}\n\nTerima kasih atas kepercayaannya 🙏\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`)}`, '_blank')} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Kirim WhatsApp</button>
                                     </div>
                                     <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang memiliki link ini dapat melihat laporan investasi. Cabut akses jika tidak diperlukan lagi.</p>
                                     <div className="flex justify-between items-center">
@@ -22521,7 +22523,7 @@ Mohon informasinya, dana ingin diterima melalui *TRANSFER* atau *CASH* ya.
 
 Terima kasih atas kerja keras dan dedikasinya selama ini. Semoga menjadi rezeki yang halal, berkah, dan membawa kebaikan. Aamiin.
 
-📄 Slip lengkap & PDF:
+👇 Ketuk untuk melihat slip gaji & Simpan PDF:
 ${getRekapShareLink(rekap)}
 
 *Wassalamu'alaikum warahmatullahi wabarakatuh*`;
@@ -26205,7 +26207,7 @@ ${getRekapShareLink(rekap)}
                     if (p.dl) t += `\nDeadline: ${tglRekapPesanan(p.dl)}`;
                     t += '\n';
                 });
-                t += `\nPantau langsung: ${linkCustomer}`;
+                t += `\n👇 Ketuk untuk memantau produksi langsung:\n${linkCustomer}`;
                 return t.trim();
             };
             const salinWATracking = () => { if (g && g.aktif.length) salinTeks(teksWATracking(), 'Teks update produksi disalin. Tempel di WhatsApp.', 'Salin teks update produksi:'); };
@@ -28648,21 +28650,21 @@ ${getRekapShareLink(rekap)}
             const status = noteStatus(note);
             const pays = safeArray(note.payments).filter(p => p && safeMoney(p.amount) > 0);
             const terakhir = pays.length ? [...pays].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))[pays.length - 1] : null;
-            const salam = [`Assalamu'alaikum, Bapak/Ibu *${vendor}*.`, ``];
+            const salam = [`Assalamu'alaikum, ${punyaSapaan(vendor) ? '' : 'Bapak/Ibu '}*${vendor}*.`, ``];
             const tutup = [`Hormat kami,`, `*Simpati Konveksi*`];
             if (status === 'Lunas') return [...salam,
                 `Dengan ini kami sampaikan bahwa nota tanggal ${tglNotaWa(note.date)} sebesar *${rpWa(total)}* telah *LUNAS* ✅`,
                 ...(terakhir ? [`Pembayaran terakhir: ${rpWa(safeMoney(terakhir.amount))} (${tglNotaWa(terakhir.date)}).`] : []),
-                ``, `Rincian & bukti transfer:`, url, ``, `Terima kasih atas kerja samanya.`, ...tutup].join('\n');
+                ``, `👇 Ketuk untuk melihat rincian & bukti transfer:`, url, ``, `Terima kasih atas kerja samanya.`, ...tutup].join('\n');
             if (paid > 0) return [...salam,
                 `Kami informasikan pembayaran nota tanggal ${tglNotaWa(note.date)}:`, ``,
                 ...(terakhir ? [`✅ Dibayar (${labelBayarVendor(terakhir, pays.indexOf(terakhir))}): *${rpWa(safeMoney(terakhir.amount))}*`] : []),
                 `💰 Total terbayar: ${rpWa(paid)} dari ${rpWa(total)}`,
                 `⏳ Sisa: *${rpWa(sisa)}*`,
-                ``, `Rincian & bukti transfer:`, url, ``, `Terima kasih atas kerja samanya.`, ...tutup].join('\n');
+                ``, `👇 Ketuk untuk melihat rincian & bukti transfer:`, url, ``, `Terima kasih atas kerja samanya.`, ...tutup].join('\n');
             return [...salam,
                 `Terima kasih, nota pembelian tanggal ${tglNotaWa(note.date)} sebesar *${rpWa(total)}* sudah kami terima dan catat. Mohon maaf, pembayaran belum dapat kami lakukan saat ini dan akan *segera kami selesaikan*. Terima kasih atas pengertiannya.`,
-                ``, `Rincian nota:`, url, ``, ...tutup].join('\n');
+                ``, `👇 Ketuk untuk melihat rincian nota:`, url, ``, ...tutup].join('\n');
         };
         const NOTA_VENDOR_KOLOM_SHARE = ['companyLogoMini', 'companyName', 'companySubtitle', 'companyContact', 'companyAddress', 'showSignatureOnPrint', 'signatureSize', 'printMode', 'logoSize'];
         const NOTA_VENDOR_GAYA = {
@@ -29179,7 +29181,7 @@ ${getRekapShareLink(rekap)}
                 const ket = String(trx.note || '').trim();
                 const tp = tipsTrip(trx);
                 const tpNote = String(trx.tipsNote || '').trim();
-                const msg = `Halo *${drv ? drv.name : 'Driver'}*,\n\n🛵 *ORDER PENGIRIMAN BARU*\n${ket ? '📝 *' + ket + '*\n' : ''}📍 Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n🔁 Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n💰 Ongkir: *${rpWa(safeMoney(trx.ongkir))}*\n${tp > 0 ? '🎁 Tip: *' + rpWa(tp) + '*' + (tpNote ? ' — ' + tpNote : '') + '\n' : ''}\n👉 Ketuk link untuk konfirmasi:\n${link}`;
+                const msg = `Halo *${drv ? drv.name : 'Driver'}*,\n\n🛵 *ORDER PENGIRIMAN BARU*\n${ket ? '📝 *' + ket + '*\n' : ''}📍 Rute: ${tarif ? tarif.from + ' → ' + tarif.to : '-'}\n🔁 Jenis: ${trx.tripType==='pp'?'Pulang Pergi (PP)':'Sekali Jalan'}\n💰 Ongkir: *${rpWa(safeMoney(trx.ongkir))}*\n${tp > 0 ? '🎁 Tip: *' + rpWa(tp) + '*' + (tpNote ? ' — ' + tpNote : '') + '\n' : ''}\n👇 Ketuk untuk konfirmasi order:\n${link}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g,'').replace(/^0/,'62') : '';
                 const waUrl = phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
                 window.open(waUrl, '_blank');
@@ -29984,7 +29986,7 @@ ${getRekapShareLink(rekap)}
                 const drv = visibleDrivers.find(d => d.id === rekap.driverId);
                 const pot = safeMoney(rekap.potonganKasbon);
                 const apr = safeMoney(rekap.apresiasi);
-                const msg = `Halo *${drv ? drv.name : (rekap.driverName || 'Driver')}*,\n\n🧾 *SLIP GAJI PENGIRIMAN*\n${rekap.periodeDari ? '📅 ' + labelPeriodeRekap(rekap) + '\n' : ''}\n• Jumlah trip: ${rekap.jumlahTrip || 0}\n• Total ongkir: ${rpWa(safeMoney(rekap.totalOngkir))}\n${safeMoney(rekap.totalTips) > 0 ? `• Tip: ${rpWa(safeMoney(rekap.totalTips))}\n` : ''}${apr > 0 ? `• Apresiasi: ${rpWa(apr)}${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `• Potong kasbon: −${rpWa(pot)}\n` : ''}\n💰 *Gaji diterima: ${rpWa(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${drvRekapStatus(rekap) === 'lunas' ? '✅ Sudah dibayar\n' : `⏳ ${DRV_STATUS_BAYAR_LABEL[drvRekapStatus(rekap)]}${drvRekapDibayar(rekap) > 0 ? ` · sudah dibayar ${rpWa(drvRekapDibayar(rekap))}` : ''} · sisa *${rpWa(drvRekapSisa(rekap))}*\n`}${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\n📄 Rincian & PDF:\n${linkSlip(rekap)}`;
+                const msg = `Halo *${drv ? drv.name : (rekap.driverName || 'Driver')}*,\n\n🧾 *SLIP GAJI PENGIRIMAN*\n${rekap.periodeDari ? '📅 ' + labelPeriodeRekap(rekap) + '\n' : ''}\n• Jumlah trip: ${rekap.jumlahTrip || 0}\n• Total ongkir: ${rpWa(safeMoney(rekap.totalOngkir))}\n${safeMoney(rekap.totalTips) > 0 ? `• Tip: ${rpWa(safeMoney(rekap.totalTips))}\n` : ''}${apr > 0 ? `• Apresiasi: ${rpWa(apr)}${rekap.apresiasiNote ? ` (${rekap.apresiasiNote})` : ''}\n` : ''}${pot > 0 ? `• Potong kasbon: −${rpWa(pot)}\n` : ''}\n💰 *Gaji diterima: ${rpWa(safeMoney(rekap.gajiDiterima != null ? rekap.gajiDiterima : rekap.totalOngkir))}*\n${drvRekapStatus(rekap) === 'lunas' ? '✅ Sudah dibayar\n' : `⏳ ${DRV_STATUS_BAYAR_LABEL[drvRekapStatus(rekap)]}${drvRekapDibayar(rekap) > 0 ? ` · sudah dibayar ${rpWa(drvRekapDibayar(rekap))}` : ''} · sisa *${rpWa(drvRekapSisa(rekap))}*\n`}${apr > 0 ? '\nTerima kasih atas kerja kerasnya 🙏\n' : ''}\n👇 Ketuk untuk melihat slip gaji & Simpan PDF:\n${linkSlip(rekap)}`;
                 const phone = drv && drv.phone ? drv.phone.replace(/[^0-9]/g, '').replace(/^0/, '62') : '';
                 window.open(phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
             };
