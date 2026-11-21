@@ -1396,18 +1396,15 @@
                 .filter(l => l && !l.isDeleted && !l.isReported && l.checkAfter && getWorkLogSubmittedQty(l) > 0)
                 .map(l => ({ ...l, stageId })));
 
-        // #customer-tracking=<nama>[&juga=<nama lain>]… — nama lain = ejaan lain instansi yang sama (Data Master Klien / order)
-        const getCustomerTrackingNamesFromHash = () => {
+        // #customer-tracking=<kode acak TI-…> — nama instansi tidak lagi ditulis di link.
+        // Link lama (#customer-tracking=<nama sekolah>) tetap terdeteksi sebagai link tracking, tapi ditolak ("tidak berlaku").
+        const getCustomerTrackingClientFromHash = () => {
             const hash = window.location.hash || '';
             const prefix = '#customer-tracking=';
-            if (!hash.startsWith(prefix)) return [];
-            try {
-                return hash.slice(prefix.length).split('&juga=').map(x => decodeURIComponent(x)).filter(x => String(x || '').trim());
-            } catch (error) {
-                return [];
-            }
+            if (!hash.startsWith(prefix)) return '';
+            const isi = hash.slice(prefix.length);
+            return isi ? isi : '';
         };
-        const getCustomerTrackingClientFromHash = () => getCustomerTrackingNamesFromHash()[0] || '';
 
         // ===== Link share: ambil hanya data yang diperlukan (lebih cepat dibuka di HP, data lain tidak ikut terunduh) =====
         // Memakai fungsi kecil di Supabase: share_cocok, share_ids, share_order_instansi, share_invoice_marketing
@@ -1602,6 +1599,54 @@
         );
 
         const genId = (prefix = '') => `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        // Huruf acak kuat (crypto) untuk kode link share — tidak bisa ditebak
+        const hexAcak = (nByte) => {
+            try { const a = new Uint8Array(nByte); window.crypto.getRandomValues(a); return [...a].map(b => b.toString(16).padStart(2, '0')).join(''); }
+            catch (e) { let t = ''; while (t.length < nByte * 2) t += Math.random().toString(16).slice(2); return t.slice(0, nByte * 2); }
+        };
+        const tokenKuat = (prefix = '') => `${prefix}${hexAcak(10)}`;
+        // ID record yang juga dipakai sebagai link share (slip gaji, SIJEK): bentuk sama dengan genId, bagian acaknya lebih panjang
+        const genIdKuat = (prefix = '') => `${prefix}${Date.now()}-${hexAcak(8)}`;
+        // ===== Link Tracking Instansi: kode acak per instansi (bukan nama sekolah) =====
+        // Disimpan di baris app_data 'trackingLinks': [{ kunci, token, nama: [nama utama, nama lain...], diubah }]
+        const TRACKING_KOLEKSI = 'trackingLinks';
+        const POLA_TOKEN_TRACKING = /^TI-[0-9a-f]{20}$/;
+        const bacaTrackingLinks = async () => {
+            if (!supabaseClient) throw new Error('offline');
+            const { data, error } = await supabaseClient.from('app_data').select('data').eq('id', TRACKING_KOLEKSI);
+            if (error) throw error;
+            const row = Array.isArray(data) ? data[0] : null;
+            return Array.isArray(row && row.data) ? row.data.filter(x => x && typeof x === 'object') : [];
+        };
+        // Tombol "🔄 Ganti link" dengan konfirmasi 2 langkah: kode baru dibuat, link lama langsung tidak berlaku
+        const TombolGantiLink = ({ onGanti }) => {
+            const [tanya, setTanya] = React.useState(false);
+            if (!tanya) return <button type="button" data-ganti-link onClick={() => setTanya(true)} className="text-xs font-bold text-amber-700 hover:text-amber-800 underline underline-offset-2">🔄 Ganti link</button>;
+            return (
+                <div data-ganti-link-tanya className="w-full bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs flex flex-wrap items-center gap-2">
+                    <span className="text-amber-800 font-semibold flex-1 min-w-[10rem]">Link lama yang sudah dikirim tidak bisa dibuka lagi. Lanjut?</span>
+                    <button type="button" data-ganti-link-ya onClick={() => { setTanya(false); onGanti(); }} className="bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-md font-bold">Ya, ganti</button>
+                    <button type="button" data-ganti-link-batal onClick={() => setTanya(false)} className="bg-white border border-gray-200 text-gray-700 px-2.5 py-1 rounded-md font-bold">Batal</button>
+                </div>
+            );
+        };
+        const PESAN_LINK_DIGANTI = 'Link baru dibuat. Link lama sudah tidak berlaku.';
+        // Ambil/buat link instansi. ganti=true → kode baru (link lama langsung tidak berlaku)
+        const siapkanTrackingLink = async (kunci, namaList, ganti = false) => {
+            const nama = [...new Set(safeArray(namaList).map(x => String(x || '').trim()).filter(Boolean))];
+            const kunciNama = new Set(nama.map(klienNorm));
+            const daftar = await bacaTrackingLinks();
+            let i = daftar.findIndex(x => x.kunci === kunci);
+            // Kunci instansi bisa berubah (mis. baru dibuat di Data Master Klien): cocokkan juga lewat nama utama
+            if (i < 0) i = daftar.findIndex(x => kunciNama.has(klienNorm(safeArray(x.nama)[0])));
+            const lama = i >= 0 ? daftar[i] : null;
+            if (lama && POLA_TOKEN_TRACKING.test(String(lama.token || '')) && !ganti && lama.kunci === kunci && sameJson(safeArray(lama.nama), nama)) return lama.token;
+            const baru = { kunci, token: (!ganti && lama && POLA_TOKEN_TRACKING.test(String(lama.token || ''))) ? lama.token : tokenKuat('TI-'), nama, diubah: new Date().toISOString() };
+            const next = i >= 0 ? daftar.map((x, j) => j === i ? baru : x) : [...daftar, baru];
+            const { error } = await supabaseClient.from('app_data').upsert({ id: TRACKING_KOLEKSI, data: next }, { onConflict: 'id' });
+            if (error) throw error;
+            return baru.token;
+        };
         // Nomor versi aplikasi (diisi otomatis saat build di <meta name="app-versi">), mis. "v2026.11.13-1"
         const APP_VERSI = (() => { try { const v = document.querySelector('meta[name="app-versi"]')?.content || ''; return /^v\d/.test(v) ? v : ''; } catch (e) { return ''; } })();
         // Bandingkan dua nomor versi: >0 bila a lebih baru dari b
@@ -2795,7 +2840,7 @@
             const sizeStr = String(size || '-');
             const sizeFS = sizeStr.length <= 3 ? '24px' : sizeStr.length <= 6 ? '17px' : sizeStr.length <= 10 ? '12px' : '9px';
             const noteText = note ? (note.length > 28 ? note.slice(0, 28) + '…' : note) : '-';
-            const printContent = `<!DOCTYPE html><html><head><title>Stiker Revisi - ${client}</title>
+            const printContent = `<!DOCTYPE html><html><head><title>Stiker Revisi - ${escapeHtmlText(client)}</title>
             <style>
                 @page { size: 60mm 40mm; margin: 0; }
                 body { font-family: Arial, sans-serif; margin: 0; padding: 2mm 3mm; width: 60mm; height: 40mm; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; text-align: center; background: #fff; color: #000; }
@@ -2812,14 +2857,14 @@
             </style></head>
             <body>
                 <div class="revisi-badge">⚠ REVISI</div>
-                <div class="client">${client || '-'}</div>
-                <div class="type">${type || '-'}</div>
-                <div class="worker">Worker: ${worker || '-'}</div>
+                <div class="client">${escapeHtmlText(client || '-')}</div>
+                <div class="type">${escapeHtmlText(type || '-')}</div>
+                <div class="worker">Worker: ${escapeHtmlText(worker || '-')}</div>
                 <div class="details">
-                    <div class="box"><div class="box-title">Size</div><div class="box-val" style="font-size:${sizeFS};">${size || '-'}</div></div>
-                    <div class="box"><div class="box-title" style="color:#dc2626">Pcs</div><div class="box-val" style="font-size:${qtyFS};">${qty || 0}</div></div>
+                    <div class="box"><div class="box-title">Size</div><div class="box-val" style="font-size:${sizeFS};">${escapeHtmlText(size || '-')}</div></div>
+                    <div class="box"><div class="box-title" style="color:#dc2626">Pcs</div><div class="box-val" style="font-size:${qtyFS};">${escapeHtmlText(qty || 0)}</div></div>
                 </div>
-                <div class="note-row">Ket: ${noteText}</div>
+                <div class="note-row">Ket: ${escapeHtmlText(noteText)}</div>
                 <div class="date">Tgl: ${stickerDate}</div>
             </body></html>`;
             const printWindow = window.open('', '_blank');
@@ -8541,7 +8586,7 @@ window.addEventListener('load',function(){
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Stiker Label - ${client}</title>
+                    <title>Stiker Label - ${escapeHtmlText(client)}</title>
                     <style>
                         @page { size: 60mm 40mm; margin: 0; }
                         body { 
@@ -8570,17 +8615,17 @@ window.addEventListener('load',function(){
                     </style>
                 </head>
                 <body>
-                    <div class="client">${client}</div>
-                    <div class="type">${type}</div>
-                    <div class="emp">${empText}</div>
+                    <div class="client">${escapeHtmlText(client)}</div>
+                    <div class="type">${escapeHtmlText(type)}</div>
+                    <div class="emp">${escapeHtmlText(empText)}</div>
                     <div class="details">
                         <div class="box">
                             <div class="box-title">Size</div>
-                            <div class="box-val" style="font-size:${sizeFS};">${size}</div>
+                            <div class="box-val" style="font-size:${sizeFS};">${escapeHtmlText(size)}</div>
                         </div>
                         <div class="box">
                             <div class="box-title" style="color: #000;">Qty</div>
-                            <div class="box-val" style="font-size:${qtyFS};">${qty}</div>
+                            <div class="box-val" style="font-size:${qtyFS};">${escapeHtmlText(qty)}</div>
                         </div>
                     </div>
                     <div class="date">Tgl: ${stickerDate}</div>
@@ -10439,10 +10484,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 ...safeArray(note.payments).filter(p => p && p.proofImage).map((p, i) => ({ label: `Bukti bayar · ${p.date || '-'} · ${formatRupiah(parseFloat(p.amount) || 0)}`, src: p.proofImage, kunci: 'pay:' + p.id })),
             ];
             const lihatFotoNota = (note, kunci) => { const g = galeriNota(note); if (!g.length) return; bukaPenampilGambar({ gambar: g.map(x => ({ label: x.label, src: x.src })), awal: Math.max(0, g.findIndex(x => x.kunci === kunci)), judul: `Nota ${normalizeVendorName(note.vendor)} · ${note.date || '-'}` }); };
-            const tokenAcak = () => { try { const a = new Uint8Array(10); window.crypto.getRandomValues(a); return 'NV-' + [...a].map(b => b.toString(16).padStart(2, '0')).join(''); } catch (e) { return genId('NV-') + Math.random().toString(36).slice(2, 8); } };
             const bukaKirimNota = (note) => {
                 let token = note.shareToken;
-                if (!token) { token = tokenAcak(); ubahNotaFoto(note.id, n => (n.shareToken ? n : { ...n, shareToken: token })); }
+                if (!token) { token = tokenKuat('NV-'); ubahNotaFoto(note.id, n => (n.shareToken ? n : { ...n, shareToken: token })); }
                 setKirimNota({ id: note.id, token });
             };
             const [noteSearch, setNoteSearch] = useState('');
@@ -11285,6 +11329,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                                 <a data-nota-kirim-buka href={url} target="_blank" rel="noopener noreferrer" className="text-center rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold py-2.5">👁 Lihat halaman</a>
                                             </div>
                                             <p className="text-xs text-gray-500">WhatsApp akan meminta Anda memilih kontak vendor. Link tetap sama — vendor selalu melihat status pembayaran terbaru.</p>
+                                            <TombolGantiLink onGanti={() => { const t = tokenKuat('NV-'); ubahNotaFoto(nk.id, n => ({ ...n, shareToken: t })); setKirimNota(k => k ? { ...k, token: t } : k); showToast(PESAN_LINK_DIGANTI, 'success'); }} />
                                             <p className="text-[11px] text-gray-400 break-all">{url}</p>
                                         </div>
                                     </div>
@@ -12221,7 +12266,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 if (tolakTanpaAkses()) return;
                 let token = d.shareToken;
                 if (!token) {
-                    token = genId('DOS-');
+                    token = tokenKuat('DOS-');
                     const now = new Date().toISOString();
                     setDanaOperasional(prev => safeArray(prev).map(x => String(x.id) === String(d.id) ? { ...x, shareToken: token, _syncUpdatedAt: now } : x));
                 }
@@ -12439,6 +12484,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                         <div data-dana-kirim-pesan className="rounded-xl bg-[#d9fdd3] border border-green-200 px-3 py-2 text-[13px] whitespace-pre-wrap break-words text-gray-800">{pesan.replace(/⁠/g, '').replace(/\*/g, '')}</div>
                                         <a data-dana-kirim-wa href={hp ? `https://api.whatsapp.com/send?phone=${hp}&text=${encodeURIComponent(pesan)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(pesan)}`} target="_blank" rel="noopener noreferrer" className="block text-center rounded-xl bg-green-600 hover:bg-green-700 text-white font-black py-2.5">💬 Kirim WA{hp ? ` ke ${d.karyawanNama || ''}` : ''}</a>
                                         <button type="button" data-dana-kirim-salin onClick={salin} className="w-full rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold py-2.5">🔗 Salin link</button>
+                                        <TombolGantiLink onGanti={() => { const t = tokenKuat('DOS-'); const nowIso = new Date().toISOString(); setDanaOperasional(prev => safeArray(prev).map(x => String(x.id) === String(d.id) ? { ...x, shareToken: t, _syncUpdatedAt: nowIso } : x)); setKirimDana(k => k ? { ...k, token: t } : k); showToast(PESAN_LINK_DIGANTI, 'success'); }} />
                                         {!hp && <p className="text-xs text-gray-500">Nomor HP {d.karyawanNama || 'karyawan'} belum diisi di Data Karyawan — WhatsApp akan meminta Anda memilih kontak.</p>}
                                         <p className="text-[11px] text-gray-400 break-all">{url}</p>
                                     </div>
@@ -14310,7 +14356,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 if (form.invoiceIds.length === 0) return showToast('Pilih minimal 1 invoice.', 'error');
                 if (!safeMoney(form.bagiHasilValue)) return showToast('Nominal bagi hasil wajib diisi.', 'error');
                 const now = new Date().toISOString();
-                const shareToken = editId ? (safeBhp.find(b => b.id === editId)?.shareToken || genId('BHS-')) : genId('BHS-');
+                const shareToken = editId ? (safeBhp.find(b => b.id === editId)?.shareToken || tokenKuat('BHS-')) : tokenKuat('BHS-');
                 const row = {
                     id: editId || genId('BHP-'),
                     nama: String(form.nama).trim(),
@@ -14738,9 +14784,10 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                                 <div className="mb-3">
                                     <div className="text-xs font-bold text-gray-500 mb-1">Link Halaman</div>
                                     <div className="flex gap-2">
-                                        <input readOnly value={shareModal.url} className="flex-1 text-xs p-2 border border-gray-200 rounded-lg bg-gray-50 font-mono" onClick={e => e.target.select()} />
+                                        <input readOnly data-bhp-share-url value={shareModal.url} className="flex-1 text-xs p-2 border border-gray-200 rounded-lg bg-gray-50 font-mono" onClick={e => e.target.select()} />
                                         <button onClick={() => { navigator.clipboard?.writeText(shareModal.url); showToast('Link disalin', 'success'); }} className="px-3 py-2 text-xs font-bold bg-teal-600 text-white rounded-lg">Salin</button>
                                     </div>
+                                    <div className="mt-2"><TombolGantiLink onGanti={() => { const t = tokenKuat('BHS-'); const idB = shareModal.bhp.id; updateBagiHasilPromosi(prev => (Array.isArray(prev) ? prev : []).map(b => String(b.id) === String(idB) ? { ...b, shareToken: t, _syncUpdatedAt: new Date().toISOString() } : b)); openShareModal({ ...shareModal.bhp, shareToken: t }); showToast(PESAN_LINK_DIGANTI, 'success'); }} /></div>
                                 </div>
                                 <div className="mb-4">
                                     <div className="text-xs font-bold text-gray-500 mb-1">Pesan WA</div>
@@ -15062,7 +15109,7 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const emp = (employees || []).find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(empName).toLowerCase().trim());
                 if (!emp) return null;
                 if (emp.marketingShareToken) return emp.marketingShareToken;
-                const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+                const token = tokenKuat('MK-');
                 if (setEmployees) setEmployees(prev => (Array.isArray(prev) ? prev : []).map(e => String(e.id) === String(emp.id) ? { ...e, marketingShareToken: token, _syncUpdatedAt: new Date().toISOString() } : e));
                 return token;
             };
@@ -15075,8 +15122,21 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 const inv = safeInvoiceRows.find(i => !i.isDeleted && String(i.id) === String(invId));
                 if (!inv) return null;
                 if (inv.invoiceShareToken) return inv.invoiceShareToken;
-                const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + Date.now().toString(36);
+                const token = tokenKuat('INV-');
                 if (setInvoices) setInvoices(prev => (Array.isArray(prev) ? prev : []).map(i => String(i.id) === String(invId) ? { ...i, invoiceShareToken: token, _syncUpdatedAt: new Date().toISOString() } : i));
+                return token;
+            };
+            const gantiInvShareToken = (invId) => {
+                if (!setInvoices) return null;
+                const token = tokenKuat('INV-');
+                setInvoices(prev => (Array.isArray(prev) ? prev : []).map(i => String(i.id) === String(invId) ? { ...i, invoiceShareToken: token, _syncUpdatedAt: new Date().toISOString() } : i));
+                return token;
+            };
+            const gantiMktToken = (empName) => {
+                const emp = (employees || []).find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(empName).toLowerCase().trim());
+                if (!emp || !setEmployees) return null;
+                const token = tokenKuat('MK-');
+                setEmployees(prev => (Array.isArray(prev) ? prev : []).map(e => String(e.id) === String(emp.id) ? { ...e, marketingShareToken: token, _syncUpdatedAt: new Date().toISOString() } : e));
                 return token;
             };
             const revokeInvShareToken = (invId) => {
@@ -16230,6 +16290,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                     <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(`Halo *${mktShareModal.marketing || ''}*,\n\nBerikut link laporan invoice & komisi marketing Anda di *Simpati Konveksi* (diperbarui otomatis):\n\n👇 Ketuk untuk melihat laporan invoice & komisi:\n${shareUrl}\n\nTerima kasih atas kerja kerasnya 🙏`)}`, '_blank')} className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm">Kirim WA</button>
                                 </div>
                                 <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang punya link ini dapat melihat data invoice marketing ini.</p>
+                                <div className="mb-3"><TombolGantiLink onGanti={() => { const t = gantiMktToken(mktShareModal.marketing); if (t) { setMktShareModal(m => m ? { ...m, token: t } : m); showToast(PESAN_LINK_DIGANTI, 'success'); } }} /></div>
                                 <div className="flex justify-between items-center">
                                     <button onClick={() => { revokeMktToken(mktShareModal.marketing); setMktShareModal(null); showToast('Akses link dicabut', 'success'); }} className="text-xs text-red-500 hover:text-red-700 font-medium">Cabut Akses Link</button>
                                     <button onClick={() => setMktShareModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Tutup</button>
@@ -16281,6 +16342,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 </div>
                                 {!rawPhone && <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mb-3">⚠ Nomor WA customer tidak ditemukan di data klien. WA akan terbuka tanpa nomor tujuan.</p>}
                                 <p className="text-xs text-gray-400 bg-yellow-50 border border-yellow-200 rounded p-2 mb-4">⚠️ Siapapun yang punya link ini dapat melihat detail invoice ini.</p>
+                                <div className="mb-3"><TombolGantiLink onGanti={() => { const t = gantiInvShareToken(sInv.id); if (t) { setInvShareModal(m => m ? { ...m, token: t } : m); showToast(PESAN_LINK_DIGANTI, 'success'); } }} /></div>
                                 <div className="flex justify-between items-center">
                                     <button onClick={() => { revokeInvShareToken(sInv.id); setInvShareModal(null); showToast('Akses link dicabut', 'success'); }} className="text-xs text-red-500 hover:text-red-700 font-medium">Cabut Akses Link</button>
                                     <button onClick={() => setInvShareModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Tutup</button>
@@ -17543,13 +17605,18 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const getOrCreateShareToken = (investorId) => {
                 const inv = safeInvestors.find(i => i.id === investorId);
                 if (inv?.shareToken) return inv.shareToken;
-                const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+                const token = tokenKuat('IVS-');
                 setInvestors(prev => safeArray(prev).map(i => i.id === investorId ? { ...i, shareToken: token, _syncUpdatedAt: now() } : i));
                 return token;
             };
 
             const revokeShareToken = (investorId) => {
                 setInvestors(prev => safeArray(prev).map(i => i.id === investorId ? { ...i, shareToken: null, _syncUpdatedAt: now() } : i));
+            };
+            const gantiShareToken = (investorId) => {
+                const token = tokenKuat('IVS-');
+                setInvestors(prev => safeArray(prev).map(i => i.id === investorId ? { ...i, shareToken: token, _syncUpdatedAt: now() } : i));
+                return token;
             };
 
             const deleteInvestor = (id) => {
@@ -17989,6 +18056,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                         <button onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(`*Assalamu'alaikum warahmatullahi wabarakatuh*\n\nYth. ${punyaSapaan(shareModal.investor.name) ? '' : 'Bapak/Ibu '}*${shareModal.investor.name || ''}*,\n\nBerikut link laporan investasi & bagi hasil Bapak/Ibu di *Simpati Konveksi*. Laporan diperbarui otomatis.\n\n👇 Ketuk untuk melihat laporan investasi:\n${shareUrl}\n\nTerima kasih atas kepercayaannya 🙏\n*Wassalamu'alaikum warahmatullahi wabarakatuh*`)}`, '_blank')} className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-sm">Kirim WhatsApp</button>
                                     </div>
                                     <p className="text-xs text-gray-400 mb-4 bg-yellow-50 border border-yellow-200 rounded p-2">⚠️ Siapapun yang memiliki link ini dapat melihat laporan investasi. Cabut akses jika tidak diperlukan lagi.</p>
+                                    <div className="mb-3"><TombolGantiLink onGanti={() => { const t = gantiShareToken(shareModal.investor.id); setShareModal(m => m ? { ...m, token: t } : m); showToast(PESAN_LINK_DIGANTI, 'success'); }} /></div>
                                     <div className="flex justify-between items-center">
                                         <button onClick={() => { revokeShareToken(shareModal.investor.id); setShareModal(null); showToast('Akses link berhasil dicabut', 'success'); }} className="text-xs text-red-500 hover:text-red-700 font-medium">Cabut Akses Link</button>
                                         <button onClick={() => setShareModal(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Tutup</button>
@@ -22274,7 +22342,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const overtimeLogsForRekap = allUnrekapedLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id || log.date)));
                 const previewDailyForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).daily > 0 && modalData?.selectedDailyKeys?.has(String(log.id)));
                 const previewOvertimeForRekap = allPreviewLogs.filter(log => getDailySalaryLogTotal(log).overtime > 0 && modalData?.selectedOvertimeKeys?.has(String(log.id)));
-                const newRekapId = genId('RKP-');
+                const newRekapId = genIdKuat('RKP-');
                 const toFinalLog = (log) => { const { _isAutoPreview, ...rest } = log; return { ...rest, id: genId('DAY-'), rekapId: newRekapId }; };
                 const finalPreviewLogs = [...new Map([...previewDailyForRekap, ...previewOvertimeForRekap].map(l => [String(l.id), l])).values()].map(toFinalLog);
                 const allLogsForRekap = [...new Map([...dailySalaryLogsForRekap, ...overtimeLogsForRekap, ...finalPreviewLogs].map(l => [String(l.id || l.date), l])).values()];
@@ -26103,6 +26171,9 @@ ${getRekapShareLink(rekap)}
             const [saring, setSaring] = useState('aktif');
             const [urut, setUrut] = useState('deadline');
             const [bukaUkuran, setBukaUkuran] = useState(() => new Set());
+            // Link customer: kode acak per instansi (dibuat/diambil dari server saat detail dibuka)
+            const [tiLink, setTiLink] = useState({ kunci: '', token: '', status: '' });
+            const [tiGantiTanya, setTiGantiTanya] = useState(false);
             const posGulirRef = React.useRef(0);
             const hariIni = toLocalDateStr();
             const safeOrders = React.useMemo(() => safeArray(orders).filter(isVisibleOrder), [orders]);
@@ -26169,7 +26240,19 @@ ${getRekapShareLink(rekap)}
 
             // ===== Detail instansi =====
             const g = tiView === 'detail' ? (kelompok.find(k => k.key === selKey) || null) : null;
-            const linkCustomer = g ? `${window.location.href.split('#')[0]}#customer-tracking=${encodeURIComponent(g.nama)}${g.alias.map(a => '&juga=' + encodeURIComponent(a)).join('')}` : '';
+            const tiNamaLink = g ? [g.nama, ...g.alias] : [];
+            const tiNamaSig = g ? g.key + '|' + JSON.stringify(tiNamaLink) : '';
+            const muatTiLink = (ganti = false) => {
+                if (!g) return;
+                const kunci = g.key, nama = [g.nama, ...g.alias];
+                setTiLink(x => ({ kunci, token: ganti || x.kunci !== kunci ? '' : x.token, status: 'memuat' }));
+                siapkanTrackingLink(kunci, nama, ganti)
+                    .then(token => { setTiLink(x => x.kunci === kunci ? { kunci, token, status: 'siap' } : x); if (ganti) showToast('Link baru dibuat. Link lama sudah tidak berlaku.', 'success'); })
+                    .catch(() => setTiLink(x => x.kunci === kunci ? { kunci, token: '', status: 'gagal' } : x));
+            };
+            React.useEffect(() => { if (tiNamaSig) muatTiLink(false); setTiGantiTanya(false); }, [tiNamaSig]);
+            const tiLinkSiap = !!(g && tiLink.kunci === g.key && tiLink.status === 'siap' && tiLink.token);
+            const linkCustomer = tiLinkSiap ? `${window.location.href.split('#')[0]}#customer-tracking=${tiLink.token}` : '';
             const sjInstansi = React.useMemo(() => {
                 if (!g) return [];
                 const ids = new Set(g.orders.map(o => String(o.id)));
@@ -26210,7 +26293,7 @@ ${getRekapShareLink(rekap)}
                 t += `\n👇 Ketuk untuk memantau produksi langsung:\n${linkCustomer}`;
                 return t.trim();
             };
-            const salinWATracking = () => { if (g && g.aktif.length) salinTeks(teksWATracking(), 'Teks update produksi disalin. Tempel di WhatsApp.', 'Salin teks update produksi:'); };
+            const salinWATracking = () => { if (g && g.aktif.length && linkCustomer) salinTeks(teksWATracking(), 'Teks update produksi disalin. Tempel di WhatsApp.', 'Salin teks update produksi:'); };
 
             const printTracking = () => {
                 if (!g || g.aktif.length === 0) return;
@@ -26351,11 +26434,34 @@ ${getRekapShareLink(rekap)}
                                     {g.alias.length > 0 && <div className="text-xs text-gray-500 mt-0.5">juga tertulis: {g.alias.join(', ')}</div>}
                                 </div>
                                 <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 shrink-0">
-                                    <a data-ti-link-customer href={linkCustomer} target="_blank" rel="noopener noreferrer" className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-bold text-sm text-center whitespace-nowrap">🔗 Link Customer</a>
-                                    <button type="button" data-ti-salin-link onClick={copyCustomerTrackingLink} className="bg-green-100 hover:bg-green-200 text-green-800 px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap">Salin Link</button>
+                                    {linkCustomer
+                                        ? <a data-ti-link-customer href={linkCustomer} target="_blank" rel="noopener noreferrer" className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg font-bold text-sm text-center whitespace-nowrap">🔗 Link Customer</a>
+                                        : <span data-ti-link-customer="" aria-disabled="true" className="bg-green-600 opacity-40 text-white px-3 py-2 rounded-lg font-bold text-sm text-center whitespace-nowrap cursor-not-allowed">🔗 Link Customer</span>}
+                                    <button type="button" data-ti-salin-link onClick={copyCustomerTrackingLink} disabled={!linkCustomer} className="bg-green-100 hover:bg-green-200 disabled:opacity-40 text-green-800 px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap">Salin Link</button>
                                     <button type="button" data-ti-cetak onClick={printTracking} disabled={!g.aktif.length} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-3 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5 whitespace-nowrap"><IconPrinter /> Cetak</button>
-                                    <button type="button" data-ti-wa onClick={salinWATracking} disabled={!g.aktif.length} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap">💬 Salin teks WA</button>
+                                    <button type="button" data-ti-wa onClick={salinWATracking} disabled={!g.aktif.length || !linkCustomer} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap">💬 Salin teks WA</button>
                                 </div>
+                            </div>
+                            <div data-ti-link-status={tiLinkSiap ? 'siap' : (tiLink.kunci === g.key ? tiLink.status : 'memuat')} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs -mt-1">
+                                {tiLinkSiap ? (
+                                    tiGantiTanya ? (
+                                        <>
+                                            <span className="text-amber-700 font-semibold">Link lama yang sudah dikirim tidak bisa dibuka lagi. Lanjut?</span>
+                                            <button type="button" data-ti-ganti-ya onClick={() => { setTiGantiTanya(false); muatTiLink(true); }} className="bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-md font-bold">Ya, ganti link</button>
+                                            <button type="button" data-ti-ganti-batal onClick={() => setTiGantiTanya(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1 rounded-md font-bold">Batal</button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="text-gray-500">🔒 Link customer memakai kode acak (tidak bisa ditebak dari nama instansi).</span>
+                                            <button type="button" data-ti-ganti onClick={() => setTiGantiTanya(true)} className="text-amber-700 hover:text-amber-800 font-bold underline underline-offset-2">🔄 Ganti link</button>
+                                        </>
+                                    )
+                                ) : (tiLink.kunci === g.key && tiLink.status === 'gagal') ? (
+                                    <>
+                                        <span className="text-red-600 font-semibold">Link customer belum bisa dibuat. Periksa koneksi internet.</span>
+                                        <button type="button" data-ti-link-ulang onClick={() => muatTiLink(false)} className="bg-red-50 hover:bg-red-100 text-red-700 px-2.5 py-1 rounded-md font-bold">Coba lagi</button>
+                                    </>
+                                ) : <span className="text-gray-500">Menyiapkan link customer…</span>}
                             </div>
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                                 <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2"><div className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wide">Order aktif</div><div className="text-lg font-black text-gray-900">{g.aktif.length}</div></div>
@@ -29292,7 +29398,7 @@ ${getRekapShareLink(rekap)}
                         return next;
                     }));
                 } else {
-                    setDriverTransactions(prev => [...(prev||[]), { id:genId('XPDC-'), ...payload }]);
+                    setDriverTransactions(prev => [...(prev||[]), { id:genIdKuat('XPDC-'), ...payload }]);
                 }
                 setShowTrxForm(false);
                 showToast(editTrx ? 'Transaksi diperbarui' : 'Transaksi baru ditambahkan', 'success');
@@ -29458,7 +29564,7 @@ ${getRekapShareLink(rekap)}
                 const apresiasi = safeMoney(rekapApresiasi);
                 const gajiDiterima = totalOngkir + totalTips + apresiasi - potongan;
                 const newRekap = {
-                    id: genId('RGAJI-'),
+                    id: genIdKuat('RGAJI-'),
                     driverId: rekapDriverId,
                     driverName: drv?drv.name:'',
                     tripIds: selectedTripIds,
@@ -29801,7 +29907,7 @@ ${getRekapShareLink(rekap)}
                 if (!(safeMoney(qForm.ongkir) > 0)) { showToast(qTarif.pricingType === 'per_km' ? 'Ongkir masih Rp 0 — isi jarak (km)' : 'Ongkir masih Rp 0 — isi berat (kg)', 'error'); return; }
                 const drv = visibleDrivers.find(d => d.id === qForm.driverId);
                 const now = new Date().toISOString();
-                const trx = { id: genId('XPDC-'), date: qForm.date || hariIniStr, driverId: qForm.driverId, driverName: drv ? drv.name : '', tarifId: qTarif.id, tripType: qForm.tripType, distance: qTarif.pricingType === 'per_km' ? String(qForm.distance || '') : '', weight: qTarif.pricingType === 'per_kg' ? String(qForm.weight || '') : '', ongkir: safeMoney(qForm.ongkir), status: 'Menunggu', note: qForm.note || '', createdAt: now, _syncUpdatedAt: now };
+                const trx = { id: genIdKuat('XPDC-'), date: qForm.date || hariIniStr, driverId: qForm.driverId, driverName: drv ? drv.name : '', tarifId: qTarif.id, tripType: qForm.tripType, distance: qTarif.pricingType === 'per_km' ? String(qForm.distance || '') : '', weight: qTarif.pricingType === 'per_kg' ? String(qForm.weight || '') : '', ongkir: safeMoney(qForm.ongkir), status: 'Menunggu', note: qForm.note || '', createdAt: now, _syncUpdatedAt: now };
                 // 🎁 Tips opsional (terpisah dari ongkir)
                 const tipsQ = Math.max(0, safeMoney(qForm.tips));
                 if (tipsQ > 0) { trx.tips = tipsQ; const pesanTips = String(qForm.tipsNote || '').trim().slice(0, 100); if (pesanTips) trx.tipsNote = pesanTips; }
@@ -34989,6 +35095,8 @@ ${getRekapShareLink(rekap)}
             const [transaksiKartu, setTransaksiKartu] = useState([]);
             const [danaOperasional, setDanaOperasional] = useState([]);
             const [customerTrackingClient, setCustomerTrackingClient] = useState(getCustomerTrackingClientFromHash());
+            // Hasil membaca kode link tracking: { ok, nama, juga } (ok=false → link tidak berlaku / sudah diganti)
+            const [trackingInfo, setTrackingInfo] = useState(null);
             const [rekapGajiShareId, setRekapGajiShareId] = useState(getRekapGajiIdFromHash());
             // Link slip gaji: pengaturan cetak lengkap (logo asli & tanda tangan) diunduh sekali, saat pertama kali dicetak
             const cetakSlipLengkapRef = React.useRef(null);
@@ -35134,7 +35242,8 @@ ${getRekapShareLink(rekap)}
                     // Link bukti dana dibuka saat aplikasi sudah terbuka di tab yang sama → muat ulang agar halaman link tampil
                     if (getDanaShareFromHash() !== (danaShareToken || '')) { window.location.reload(); return; }
                     if (getNotaVendorShareFromHash() !== (notaVendorShareToken || '')) { window.location.reload(); return; }
-                    setCustomerTrackingClient(getCustomerTrackingClientFromHash());
+                    // Link tracking lain dibuka di tab yang sama → muat ulang agar data instansi itu yang diambil
+                    if (getCustomerTrackingClientFromHash() !== (customerTrackingClient || '')) { window.location.reload(); return; }
                     setRekapGajiShareId(getRekapGajiIdFromHash());
                 };
                 syncPublicHash();
@@ -36475,10 +36584,17 @@ ${getRekapShareLink(rekap)}
                     }
                     // Tracking klien: hanya order + pengaturan tampilan
                     if (customerTrackingClient) {
+                        // Link lama berisi nama sekolah (bukan kode acak) → langsung ditolak tanpa mengambil data
+                        if (!POLA_TOKEN_TRACKING.test(customerTrackingClient)) { setTrackingInfo({ ok: false }); setIsReady(true); return; }
                         if (supabaseClient) {
                             try {
+                                // Kode link → nama instansi (hanya baris milik kode ini)
+                                const entri = safeArray(await ambilShareCocok(TRACKING_KOLEKSI, 'token', customerTrackingClient)).find(x => x && x.token === customerTrackingClient);
+                                const namaLink = entri ? safeArray(entri.nama).map(x => String(x || '').trim()).filter(Boolean) : [];
+                                if (!namaLink.length) { setTrackingInfo({ ok: false }); setIsReady(true); return; }
+                                setTrackingInfo({ ok: true, nama: namaLink[0], juga: namaLink.slice(1) });
                                 // Hanya order instansi ini (bukan semua order) + nama & logo kecil usaha
-                                const nama = [...new Set(getCustomerTrackingNamesFromHash().map(klienNorm).filter(Boolean))];
+                                const nama = [...new Set(namaLink.map(klienNorm).filter(Boolean))];
                                 const [ords, tmpls] = await Promise.all([
                                     shareRpc('share_order_instansi', { nama }).then(r => r || fetchStoreData('orders', [])),
                                     ambilPengaturanShare(['companyName']).then(t => ({ ...initialTemplates, ...t })).catch(() => fetchStoreData('templates', initialTemplates)),
@@ -38642,11 +38758,23 @@ ${getRekapShareLink(rekap)}
             }
 
             if (customerTrackingClient) {
+                if (!trackingInfo || !trackingInfo.ok) {
+                    return (
+                        <div data-tracking-tidak-berlaku className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 max-w-sm w-full text-center space-y-2">
+                                <div className="text-4xl">🔗</div>
+                                <h1 className="text-lg font-black text-gray-900">Link tidak berlaku</h1>
+                                <p className="text-sm text-gray-600">{trackingInfo ? 'Link tracking ini sudah tidak berlaku atau sudah diganti. Silakan minta link terbaru ke Simpati Konveksi.' : 'Data belum bisa dimuat. Periksa koneksi internet lalu muat ulang halaman.'}</p>
+                            </div>
+                            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                        </div>
+                    );
+                }
                 return (
                     <>
                         <CustomerTrackingView
-                            client={customerTrackingClient}
-                            namaJuga={getCustomerTrackingNamesFromHash().slice(1)}
+                            client={trackingInfo.nama}
+                            namaJuga={trackingInfo.juga}
                             orders={ordersTampil}
                             templates={templates}
                         />
@@ -41000,12 +41128,12 @@ ${getRekapShareLink(rekap)}
                 const noteFS = noteText.length <= 10 ? '11px' : noteText.length <= 20 ? '9px' : noteText.length <= 35 ? '7.5px' : '6.5px';
 
                 const logoHtml = companyLogo
-                    ? `<img src="${companyLogo}" style="max-height:10mm;max-width:18mm;object-fit:contain;" />`
+                    ? `<img src="${escapeHtmlText(companyLogo)}" style="max-height:10mm;max-width:18mm;object-fit:contain;" />`
                     : `<div style="font-size:10px;font-weight:900;color:#1e3a5f;line-height:1;">${companyName}</div>${companySubtitle ? `<div style="font-size:7px;color:#64748b;">${companySubtitle}</div>` : ''}`;
 
                 const typeColor = item.type === 'Masuk' ? '#16a34a' : item.type === 'Keluar' ? '#dc2626' : item.type === 'Tersedia' ? '#0d9488' : '#d97706';
 
-                const printContent = `<!DOCTYPE html><html><head><title>Sticker Stock - ${item.clientName}</title>
+                const printContent = `<!DOCTYPE html><html><head><title>Sticker Stock - ${escapeHtmlText(item.clientName)}</title>
                 <style>
                     @page { size: 60mm 40mm; margin: 0; }
                     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -41026,15 +41154,15 @@ ${getRekapShareLink(rekap)}
                 <div class="wrap">
                     <div class="top">
                         <div class="logo-area">${logoHtml}</div>
-                        <div class="type-badge">${item.type}</div>
+                        <div class="type-badge">${escapeHtmlText(item.type)}</div>
                     </div>
-                    <div class="client">${item.clientName}</div>
-                    <div class="itemname">${item.itemName}</div>
+                    <div class="client">${escapeHtmlText(item.clientName)}</div>
+                    <div class="itemname">${escapeHtmlText(item.itemName)}</div>
                     <div class="boxes">
                         <div class="box">
                             <div class="box-title">Jumlah</div>
-                            <div class="box-val">${item.qty}</div>
-                            <div class="box-unit">${item.unit}</div>
+                            <div class="box-val">${escapeHtmlText(item.qty)}</div>
+                            <div class="box-unit">${escapeHtmlText(item.unit)}</div>
                         </div>
                         <div class="box">
                             <div class="box-title">Catatan</div>
@@ -41042,7 +41170,7 @@ ${getRekapShareLink(rekap)}
                         </div>
                     </div>
                     <div class="footer">
-                        <span>${companyName}</span>
+                        <span>${escapeHtmlText(companyName)}</span>
                         <span>Tgl: ${stickerDate} &middot; Cetak: ${printDate}</span>
                     </div>
                 </div>

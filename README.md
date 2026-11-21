@@ -280,6 +280,10 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   dengan `node scripts/buat-ikon-aplikasi.cjs` (tanpa bingkai merah agar rapi saat dipotong bulat). `sw.js` selalu
   mengambil halaman dari server dulu (versi baru langsung terpakai); hanya saat tanpa internet halaman terakhir dipakai.
   Link share (`#rekap-gaji=`, `#invoice-share=`, dll.) tidak ditawari pasang & tidak memasang service worker.
+- **Pengaman link share**: semua kode link baru dibuat acak & panjang (tidak bisa ditebak). Link Tracking Instansi memakai
+  kode `#customer-tracking=TI-…` (disimpan di baris `app_data` **`trackingLinks`**); link lama yang berisi nama sekolah
+  tidak berlaku lagi. Tombol **🔄 Ganti link** (Tracking Instansi, invoice, marketing, investor, bagi hasil promosi,
+  dana operasional, nota vendor) membuat kode baru — link lama langsung tidak bisa dibuka.
 - **Kartu link WhatsApp**: `kartu-wa.jpg` (1200×630, logo Simpati saja) ada di samping `index.html`
   dan **wajib ikut di-upload saat deploy** — dipakai sebagai gambar pratinjau (og:image) saat link dibagikan di WhatsApp.
   Dibuat dari `src/logo-kotak-sumber.png` dengan `node scripts/buat-kartu-wa.cjs`. WhatsApp menyimpan pratinjau lama
