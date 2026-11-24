@@ -29083,12 +29083,152 @@ ${getRekapShareLink(rekap)}
             return hasil;
         };
 
+        // ===== Google Maps (opsional): kode API diisi Admin di SIJEK → tab "🗺️ Google Maps" (templates.googleMapsKey) =====
+        // Dipakai untuk cari tempat (Places API New) & jarak jalan (Routes API). Bila kode kosong / ditolak / kuota habis /
+        // lambat → otomatis kembali ke cara gratis (OpenStreetMap). Peta "Pilih di peta" tetap OpenStreetMap.
+        const GM = { kunci: '', kunciDimuat: '', muat: null, ditolak: '', jedaSampai: 0, sesi: null, pesanKonsol: [] };
+        const gmapsAturKunci = (k) => { GM.kunci = String(k || '').trim(); };
+        const gmapsBedaKunci = () => !!GM.kunciDimuat && GM.kunciDimuat !== GM.kunci;
+        const gmapsAktif = () => !!GM.kunci && !GM.ditolak && Date.now() >= GM.jedaSampai && !gmapsBedaKunci();
+        const denganBatasWaktu = (p, ms, pesan = 'waktu habis') => new Promise((ok, no) => { const t = setTimeout(() => no(new Error(pesan)), ms); Promise.resolve(p).then(v => { clearTimeout(t); ok(v); }, e => { clearTimeout(t); no(e); }); });
+        const muatGoogleMaps = () => {
+            if (GM.muat) return GM.muat;
+            const kunci = GM.kunci;
+            if (!kunci) return Promise.reject(new Error('Kode API belum diisi'));
+            GM.kunciDimuat = kunci;
+            GM.muat = new Promise((ok, no) => {
+                // Google memanggil gm_authFailure bila kode ditolak (alamat website belum diizinkan, kode salah, dll.)
+                window.gm_authFailure = () => { GM.ditolak = GM.ditolak || 'auth'; };
+                if (!GM.konsolDipasang) {
+                    GM.konsolDipasang = true;
+                    const asli = console.error;
+                    console.error = function (...a) { try { const t = a.map(x => String(x && x.message || x)).join(' '); if (/Google Maps|maps\.googleapis|MapError|Places|Routes/i.test(t)) { GM.pesanKonsol.push(t.slice(0, 400)); if (GM.pesanKonsol.length > 20) GM.pesanKonsol.shift(); } } catch (e) {} return asli.apply(this, a); };
+                }
+                window.__simpatiGmapsSiap = () => ok(window.google && window.google.maps);
+                const s = document.createElement('script');
+                s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(kunci)}&v=weekly&loading=async&language=id&region=ID&callback=__simpatiGmapsSiap`;
+                s.async = true;
+                s.onerror = () => { GM.muat = null; GM.kunciDimuat = ''; try { s.remove(); } catch (e) {} no(new Error('Script Google Maps gagal dimuat')); };
+                document.head.appendChild(s);
+            });
+            return GM.muat;
+        };
+        const gmapsLib = async (nama) => {
+            const maps = await denganBatasWaktu(muatGoogleMaps(), 12000, 'Google Maps lambat dimuat');
+            if (!maps || typeof maps.importLibrary !== 'function') throw new Error('Google Maps tidak lengkap');
+            return denganBatasWaktu(maps.importLibrary(nama), 10000, 'Google Maps lambat');
+        };
+        // Golongkan galat Google → jeda / ditolak (dipakai juga oleh tombol "Tes kode")
+        const gmapsJenisGalat = (e) => {
+            const t = (String(e && (e.message || e)) + ' ' + GM.pesanKonsol.join(' ')).toLowerCase();
+            if (/referer|referrer|http_referrer/.test(t)) return 'referer';
+            if (/not activated|apinotactivated|has not been used|is disabled|service_disabled|api_not_activated|routes api|places api.*(not|disabled)/.test(t) && /routes/.test(t)) return 'routes-mati';
+            if (/not activated|apinotactivated|has not been used|is disabled|service_disabled|api_not_activated/.test(t)) return 'api-mati';
+            if (/invalidkey|invalid key|api key not valid|api_key_invalid|keyinvalid/.test(t)) return 'kunci-salah';
+            if (/billing|billingnotenabled/.test(t)) return 'billing';
+            if (/quota|resource_exhausted|over_query_limit|rate limit|too many/.test(t)) return 'kuota';
+            if (/denied|permission|forbidden|unauthorized|auth/.test(t)) return 'ditolak';
+            if (/waktu|lambat|timeout|network|failed to fetch|gagal dimuat/.test(t)) return 'jaringan';
+            return 'lain';
+        };
+        const GM_PESAN = {
+            referer: 'Kode ditolak: alamat website belum diizinkan. Di Google Cloud → Credentials → kode API → Websites, tambahkan https://konveksisimpati.com/* dan https://*.konveksisimpati.com/*',
+            'api-mati': 'Layanan belum diaktifkan. Di Google Cloud → APIs & Services → Library, aktifkan Maps JavaScript API dan Places API (New).',
+            'routes-mati': 'Routes API belum diaktifkan. Di Google Cloud → APIs & Services → Library, aktifkan Routes API.',
+            'kunci-salah': 'Kode API salah / tidak dikenal. Salin ulang kode dari Google Cloud → Credentials.',
+            billing: 'Penagihan (billing) project Google Cloud belum aktif.',
+            kuota: 'Kuota harian Google habis — sementara memakai cara gratis (OpenStreetMap).',
+            ditolak: 'Kode ditolak Google. Periksa pembatasan kode (Websites & API) di Google Cloud.',
+            jaringan: 'Google Maps tidak terjangkau / lambat (cek internet).',
+            lain: 'Google Maps sedang bermasalah.',
+        };
+        const gmapsCatatGalat = (e) => {
+            const j = gmapsJenisGalat(e);
+            if (j === 'kuota') GM.jedaSampai = Date.now() + 30 * 60000;
+            else if (['referer', 'api-mati', 'kunci-salah', 'billing', 'ditolak'].includes(j)) GM.ditolak = j;
+            else if (j === 'jaringan' || j === 'lain') GM.jedaSampai = Date.now() + 2 * 60000;
+            return j;
+        };
+        const gmapsAngka = (v) => typeof v === 'function' ? Number(v()) : Number(v);
+        const gmapsCariTempatGoogle = async (q, dekat) => {
+            const { AutocompleteSuggestion, AutocompleteSessionToken } = await gmapsLib('places');
+            if (!AutocompleteSuggestion || typeof AutocompleteSuggestion.fetchAutocompleteSuggestions !== 'function') throw new Error('Places API (New) tidak tersedia');
+            if (!GM.sesi && AutocompleteSessionToken) GM.sesi = new AutocompleteSessionToken();
+            const p = titikValid(dekat) ? dekat : OSM_PUSAT_DEFAULT;
+            const req = { input: q, includedRegionCodes: ['id'], language: 'id', region: 'id', locationBias: { center: { lat: Number(p.lat), lng: Number(p.lng) }, radius: 50000 } };
+            if (GM.sesi) req.sessionToken = GM.sesi;
+            const res = await denganBatasWaktu(AutocompleteSuggestion.fetchAutocompleteSuggestions(req), 9000, 'Google lambat');
+            return safeArray(res && res.suggestions).map(s => s && s.placePrediction).filter(Boolean).slice(0, 6).map(pp => ({
+                nama: String((pp.mainText && pp.mainText.text) || (pp.text && pp.text.text) || '').trim() || 'Tanpa nama',
+                detail: String((pp.secondaryText && pp.secondaryText.text) || '').trim(),
+                sumber: 'google',
+                // Titik baru diambil saat saran dipilih (hemat kuota: 1 permintaan per pilihan, bukan per saran)
+                ambil: async () => {
+                    const place = pp.toPlace();
+                    await denganBatasWaktu(place.fetchFields({ fields: ['location'] }), 9000, 'Google lambat');
+                    GM.sesi = null;
+                    const loc = place.location;
+                    const hasil = loc ? { lat: gmapsAngka(loc.lat), lng: gmapsAngka(loc.lng) } : null;
+                    if (!titikValid(hasil)) throw new Error('Titik tempat tidak ditemukan');
+                    return hasil;
+                },
+            }));
+        };
+        const gmapsJarakGoogle = async (a, b) => {
+            const { Route } = await gmapsLib('routes');
+            if (!Route || typeof Route.computeRoutes !== 'function') throw new Error('Routes API tidak tersedia');
+            const res = await denganBatasWaktu(Route.computeRoutes({ origin: { lat: Number(a.lat), lng: Number(a.lng) }, destination: { lat: Number(b.lat), lng: Number(b.lng) }, travelMode: 'DRIVING', fields: ['distanceMeters', 'durationMillis'] }), 10000, 'Google lambat');
+            const r = safeArray(res && res.routes)[0];
+            const meter = r ? Number(r.distanceMeters) : NaN;
+            if (!isFinite(meter) || meter <= 0) throw new Error('Rute Google tidak ditemukan');
+            let ms = Number(r.durationMillis);
+            if (!isFinite(ms)) { const d = String(r.duration || ''); const m = d.match(/^(\d+(?:\.\d+)?)s$/); ms = m ? Number(m[1]) * 1000 : 0; }
+            return { km: Math.max(0.1, Math.round(meter / 100) / 10), menit: Math.max(1, Math.round(ms / 60000)), sumber: 'google' };
+        };
+        // Pintu tunggal: Google bila aktif, selain itu (atau bila gagal) OpenStreetMap
+        const cariTempat = async (q, dekat) => {
+            if (gmapsAktif()) {
+                const p = titikValid(dekat) ? dekat : OSM_PUSAT_DEFAULT;
+                const kunci = `g-cari|${String(q).trim().toLowerCase()}|${Number(p.lat).toFixed(2)},${Number(p.lng).toFixed(2)}`;
+                if (osmCache.has(kunci)) return osmCache.get(kunci);
+                try { const h = await gmapsCariTempatGoogle(String(q).trim(), dekat); osmCache.set(kunci, h); return h; }
+                catch (e) { gmapsCatatGalat(e); }
+            }
+            return osmCariAlamat(q, dekat);
+        };
+        const jarakJalan = async (a, b) => {
+            if (gmapsAktif()) {
+                const kunci = `g-rute|${Number(a.lat).toFixed(5)},${Number(a.lng).toFixed(5)}|${Number(b.lat).toFixed(5)},${Number(b.lng).toFixed(5)}`;
+                if (osmCache.has(kunci)) return osmCache.get(kunci);
+                try { const h = await gmapsJarakGoogle(a, b); osmCache.set(kunci, h); return h; }
+                catch (e) { gmapsCatatGalat(e); }
+            }
+            const h = await osmJarakJalan(a, b);
+            return { ...h, sumber: 'osm' };
+        };
+        // Titik dari saran (Google: diambil saat dipilih)
+        const titikDariSaran = async (h) => (h && typeof h.ambil === 'function') ? await h.ambil() : { lat: Number(h.lat), lng: Number(h.lng) };
+        // Lokasi HP sekarang (GPS, setelah diizinkan)
+        const lokasiSaya = () => new Promise((ok, no) => {
+            if (!navigator.geolocation) { no(new Error('HP/browser ini tidak mendukung lokasi')); return; }
+            navigator.geolocation.getCurrentPosition(p => ok({ lat: p.coords.latitude, lng: p.coords.longitude, akurasi: Math.round(p.coords.accuracy || 0) }),
+                e => no(new Error(e && e.code === 1 ? 'Izin lokasi ditolak. Izinkan lokasi untuk situs ini di pengaturan browser.' : 'Lokasi belum bisa dibaca. Nyalakan GPS lalu coba lagi.')),
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+        });
+        // Link navigasi Google Maps (gratis, tanpa kode API): tujuan berupa titik bila ada, selain itu nama tempat
+        const linkRuteGoogle = (nama, lat, lng) => {
+            const tujuan = titikValid({ lat, lng }) ? `${Number(lat)},${Number(lng)}` : String(nama || '').trim();
+            return tujuan ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(tujuan)}&travelmode=driving` : '';
+        };
+
         // Kolom lokasi: ketik → saran alamat; "Pilih di peta" bila tidak ketemu. nilai = { nama, lat, lng }
         const KolomLokasi = ({ label, nilai, onUbah, dekat, onBukaPeta, placeholder, dataAttr }) => {
             const [teks, setTeks] = useState(nilai?.nama || '');
             const [hasil, setHasil] = useState([]);
             const [buka, setBuka] = useState(false);
             const [status, setStatus] = useState(''); // '' | 'cari' | 'gagal'
+            const [lokasiSibuk, setLokasiSibuk] = useState(false);
+            const [lokasiGalat, setLokasiGalat] = useState('');
             const ref = useRef(null);
             const urut = useRef(0);
             useEffect(() => { setTeks(nilai?.nama || ''); }, [nilai?.nama]);
@@ -29099,7 +29239,7 @@ ${getRekapShareLink(rekap)}
                 const id = ++urut.current;
                 setStatus('cari');
                 const t = setTimeout(async () => {
-                    try { const h = await osmCariAlamat(q, dekat); if (id === urut.current) { setHasil(h); setStatus(''); } }
+                    try { const h = await cariTempat(q, dekat); if (id === urut.current) { setHasil(h); setStatus(''); } }
                     catch (e) { if (id === urut.current) { setHasil([]); setStatus('gagal'); } }
                 }, 450);
                 return () => clearTimeout(t);
@@ -29128,12 +29268,19 @@ ${getRekapShareLink(rekap)}
                             {status === 'gagal' && <div className="px-2.5 py-2 text-xs text-amber-700">Pencarian alamat sedang tidak tersedia. Pilih di peta, atau isi jarak manual.</div>}
                             {status === '' && hasil.length === 0 && <div className="px-2.5 py-2 text-xs text-gray-500">Alamat "{teks.trim()}" tidak ditemukan.</div>}
                             {status === '' && hasil.map((h, i) => (
-                                <button key={i} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { onUbah({ nama: h.nama, lat: h.lat, lng: h.lng }); setTeks(h.nama); setBuka(false); }} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-50" data-lokasi-hasil={i}>
+                                <button key={i} type="button" data-lokasi-saran-item={h.sumber || 'osm'} onMouseDown={e => e.preventDefault()} onClick={async () => { setTeks(h.nama); setBuka(false); try { const t = await titikDariSaran(h); onUbah({ nama: h.nama, lat: t.lat, lng: t.lng }); } catch (e) { onUbah({ nama: h.nama, lat: null, lng: null }); setStatus('gagal'); } }} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-50" data-lokasi-hasil={i}>
                                     <div className="text-sm font-semibold text-gray-800">📍 {h.nama}</div>{h.detail && <div className="text-[11px] text-gray-500 pl-5">{h.detail}</div>}
                                 </button>
                             ))}
                             <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { setBuka(false); onBukaPeta(teks); }} className="w-full text-left mt-1 border-t border-gray-100 px-2.5 py-2 text-sm font-bold text-blue-600" data-lokasi-peta-saran>📍 Tidak ketemu? Pilih lokasi di peta…</button>
-                            <div className="text-[10px] text-gray-400 text-right px-2">Data {OSM_ATRIBUSI}</div>
+                            <button type="button" onMouseDown={e => e.preventDefault()} disabled={lokasiSibuk} onClick={async () => {
+                                setLokasiSibuk(true); setLokasiGalat('');
+                                try { const t = await lokasiSaya(); onUbah({ nama: teks.trim() || 'Lokasi saya', lat: t.lat, lng: t.lng }); setBuka(false); }
+                                catch (e) { setLokasiGalat(String(e && e.message || 'Lokasi belum bisa dibaca.')); }
+                                finally { setLokasiSibuk(false); }
+                            }} className="w-full text-left px-2.5 py-2 text-sm font-bold text-emerald-700 disabled:opacity-50" data-lokasi-saya>{lokasiSibuk ? '⏳ Membaca lokasi HP…' : '🎯 Pakai lokasi saya sekarang (GPS)'}</button>
+                            {lokasiGalat && <div className="px-2.5 pb-1.5 text-xs text-red-600" data-lokasi-saya-galat>{lokasiGalat}</div>}
+                            <div className="text-[10px] text-gray-400 text-right px-2" data-lokasi-sumber>{hasil.some(h => h && h.sumber === 'google') ? 'Hasil dari Google' : `Data ${OSM_ATRIBUSI}`}</div>
                         </div>
                     )}
                 </div>
@@ -29150,10 +29297,13 @@ ${getRekapShareLink(rekap)}
             const [cari, setCari] = useState(cariAwal || '');
             const [hasilCari, setHasilCari] = useState([]);
             const [statusCari, setStatusCari] = useState('');
+            const [lokasiSibuk, setLokasiSibuk] = useState(false);
+            const [lokasiGalat, setLokasiGalat] = useState('');
             const urut = useRef(0);
             const pindahKe = (p, zoom = 16) => {
                 const pr = petaRef.current; if (!pr) return;
-                pr.peta.setView([p.lat, p.lng], zoom);
+                // Tanpa animasi: peta yang ditutup saat masih beranimasi memicu galat Leaflet (_leaflet_pos)
+                pr.peta.setView([p.lat, p.lng], zoom, { animate: false });
                 pr.pasangPin([p.lat, p.lng]);
                 setTitik({ lat: Number(p.lat), lng: Number(p.lng) });
             };
@@ -29184,7 +29334,7 @@ ${getRekapShareLink(rekap)}
                 const id = ++urut.current;
                 setStatusCari('cari');
                 const t = setTimeout(async () => {
-                    try { const h = await osmCariAlamat(q, titikAsal); if (id === urut.current) { setHasilCari(h); setStatusCari(h.length ? '' : 'kosong'); } }
+                    try { const h = await cariTempat(q, titikAsal); if (id === urut.current) { setHasilCari(h); setStatusCari(h.length ? '' : 'kosong'); } }
                     catch (e) { if (id === urut.current) { setHasilCari([]); setStatusCari('gagal'); } }
                 }, 450);
                 return () => clearTimeout(t);
@@ -29208,7 +29358,7 @@ ${getRekapShareLink(rekap)}
                                         {statusCari === 'gagal' && <div className="px-2.5 py-1.5 text-xs text-amber-700">Pencarian tidak tersedia — geser peta & ketuk lokasinya.</div>}
                                         {statusCari === 'kosong' && <div className="px-2.5 py-1.5 text-xs text-gray-500">"{cari.trim()}" tidak ditemukan — geser peta & ketuk lokasinya.</div>}
                                         {!statusCari && hasilCari.map((h, i) => (
-                                            <button key={i} type="button" onClick={() => { pindahKe(h); if (!nama.trim()) setNama(h.nama); setHasilCari([]); setCari(''); }} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-50" data-peta-hasil={i}>
+                                            <button key={i} type="button" data-peta-saran-item={h.sumber || 'osm'} onClick={async () => { setHasilCari([]); setCari(''); try { const t = await titikDariSaran(h); pindahKe(t); if (!nama.trim()) setNama(h.nama); } catch (e) { setCari(h.nama); setStatusCari('gagal'); } }} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-blue-50" data-peta-hasil={i}>
                                                 <div className="text-sm font-semibold text-gray-800">{h.nama}</div>{h.detail && <div className="text-[11px] text-gray-500">{h.detail}</div>}
                                             </button>
                                         ))}
@@ -29217,7 +29367,13 @@ ${getRekapShareLink(rekap)}
                             </div>}
                         </div>
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-3 border-t">
-                            <div className="text-xs text-gray-600 sm:flex-1 min-w-0">{titik ? <>Titik dipilih: <b data-peta-koordinat>{fmtKoordinat(titik)}</b></> : <span className="text-amber-700">Ketuk lokasi di peta untuk memasang pin.</span>}</div>
+                            <div className="text-xs text-gray-600 sm:flex-1 min-w-0">{titik ? <>Titik dipilih: <b data-peta-koordinat>{fmtKoordinat(titik)}</b></> : <span className="text-amber-700">Ketuk lokasi di peta untuk memasang pin.</span>}{lokasiGalat && <div className="text-red-600 mt-0.5" data-peta-lokasi-galat>{lokasiGalat}</div>}</div>
+                            {status === 'siap' && <button type="button" disabled={lokasiSibuk} onClick={async () => {
+                                setLokasiSibuk(true); setLokasiGalat('');
+                                try { const t = await lokasiSaya(); pindahKe(t, 17); }
+                                catch (e) { setLokasiGalat(String(e && e.message || 'Lokasi belum bisa dibaca.')); }
+                                finally { setLokasiSibuk(false); }
+                            }} className="border border-emerald-300 bg-emerald-50 text-emerald-800 rounded-lg px-3 py-2 text-sm font-bold disabled:opacity-50 whitespace-nowrap" data-peta-lokasi-saya>{lokasiSibuk ? '⏳ Membaca…' : '🎯 Lokasi saya'}</button>}
                             {pakaiNama && <input value={nama} onChange={e => setNama(e.target.value)} placeholder={minta} className="border border-gray-300 rounded-lg px-3 py-2 text-sm sm:w-56" data-peta-nama />}
                             <button type="button" disabled={!titik || (pakaiNama && !nama.trim())} onClick={() => onPakai({ nama: (pakaiNama ? nama : (namaAwal || '')).trim(), lat: titik.lat, lng: titik.lng })} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50" data-peta-pakai>Pakai titik ini</button>
                         </div>
@@ -29226,7 +29382,103 @@ ${getRekapShareLink(rekap)}
             );
         };
 
-        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates, setTemplates }) => {
+        // Tab SIJEK "🗺️ Google Maps" (khusus Admin): simpan / tes / hapus kode API Google Maps
+        const TabGoogleMaps = ({ templates, setTemplates, titikAwal, showToast }) => {
+            const tersimpan = String(templates?.googleMapsKey || '').trim();
+            const [draf, setDraf] = useState('');
+            const [tes, setTes] = useState(null); // { status: 'jalan'|'ok'|'gagal', baris: [{ ok, teks }], pesan, muatUlang }
+            const [hapusTanya, setHapusTanya] = useState(false);
+            const samar = (k) => k ? `${k.slice(0, 4)}${'•'.repeat(Math.max(6, Math.min(24, k.length - 8)))}${k.slice(-4)}` : '';
+            const terakhir = templates?.googleMapsTes && typeof templates.googleMapsTes === 'object' ? templates.googleMapsTes : null;
+            const fmtWaktu = (iso) => { const d = new Date(iso || ''); return isNaN(d.getTime()) ? '' : d.toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+            const simpan = () => {
+                const k = draf.trim();
+                if (!/^AIza[0-9A-Za-z_-]{30,}$/.test(k)) { setTes({ status: 'gagal', baris: [], pesan: 'Kode tidak valid. Kode API Google Maps diawali "AIza" dan panjangnya ±39 huruf (tanpa spasi).' }); return; }
+                setTemplates(prev => ({ ...(prev || {}), googleMapsKey: k, googleMapsTes: null }));
+                gmapsAturKunci(k); GM.ditolak = ''; GM.jedaSampai = 0;
+                setDraf(''); setTes(null); setHapusTanya(false);
+                showToast('Kode API Google Maps disimpan. Tekan "Tes kode" untuk memastikan.', 'success');
+            };
+            const hapus = () => {
+                setTemplates(prev => ({ ...(prev || {}), googleMapsKey: '', googleMapsTes: null }));
+                gmapsAturKunci(''); setTes(null); setHapusTanya(false);
+                showToast('Kode API dihapus. SIJEK memakai cara gratis (OpenStreetMap).', 'success');
+            };
+            const jalankanTes = async () => {
+                if (!tersimpan) return;
+                gmapsAturKunci(tersimpan);
+                if (gmapsBedaKunci()) { setTes({ status: 'gagal', baris: [], pesan: 'Kode baru belum terpakai karena kode sebelumnya sudah dimuat di halaman ini. Muat ulang halaman, lalu tekan "Tes kode" lagi.', muatUlang: true }); return; }
+                GM.ditolak = ''; GM.jedaSampai = 0; GM.pesanKonsol = [];
+                setTes({ status: 'jalan', baris: [] });
+                try { await denganBatasWaktu(muatGoogleMaps(), 15000, 'Google Maps lambat dimuat'); }
+                catch (e) { setTes({ status: 'gagal', baris: [], pesan: GM_PESAN[gmapsJenisGalat(e)] || GM_PESAN.lain }); return; }
+                const baris = []; let b = null;
+                try {
+                    const h = await gmapsCariTempatGoogle('Alun-alun', titikAwal);
+                    if (!h.length) throw new Error('Tidak ada hasil');
+                    b = await h[0].ambil();
+                    baris.push({ ok: true, teks: `Cari tempat (Places API) berfungsi — contoh: ${h[0].nama}` });
+                } catch (e) { const j = gmapsJenisGalat(e); baris.push({ ok: false, teks: `Cari tempat (Places API) gagal: ${GM_PESAN[j] || GM_PESAN.lain}` }); }
+                const a = titikValid(titikAwal) ? { lat: Number(titikAwal.lat), lng: Number(titikAwal.lng) } : OSM_PUSAT_DEFAULT;
+                const tujuan = b || { lat: Number(a.lat) + 0.02, lng: Number(a.lng) + 0.02 };
+                try {
+                    const r = await gmapsJarakGoogle(a, tujuan);
+                    baris.push({ ok: true, teks: `Hitung jarak (Routes API) berfungsi — contoh: ${fmtKmId(r.km)} km ±${r.menit} menit` });
+                } catch (e) { const j = gmapsJenisGalat(e); baris.push({ ok: false, teks: `Hitung jarak (Routes API) gagal: ${GM_PESAN[j === 'api-mati' ? 'routes-mati' : j] || GM_PESAN.lain}` }); }
+                const ok = baris.every(x => x.ok) && GM.ditolak !== 'auth';
+                if (!ok && GM.ditolak === 'auth' && baris.every(x => x.ok)) baris.push({ ok: false, teks: GM_PESAN.referer });
+                if (ok) { GM.ditolak = ''; GM.jedaSampai = 0; }
+                setTes({ status: ok ? 'ok' : 'gagal', baris });
+                setTemplates(prev => ({ ...(prev || {}), googleMapsTes: { ok, at: new Date().toISOString() } }));
+            };
+            const masalahSesi = tersimpan && (GM.ditolak ? (GM_PESAN[GM.ditolak] || GM_PESAN.ditolak) : (GM.jedaSampai > Date.now() ? 'Google sedang dijeda sebentar (kuota / jaringan) — sementara memakai cara gratis.' : ''));
+            return (
+                <div className="space-y-4" data-gmaps-tab>
+                    <Card>
+                        <div className="flex items-center gap-2 mb-1"><b className="text-slate-700">🔑 Kode API Google Maps</b>{tersimpan && <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${terakhir?.ok ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`} data-gmaps-lencana>{terakhir?.ok ? 'Aktif' : 'Tersimpan'}</span>}</div>
+                        <p className="text-xs text-gray-500">Dipakai untuk <b>cari tempat</b> & <b>jarak jalan</b> di tab Driver &amp; Tarif. Hanya Admin yang melihat tab ini; kode tidak ikut tampil di link share.</p>
+                        {tersimpan
+                            ? <div className="mt-3 text-sm"><span className="text-gray-500">Kode tersimpan: </span><code className="font-mono text-gray-800 break-all" data-gmaps-tersimpan>{samar(tersimpan)}</code></div>
+                            : <div className="mt-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-xs" data-gmaps-kosong>Belum ada kode — SIJEK memakai cara gratis (OpenStreetMap) seperti biasa.</div>}
+                        <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                            <input value={draf} onChange={e => setDraf(e.target.value)} placeholder={tersimpan ? 'Tempel kode baru untuk mengganti (AIza…)' : 'Tempel kode API (diawali AIza…)'} autoComplete="off" spellCheck={false}
+                                className="flex-1 min-w-0 border rounded-lg px-3 py-2 text-sm font-mono" data-gmaps-input />
+                            <button type="button" onClick={simpan} disabled={!draf.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg px-4 py-2 text-sm font-bold" data-gmaps-simpan>Simpan</button>
+                        </div>
+                        {tersimpan && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <button type="button" onClick={jalankanTes} disabled={tes?.status === 'jalan'} className="border border-gray-300 bg-white hover:bg-gray-50 rounded-lg px-3 py-2 text-sm font-bold text-gray-700 disabled:opacity-50" data-gmaps-tes>{tes?.status === 'jalan' ? '⏳ Mengetes…' : '🔎 Tes kode'}</button>
+                                {!hapusTanya
+                                    ? <button type="button" onClick={() => setHapusTanya(true)} className="border border-red-200 bg-white hover:bg-red-50 rounded-lg px-3 py-2 text-sm font-bold text-red-600" data-gmaps-hapus>Hapus</button>
+                                    : <span className="flex flex-wrap items-center gap-2 text-xs bg-red-50 border border-red-200 rounded-lg px-2 py-1.5"><span className="text-red-700 font-semibold">Hapus kode? SIJEK kembali memakai cara gratis.</span><button type="button" onClick={hapus} className="bg-red-600 text-white rounded-md px-2.5 py-1 font-bold" data-gmaps-hapus-ya>Ya, hapus</button><button type="button" onClick={() => setHapusTanya(false)} className="bg-white border border-gray-200 rounded-md px-2.5 py-1 font-bold text-gray-700">Batal</button></span>}
+                                {!tes && terakhir?.at && <span className="text-xs text-gray-500" data-gmaps-terakhir>Tes terakhir {fmtWaktu(terakhir.at)}: {terakhir.ok ? '✓ berfungsi' : '✗ gagal'}</span>}
+                            </div>
+                        )}
+                        {tes && tes.status !== 'jalan' && (
+                            <div className={`mt-3 rounded-lg px-3 py-2 text-sm border ${tes.status === 'ok' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-700'}`} data-gmaps-hasil={tes.status}>
+                                <div className="font-bold">{tes.status === 'ok' ? '✓ Kode berfungsi — cari tempat & jarak jalan memakai Google.' : '✗ Kode belum berfungsi — SIJEK tetap memakai cara gratis.'}</div>
+                                {tes.pesan && <div className="text-xs mt-1">{tes.pesan}</div>}
+                                {safeArray(tes.baris).map((x, i) => <div key={i} className="text-xs mt-1" data-gmaps-baris={x.ok ? 'ok' : 'gagal'}>{x.ok ? '✅' : '❌'} {x.teks}</div>)}
+                                {tes.muatUlang && <button type="button" onClick={() => window.location.reload()} className="mt-2 bg-white border border-red-200 rounded-md px-2.5 py-1 text-xs font-bold text-red-700">Muat ulang halaman</button>}
+                            </div>
+                        )}
+                        {!tes && masalahSesi && <div className="mt-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-xs" data-gmaps-masalah>{masalahSesi}</div>}
+                    </Card>
+                    <Card>
+                        <b className="text-slate-700">✅ Yang perlu diatur di Google Cloud</b>
+                        <ol className="list-decimal pl-5 mt-2 space-y-1 text-sm text-gray-700">
+                            <li>Aktifkan <b>Maps JavaScript API</b>, <b>Places API (New)</b>, dan <b>Routes API</b>.</li>
+                            <li>Kunci kode: <b>Websites</b> → <code className="text-xs">https://konveksisimpati.com/*</code> dan <code className="text-xs">https://*.konveksisimpati.com/*</code>; <b>API restrictions</b> → hanya 3 layanan di atas.</li>
+                            <li>Batas harian ±300 per layanan (Quotas) agar tetap di kuota gratis.</li>
+                        </ol>
+                        <p className="text-xs text-gray-500 mt-2">Hemat kuota: pencarian jalan setelah 3 huruf & jeda mengetik; titik diambil hanya untuk saran yang dipilih; jarak dihitung saat asal & tujuan sudah ada. "Tes kode" memakai ±3 kuota. Bila Google bermasalah, otomatis kembali ke cara gratis.</p>
+                    </Card>
+                </div>
+            );
+        };
+
+        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates, setTemplates, isAdmin = false }) => {
+            gmapsAturKunci(templates?.googleMapsKey);
             const [activeSubTab, setActiveSubTab] = React.useState('kirim');
             const [search, setSearch] = React.useState('');
             const [showDriverForm, setShowDriverForm] = React.useState(false);
@@ -29732,10 +29984,10 @@ ${getRekapShareLink(rekap)}
                 let batal = false;
                 const [aLat, aLng, bLat, bLng] = kunciJarakRB.split(',').map(Number);
                 setJarakRB({ status: 'hitung' });
-                osmJarakJalan({ lat: aLat, lng: aLng }, { lat: bLat, lng: bLng })
+                jarakJalan({ lat: aLat, lng: aLng }, { lat: bLat, lng: bLng })
                     .then(h => {
                         if (batal) return;
-                        setJarakRB({ status: 'ok', km: h.km, menit: h.menit });
+                        setJarakRB({ status: 'ok', km: h.km, menit: h.menit, sumber: h.sumber || 'osm' });
                         setRuteBaru(r => r ? { ...r, jarak: String(h.km) } : r);
                     })
                     .catch(() => { if (!batal) setJarakRB({ status: 'gagal' }); });
@@ -29776,10 +30028,10 @@ ${getRekapShareLink(rekap)}
                         setPeta(null);
                         const b = { lat: v.lat, lng: v.lng };
                         setHitungTarifId(t.id);
-                        osmJarakJalan(a, b)
+                        jarakJalan(a, b)
                             .then(h => {
                                 setDriverTarifs(prev => (prev || []).map(x => x && x.id === t.id ? { ...x, jarak: String(h.km), fromLat: a.lat, fromLng: a.lng, toLat: b.lat, toLng: b.lng, _syncUpdatedAt: new Date().toISOString() } : x));
-                                showToast(`Jarak ${t.from} → ${t.to}: ${fmtKmId(h.km)} km (±${h.menit} menit)`, 'success');
+                                showToast(`Jarak ${t.from} → ${t.to}: ${fmtKmId(h.km)} km (±${h.menit} menit)${h.sumber === 'google' ? ' · Google' : ''}`, 'success');
                             })
                             .catch(() => showToast('Server peta gratis sedang sibuk — coba lagi sebentar, atau isi jarak manual lewat Edit', 'error'))
                             .finally(() => setHitungTarifId(''));
@@ -30165,6 +30417,7 @@ ${getRekapShareLink(rekap)}
                 { id:'gaji', label:'Gaji & Kasbon', pendek:'Gaji', icon:'💵', on:'bg-emerald-600 text-white border-emerald-600 shadow-md' },
                 { id:'laporan', label:'Laporan', pendek:'Laporan', icon:'📊', on:'bg-violet-600 text-white border-violet-600 shadow-md' },
                 { id:'pengaturan', label:'Driver & Tarif', pendek:'Tarif', icon:'⚙️', on:'bg-slate-600 text-white border-slate-600 shadow-md' },
+                ...(isAdmin ? [{ id:'maps', label:'Google Maps', pendek:'Maps', icon:'🗺️', on:'bg-cyan-700 text-white border-cyan-700 shadow-md' }] : []),
             ];
 
             const selectedTarifInForm = visibleTarifs.find(t=>t.id===xForm.tarifId);
@@ -30176,7 +30429,7 @@ ${getRekapShareLink(rekap)}
                         <p className="hidden md:block text-sm text-gray-500 mt-0.5">Antar-jemput barang oleh driver: pengiriman, gaji &amp; kasbon, laporan, tarif</p>
                     </div>
                     {/* HP: 1 baris ikon; PC: tombol biasa */}
-                    <div className="grid grid-cols-4 gap-1.5 mb-3 md:flex md:flex-wrap md:gap-2 md:mb-4" data-eks-tabs>
+                    <div className={`grid ${subTabs.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} gap-1.5 mb-3 md:flex md:flex-wrap md:gap-2 md:mb-4`} data-eks-tabs>
                         {subTabs.map(st => (
                             <button key={st.id} onClick={()=>{setActiveSubTab(st.id);setSearch('');setTrxPage(1);setTarifHal(1);setMenu(null);}} data-eks-tab={st.id}
                                 className={`relative flex flex-col md:flex-row items-center gap-0.5 md:gap-1.5 px-1 py-2 md:px-4 md:py-2.5 rounded-xl text-[11px] md:text-sm font-bold transition-all border ${activeSubTab===st.id ? st.on : 'bg-white text-slate-600 border-gray-200 hover:bg-gray-50 shadow-sm'}`}>
@@ -30310,7 +30563,7 @@ ${getRekapShareLink(rekap)}
                                                                 {perKm
                                                                     ? <label className="text-xs font-bold text-gray-600">Rp / km<input type="number" value={rb.pricePerKm} onChange={e=>ubahRB({ pricePerKm:e.target.value })} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-harga /></label>
                                                                     : <label className="text-xs font-bold text-gray-600">Rp / kg<input type="number" value={rb.pricePerKg} onChange={e=>ubahRB({ pricePerKg:e.target.value })} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-harga /></label>}
-                                                                {perKm && <label className="text-xs font-bold text-gray-600">Jarak (km){jarakRB.status === 'ok' ? <span className="text-emerald-700" data-eks-rb-km="ok"> · OSM <span data-eks-rb-km-nilai>{fmtKmId(jarakRB.km)} km</span><span className="hidden sm:inline"> ±{jarakRB.menit} mnt</span></span> : jarakRB.status === 'hitung' ? <span className="font-normal text-gray-500" data-eks-rb-km="hitung"> · menghitung…</span> : null}{kolomJarak('mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal')}</label>}
+                                                                {perKm && <label className="text-xs font-bold text-gray-600">Jarak (km){jarakRB.status === 'ok' ? <span className="text-emerald-700" data-eks-rb-km="ok" data-eks-rb-km-sumber={jarakRB.sumber || 'osm'}> · {jarakRB.sumber === 'google' ? 'Google' : 'OSM'} <span data-eks-rb-km-nilai>{fmtKmId(jarakRB.km)} km</span><span className="hidden sm:inline"> ±{jarakRB.menit} mnt</span></span> : jarakRB.status === 'hitung' ? <span className="font-normal text-gray-500" data-eks-rb-km="hitung"> · menghitung…</span> : null}{kolomJarak('mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal')}</label>}
                                                                 <label className="text-xs font-bold text-gray-600">Minimum (Rp)<input type="number" value={rb.minPrice} onChange={e=>ubahRB({ minPrice:e.target.value })} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-rb-min /></label>
                                                             </div>
                                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -30321,7 +30574,7 @@ ${getRekapShareLink(rekap)}
                                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                                                                 <div className={`flex-1 min-w-0 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg px-3 py-2 text-xs border ${(adaKm || !perKm) ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-white border-gray-200 text-gray-600'}`} data-eks-rb-ringkas>
                                                                     {perKm && jarakRB.status === 'hitung' && <span data-eks-rb-km="hitung">🛣️ Menghitung jarak jalan…</span>}
-                                                                    {perKm && jarakRB.status === 'ok' && <span data-eks-rb-km="ok">🛣️ <b className="text-base text-emerald-700" data-eks-rb-km-nilai>{fmtKmId(jarakRB.km)} km</b> ±{jarakRB.menit} mnt{kmBeda ? <> · dipakai <b>{fmtKmId(rb.jarak)} km</b></> : null}</span>}
+                                                                    {perKm && jarakRB.status === 'ok' && <span data-eks-rb-km="ok" data-eks-rb-km-sumber={jarakRB.sumber || 'osm'}>🛣️ <b className="text-base text-emerald-700" data-eks-rb-km-nilai>{fmtKmId(jarakRB.km)} km</b> ±{jarakRB.menit} mnt{jarakRB.sumber === 'google' ? ' · Google' : ''}{kmBeda ? <> · dipakai <b>{fmtKmId(rb.jarak)} km</b></> : null}</span>}
                                                                     {perKm && jarakRB.status === '' && (adaKm
                                                                         ? <span>🛣️ <b className="text-base text-emerald-700">{fmtKmId(rb.jarak)} km</b> (manual)</span>
                                                                         : <span>Pilih tujuan dari saran / 📍 peta → km dihitung otomatis</span>)}
@@ -30587,6 +30840,7 @@ ${getRekapShareLink(rekap)}
                     )}
 
                     {/* ===== DRIVER & TARIF ===== */}
+                    {activeSubTab==='maps' && isAdmin && <TabGoogleMaps templates={templates} setTemplates={setTemplates} titikAwal={titikAwal} showToast={showToast} />}
                     {activeSubTab==='pengaturan' && (
                         <div className="space-y-4">
                             <input value={search} onChange={e=>{setSearch(e.target.value);setTarifHal(1);}} placeholder="🔍 Cari driver / rute…" className="border rounded-lg px-3 py-2 text-sm w-full sm:w-72" data-eks-atur-cari />
@@ -30607,7 +30861,7 @@ ${getRekapShareLink(rekap)}
                             <Card>
                                 <div data-eks-osm-kartu>
                                     <b className="text-slate-700">📍 Hitung jarak otomatis (OpenStreetMap)</b>
-                                    <p className="text-xs text-gray-500 mt-0.5">Gratis, tanpa daftar. Dipakai saat membuat rute baru & tombol "Hitung jarak" di daftar tarif.</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">Gratis, tanpa daftar. Dipakai saat membuat rute baru & tombol "Hitung jarak" di daftar tarif.{gmapsAktif() ? <b className="text-cyan-700" data-eks-gmaps-aktif> Kode Google Maps aktif: cari tempat & jarak memakai Google.</b> : null}</p>
                                     <div className="text-xs font-bold text-gray-600 mt-3 mb-1">Titik awal (lokasi konveksi)</div>
                                     <div className="flex flex-wrap items-center gap-2">
                                         <div className="flex-1 min-w-[200px] border rounded-lg px-3 py-2 text-sm bg-gray-50" data-eks-osm-titik>{titikAwal ? <>🏭 <b>{titikAwal.nama}</b> <span className="text-xs text-gray-500">· {fmtKoordinat(titikAwal)}</span></> : <span className="text-gray-400">Belum diatur</span>}</div>
@@ -31380,6 +31634,17 @@ ${getRekapShareLink(rekap)}
 
                                 {!selesai && !gagal && akhir && akhir.at && <div className="flex justify-between gap-3" data-dc-terakhir><span className="text-gray-500">{(DRV_LANGKAH_INFO[akhir.k]?.catat || 'Terakhir').replace('Barang diambil', 'Diambil')}</span><span className="font-semibold">{drvJam(akhir.at)}</span></div>}
                             </div>
+                            {tarif && !selesai && !gagal && (() => {
+                                const lA = linkRuteGoogle(tarif.from, tarif.fromLat, tarif.fromLng);
+                                const lB = linkRuteGoogle(tarif.to, tarif.toLat, tarif.toLng);
+                                if (!lA && !lB) return null;
+                                return (
+                                    <div className="grid grid-cols-2 gap-2" data-dc-rute>
+                                        {lA && <a href={lA} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center text-center rounded-xl border border-blue-200 bg-white hover:bg-blue-50 px-2 py-2.5" data-dc-rute-ambil><span className="text-sm font-bold text-blue-700">🧭 Rute ke ambil</span><span className="text-[11px] text-gray-500 break-words">{tarif.from}</span></a>}
+                                        {lB && <a href={lB} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center text-center rounded-xl border border-blue-200 bg-white hover:bg-blue-50 px-2 py-2.5" data-dc-rute-tujuan><span className="text-sm font-bold text-blue-700">🧭 Rute ke tujuan</span><span className="text-[11px] text-gray-500 break-words">{tarif.to}</span></a>}
+                                    </div>
+                                );
+                            })()}
                             <div className="bg-blue-50 rounded-lg p-4 text-center">
                                 <div className="text-xs text-blue-500 font-semibold">ONGKIR{pp ? ' (PP)' : ''}</div>
                                 <div className="text-3xl font-bold text-blue-700">{formatRupiah(safeMoney(trx.ongkir))}</div>
@@ -39117,7 +39382,7 @@ ${getRekapShareLink(rekap)}
                                 {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={ordersTampil} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} danaOperasional={danaOperasional} setExpenses={updateExpenses} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} driverTransactions={driverTransactions} drivers={drivers} /></MenuBeku></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={ordersTampil} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} /></MenuBeku></div>}
+                                {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} isAdmin={authUser?.role === 'Admin'} /></MenuBeku></div>}
                                 {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={ordersTampil} templates={templates} showToast={showToast} klienMaster={clients} riwayatPengiriman={riwayatPengiriman} /></div>}
                                 {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={ordersTampil} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
                                 {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} getDataSizeReport={authUser?.role === 'Admin' ? getDataSizeReport : null} arsipOrder={authUser?.role === 'Admin' ? { info: arsipInfo, jumlahUtama: orders.filter(isVisibleRecord).length, jalankan: () => jalankanArsipRef.current({ paksa: true }), ubahUmur: ubahUmurArsip } : null} /></div>}

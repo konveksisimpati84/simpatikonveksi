@@ -280,6 +280,11 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   dengan `node scripts/buat-ikon-aplikasi.cjs` (tanpa bingkai merah agar rapi saat dipotong bulat). `sw.js` selalu
   mengambil halaman dari server dulu (versi baru langsung terpakai); hanya saat tanpa internet halaman terakhir dipakai.
   Link share (`#rekap-gaji=`, `#invoice-share=`, dll.) tidak ditawari pasang & tidak memasang service worker.
+- **SIJEK & Google Maps (opsional)**: Admin menempel kode API Google Maps di SIJEK → tab **🗺️ Google Maps** (disimpan di
+  Pengaturan `googleMapsKey`), lalu **Tes kode**. Bila aktif, cari tempat (Places API New) & jarak jalan (Routes API) di
+  Driver & Tarif memakai Google; bila kode kosong/ditolak/kuota habis otomatis kembali ke OpenStreetMap (gratis). Di Google
+  Cloud aktifkan Maps JavaScript API, Places API (New), Routes API; batasi kode ke `https://konveksisimpati.com/*`.
+  Link driver punya tombol **🧭 Rute ke ambil / tujuan** (link Google Maps biasa, tanpa kode & kuota).
 - **Pengaman link share**: semua kode link baru dibuat acak & panjang (tidak bisa ditebak). Link Tracking Instansi memakai
   kode `#customer-tracking=TI-…` (disimpan di baris `app_data` **`trackingLinks`**); link lama yang berisi nama sekolah
   tidak berlaku lagi. Tombol **🔄 Ganti link** (Tracking Instansi, invoice, marketing, investor, bagi hasil promosi,
