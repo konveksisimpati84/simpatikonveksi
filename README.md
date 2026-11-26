@@ -295,6 +295,16 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   berkurang, muncul di *Penggunaan dana* (Gaji Driver / Kasbon Driver / Kasbon Karyawan + **Lihat ›**), dan **tidak**
   dikurangi lagi dari Posisi Uang (uangnya sudah keluar saat transfer dana). Kasbon karyawan tidak bisa diambil dari
   dana miliknya sendiri. Data lama tidak berubah.
+- **Menu Biaya — cari & total**: kata yang dicari dicocokkan per baris rincian (semua kata harus ada, urutan bebas).
+  Kotak **Total pencarian** menjumlah hanya baris yang cocok (qty × harga, diskon dibagi rata); bila kata ada di
+  judul/kategori/penerima/catatan, seluruh transaksi dihitung. Uang masuk & keluar dijumlah terpisah, ada rincian per
+  bulan. Periode: Semua / Bulan ini / Bulan lalu / per bulan / **Pilih tanggal** (dari–sampai). Filter **Sumber dana**:
+  Kas perusahaan / semua dana operasional / per karyawan (yang dihitung hanya bagian yang dibayar dari sumber itu).
+- **Menu Biaya — foto & link**: foto nota/struk per biaya (`fotoNota`) dan foto bukti per pembayaran
+  (`payments[].proofImage`), dipindah otomatis ke baris `img:b:…` / `img:bp:…` seperti Pembelian Bahan. Link status
+  pembayaran untuk penerima `#biaya=BY-…` (`shareToken`, lewat `share_cocok`) + pesan WhatsApp + **🔄 Ganti link**.
+  Halaman link tidak menampilkan kategori, catatan, maupun nama karyawan pemegang dana. Uang Masuk & catatan selisih
+  kas tidak punya link.
 - **Kartu link WhatsApp**: `kartu-wa.jpg` (1200×630, logo Simpati saja) ada di samping `index.html`
   dan **wajib ikut di-upload saat deploy** — dipakai sebagai gambar pratinjau (og:image) saat link dibagikan di WhatsApp.
   Dibuat dari `src/logo-kotak-sumber.png` dengan `node scripts/buat-kartu-wa.cjs`. WhatsApp menyimpan pratinjau lama
