@@ -1156,24 +1156,54 @@
             const usedExp   = safeArray(expenses).filter(e => !e.isDeleted).flatMap(e => safeArray(e.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedRekap = safeArray(rekapKinerja).filter(r => !r.isDeleted).flatMap(r => safeArray(r.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
             const usedBHP   = safeArray(bagiHasilPromosi).filter(b => !b.isDeleted).flatMap(b => safeArray(b.payments)).filter(p => String(p.operasionalKaryawanId || '') === eid).reduce((s, p) => s + safeMoney(p.amount), 0);
-            const rawBalance = totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap - usedBHP;
+            const usedLain  = pemakaianDanaLain(DANA_LAIN).filter(x => x.empId === eid).reduce((s, x) => s + x.amount, 0);
+            const rawBalance = totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap - usedBHP - usedLain;
             const saldo = Math.max(0, rawBalance);
             // hutang = talangan yg belum dioffset oleh kontribusi bersih perusahaan (totalIn - penyelesaian)
             // menggunakan (totalIn - totalPenyelesaian) agar karyawan lama dengan history besar tetap benar
             const hutang = Math.max(0, totalTalangan - Math.max(0, totalIn - totalPenyelesaian));
             // defisit = pool negatif: total terpakai melebihi total pool (totalIn + talangan - penyelesaian)
             const defisit = Math.max(0, -rawBalance);
-            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap + usedBHP, totalPenyelesaian, saldo, hutang, defisit };
+            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap + usedBHP + usedLain, totalPenyelesaian, saldo, hutang, defisit };
         };
         // ===== Saldo dana operasional per karyawan — cepat =====
         // Sebelumnya setiap pemanggilan memeriksa SEMUA nota, biaya, rekap & bagi hasil (diulang per karyawan & per ketikan).
         // Sekarang ringkasan semua karyawan dibuat sekali per isi data, lalu dipakai ulang selama datanya sama (hasil identik).
         const DANA_KOSONG = Object.freeze([]);
         const danaKunci = (a) => (Array.isArray(a) && a.length ? a : DANA_KOSONG);
+        // Pembayaran lain yang bisa memakai dana operasional karyawan: gaji & kasbon driver (SIJEK), kasbon karyawan.
+        // Datanya diisi App setiap tampil (aturDanaLain) agar semua menu menghitung sisa dana yang sama.
+        const DANA_LAIN = { driverRekapGaji: DANA_KOSONG, driverKasbon: DANA_KOSONG, employees: DANA_KOSONG };
+        const aturDanaLain = ({ driverRekapGaji, driverKasbon, employees }) => {
+            DANA_LAIN.driverRekapGaji = danaKunci(driverRekapGaji); DANA_LAIN.driverKasbon = danaKunci(driverKasbon); DANA_LAIN.employees = danaKunci(employees);
+        };
+        // Daftar pemakaian dana dari 3 menu di atas: { jenis: gajidrv | kasbondrv | kasbon, empId (pemegang dana), amount, tgl, judul, ket, refId, ... }
+        const pemakaianDanaLain = (src) => {
+            const out = [];
+            safeArray(src && src.driverRekapGaji).forEach(r => {
+                if (!r || r.isDeleted) return;
+                safeArray(r.payments).forEach(p => {
+                    if (!p || !p.operasionalKaryawanId || !(safeMoney(p.amount) > 0)) return;
+                    out.push({ jenis: 'gajidrv', empId: String(p.operasionalKaryawanId), amount: safeMoney(p.amount), tgl: p.date || r.tanggalRekap || '', judul: r.driverName || '-', ket: 'Gaji driver', refId: String(r.id), payId: p.id });
+                });
+            });
+            safeArray(src && src.driverKasbon).forEach(k => {
+                if (!k || k.isDeleted || !k.operasionalKaryawanId || !(safeMoney(k.jumlah) > 0)) return;
+                out.push({ jenis: 'kasbondrv', empId: String(k.operasionalKaryawanId), amount: safeMoney(k.jumlah), tgl: k.tanggal || '', judul: k.driverName || '-', ket: k.keterangan || '', refId: String(k.id), driverId: k.driverId });
+            });
+            safeArray(src && src.employees).forEach(emp => {
+                if (!emp) return;
+                getEmployeeCashAdvances(emp).forEach(k => {
+                    if (!k || !k.operasionalKaryawanId || isKasbonLebihBayar(k) || !(getCashAdvanceAmount(k) > 0)) return;
+                    out.push({ jenis: 'kasbon', empId: String(k.operasionalKaryawanId), amount: getCashAdvanceAmount(k), tgl: k.date || '', judul: emp.name || '-', ket: k.note || '', refId: String(k.id), penerimaId: String(emp.id) });
+                });
+            });
+            return out;
+        };
         const indeksDanaCache = [];
-        const buatIndeksDana = (dana, pn, ex, rk, bhp) => {
+        const buatIndeksDana = (dana, pn, ex, rk, bhp, drg, dkb, emps) => {
             const per = new Map();
-            const ambil = (k) => { let o = per.get(k); if (!o) { o = { totalIn: 0, totalTalangan: 0, totalPenyelesaian: 0, usedPN: 0, usedExp: 0, usedRekap: 0, usedBHP: 0 }; per.set(k, o); } return o; };
+            const ambil = (k) => { let o = per.get(k); if (!o) { o = { totalIn: 0, totalTalangan: 0, totalPenyelesaian: 0, usedPN: 0, usedExp: 0, usedRekap: 0, usedBHP: 0, usedLain: 0 }; per.set(k, o); } return o; };
             dana.forEach(d => {
                 if (!d || d.isDeleted) return;
                 const o = ambil(String(d.karyawanId));
@@ -1186,23 +1216,24 @@
                 safeArray(n.payments).forEach(p => { if (!p) return; ambil(String(p.operasionalKaryawanId || ''))[kolom] += safeMoney(p.amount); });
             });
             pakai(pn, 'usedPN'); pakai(ex, 'usedExp'); pakai(rk, 'usedRekap'); pakai(bhp, 'usedBHP');
+            pemakaianDanaLain({ driverRekapGaji: drg, driverKasbon: dkb, employees: emps }).forEach(x => { ambil(x.empId).usedLain += x.amount; });
             return per;
         };
         const getDanaSaldoKaryawan = (empId, danaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = []) => {
-            const args = [danaKunci(danaOperasional), danaKunci(purchaseNotes), danaKunci(expenses), danaKunci(rekapKinerja), danaKunci(bagiHasilPromosi)];
+            const args = [danaKunci(danaOperasional), danaKunci(purchaseNotes), danaKunci(expenses), danaKunci(rekapKinerja), danaKunci(bagiHasilPromosi), DANA_LAIN.driverRekapGaji, DANA_LAIN.driverKasbon, DANA_LAIN.employees];
             let c = indeksDanaCache.find(x => x.args.every((a, i) => a === args[i]));
             if (!c) {
                 c = { args, idx: buatIndeksDana(...args) };
                 indeksDanaCache.unshift(c);
                 if (indeksDanaCache.length > 4) indeksDanaCache.pop();
             }
-            const o = c.idx.get(String(empId)) || { totalIn: 0, totalTalangan: 0, totalPenyelesaian: 0, usedPN: 0, usedExp: 0, usedRekap: 0, usedBHP: 0 };
-            const { totalIn, totalTalangan, totalPenyelesaian, usedPN, usedExp, usedRekap, usedBHP } = o;
-            const rawBalance = totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap - usedBHP;
+            const o = c.idx.get(String(empId)) || { totalIn: 0, totalTalangan: 0, totalPenyelesaian: 0, usedPN: 0, usedExp: 0, usedRekap: 0, usedBHP: 0, usedLain: 0 };
+            const { totalIn, totalTalangan, totalPenyelesaian, usedPN, usedExp, usedRekap, usedBHP, usedLain } = o;
+            const rawBalance = totalIn + totalTalangan - totalPenyelesaian - usedPN - usedExp - usedRekap - usedBHP - usedLain;
             const saldo = Math.max(0, rawBalance);
             const hutang = Math.max(0, totalTalangan - Math.max(0, totalIn - totalPenyelesaian));
             const defisit = Math.max(0, -rawBalance);
-            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap + usedBHP, totalPenyelesaian, saldo, hutang, defisit };
+            return { totalIn, totalTalangan, totalUsed: usedPN + usedExp + usedRekap + usedBHP + usedLain, totalPenyelesaian, saldo, hutang, defisit };
         };
         const notePaid   = (note) => {
             if (!note.payments && note.paymentStatus)
@@ -6735,7 +6766,41 @@ ${blocks}
             );
         };
 
-        const KaryawanView = ({ employees, setEmployees, showToast, templates, gajiSensitif = null }) => {
+        // Kolom "Bayar dari / Sumber dana" bersama (Gaji driver, Kasbon driver, Kasbon karyawan): pilihan kas kantor
+        // (kasOpsi) + "Dana operasional karyawan" — sama seperti Sumber Dana di menu Biaya. nilai: 'rekening' | 'tunai' | '' | 'dana:<empId>'
+        const PilihSumberDanaOps = ({ nilai, onUbah, jumlah = 0, kasOpsi, danaOperasional = [], purchaseNotes = [], expenses = [], rekapKinerja = [], bagiHasilPromosi = [], employees = [], kecualiEmpId = '', kembalikan = null, kelas = '', dataAttr = 'data-sumber-dana' }) => {
+            const emps = safeArray(employees).filter(isVisibleRecord).filter(emp => isAktifDana(emp.id, danaOperasional) && String(emp.id) !== String(kecualiEmpId || ''));
+            const v = String(nilai == null ? '' : nilai);
+            const empId = v.startsWith('dana:') ? v.slice(5) : '';
+            const saldoDari = (id) => {
+                const st = getDanaSaldoKaryawan(id, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi);
+                // Saat mengubah data lama: jumlah lamanya dikembalikan dulu ke sisa dana pemegangnya
+                const balik = kembalikan && String(kembalikan.empId) === String(id) ? safeMoney(kembalikan.amount) : 0;
+                const raw = st.saldo - st.defisit + balik;
+                return { st, saldo: Math.max(0, raw), pool: st.totalIn > 0 || st.totalTalangan > 0 };
+            };
+            const pilih = empId ? saldoDari(empId) : null;
+            const amt = safeMoney(jumlah);
+            const lebih = pilih && pilih.pool && amt > 0 && amt > pilih.saldo;
+            return (<>
+                <select value={v} onChange={e => onUbah(e.target.value)} className={`${kelas} ${lebih ? 'border-blue-400' : ''}`} {...{ [dataAttr]: '' }}>
+                    {safeArray(kasOpsi).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+                    {(emps.length > 0 || (empId && !emps.some(e => String(e.id) === empId))) && (
+                        <optgroup label="Dana operasional karyawan">
+                            {emps.map(emp => { const x = saldoDari(emp.id); return <option key={emp.id} value={`dana:${emp.id}`}>{x.pool ? `💼 Dana Pool — ${emp.name} (sisa ${formatRupiah(x.saldo)})` : `💼 Dana Sendiri — ${emp.name} (belum ada pool)`}</option>; })}
+                            {empId && !emps.some(e => String(e.id) === empId) && <option value={v}>💼 {(safeArray(employees).find(e => String(e.id) === empId) || {}).name || 'Karyawan'} (dana operasional)</option>}
+                        </optgroup>
+                    )}
+                </select>
+                {pilih && !pilih.pool && <div className="text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-200 rounded px-2 py-1.5 mt-1" data-sumber-dana-info="sendiri">💼 Dicatat sebagai dana pribadi karyawan (talangan). Transfer dana untuk melunasi nanti.</div>}
+                {lebih && <div className="text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-200 rounded px-2 py-1.5 mt-1" data-sumber-dana-info="lebih">💼 Melebihi saldo ({formatRupiah(pilih.saldo)}). Selisih {formatRupiah(amt - pilih.saldo)} dicatat sebagai talangan karyawan.</div>}
+                {pilih && pilih.pool && !lebih && amt > 0 && <div className="text-[10px] text-emerald-700 font-bold mt-1" data-sumber-dana-info="cukup">✓ Sisa dana setelah dibayar: {formatRupiah(pilih.saldo - amt)}</div>}
+            </>);
+        };
+        const sumberDanaEmpId = (v) => String(v || '').startsWith('dana:') ? String(v).slice(5) : '';
+        const namaPemegangDana = (empId, employees) => empId ? ((safeArray(employees).find(e => String(e.id) === String(empId)) || {}).name || 'karyawan') : '';
+
+        const KaryawanView = ({ employees, setEmployees, showToast, templates, gajiSensitif = null, danaOperasional = [], purchaseNotes = [], expenses = [], rekapKinerja = [], bagiHasilPromosi = [], bukaKasbonReq = null }) => {
             // Gaji Direksi & Marketing: tanpa "Lihat" -> pengaturan gaji disembunyikan; "Lihat" saja -> terkunci; "Edit" -> bisa diubah
             const canViewSens = gajiSensitif ? !!gajiSensitif.lihat : true;
             const canEditSens = gajiSensitif ? !!gajiSensitif.edit : true;
@@ -6775,6 +6840,12 @@ ${blocks}
             );
             const { page: empPage, setPage: setEmpPage, totalPages: empTotalPages, paged: pagedEmployees, total: empTotal } = usePagination(filteredEmployees, 15);
             const activeCashAdvanceEmp = cashAdvanceEmp ? safeEmployees.find(emp => String(emp.id) === String(cashAdvanceEmp.id)) || cashAdvanceEmp : null;
+            // Dari Dana Operasional → "Lihat ›" pada kasbon karyawan: buka daftar kasbon karyawan penerimanya
+            useEffect(() => {
+                if (!bukaKasbonReq || !bukaKasbonReq.id) return;
+                const emp = safeArray(employees).find(e => e && getEmployeeCashAdvances(e).some(k => String(k.id) === String(bukaKasbonReq.id)));
+                if (emp) setCashAdvanceEmp(emp);
+            }, [bukaKasbonReq && bukaKasbonReq.t]);
             const activeCashAdvanceSummary = getEmployeeCashAdvanceSummary(activeCashAdvanceEmp);
             const activeDailySalaryEmp = dailySalaryEmp ? safeEmployees.find(emp => String(emp.id) === String(dailySalaryEmp.id)) || dailySalaryEmp : null;
             const activeDailySalaryLogs = getEmployeeDailySalaryLogs(activeDailySalaryEmp);
@@ -7097,6 +7168,10 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                     showToast("Nominal kasbon harus lebih dari 0.", "error");
                     return;
                 }
+                if (sumberDanaEmpId(cashAdvanceForm.dari) && String(sumberDanaEmpId(cashAdvanceForm.dari)) === String(activeCashAdvanceEmp.id)) {
+                    showToast("Kasbon tidak bisa diambil dari dana operasional karyawan yang sama.", "error");
+                    return;
+                }
                 if (editingCashAdvanceId) {
                     const editing = getEmployeeCashAdvances(activeCashAdvanceEmp).find(item => String(item.id) === String(editingCashAdvanceId));
                     const alreadyDeducted = getCashAdvanceDeducted(editing);
@@ -7115,8 +7190,9 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                         amount,
                         note: String(cashAdvanceForm.note || '').trim(),
                         status: cashAdvanceForm.status || 'Belum Dipotong',
-                        // Uang kasbon keluar dari rekening atau tunai kantor (untuk Posisi Uang)
-                        dari: cashAdvanceForm.dari === 'tunai' ? 'tunai' : 'rekening',
+                        // Uang kasbon keluar dari rekening / tunai kantor (untuk Posisi Uang), atau dari dana operasional seorang karyawan
+                        dari: sumberDanaEmpId(cashAdvanceForm.dari) ? 'dana' : (cashAdvanceForm.dari === 'tunai' ? 'tunai' : 'rekening'),
+                        operasionalKaryawanId: sumberDanaEmpId(cashAdvanceForm.dari),
                         deductedAmount: editingCashAdvanceId
                             ? getCashAdvanceDeducted(currentAdvances.find(item => String(item.id) === String(editingCashAdvanceId)))
                             : 0,
@@ -7140,7 +7216,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                     amount: getCashAdvanceAmount(cashAdvance),
                     note: cashAdvance.note || '',
                     status: cashAdvance.status || normalizeCashAdvanceStatus(cashAdvance),
-                    dari: cashAdvance.dari === 'tunai' ? 'tunai' : 'rekening'
+                    dari: cashAdvance.operasionalKaryawanId ? `dana:${cashAdvance.operasionalKaryawanId}` : (cashAdvance.dari === 'tunai' ? 'tunai' : 'rekening')
                 });
             };
 
@@ -7437,10 +7513,13 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Dari</label>
-                                        <select data-kasbon-dari className="w-full p-2 border rounded text-sm" value={cashAdvanceForm.dari || 'rekening'} onChange={e => setCashAdvanceForm(prev => ({ ...prev, dari: e.target.value }))}>
-                                            <option value="rekening">Rekening</option>
-                                            <option value="tunai">Tunai</option>
-                                        </select>
+                                        {(() => {
+                                            const lama = editingCashAdvanceId ? getEmployeeCashAdvances(activeCashAdvanceEmp).find(item => String(item.id) === String(editingCashAdvanceId)) : null;
+                                            return <PilihSumberDanaOps nilai={cashAdvanceForm.dari || 'rekening'} onUbah={v => setCashAdvanceForm(prev => ({ ...prev, dari: v }))} jumlah={cashAdvanceForm.amount}
+                                                kasOpsi={[['rekening', 'Rekening'], ['tunai', 'Tunai']]} kelas="w-full p-2 border rounded text-sm" dataAttr="data-kasbon-dari"
+                                                danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} employees={employees}
+                                                kecualiEmpId={activeCashAdvanceEmp?.id} kembalikan={lama && lama.operasionalKaryawanId ? { empId: lama.operasionalKaryawanId, amount: getCashAdvanceAmount(lama) } : null} />;
+                                        })()}
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-600 mb-1">Catatan Kasbon</label>
@@ -7471,7 +7550,7 @@ ul.data-list li::before{content:"•";color:#4F46E5;font-weight:900;flex-shrink:
                                                     <td className="p-3 text-right font-bold text-red-700">{formatRupiah(getCashAdvanceAmount(item))}</td>
                                                     <td className="p-3 text-right font-bold text-green-700">{formatRupiah(getCashAdvanceDeducted(item))}</td>
                                                     <td className="p-3 text-right font-bold text-orange-700">{formatRupiah(getCashAdvanceRemaining(item))}</td>
-                                                    <td className="p-3">{isKasbonLebihBayar(item) ? <><div className="font-bold text-gray-800">Dari lebih bayar komisi</div><div className="text-xs text-gray-500">{String(item.note || '').replace(/^Dari lebih bayar komisi\s*·\s*/, '') || '-'}</div><span data-kasbon-lebih className="inline-block mt-1 text-[10.5px] font-extrabold rounded-md px-1.5 py-0.5 bg-violet-600 text-white">bukan uang keluar</span></> : (item.note || '-')}</td>
+                                                    <td className="p-3">{isKasbonLebihBayar(item) ? <><div className="font-bold text-gray-800">Dari lebih bayar komisi</div><div className="text-xs text-gray-500">{String(item.note || '').replace(/^Dari lebih bayar komisi\s*·\s*/, '') || '-'}</div><span data-kasbon-lebih className="inline-block mt-1 text-[10.5px] font-extrabold rounded-md px-1.5 py-0.5 bg-violet-600 text-white">bukan uang keluar</span></> : <>{item.note || '-'}{item.operasionalKaryawanId && <div data-kasbon-dana className="mt-1 inline-block text-[10.5px] font-bold rounded-md px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700">💼 Dana ops: {namaPemegangDana(item.operasionalKaryawanId, employees)}</div>}</>}</td>
                                                     <td className="p-3 text-center"><Badge status={normalizeCashAdvanceStatus(item)} /></td>
                                                     <td className="p-3">
                                                         <div className="flex justify-center gap-2">
@@ -12249,6 +12328,9 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
             biaya: { label: 'Biaya', tab: 'biaya', menu: 'Biaya', bg: 'bg-red-50 border-red-200', ic: 'bg-red-100 text-red-700', amt: 'text-red-800' },
             gaji: { label: 'Bayar Gaji', tab: 'laporan', menu: 'Laporan Kinerja', bg: 'bg-purple-50 border-purple-200', ic: 'bg-purple-100 text-purple-700', amt: 'text-purple-800' },
             bh: { label: 'Bagi Hasil Promosi', tab: 'invoice', menu: 'Invoice', bg: 'bg-teal-50 border-teal-200', ic: 'bg-teal-100 text-teal-700', amt: 'text-teal-800' },
+            gajidrv: { label: 'Gaji Driver', tab: 'ekspedisi', menu: 'SIJEK', bg: 'bg-orange-50 border-orange-200', ic: 'bg-orange-100 text-orange-700', amt: 'text-orange-800' },
+            kasbondrv: { label: 'Kasbon Driver', tab: 'ekspedisi', menu: 'SIJEK', bg: 'bg-amber-50 border-amber-200', ic: 'bg-amber-100 text-amber-700', amt: 'text-amber-800' },
+            kasbon: { label: 'Kasbon Karyawan', tab: 'data_master', menu: 'Data Master', bg: 'bg-rose-50 border-rose-200', ic: 'bg-rose-100 text-rose-700', amt: 'text-rose-800' },
         };
         const DanaOperasionalView = ({ employees, danaOperasional, setDanaOperasional, purchaseNotes, expenses, rekapKinerja = [], bagiHasilPromosi = [], showToast, gajiSensitif = null, bolehKelola = false, namaPencatat = '', onLihatPemakaian = null, bisaBukaMenu = null, pilihKaryawanReq = null, posisiMulai = null }) => {
             // Tanpa akses "Kelola Dana Operasional" menu ini hanya lihat: semua penyimpanan ditolak
@@ -12440,6 +12522,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 ...linkedExp.map(p => ({ jenis: 'biaya', key: 'ex-' + p.expId + '-' + p.id, tgl: p.date || p.expDate || '', amount: p.amount, judul: p.category || '-', ket: '', refId: p.expId })),
                 ...linkedRekap.map(p => ({ jenis: 'gaji', key: 'rk-' + p.rekapId + '-' + p.id, tgl: p.date || '', amount: p.amount, judul: p.empName || '-', ket: '', refId: p.rekapId === '-' ? '' : p.rekapId, disembunyikan: p.rekapId === '-' })),
                 ...linkedBHP.map(p => ({ jenis: 'bh', key: 'bh-' + p.bhpId + '-' + p.id, tgl: p.date || '', amount: p.amount, judul: p.bhpNama || '-', ket: '', refId: p.bhpId })),
+                ...pemakaianDanaLain(DANA_LAIN).filter(x => x.empId === String(selectedEmpId)).map(x => ({ jenis: x.jenis, key: x.jenis + '-' + x.refId + '-' + (x.payId || ''), tgl: x.tgl, amount: x.amount, judul: x.judul, ket: x.jenis === 'gajidrv' ? '' : x.ket, refId: x.refId })),
             ].sort((a, b) => String(b.tgl).localeCompare(String(a.tgl)));
             const pemakaianTersaring = saringPakai === 'semua' ? pemakaianDana : pemakaianDana.filter(x => x.jenis === saringPakai);
             const { page: pakaiPage, setPage: setPakaiPage, totalPages: pakaiTotalPages, paged: pakaiPaged, total: pakaiTotal } = usePagination(pemakaianTersaring, 10, `${selectedEmpId}|${saringPakai}`);
@@ -12840,7 +12923,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                                     <span className="text-xs font-black text-gray-500 tracking-widest uppercase">Penggunaan Dana — {selectedEmp.name} ({pemakaianDana.length})</span>
                                 </div>
                                 <div className="flex flex-wrap gap-1.5 mb-3" data-dana-saring>
-                                    {['semua', 'nota', 'biaya', 'gaji', 'bh'].map(j => {
+                                    {['semua', 'nota', 'biaya', 'gaji', 'bh', 'gajidrv', 'kasbondrv', 'kasbon'].map(j => {
                                         const isi = j === 'semua' ? pemakaianDana : pemakaianDana.filter(x => x.jenis === j);
                                         if (j !== 'semua' && isi.length === 0) return null;
                                         const aktif = saringPakai === j;
@@ -13971,6 +14054,8 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
         const DataMasterView = ({ izin = [], karyawanProps, klienProps, purchaseNotes, onLihatNotaVendor }) => {
             const tabs = DATA_MASTER_TABS.filter(t => izin.includes(t.izin));
             const [tab, setTab] = useState(() => { try { return localStorage.getItem(DATA_MASTER_TAB_KEY) || ''; } catch (e) { return ''; } });
+            const reqKasbon = karyawanProps && karyawanProps.bukaKasbonReq;
+            useEffect(() => { if (reqKasbon && reqKasbon.id && tabs.some(t => t.id === 'karyawan')) setTab('karyawan'); }, [reqKasbon && reqKasbon.t]);
             const aktif = tabs.some(t => t.id === tab) ? tab : (tabs[0] ? tabs[0].id : '');
             const [dimuat, setDimuat] = useState(() => new Set());
             useEffect(() => { if (aktif) setDimuat(prev => prev.has(aktif) ? prev : new Set(prev).add(aktif)); }, [aktif]);
@@ -18291,9 +18376,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => safeArray(n.payments).filter(pay => safeMoney(pay.amount) > 0 && !pay.operasionalKaryawanId).forEach(pay => tambah(`nota:${n.id}:${pay.id}`, 'Pembelian bahan', n.vendor || '-', pay.date || n.date, pay.id, -safeMoney(pay.amount), pay.method)));
             safeArray(rekapKinerja).filter(isVisibleRecord).forEach(r => safeArray(r.payments).filter(pay => safeMoney(pay && pay.amount) > 0 && !pay.operasionalKaryawanId).forEach(pay => tambah(`gaji:${r.id}:${pay.id}`, 'Gaji', r.empName || '-', pay.date || r.dateProcessed, pay.id, -safeMoney(pay.amount), pay.method)));
             safeArray(bagiHasilPromosi).filter(isVisibleRecord).forEach(b => safeArray(b.payments).filter(pay => safeMoney(pay.amount) > 0 && !pay.operasionalKaryawanId).forEach(pay => tambah(`bhp:${b.id}:${pay.id}`, 'Bagi hasil promosi', b.nama || '-', pay.date || b.tanggal, pay.id, -safeMoney(pay.amount), pay.method)));
-            safeArray(driverRekapGaji).filter(isVisibleRecord).forEach(r => safeArray(r.payments).filter(pay => pay && safeMoney(pay.amount) > 0).forEach(pay => tambah(`gajidrv:${r.id}:${pay.id}`, 'Gaji driver', r.driverName || '-', pay.date || r.tanggalRekap, pay.id, -safeMoney(pay.amount), pay.method)));
-            safeArray(driverKasbon).filter(isVisibleRecord).forEach(k => tambah(`kasbondrv:${k.id}`, 'Kasbon driver', k.driverName || '-', k.tanggal, k.id, -safeMoney(k.jumlah), k.dari));
-            safeArray(employees).filter(Boolean).forEach(emp => getEmployeeCashAdvances(emp).filter(k => !isKasbonLebihBayar(k)).forEach(k => tambah(`kasbon:${emp.id}:${k.id}`, 'Kasbon', emp.name || '-', k.date, k.id, -getCashAdvanceAmount(k), k.dari)));
+            safeArray(driverRekapGaji).filter(isVisibleRecord).forEach(r => safeArray(r.payments).filter(pay => pay && safeMoney(pay.amount) > 0 && !pay.operasionalKaryawanId).forEach(pay => tambah(`gajidrv:${r.id}:${pay.id}`, 'Gaji driver', r.driverName || '-', pay.date || r.tanggalRekap, pay.id, -safeMoney(pay.amount), pay.method)));
+            safeArray(driverKasbon).filter(isVisibleRecord).filter(k => !k.operasionalKaryawanId).forEach(k => tambah(`kasbondrv:${k.id}`, 'Kasbon driver', k.driverName || '-', k.tanggal, k.id, -safeMoney(k.jumlah), k.dari));
+            safeArray(employees).filter(Boolean).forEach(emp => getEmployeeCashAdvances(emp).filter(k => !isKasbonLebihBayar(k) && !k.operasionalKaryawanId).forEach(k => tambah(`kasbon:${emp.id}:${k.id}`, 'Kasbon', emp.name || '-', k.date, k.id, -getCashAdvanceAmount(k), k.dari)));
             // Dana operasional: transfer ke karyawan keluar dari rekening/tunai; sisa dana yang dikembalikan masuk lagi (bukan uang masuk/keluar Buku Kas)
             safeArray(danaOperasional).filter(isVisibleRecord).forEach(d => {
                 if ((!d.type || d.type === 'keluar') && safeMoney(d.nominal) > 0) tambah(`dana:${d.id}`, 'Transfer dana operasional', d.karyawanNama || '-', d.tanggal, d.id, -safeMoney(d.nominal), d.dari);
@@ -29477,8 +29562,9 @@ ${getRekapShareLink(rekap)}
             );
         };
 
-        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates, setTemplates, isAdmin = false }) => {
+        const EkspedisiView = ({ drivers, setDrivers, driverTarifs, setDriverTarifs, driverTransactions, setDriverTransactions, driverRekapGaji, setDriverRekapGaji, driverKasbon, setDriverKasbon, showToast, templates, setTemplates, isAdmin = false, danaOperasional = [], purchaseNotes = [], expenses = [], rekapKinerja = [], bagiHasilPromosi = [], employees = [], bukaDanaReq = null }) => {
             gmapsAturKunci(templates?.googleMapsKey);
+            const propsDana = { danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, employees };
             const [activeSubTab, setActiveSubTab] = React.useState('kirim');
             const [search, setSearch] = React.useState('');
             const [showDriverForm, setShowDriverForm] = React.useState(false);
@@ -29751,6 +29837,21 @@ ${getRekapShareLink(rekap)}
             const visibleKasbon = (driverKasbon || []).filter(isVisibleRecord);
             const [showKasbonDriver, setShowKasbonDriver] = React.useState(null); // driverId
             const [showKasbonAddForm, setShowKasbonAddForm] = React.useState(false);
+            // Dari Dana Operasional → "Lihat ›": buka pembayaran gaji / kasbon driver yang memakai dana itu
+            React.useEffect(() => {
+                if (!bukaDanaReq || !bukaDanaReq.id) return;
+                if (bukaDanaReq.jenis === 'gajidrv') {
+                    const r = (driverRekapGaji || []).find(x => x && !x.isDeleted && String(x.id) === String(bukaDanaReq.id));
+                    if (!r) return;
+                    setActiveSubTab('gaji');
+                    setBayarRekap({ id: r.id, tanggal: toLocalDateStr(), jumlah: '', metode: 'Tunai', catatan: '', sumber: '' });
+                } else if (bukaDanaReq.jenis === 'kasbondrv') {
+                    const k = (driverKasbon || []).find(x => x && !x.isDeleted && String(x.id) === String(bukaDanaReq.id));
+                    if (!k) return;
+                    setActiveSubTab('gaji');
+                    setShowKasbonDriver(k.driverId); setShowKasbonAddForm(false);
+                }
+            }, [bukaDanaReq && bukaDanaReq.t]);
             const [kasbonForm, setKasbonForm] = React.useState({ driverId: '', jumlah: '', keterangan: '', tanggal: toLocalDateStr() });
 
             const getKasbonAktif = (driverId) => visibleKasbon.filter(k => k.driverId === driverId && (safeMoney(k.jumlah) - safeMoney(k.sudahDipotong)) > 0);
@@ -29766,9 +29867,10 @@ ${getRekapShareLink(rekap)}
                     if (!confirm(`Driver ini masih punya sisa kasbon ${formatRupiah(sisaKasbonAktif)}.\nTotal kasbon aktif akan menjadi ${formatRupiah(totalNanti)}.\n\nLanjutkan tambah kasbon?`)) return;
                 }
                 const drv = visibleDrivers.find(d => d.id === kasbonForm.driverId);
-                const rec = { id: genId('KASBON-'), driverId: kasbonForm.driverId, driverName: drv ? drv.name : '', tanggal: kasbonForm.tanggal, jumlah: safeMoney(kasbonForm.jumlah), keterangan: kasbonForm.keterangan, dari: kasbonForm.dari === 'tunai' ? 'tunai' : 'rekening', sudahDipotong: 0, _syncUpdatedAt: new Date().toISOString() };
+                const rec = { id: genId('KASBON-'), driverId: kasbonForm.driverId, driverName: drv ? drv.name : '', tanggal: kasbonForm.tanggal, jumlah: safeMoney(kasbonForm.jumlah), keterangan: kasbonForm.keterangan, dari: sumberDanaEmpId(kasbonForm.dari) ? 'dana' : (kasbonForm.dari === 'tunai' ? 'tunai' : 'rekening'), ...(sumberDanaEmpId(kasbonForm.dari) ? { operasionalKaryawanId: sumberDanaEmpId(kasbonForm.dari) } : {}), sudahDipotong: 0, _syncUpdatedAt: new Date().toISOString() };
                 setDriverKasbon(prev => [...(prev||[]), rec]);
-                setKasbonForm(f => ({ ...f, jumlah: '', keterangan: '' }));
+                // Pilihan dana operasional tidak terbawa ke kasbon berikutnya (rekening/tunai tetap diingat seperti biasa)
+                setKasbonForm(f => ({ ...f, jumlah: '', keterangan: '', ...(sumberDanaEmpId(f.dari) ? { dari: 'rekening' } : {}) }));
                 setShowKasbonAddForm(false);
                 showToast('Kasbon berhasil dicatat', 'success');
             };
@@ -30317,7 +30419,7 @@ ${getRekapShareLink(rekap)}
                 showToast(nominal > 0 ? `Apresiasi ${formatRupiah(nominal)} disimpan` : 'Apresiasi dihapus', 'success');
             };
             // ----- Pembayaran gaji driver (masuk Buku Kas di Laporan Keuangan per tanggal bayar) -----
-            const bukaBayarRekap = (r) => setBayarRekap({ id: r.id, tanggal: toLocalDateStr(), jumlah: drvRekapSisa(r) ? String(drvRekapSisa(r)) : '', metode: 'Tunai', catatan: '' });
+            const bukaBayarRekap = (r) => setBayarRekap({ id: r.id, tanggal: toLocalDateStr(), jumlah: drvRekapSisa(r) ? String(drvRekapSisa(r)) : '', metode: 'Tunai', catatan: '', sumber: '' });
             const simpanBayarRekap = () => {
                 const f = bayarRekap; if (!f) return;
                 const r = (driverRekapGaji || []).find(x => x && x.id === f.id && !x.isDeleted);
@@ -30329,6 +30431,8 @@ ${getRekapShareLink(rekap)}
                 if (jumlah > drvRekapSisa(r) + 0.01) { showToast(`Jumlah melebihi sisa yang harus dibayar (${formatRupiah(drvRekapSisa(r))})`, 'error'); return; }
                 const now = new Date().toISOString();
                 const pay = { id: genId('PAY-'), date: f.tanggal, amount: jumlah, method: f.metode || 'Tunai', note: String(f.catatan || '').trim().slice(0, 100), createdAt: now };
+                // Dibayar dari dana operasional seorang karyawan (bukan rekening/tunai kantor)
+                if (sumberDanaEmpId(f.sumber)) pay.operasionalKaryawanId = sumberDanaEmpId(f.sumber);
                 setDriverRekapGaji(prev => (prev || []).map(x => x && x.id === r.id ? { ...x, payments: [...safeArray(x.payments), pay], _syncUpdatedAt: now } : x));
                 setBayarRekap(b => b ? { ...b, jumlah: '', catatan: '' } : b);
                 showToast(`Pembayaran ${formatRupiah(jumlah)} dicatat`, 'success');
@@ -30930,6 +31034,10 @@ ${getRekapShareLink(rekap)}
                                                     <label className="block text-xs font-bold text-gray-600">Metode<select value={bayarRekap.metode} onChange={e=>ubah('metode', e.target.value)} className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal bg-white" data-eks-bayar-metode><option>Tunai</option><option>Transfer</option></select></label>
                                                     <label className="block text-xs font-bold text-gray-600 min-w-0">Catatan<input value={bayarRekap.catatan} maxLength={100} onChange={e=>ubah('catatan', e.target.value)} placeholder="opsional" className="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal" data-eks-bayar-catatan /></label>
                                                 </div>
+                                                <label className="block text-xs font-bold text-gray-600">Sumber dana
+                                                    <PilihSumberDanaOps nilai={bayarRekap.sumber || ''} onUbah={v=>ubah('sumber', v)} jumlah={safeMoney(String(bayarRekap.jumlah || '').replace(/\D/g, ''))}
+                                                        kasOpsi={[['', 'Kas Perusahaan (rekening / tunai)']]} kelas="mt-1 w-full border rounded-lg px-2 py-1.5 text-sm font-normal bg-white" dataAttr="data-eks-bayar-sumber" {...propsDana} />
+                                                </label>
                                                 <button type="button" onClick={simpanBayarRekap} className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-black" data-eks-bayar-simpan>Simpan pembayaran</button>
                                             </div>
                                         )}
@@ -30939,7 +31047,7 @@ ${getRekapShareLink(rekap)}
                                                 : pays.length === 0 ? <div className="text-xs text-gray-400 border border-dashed rounded-lg p-2 text-center">Belum ada pembayaran</div>
                                                 : <div className="border rounded-lg divide-y" data-eks-bayar-riwayat>{pays.map((p, i) => (
                                                     <div key={p.id || i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm" data-eks-bayar-baris>
-                                                        <span className="min-w-0"><b>{fmtTglPendek(p.date)}</b> <span className="text-xs text-gray-500">· {p.method || '-'}{p.note ? ` · ${p.note}` : ''}</span></span>
+                                                        <span className="min-w-0"><b>{fmtTglPendek(p.date)}</b> <span className="text-xs text-gray-500">· {p.method || '-'}{p.note ? ` · ${p.note}` : ''}</span>{p.operasionalKaryawanId && <span data-eks-bayar-dana className="ml-1 inline-block text-[10.5px] font-bold rounded px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700">💼 Dana ops: {namaPemegangDana(p.operasionalKaryawanId, employees)}</span>}</span>
                                                         <span className="flex items-center gap-2 shrink-0"><b className="text-green-700">{formatRupiah(safeMoney(p.amount))}</b><button type="button" onClick={()=>setHapus({ judul: 'Hapus pembayaran?', detail: `${r.driverName} · ${fmtTglPendek(p.date)} · ${formatRupiah(safeMoney(p.amount))}`, peringatan: 'Pembayaran ini ikut hilang dari Buku Kas di Laporan Keuangan.', aksi: () => hapusBayarRekap(r.id, p.id) })} className="text-red-500 font-bold px-1" title="Hapus pembayaran" data-eks-bayar-hapus>✕</button></span>
                                                     </div>
                                                 ))}</div>}
@@ -31158,7 +31266,7 @@ ${getRekapShareLink(rekap)}
                                                     <td className="py-2 px-2 text-right font-bold">{formatRupiah(safeMoney(k.jumlah))}</td>
                                                     <td className="py-2 px-2 text-right text-green-700">{safeMoney(k.sudahDipotong)>0?formatRupiah(safeMoney(k.sudahDipotong)):'-'}</td>
                                                     <td className="py-2 px-2 text-right font-bold">{sisa>0?<span className="text-red-600">{formatRupiah(sisa)}</span>:<span className="text-green-600">Lunas</span>}</td>
-                                                    <td className="py-2 px-2 text-gray-400">{k.keterangan||'-'}</td>
+                                                    <td className="py-2 px-2 text-gray-400">{k.keterangan||'-'}{k.operasionalKaryawanId && <div data-eks-kasbon-dana className="mt-0.5 inline-block text-[10px] font-bold rounded px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700">💼 Dana ops: {namaPemegangDana(k.operasionalKaryawanId, employees)}</div>}</td>
                                                     <td className="py-2 px-2"><button onClick={()=>mintaHapusKasbon(k)} className="text-red-300 hover:text-red-600 font-bold" title="Hapus kasbon" data-eks-kasbon-hapus>✕</button></td>
                                                 </tr>);
                                             })}</tbody>
@@ -31171,7 +31279,7 @@ ${getRekapShareLink(rekap)}
                                                 <div><label className="block text-xs text-gray-600 mb-1">Tanggal</label><input type="date" value={kasbonForm.tanggal} onChange={e=>setKasbonForm(f=>({...f,tanggal:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" /></div>
                                                 <div><label className="block text-xs text-gray-600 mb-1">Nominal (Rp)</label><input type="number" min="0" value={kasbonForm.jumlah} onChange={e=>setKasbonForm(f=>({...f,jumlah:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="0" /></div>
                                             </div>
-                                            <div><label className="block text-xs text-gray-600 mb-1">Dari</label><select data-kasbon-drv-dari value={kasbonForm.dari || 'rekening'} onChange={e=>setKasbonForm(f=>({...f,dari:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs"><option value="rekening">Rekening</option><option value="tunai">Tunai</option></select></div>
+                                            <div><label className="block text-xs text-gray-600 mb-1">Dari</label><PilihSumberDanaOps nilai={kasbonForm.dari || 'rekening'} onUbah={v=>setKasbonForm(f=>({...f,dari:v}))} jumlah={kasbonForm.jumlah} kasOpsi={[['rekening', 'Rekening'], ['tunai', 'Tunai']]} kelas="w-full border rounded px-2 py-1.5 text-xs" dataAttr="data-kasbon-drv-dari" {...propsDana} /></div>
                                             <div><label className="block text-xs text-gray-600 mb-1">Keterangan</label><input value={kasbonForm.keterangan} onChange={e=>setKasbonForm(f=>({...f,keterangan:e.target.value}))} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Opsional" /></div>
                                             <div className="flex gap-2 justify-end">
                                                 <button onClick={()=>setShowKasbonAddForm(false)} className="px-3 py-1.5 bg-gray-100 rounded text-xs">Batal</button>
@@ -35345,6 +35453,8 @@ ${getRekapShareLink(rekap)}
             const [driverTransactions, setDriverTransactions] = useState([]);
             const [driverRekapGaji, setDriverRekapGaji] = useState([]);
             const [driverKasbon, setDriverKasbon] = useState([]);
+            // Sisa dana operasional karyawan juga dikurangi gaji/kasbon driver & kasbon karyawan yang memakai dana itu
+            aturDanaLain({ driverRekapGaji, driverKasbon, employees });
             const [stockItems, setStockItems] = useState([]);
             const [masterBahan, setMasterBahan] = useState([]);
             const [stokBahan, setStokBahan] = useState([]);
@@ -39376,13 +39486,13 @@ ${getRekapShareLink(rekap)}
                                 {tabMounted('biaya', canOpen('biaya')) && <div hidden={!tabVisible('biaya')}><BiayaView lihatSelisihKas={canOpen('laporan_keuangan')} isAdmin={authUser?.role === 'Admin'} bukaBiayaDana={danaBukaReq && danaBukaReq.jenis === 'biaya' ? danaBukaReq : null} expenses={expenses} setExpenses={updateExpenses} showToast={showToast} templates={templates} kartuKredit={kartuKredit} setKartuKredit={updateKartuKredit} transaksiKartu={transaksiKartu} setTransaksiKartu={updateTransaksiKartu} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} /></div>}
                                 {tabMounted('invoice', canOpen('invoice')) && <div hidden={!tabVisible('invoice')}><EnhancedInvoiceView bukaBhpDana={danaBukaReq && danaBukaReq.jenis === 'bh' ? danaBukaReq : null} penggunaNama={authUser?.name || authUser?.username || ''} bukaRekapGaji={canOpen('laporan') ? (id) => { setDanaBukaReq({ jenis: 'gaji', id: String(id), empName: '', t: Date.now() }); setActiveTab('laporan'); } : null} invoices={invoices} setInvoices={updateInvoices} clients={clients} setClients={updateClients} employees={employees} setEmployees={updateEmployees} showToast={showToast} templates={templates} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} gajiSensitif={gajiSensitif} /></div>}
                                 {tabMounted('data_master', canOpen('data_master')) && <div hidden={!tabVisible('data_master')}><DataMasterView izin={getAccountMenuAccess(authUser)} purchaseNotes={purchaseNotes}
-                                    karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif }}
+                                    karyawanProps={{ employees, setEmployees: updateEmployees, showToast, templates, gajiSensitif, danaOperasional, purchaseNotes, expenses, rekapKinerja, bagiHasilPromosi, bukaKasbonReq: danaBukaReq && danaBukaReq.jenis === 'kasbon' ? danaBukaReq : null }}
                                     klienProps={{ clients, setClients: updateClients, invoices, setInvoices: updateInvoices, showToast, templates }}
                                     onLihatNotaVendor={canOpen('pembelian_bahan') ? (vendor) => { setNotaVendorReq({ vendor, t: Date.now() }); setActiveTab('pembelian_bahan'); } : null} /></div>}
                                 {tabMounted('laporan_keuangan', canOpen('laporan_keuangan')) && <div hidden={!tabVisible('laporan_keuangan')}><MenuBeku aktif={tabVisible('laporan_keuangan')}><LaporanKeuanganView orders={ordersTampil} employees={employees} rekapKinerja={rekapKinerja} driverRekapGaji={driverRekapGaji} driverKasbon={driverKasbon} expenses={expenses} invoices={invoices} clients={clients} templates={templates} setTemplates={updateTemplates} showToast={showToast} purchaseNotes={purchaseNotes} bagiHasilPromosi={bagiHasilPromosi} authUser={authUser} gajiSensitif={gajiSensitif} danaOperasional={danaOperasional} setExpenses={updateExpenses} absensiRawLogs={absensiRawLogs} absensiEdits={absensiEdits} driverTransactions={driverTransactions} drivers={drivers} /></MenuBeku></div>}
                                 {tabMounted('laporan_order', canOpen('laporan_order')) && <div hidden={!tabVisible('laporan_order')}><MenuBeku aktif={tabVisible('laporan_order')}><LaporanOrderView orders={ordersTampil} employees={employees} templates={templates} showToast={showToast} /></MenuBeku></div>}
                                 {tabMounted('investor', canOpen('investor')) && <div hidden={!tabVisible('investor')}><InvestorView investors={investors} setInvestors={updateInvestors} investorBagiHasil={investorBagiHasil} setInvestorBagiHasil={updateInvestorBagiHasil} invoices={invoices} showToast={showToast} templates={templates} /></div>}
-                                {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} isAdmin={authUser?.role === 'Admin'} /></MenuBeku></div>}
+                                {tabMounted('ekspedisi', canOpen('ekspedisi')) && <div hidden={!tabVisible('ekspedisi')}><MenuBeku aktif={tabVisible('ekspedisi')}><EkspedisiView drivers={drivers} setDrivers={updateDrivers} driverTarifs={driverTarifs} setDriverTarifs={updateDriverTarifs} driverTransactions={driverTransactions} setDriverTransactions={updateDriverTransactions} driverRekapGaji={driverRekapGaji} setDriverRekapGaji={updateDriverRekapGaji} driverKasbon={driverKasbon} setDriverKasbon={updateDriverKasbon} showToast={showToast} templates={templates} setTemplates={updateTemplates} isAdmin={authUser?.role === 'Admin'} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} bagiHasilPromosi={bagiHasilPromosi} employees={employees} bukaDanaReq={danaBukaReq && (danaBukaReq.jenis === 'gajidrv' || danaBukaReq.jenis === 'kasbondrv') ? danaBukaReq : null} /></MenuBeku></div>}
                                 {tabMounted('tracking_instansi', canOpen('tracking_instansi')) && <div hidden={!tabVisible('tracking_instansi')}><TrackingInstansiView orders={ordersTampil} templates={templates} showToast={showToast} klienMaster={clients} riwayatPengiriman={riwayatPengiriman} /></div>}
                                 {tabMounted('pengiriman', canOpen('pengiriman')) && <div hidden={!tabVisible('pengiriman')}><PengirimanView orders={ordersTampil} setOrders={updateOrders} showToast={showToast} templates={templates} riwayatPengiriman={riwayatPengiriman} setRiwayatPengiriman={updateRiwayatPengiriman} /></div>}
                                 {tabMounted('pengaturan', canOpen('pengaturan')) && <div hidden={!tabVisible('pengaturan')}><TemplateView templates={templates} setTemplates={updateTemplates} showToast={showToast} getDataSizeReport={authUser?.role === 'Admin' ? getDataSizeReport : null} arsipOrder={authUser?.role === 'Admin' ? { info: arsipInfo, jumlahUtama: orders.filter(isVisibleRecord).length, jalankan: () => jalankanArsipRef.current({ paksa: true }), ubahUmur: ubahUmurArsip } : null} /></div>}

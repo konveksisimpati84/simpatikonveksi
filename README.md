@@ -289,6 +289,12 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   kode `#customer-tracking=TI-…` (disimpan di baris `app_data` **`trackingLinks`**); link lama yang berisi nama sekolah
   tidak berlaku lagi. Tombol **🔄 Ganti link** (Tracking Instansi, invoice, marketing, investor, bagi hasil promosi,
   dana operasional, nota vendor) membuat kode baru — link lama langsung tidak bisa dibuka.
+- **Dana Operasional sebagai sumber bayar**: selain Biaya, Pembelian Bahan, Laporan Kinerja & Bagi Hasil Promosi,
+  kini **SIJEK Bayar gaji driver**, **SIJEK Kasbon driver** dan **Data Karyawan → Kasbon** bisa dibayar dari dana
+  operasional seorang karyawan (`operasionalKaryawanId` pada pembayaran / kasbon, `dari: 'dana'`). Sisa dana karyawan
+  berkurang, muncul di *Penggunaan dana* (Gaji Driver / Kasbon Driver / Kasbon Karyawan + **Lihat ›**), dan **tidak**
+  dikurangi lagi dari Posisi Uang (uangnya sudah keluar saat transfer dana). Kasbon karyawan tidak bisa diambil dari
+  dana miliknya sendiri. Data lama tidak berubah.
 - **Kartu link WhatsApp**: `kartu-wa.jpg` (1200×630, logo Simpati saja) ada di samping `index.html`
   dan **wajib ikut di-upload saat deploy** — dipakai sebagai gambar pratinjau (og:image) saat link dibagikan di WhatsApp.
   Dibuat dari `src/logo-kotak-sumber.png` dengan `node scripts/buat-kartu-wa.cjs`. WhatsApp menyimpan pratinjau lama
