@@ -19018,6 +19018,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Tanggal pastinya tidak diketahui → dibagi rata per hari dari tanggal saldo kas awal sampai tanggal titik mulai.
             // Penyesuaian negatif = uang keluar tak tercatat (biaya); positif = uang lebih dari catatan (mengurangi biaya).
             urBagiRataHarian(slDari, slSampai).forEach(([b, porsi]) => tambah(`${b}-01`, 'selisihLama', porsi * -safeMoney(slNominal)));
+            // Catatan bertanggal asli (untuk "Sejak awal pakai aplikasi": tanggal transaksi pertama & catatan yang jauh lebih awal)
+            const catatan = [];
+            const catat = (tgl, menu, nama) => { const t = String(tgl || '').slice(0, 10); if (/^\d{4}-\d{2}-\d{2}$/.test(t)) catatan.push({ tgl: t, menu, nama: String(nama || '').trim() || '-' }); };
+            safeArray(orders).filter(isVisibleRecord).forEach(o => catat(o.date, 'Order', [o.client, o.type].filter(Boolean).join(' · ')));
+            invList.forEach(inv => catat(inv.date, 'Invoice', inv.customer || inv.id));
+            safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => catat(n.date, 'Pembelian Bahan', normalizeVendorName(n.vendor)));
+            safeArray(expenses).filter(isVisibleRecord).filter(e => !e.sumberPosisi).forEach(e => catat(e.date, 'Biaya', getExpenseLabel(e)));
+            safeArray(driverTransactions).filter(isVisibleRecord).forEach(t => catat(t.date, 'SIJEK', 'Pengiriman'));
+            safeArray(rekapKinerja).filter(isVisibleRecord).forEach(rk => catat(rk.dateProcessed, 'Laporan Kinerja', rk.empName || rk.employeeName || 'Rekap gaji'));
+            catatan.sort((a, b) => a.tgl.localeCompare(b.tgl));
+            per.catatan = catatan;
             return per;
         };
         // Pembagian rata per hari: [['YYYY-MM', porsi], ...] dengan jumlah porsi = 1 (dari & sampai ikut dihitung)
@@ -19062,8 +19073,23 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const hariIni = toLocalDateStr();
             const tahunIni = hariIni.slice(0, 4);
             const bulanIni = hariIni.slice(0, 7);
-            // Periode: 'thn:YYYY' (setahun) · 'n:3|6|12' (N bulan terakhir, bulan ini ikut) · 'satu' (satu bulan) · 'rentang' (dari–sampai, boleh lintas tahun)
-            const [periode, setPeriode] = React.useState(`thn:${tahunIni}`);
+            // Periode: 'awal' (sejak awal pakai aplikasi — bawaan) · 'thn:YYYY' (setahun) · 'n:3|6|12' (N bulan terakhir, bulan ini ikut)
+            //          · 'satu' (satu bulan) · 'rentang' (dari–sampai, boleh lintas tahun)
+            const [periode, setPeriode] = React.useState('awal');
+            // Bulan awal = awal rangkaian bulan berdata yang terakhir (jeda kosong ≤ 2 bulan masih dianggap bersambung).
+            // Catatan yang jauh lebih awal (mis. salah ketik tahun) tidak menggeser awal periode — diberi tanda untuk diperiksa.
+            const awalPakai = React.useMemo(() => {
+                const aktif = [...per.keys()].filter(b => /^\d{4}-\d{2}$/.test(b) && b <= bulanIni).sort();
+                if (!aktif.length) return { bulan: bulanIni, tglPertama: '', lebihAwal: [] };
+                let mulai = aktif[aktif.length - 1];
+                for (let i = aktif.length - 2; i >= 0; i--) {
+                    if (urGeserBulan(aktif[i], 3) < aktif[i + 1]) break; // ≥ 3 bulan kosong di antaranya
+                    mulai = aktif[i];
+                }
+                const cat = safeArray(per.catatan);
+                const pertama = cat.find(c => c.tgl.slice(0, 7) >= mulai && c.tgl.slice(0, 7) <= bulanIni);
+                return { bulan: mulai, tglPertama: pertama ? pertama.tgl : '', lebihAwal: cat.filter(c => c.tgl.slice(0, 7) < mulai), bulanTerawal: aktif[0] };
+            }, [per, bulanIni]);
             const [bulanSatu, setBulanSatu] = React.useState(bulanIni);
             const [rDari, setRDari] = React.useState(urGeserBulan(bulanIni, -5));
             const [rSampai, setRSampai] = React.useState(bulanIni);
@@ -19078,6 +19104,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 return out;
             }, [per, bulanIni]);
             const [awal, akhir] = (() => {
+                if (periode === 'awal') return [awalPakai.bulan, bulanIni];
                 if (periode.startsWith('thn:')) { const y = periode.slice(4); return [`${y}-01`, y === tahunIni ? bulanIni : `${y}-12`]; }
                 if (periode.startsWith('n:')) return [urGeserBulan(bulanIni, -(Number(periode.slice(2)) - 1)), bulanIni];
                 if (periode === 'satu') return [bulanSatu, bulanSatu];
@@ -19105,7 +19132,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const margin = t.pendapatan > 0 ? t.laba / t.pendapatan * 100 : null;
             const persen = (v, d = 1) => `${(Math.round(v * 10 ** d) / 10 ** d).toLocaleString('id-ID')}%`;
             const sdHari = (b) => b === bulanIni ? ` (s.d. ${Number(hariIni.slice(8, 10))})` : ''; // bulan berjalan belum penuh
-            const labelPeriode = periode.startsWith('thn:')
+            const labelPeriode = periode === 'awal'
+                ? `Sejak awal pakai aplikasi: ${satuBulan ? `${urNamaBulan(awal)}${sdHari(awal)}` : `${urNamaBulan(awal)} – ${urNamaBulan(akhir)}${sdHari(akhir)}`}`
+                : periode.startsWith('thn:')
                 ? `${tahun}${tahun === tahunIni ? ` (Jan – ${UR_BLN[Number(bulanIni.slice(5, 7)) - 1]} s.d. ${Number(hariIni.slice(8, 10))})` : ''}`
                 : satuBulan ? `${urNamaBulan(awal)}${sdHari(awal)}` : `${urNamaBulan(awal)} – ${urNamaBulan(akhir)}${sdHari(akhir)}`;
             const rataBulan = !satuBulan && bulanGrafik.length ? t.laba / bulanGrafik.length : null;
@@ -19247,6 +19276,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         </div>
                         <div className="flex flex-wrap items-center gap-2 ml-auto">
                             <select data-ur-periode value={periode} onChange={e => gantiPeriode(e.target.value)} className="border border-gray-300 rounded-full px-3 py-1.5 text-sm font-bold bg-white">
+                                <option value="awal">Sejak awal pakai aplikasi ({urNamaBulan(awalPakai.bulan)})</option>
                                 {daftarTahun.map(th => <option key={th} value={`thn:${th}`}>{th === tahunIni ? `Tahun ini (${th})` : `Tahun ${th}`}</option>)}
                                 <option value="n:3">3 bulan terakhir</option>
                                 <option value="n:6">6 bulan terakhir</option>
@@ -19259,7 +19289,17 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <button type="button" data-ur-cetak onClick={cetak} className="rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-3.5 py-2 text-sm font-black">🖨 Cetak / PDF</button>
                         </div>
                     </div>
-                    <div data-ur-label className="text-[12.5px] text-gray-500 -mt-1">Menampilkan: <b className="text-gray-800">{labelPeriode}</b> · {bulanGrafik.length} bulan</div>
+                    <div data-ur-label className="text-[12.5px] text-gray-500 -mt-1">Menampilkan: <b className="text-gray-800">{labelPeriode}</b> · {bulanGrafik.length} bulan{periode === 'awal' && awalPakai.tglPertama ? <> · transaksi pertama <b data-ur-tgl-pertama={awalPakai.tglPertama} className="text-gray-800">{fmtTglStruk(awalPakai.tglPertama)}</b></> : null}</div>
+                    {periode === 'awal' && awalPakai.lebihAwal.length > 0 && (
+                        <div data-ur-lebih-awal={awalPakai.lebihAwal.length} className="text-[12.5px] leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
+                            ⚠ Ada <b>{awalPakai.lebihAwal.length} catatan</b> bertanggal jauh lebih awal (sejak {urNamaBulan(awalPakai.bulanTerawal)}), tidak ikut "Sejak awal" — mungkin salah ketik tahun, mohon diperiksa:
+                            <ul className="list-disc pl-5 mt-1">
+                                {awalPakai.lebihAwal.slice(0, 5).map((c, i) => <li key={i} data-ur-lebih-awal-item><b>{c.menu}</b> · {c.nama} · {fmtTglStruk(c.tgl)}</li>)}
+                                {awalPakai.lebihAwal.length > 5 && <li>+{awalPakai.lebihAwal.length - 5} catatan lain</li>}
+                            </ul>
+                            <button type="button" data-ur-sertakan onClick={() => { setRDari(awalPakai.bulanTerawal); setRSampai(bulanIni); gantiPeriode('rentang'); }} className="mt-1 font-black underline">Sertakan sejak {urNamaBulan(awalPakai.bulanTerawal)}</button>
+                        </div>
+                    )}
 
                     <div data-ur-laba={Math.round(t.laba)} className={`rounded-2xl p-5 text-white grid gap-4 sm:grid-cols-[1fr_auto] items-end ${untung ? 'bg-gradient-to-br from-emerald-950 to-emerald-700' : 'bg-gradient-to-br from-red-950 to-red-700'}`}>
                         <div className="min-w-0">

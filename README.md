@@ -295,6 +295,11 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   berkurang, muncul di *Penggunaan dana* (Gaji Driver / Kasbon Driver / Kasbon Karyawan + **Lihat ›**), dan **tidak**
   dikurangi lagi dari Posisi Uang (uangnya sudah keluar saat transfer dana). Kasbon karyawan tidak bisa diambil dari
   dana miliknya sendiri. Data lama tidak berubah.
+- **Untung / Rugi di Posisi Uang**: periode bawaan **"Sejak awal pakai aplikasi"** — dari bulan transaksi pertama
+  (order, invoice, pembelian bahan, biaya, SIJEK, rekap gaji, selisih lama) sampai bulan ini. Rangkaian bulan berdata
+  dianggap bersambung bila jedanya ≤ 2 bulan kosong; catatan yang jauh lebih awal (mis. salah ketik tahun) tidak menggeser
+  awal periode, tetapi ditampilkan sebagai tanda + tombol **Sertakan sejak …**. Pilihan Tahun / 3–6–12 bulan / satu bulan
+  / dari–sampai tetap ada.
 - **Menu Biaya — cari & total**: kata yang dicari dicocokkan per baris rincian (semua kata harus ada, urutan bebas).
   Kotak **Total pencarian** menjumlah hanya baris yang cocok (qty × harga, diskon dibagi rata); bila kata ada di
   judul/kategori/penerima/catatan, seluruh transaksi dihitung. Uang masuk & keluar dijumlah terpisah, ada rincian per
