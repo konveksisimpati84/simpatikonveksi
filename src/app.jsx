@@ -17579,6 +17579,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [tabMk, setTabMk] = useState('tagih'); // 'tagih' (customer yang masih ada tagihan) | 'semua'
             const [urutMk, setUrutMk] = useState('sisa'); // 'sisa' | 'lama' | 'az'
             const [bukaCust, setBukaCust] = useState({});
+            const [disalin, setDisalin] = useState(0);
             const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
 
             const fetchData = React.useCallback(async () => {
@@ -17644,33 +17645,57 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             // Termin: yang ditampilkan SISA yang belum dibayar (bukan total invoice)
             const totalTermin = invList.filter(inv => getPayStatus(inv) === 'Termin').reduce((s, inv) => s + Math.max(0, getTotal(inv) - getInvoicePaidTotal(inv)), 0);
             // ===== Perlu ditagih: invoice yang masih ada sisa, dikelompokkan per customer =====
+            // Tiap invoice ditulis seperti nota: total tagihan − pembayaran (DP, saldo DP dipakai, bayar ke-2, …) = sisa
             const hariIniMk = toLocalDateStr();
             const umurMk = (inv) => { const m = String(inv && inv.date || '').match(/^(\d{4}-\d{2}-\d{2})/); if (!m) return null; const h = Math.floor((Date.parse(hariIniMk + 'T00:00:00') - Date.parse(m[1] + 'T00:00:00')) / 864e5); return Number.isFinite(h) && h >= 0 ? h : null; };
             const linkTagihan = (inv) => inv && inv.invoiceShareToken ? `${window.location.origin}${window.location.pathname}#invoice-share=${encodeURIComponent(inv.invoiceShareToken)}` : '';
-            const noInv = (inv) => inv.invoiceNumber || inv.id;
-            const belum = invList.map(inv => { const total = getTotal(inv), paid = getInvoicePaidTotal(inv); return { inv, total, paid, sisa: Math.max(0, total - paid), umur: umurMk(inv) }; }).filter(x => x.sisa > 0.5);
+            const tglPanjang = (d) => fmtTglStruk(d);
+            const judulInv = (inv) => `Invoice ${tglPanjang(inv.date)}`;
+            const rincianBayarInv = (inv) => {
+                const dp = getInvoiceDp(inv);
+                const out = [];
+                if (getInvoiceDpAmount(inv) > 0) out.push({ jenis: 'dp', label: 'DP', date: String(dp.date || inv.date || ''), method: dp.method || '', amount: getInvoiceDpAmount(inv) });
+                if (getInvoiceLinkedDpAmount(inv) > 0) out.push({ jenis: 'saldo', label: 'Saldo DP dipakai', date: '', method: '', amount: getInvoiceLinkedDpAmount(inv) });
+                const termin = getInvoicePayments(inv).filter(p => p && safeMoney(p.amount) > 0).slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+                termin.forEach(p => out.push({ jenis: 'bayar', label: '', date: String(p.date || ''), method: p.method || '', amount: safeMoney(p.amount) }));
+                return out.map((x, i) => ({ ...x, label: x.label || (out.length === 1 ? 'Pembayaran' : `Bayar ke-${i + 1}`) }));
+            };
+            const belum = invList.map(inv => { const total = getTotal(inv), paid = getInvoicePaidTotal(inv); return { inv, total, paid, sisa: Math.max(0, total - paid), umur: umurMk(inv), bayar: rincianBayarInv(inv) }; }).filter(x => x.sisa > 0.5);
             const custMap = new Map();
             belum.forEach(x => {
                 const nama = String(x.inv.customer || '').trim() || 'Tanpa nama';
                 const k = x.inv.clientId ? 'id:' + x.inv.clientId : 'nm:' + normalizeText(nama);
-                const c = custMap.get(k) || { k, nama, namaTgl: '', list: [], sisa: 0, paid: 0, umur: 0 };
+                const c = custMap.get(k) || { k, nama, namaTgl: '', list: [], total: 0, sisa: 0, paid: 0, umur: 0 };
                 if (String(x.inv.date || '') >= c.namaTgl) { c.nama = nama; c.namaTgl = String(x.inv.date || ''); }
-                c.list.push(x); c.sisa += x.sisa; c.paid += x.paid; c.umur = Math.max(c.umur, x.umur || 0);
+                c.list.push(x); c.total += x.total; c.sisa += x.sisa; c.paid += x.paid; c.umur = Math.max(c.umur, x.umur || 0);
                 custMap.set(k, c);
             });
-            const daftarCust = [...custMap.values()].map(c => ({ ...c, list: c.list.sort((a, b) => String(a.inv.date || '').localeCompare(String(b.inv.date || ''))) }))
+            const daftarCust = [...custMap.values()].map(c => ({ ...c, list: c.list.sort((a, b) => String(a.inv.date || '').localeCompare(String(b.inv.date || ''))) })) // terlama dulu
                 .sort((a, b) => urutMk === 'lama' ? (b.umur - a.umur) || (b.sisa - a.sisa) : urutMk === 'az' ? a.nama.localeCompare(b.nama, 'id') : (b.sisa - a.sisa) || (b.umur - a.umur));
             const totalSisaMk = belum.reduce((s, x) => s + x.sisa, 0);
+            const totalTagihMk = belum.reduce((s, x) => s + x.total, 0);
+            const totalBayarMk = belum.reduce((s, x) => s + x.paid, 0);
+            const persenBayar = (paid, total) => total > 0 ? Math.max(0, Math.min(100, Math.round(paid / total * 100))) : 0;
             const umurGrup = [['> 60 hari', x => (x.umur || 0) > 60, 'bg-red-100 text-red-800'], ['31–60 hari', x => (x.umur || 0) > 30 && (x.umur || 0) <= 60, 'bg-amber-100 text-amber-800'], ['≤ 30 hari', x => (x.umur || 0) <= 30, 'bg-sky-100 text-sky-800']]
                 .map(([l, f, cls]) => ({ l, cls, v: belum.filter(f).reduce((s, x) => s + x.sisa, 0) }));
             const warnaUmur = (u) => u > 60 ? 'bg-red-100 text-red-800' : u > 30 ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800';
+            const rpRingkas = (n) => { const v = Math.abs(n); if (v >= 1e9) return `Rp ${(n / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 })} M`; if (v >= 1e6) return `Rp ${(n / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 })} jt`; return fmtRp(n); };
             const pesanTagihCust = (c) => {
-                const adaLink = c.list.filter(x => linkTagihan(x.inv));
                 const sapa = punyaSapaan(c.nama) ? `*${c.nama}*` : `Bapak/Ibu *${c.nama}*`;
-                return [`Assalamu'alaikum, ${sapa}.`, ``, `Kami informasikan tagihan dari Simpati Konveksi yang belum lunas:`, ``,
-                    ...adaLink.flatMap((x, i) => [`${i + 1}. Invoice ${noInv(x.inv)} (${tglNotaWa(x.inv.date)}) — sisa *${rpWa(x.sisa)}*`, `👇 Ketuk untuk melihat tagihan:`, linkTagihan(x.inv), ``]),
-                    ...(adaLink.length > 1 ? [`Total sisa: *${rpWa(adaLink.reduce((s, x) => s + x.sisa, 0))}*`, ``] : []),
-                    `Terima kasih atas kerja samanya.`, `Hormat kami,`, `*${marketing.name}*`, `Simpati Konveksi`].join('\n');
+                return [`Assalamu'alaikum, ${sapa}.`, ``, `Berikut rincian tagihan dari Simpati Konveksi:`, ``,
+                    ...c.list.flatMap((x, i) => [
+                        `${c.list.length > 1 ? `${i + 1}. ` : ''}${judulInv(x.inv)}`,
+                        `Total: ${rpWa(x.total)}`,
+                        ...(x.paid > 0.5 ? [`Sudah dibayar: ${rpWa(x.paid)}${x.bayar.length > 1 ? ` (${x.bayar.length}×)` : ''}`] : []),
+                        `Sisa: *${rpWa(x.sisa)}*`,
+                        ...(linkTagihan(x.inv) ? [`👇 Lihat tagihan:`, linkTagihan(x.inv)] : []),
+                        ``]),
+                    ...(c.list.length > 1 ? [`Total sisa tagihan: *${rpWa(c.sisa)}*`, ``] : []),
+                    `Terima kasih atas kerja samanya.`, `Hormat kami,`, `*${marketing.name}* — Simpati Konveksi`].join('\n');
+            };
+            const salinPesan = async (teks) => {
+                try { await navigator.clipboard.writeText(teks); setDisalin(Date.now()); }
+                catch (e) { window.prompt('Salin pesan:', teks); }
             };
             const countLunas = invList.filter(inv => getPayStatus(inv) === 'Lunas').length;
             const totalLunas = invList.filter(inv => getPayStatus(inv) === 'Lunas').reduce((s, inv) => s + getTotal(inv), 0);
@@ -17686,16 +17711,24 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <p className="text-sm text-gray-500 mt-1">{marketing.division || 'Marketing'} &bull; {invList.length} invoice{lastUpdate ? <> &bull; data per {lastUpdate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} {lastUpdate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</> : null}</p>
                         </div>
 
-                        <div data-mk-ringkas={Math.round(totalSisaMk)} className={`rounded-2xl p-5 text-white shadow-sm ${totalSisaMk > 0.5 ? 'bg-gradient-to-br from-red-900 to-red-600' : 'bg-gradient-to-br from-emerald-800 to-emerald-600'}`}>
-                            <div className="text-xs font-bold uppercase tracking-wider opacity-90">{totalSisaMk > 0.5 ? 'Masih perlu ditagih' : 'Semua tagihan sudah lunas'}</div>
-                            <div className="text-3xl font-black tabular-nums my-1">{fmtRp(totalSisaMk)}</div>
-                            <div data-mk-jumlah className="text-sm opacity-90"><b>{daftarCust.length} customer</b> · {belum.length} invoice belum lunas</div>
-                            {totalSisaMk > 0.5 && <div className="flex flex-wrap gap-1.5 mt-2">{umurGrup.map(g => <span key={g.l} data-mk-umur={g.l} className="rounded-full bg-white/15 border border-white/30 px-2.5 py-0.5 text-xs font-bold tabular-nums">{g.l}: {fmtRp(g.v)}</span>)}</div>}
+                        <div data-mk-ringkas={Math.round(totalSisaMk)} className="bg-white rounded-2xl shadow-md border border-gray-100 p-4 sm:p-5 space-y-3">
+                            <div className="text-[11px] font-black tracking-widest uppercase text-gray-500">{totalSisaMk > 0.5 ? 'Sisa tagihan yang perlu ditagih' : 'Semua tagihan sudah lunas 🎉'}</div>
+                            <div data-mk-sisa-total className={`text-3xl font-black tabular-nums leading-tight ${totalSisaMk > 0.5 ? 'text-orange-700' : 'text-emerald-700'}`}>{fmtRp(totalSisaMk)}</div>
+                            {totalSisaMk > 0.5 && <>
+                                <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden" title="Persen sudah dibayar"><div className="h-full rounded-full bg-gradient-to-r from-green-600 to-green-400" style={{ width: `${persenBayar(totalBayarMk, totalTagihMk)}%` }}></div></div>
+                                <div className="grid grid-cols-3 gap-1.5 text-center">
+                                    <div className="rounded-xl bg-gray-50 border border-gray-100 px-1 py-1.5"><div className="text-[9.5px] font-black uppercase text-gray-500">Total tagihan</div><div data-mk-total-tagihan={Math.round(totalTagihMk)} className="text-[13px] font-black tabular-nums text-gray-800">{rpRingkas(totalTagihMk)}</div></div>
+                                    <div className="rounded-xl bg-gray-50 border border-gray-100 px-1 py-1.5"><div className="text-[9.5px] font-black uppercase text-gray-500">Sudah dibayar</div><div data-mk-total-bayar={Math.round(totalBayarMk)} className="text-[13px] font-black tabular-nums text-green-700">{rpRingkas(totalBayarMk)}</div></div>
+                                    <div className="rounded-xl bg-gray-50 border border-gray-100 px-1 py-1.5"><div className="text-[9.5px] font-black uppercase text-gray-500">Sisa</div><div className="text-[13px] font-black tabular-nums text-orange-700">{rpRingkas(totalSisaMk)}</div></div>
+                                </div>
+                                <div data-mk-jumlah className="text-xs text-gray-500"><b className="text-gray-800">{daftarCust.length} customer</b> · {belum.length} invoice belum lunas · sudah terbayar {persenBayar(totalBayarMk, totalTagihMk)}%</div>
+                                <div className="flex flex-wrap gap-1.5">{umurGrup.map(g => <span key={g.l} data-mk-umur={g.l} className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold tabular-nums ${g.cls}`}>{g.l}: {fmtRp(g.v)}</span>)}</div>
+                            </>}
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
                             {[['tagih', `Perlu ditagih (${daftarCust.length})`], ['semua', `Semua invoice (${invList.length})`]].map(([v, l]) => (
-                                <button key={v} type="button" data-mk-tab={v} onClick={() => setTabMk(v)} className={`rounded-xl py-2.5 text-sm font-black border transition-colors ${tabMk === v ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{l}</button>
+                                <button key={v} type="button" data-mk-tab={v} onClick={() => setTabMk(v)} className={`rounded-xl py-2.5 text-sm font-black border transition-colors ${tabMk === v ? 'bg-emerald-900 text-white border-emerald-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{l}</button>
                             ))}
                         </div>
 
@@ -17710,34 +17743,48 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 {daftarCust.map(c => {
                                     const adaLink = c.list.some(x => linkTagihan(x.inv));
                                     const buka = !!bukaCust[c.k] || c.list.length <= 3;
+                                    const pesan = pesanTagihCust(c);
                                     return (
-                                        <div key={c.k} data-mk-cust={c.nama} className={`bg-white rounded-2xl border border-gray-100 border-l-4 shadow-sm p-4 space-y-2 ${c.umur > 60 ? 'border-l-red-600' : c.umur > 30 ? 'border-l-amber-500' : 'border-l-sky-500'}`}>
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <div className="font-black text-gray-800 break-words">{c.nama}</div>
-                                                    <div className="text-xs text-gray-500 mt-0.5">{c.list.length} invoice belum lunas · tertua <span data-mk-cust-umur={c.umur} className={`inline-block rounded-full px-2 py-0.5 font-bold ${warnaUmur(c.umur)}`}>{c.umur} hari</span>{c.paid > 0.5 ? <> · sudah bayar {fmtRp(c.paid)}</> : null}</div>
+                                        <div key={c.k} data-mk-cust={c.nama} className={`bg-white rounded-2xl border border-gray-100 border-l-4 shadow-sm overflow-hidden ${c.umur > 60 ? 'border-l-red-600' : c.umur > 30 ? 'border-l-amber-500' : 'border-l-sky-500'}`}>
+                                            <div className="p-3.5 space-y-2">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="font-black text-gray-800 break-words">{c.nama}</div>
+                                                        <div className="text-xs text-gray-500 mt-0.5">{c.list.length} invoice belum lunas · tertua <span data-mk-cust-umur={c.umur} className={`inline-block rounded-full px-2 py-0.5 font-bold ${warnaUmur(c.umur)}`}>{c.umur} hari</span></div>
+                                                    </div>
+                                                    <div data-mk-cust-sisa={Math.round(c.sisa)} className="font-black text-orange-700 tabular-nums whitespace-nowrap">{fmtRp(c.sisa)}</div>
                                                 </div>
-                                                <div data-mk-cust-sisa={Math.round(c.sisa)} className="font-black text-red-700 tabular-nums whitespace-nowrap">{fmtRp(c.sisa)}</div>
+                                                <div className="h-2 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-green-600 to-green-400" style={{ width: `${persenBayar(c.paid, c.total)}%` }}></div></div>
+                                                <div data-mk-cust-ringkas className="flex flex-wrap justify-between gap-x-3 text-[11.5px] tabular-nums"><span className="text-gray-600">Total {fmtRp(c.total)}</span><span className="text-green-700 font-bold">Dibayar {fmtRp(c.paid)}</span><span className="text-orange-700 font-bold">Sisa {fmtRp(c.sisa)}</span></div>
                                             </div>
-                                            {buka ? (
-                                                <div className="border-t border-dashed border-gray-200 pt-2 space-y-1">
-                                                    {c.list.map(x => (
-                                                        <div key={x.inv.id} data-mk-inv={x.inv.id} className="flex justify-between gap-3 text-xs">
-                                                            <span className="min-w-0 text-gray-600"><b className="text-gray-800 font-mono">{noInv(x.inv)}</b> · {tglNotaWa(x.inv.date)} · {x.paid > 0.5 ? 'Termin' : 'Belum bayar'}{x.umur != null ? ` · ${x.umur} hari` : ''}</span>
-                                                            <b className="shrink-0 tabular-nums text-gray-800">sisa {fmtRp(x.sisa)}</b>
-                                                        </div>
-                                                    ))}
+                                            {buka ? c.list.map(x => (
+                                                <div key={x.inv.id} data-mk-inv={x.inv.id} className="border-t border-gray-100 bg-gray-50/70 px-3.5 py-2.5 space-y-1.5">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <b className="text-[13px] text-gray-800">{judulInv(x.inv)}</b>
+                                                        <span className={`text-[10px] font-black rounded-md px-1.5 py-0.5 whitespace-nowrap ${x.paid > 0.5 ? 'bg-amber-100 text-amber-800' : 'bg-orange-100 text-orange-800'}`}>{x.paid > 0.5 ? 'TERMIN' : 'BELUM BAYAR'}{x.umur != null ? ` · ${x.umur} hari` : ''}</span>
+                                                    </div>
+                                                    <div className="text-[12.5px] tabular-nums space-y-0.5">
+                                                        <div data-mk-inv-total={Math.round(x.total)} className="flex justify-between gap-3 font-bold text-gray-800"><span>Total tagihan</span><span>{fmtRp(x.total)}</span></div>
+                                                        {x.bayar.length === 0 && <div className="text-xs text-gray-400">Belum ada pembayaran</div>}
+                                                        {x.bayar.map((b, i) => (
+                                                            <div key={i} data-mk-bayar={b.jenis} className="flex justify-between gap-3 text-green-700 pl-3 border-l-2 border-dotted border-green-300"><span className="min-w-0">✓ {b.label}{b.date ? ` · ${tglPanjang(b.date)}` : ''}{b.method ? ` · ${b.method}` : ''}</span><span className="shrink-0">− {fmtRp(b.amount)}</span></div>
+                                                        ))}
+                                                        <div data-mk-inv-sisa={Math.round(x.sisa)} className="flex justify-between gap-3 font-black text-orange-700 border-t border-dashed border-gray-300 pt-1 mt-1"><span>Sisa</span><span>{fmtRp(x.sisa)}</span></div>
+                                                    </div>
+                                                    <div className="text-[10.5px] text-gray-400 font-mono break-all">{x.inv.id}</div>
                                                 </div>
-                                            ) : <button type="button" data-mk-cust-buka onClick={() => setBukaCust(v => ({ ...v, [c.k]: true }))} className="text-xs font-bold text-blue-700">Lihat {c.list.length} invoice ›</button>}
-                                            {adaLink
-                                                ? <a data-mk-kirim href={`https://api.whatsapp.com/send?text=${encodeURIComponent(pesanTagihCust(c))}`} target="_blank" rel="noopener noreferrer" className="block text-center rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-black py-2">💬 Kirim link tagihan (WA){c.list.some(x => !linkTagihan(x.inv)) ? ` · ${c.list.filter(x => linkTagihan(x.inv)).length} dari ${c.list.length} invoice` : ''}</a>
-                                                : <div data-mk-tanpa-link className="text-center rounded-xl border border-dashed border-gray-300 text-gray-500 text-xs font-bold py-2">Link tagihan belum dibuat — minta admin (menu Invoice → 📱 Tagih via WA)</div>}
+                                            )) : <button type="button" data-mk-cust-buka onClick={() => setBukaCust(v => ({ ...v, [c.k]: true }))} className="w-full border-t border-gray-100 py-2 text-xs font-bold text-blue-700">Lihat rincian {c.list.length} invoice ›</button>}
+                                            <div className="flex gap-2 p-3 border-t border-gray-100">
+                                                <a data-mk-kirim href={`https://api.whatsapp.com/send?text=${encodeURIComponent(pesan)}`} target="_blank" rel="noopener noreferrer" className="flex-1 text-center rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-black py-2">💬 Kirim tagihan ke customer</a>
+                                                <button type="button" data-mk-salin onClick={() => salinPesan(pesan)} className="rounded-xl border border-gray-200 bg-white px-3 text-xs font-bold text-gray-600">🔗 Salin</button>
+                                            </div>
+                                            {!adaLink && <div data-mk-tanpa-link className="px-3 pb-3 -mt-1 text-[11px] text-gray-400">Link tagihan sedang disiapkan — akan muncul setelah Admin membuka aplikasi. Pesan tetap berisi rincian tagihan.</div>}
                                         </div>
                                     );
                                 })}
+                                {disalin > 0 && <div className="text-center text-xs font-bold text-green-700">✓ Pesan disalin</div>}
                             </div>
                         )}
-
                         {tabMk === 'semua' && <>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                             <div className="bg-white rounded-xl p-4 text-center border border-gray-100 shadow-sm">
@@ -19117,13 +19164,14 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             urBagiRataHarian(slDari, slSampai).forEach(([b, porsi]) => tambah(`${b}-01`, 'selisihLama', porsi * -safeMoney(slNominal)));
             // Catatan bertanggal asli (untuk "Sejak awal pakai aplikasi": tanggal transaksi pertama & catatan yang jauh lebih awal)
             const catatan = [];
-            const catat = (tgl, menu, nama) => { const t = String(tgl || '').slice(0, 10); if (/^\d{4}-\d{2}-\d{2}$/.test(t)) catatan.push({ tgl: t, menu, nama: String(nama || '').trim() || '-' }); };
-            safeArray(orders).filter(isVisibleRecord).forEach(o => catat(o.date, 'Order', [o.client, o.type].filter(Boolean).join(' · ')));
-            invList.forEach(inv => catat(inv.date, 'Invoice', inv.customer || inv.id));
-            safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => catat(n.date, 'Pembelian Bahan', normalizeVendorName(n.vendor)));
-            safeArray(expenses).filter(isVisibleRecord).filter(e => !e.sumberPosisi).forEach(e => catat(e.date, 'Biaya', getExpenseLabel(e)));
-            safeArray(driverTransactions).filter(isVisibleRecord).forEach(t => catat(t.date, 'SIJEK', 'Pengiriman'));
-            safeArray(rekapKinerja).filter(isVisibleRecord).forEach(rk => catat(rk.dateProcessed, 'Laporan Kinerja', rk.empName || rk.employeeName || 'Rekap gaji'));
+            // dibuat = waktu catatan diinput ke aplikasi (dari kode otomatis catatan), bila ada
+            const catat = (tgl, menu, nama, id) => { const t = String(tgl || '').slice(0, 10); if (/^\d{4}-\d{2}-\d{2}$/.test(t)) catatan.push({ tgl: t, menu, nama: String(nama || '').trim() || '-', dibuat: waktuDariIdGen(id) }); };
+            safeArray(orders).filter(isVisibleRecord).forEach(o => catat(o.date, 'Order', [o.client, o.type].filter(Boolean).join(' · '), o.id));
+            invList.forEach(inv => catat(inv.date, 'Invoice', inv.customer || inv.id, inv.id));
+            safeArray(purchaseNotes).filter(isVisibleRecord).forEach(n => catat(n.date, 'Pembelian Bahan', normalizeVendorName(n.vendor), n.id));
+            safeArray(expenses).filter(isVisibleRecord).filter(e => !e.sumberPosisi).forEach(e => catat(e.date, 'Biaya', getExpenseLabel(e), e.id));
+            safeArray(driverTransactions).filter(isVisibleRecord).forEach(t => catat(t.date, 'SIJEK', 'Pengiriman', t.id));
+            safeArray(rekapKinerja).filter(isVisibleRecord).forEach(rk => catat(rk.dateProcessed, 'Laporan Kinerja', rk.empName || rk.employeeName || 'Rekap gaji', rk.id));
             catatan.sort((a, b) => a.tgl.localeCompare(b.tgl));
             per.catatan = catatan;
             return per;
@@ -19178,6 +19226,16 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const awalPakai = React.useMemo(() => {
                 const aktif = [...per.keys()].filter(b => /^\d{4}-\d{2}$/.test(b) && b <= bulanIni).sort();
                 if (!aktif.length) return { bulan: bulanIni, tglPertama: '', lebihAwal: [] };
+                // Utama: waktu data PERTAMA KALI DIINPUT ke aplikasi (kode otomatis tiap catatan, tidak bisa diubah).
+                // Transaksi bertanggal sebelum itu (mis. invoice/order lama yang diinput belakangan) tidak ikut "Sejak awal".
+                const catSemua = safeArray(per.catatan);
+                const dibuatList = catSemua.map(c => String(c.dibuat || '').slice(0, 10)).filter(t => /^\d{4}-\d{2}-\d{2}$/.test(t) && t.slice(0, 7) <= bulanIni).sort();
+                if (dibuatList.length) {
+                    const tglInput = dibuatList[0];
+                    const mulaiInput = tglInput.slice(0, 7);
+                    const lebih = catSemua.filter(c => c.tgl.slice(0, 7) < mulaiInput);
+                    return { bulan: mulaiInput, tglInput, tglPertama: '', lebihAwal: lebih, bulanTerawal: lebih.length ? lebih[0].tgl.slice(0, 7) : aktif[0], dariInput: true };
+                }
                 let mulai = aktif[aktif.length - 1];
                 for (let i = aktif.length - 2; i >= 0; i--) {
                     if (urGeserBulan(aktif[i], 3) < aktif[i + 1]) break; // ≥ 3 bulan kosong di antaranya
@@ -19386,14 +19444,15 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             <button type="button" data-ur-cetak onClick={cetak} className="rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-3.5 py-2 text-sm font-black">🖨 Cetak / PDF</button>
                         </div>
                     </div>
-                    <div data-ur-label className="text-[12.5px] text-gray-500 -mt-1">Menampilkan: <b className="text-gray-800">{labelPeriode}</b> · {bulanGrafik.length} bulan{periode === 'awal' && awalPakai.tglPertama ? <> · transaksi pertama <b data-ur-tgl-pertama={awalPakai.tglPertama} className="text-gray-800">{fmtTglStruk(awalPakai.tglPertama)}</b></> : null}</div>
+                    <div data-ur-label className="text-[12.5px] text-gray-500 -mt-1">Menampilkan: <b className="text-gray-800">{labelPeriode}</b> · {bulanGrafik.length} bulan{periode === 'awal' && awalPakai.tglInput ? <> · data pertama diinput <b data-ur-tgl-input={awalPakai.tglInput} className="text-gray-800">{fmtTglStruk(awalPakai.tglInput)}</b></> : periode === 'awal' && awalPakai.tglPertama ? <> · transaksi pertama <b data-ur-tgl-pertama={awalPakai.tglPertama} className="text-gray-800">{fmtTglStruk(awalPakai.tglPertama)}</b></> : null}</div>
                     {periode === 'awal' && awalPakai.lebihAwal.length > 0 && (
                         <div data-ur-lebih-awal={awalPakai.lebihAwal.length} className="text-[12.5px] leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
-                            ⚠ Ada <b>{awalPakai.lebihAwal.length} catatan</b> bertanggal jauh lebih awal (sejak {urNamaBulan(awalPakai.bulanTerawal)}), tidak ikut "Sejak awal" — mungkin salah ketik tahun, mohon diperiksa:
-                            <ul className="list-disc pl-5 mt-1">
-                                {awalPakai.lebihAwal.slice(0, 5).map((c, i) => <li key={i} data-ur-lebih-awal-item><b>{c.menu}</b> · {c.nama} · {fmtTglStruk(c.tgl)}</li>)}
-                                {awalPakai.lebihAwal.length > 5 && <li>+{awalPakai.lebihAwal.length - 5} catatan lain</li>}
-                            </ul>
+                            {awalPakai.dariInput
+                                ? <>ⓘ Ada <b>{awalPakai.lebihAwal.length} catatan</b> bertanggal sebelum aplikasi dipakai ({urNamaBulan(awalPakai.bulanTerawal)} – {urNamaBulan(urGeserBulan(awalPakai.bulan, -1))}) — transaksi lama yang diinput belakangan. Tidak ikut "Sejak awal pakai aplikasi".</>
+                                : <>⚠ Ada <b>{awalPakai.lebihAwal.length} catatan</b> bertanggal jauh lebih awal (sejak {urNamaBulan(awalPakai.bulanTerawal)}), tidak ikut "Sejak awal" — mungkin salah ketik tahun, mohon diperiksa:</>}
+                            {awalPakai.lebihAwal.length <= 5
+                                ? <ul className="list-disc pl-5 mt-1">{awalPakai.lebihAwal.map((c, i) => <li key={i} data-ur-lebih-awal-item><b>{c.menu}</b> · {c.nama} · {fmtTglStruk(c.tgl)}</li>)}</ul>
+                                : <div data-ur-lebih-awal-menu className="mt-1">{Object.entries(awalPakai.lebihAwal.reduce((a, c) => { a[c.menu] = (a[c.menu] || 0) + 1; return a; }, {})).map(([m, n]) => `${m} ${n}`).join(' · ')}</div>}
                             <button type="button" data-ur-sertakan onClick={() => { setRDari(awalPakai.bulanTerawal); setRSampai(bulanIni); gantiPeriode('rentang'); }} className="mt-1 font-black underline">Sertakan sejak {urNamaBulan(awalPakai.bulanTerawal)}</button>
                         </div>
                     )}
@@ -39703,6 +39762,21 @@ ${getRekapShareLink(rekap)}
                 const t = setTimeout(() => runImageOffloadRef.current(), 15000);
                 return () => clearTimeout(t);
             }, [orders, invoices, danaOperasional, purchaseNotes, expenses]);
+            // ===== Link tagihan untuk invoice lama =====
+            // Invoice baru sudah otomatis punya kode link saat disimpan. Invoice lama yang belum pernah dibuatkan link
+            // dibuatkan sekali di latar belakang saat Admin membuka aplikasi, agar tombol "Kirim tagihan" di link
+            // marketing selalu tersedia. Invoice yang linknya sengaja dicabut (kode = null) TIDAK dibuatkan lagi.
+            const authRoleSaatIni = authUser ? authUser.role : '';
+            useEffect(() => {
+                if (!isReady || isShareView || authRoleSaatIni !== 'Admin') return;
+                const perlu = safeArray(invoices).filter(inv => inv && inv.id != null && !inv.isDeleted && inv.invoiceShareToken === undefined);
+                if (!perlu.length) return;
+                const t = setTimeout(() => {
+                    const ids = new Set(perlu.map(inv => String(inv.id)));
+                    updateInvoices(prev => safeArray(prev).map(inv => (inv && ids.has(String(inv.id)) && !inv.isDeleted && inv.invoiceShareToken === undefined) ? { ...inv, invoiceShareToken: tokenKuat('INV-') } : inv));
+                }, 6000);
+                return () => clearTimeout(t);
+            }, [isReady, isShareView, authRoleSaatIni, invoices]);
 
             const handleSyncBadgeClick = async () => {
                 if (navigator.onLine === false) { showToast('Perangkat sedang offline. Data akan dikirim otomatis saat internet tersambung.', 'error'); return; }

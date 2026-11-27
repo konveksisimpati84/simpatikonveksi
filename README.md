@@ -295,15 +295,20 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   berkurang, muncul di *Penggunaan dana* (Gaji Driver / Kasbon Driver / Kasbon Karyawan + **Lihat ›**), dan **tidak**
   dikurangi lagi dari Posisi Uang (uangnya sudah keluar saat transfer dana). Kasbon karyawan tidak bisa diambil dari
   dana miliknya sendiri. Data lama tidak berubah.
-- **Link Laporan Marketing** (`#marketing-share=`): tab bawaan **Perlu ditagih** — invoice yang masih ada sisa,
-  dikelompokkan per customer (total sisa, umur invoice tertua, pembagian > 60 / 31–60 / ≤ 30 hari), urut sisa terbesar /
-  paling lama / A–Z, dan tombol **Kirim link tagihan (WA)** untuk invoice yang punya `invoiceShareToken`. Tab **Semua
-  invoice** tetap ada (kotak Termin = sisa). **Invoice baru otomatis punya link tagihan** saat disimpan (kode lama tetap
-  saat diedit; invoice lama tidak diubah — link dibuat lewat 📱 Tagih via WA).
+- **Link Laporan Marketing** (`#marketing-share=`): tab bawaan **Perlu ditagih** — kotak atas sisa tagihan + Total
+  tagihan / Sudah dibayar / Sisa + bilah persen terbayar + pembagian umur (> 60 / 31–60 / ≤ 30 hari). Kartu per customer
+  (urut sisa terbesar / paling lama / A–Z); tiap invoice ditulis seperti nota: total − DP / saldo DP dipakai / bayar ke-n
+  (tanggal, cara) = sisa. Tombol **Kirim tagihan ke customer (WA)** + **Salin** (pesan berisi total, sudah dibayar, sisa
+  per invoice + link tagihan). Tab **Semua invoice** tetap ada (kotak Termin = sisa).
+- **Link tagihan invoice otomatis**: invoice baru langsung punya `invoiceShareToken`; invoice lama yang belum pernah
+  dibuatkan link diberi kode sekali di latar belakang saat Admin membuka aplikasi. Kode `null` (link sengaja dicabut)
+  tidak dibuatkan lagi; saat diedit kode lama tetap.
 - **Komisi invoice tanpa marketing = Rp 0** (`getKomisiInvoiceBerlaku`) di Laporan Marketing ("—"), daftar invoice,
   Laporan Keuangan (laba, komisi belum dibayar di Posisi Uang) dan Untung/Rugi. Rekap komisi marketing tidak berubah.
-- **Untung / Rugi di Posisi Uang**: periode bawaan **"Sejak awal pakai aplikasi"** — dari bulan transaksi pertama
-  (order, invoice, pembelian bahan, biaya, SIJEK, rekap gaji, selisih lama) sampai bulan ini. Rangkaian bulan berdata
+- **Untung / Rugi di Posisi Uang**: periode bawaan **"Sejak awal pakai aplikasi"** — dari bulan data PERTAMA KALI
+  DIINPUT (waktu di kode otomatis tiap catatan: order, invoice, pembelian bahan, biaya, SIJEK, rekap gaji) sampai bulan
+  ini; transaksi bertanggal sebelum itu (diinput belakangan) ditampilkan di kotak info + tombol **Sertakan sejak …**.
+  Bila tidak ada kode berwaktu (data lama), dipakai bulan transaksi pertama. Rangkaian bulan berdata
   dianggap bersambung bila jedanya ≤ 2 bulan kosong; catatan yang jauh lebih awal (mis. salah ketik tahun) tidak menggeser
   awal periode, tetapi ditampilkan sebagai tanda + tombol **Sertakan sejak …**. Pilihan Tahun / 3–6–12 bulan / satu bulan
   / dari–sampai tetap ada.
