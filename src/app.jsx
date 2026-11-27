@@ -2427,6 +2427,11 @@
             return bulatRupiah(getInvoiceTotals(invoice).productionTotal * safeMoney(invoice?.commissionValue) / 100);
         };
 
+        // Invoice tanpa marketing (kolom marketing kosong) tidak punya komisi — tidak ada yang menerima.
+        // Dipakai di laporan & total (Laporan Marketing, Laporan Keuangan, Posisi Uang, Untung/Rugi).
+        const adaMarketingInvoice = (inv) => !!(String(inv?.marketing || '').trim() || String(inv?.marketingEmpId || '').trim());
+        const getKomisiInvoiceBerlaku = (inv) => adaMarketingInvoice(inv) ? getInvoiceCommissionTotal(inv) : 0;
+
         // ===== Penyesuaian komisi marketing pada rekap gaji =====
         // Riwayat penyesuaian yang sudah diterapkan admin pada rekap
         const getRekapKomisiPenyesuaian = (rekap) => safeArray(rekap?.komisiPenyesuaian).filter(p => p && !p.isDeleted);
@@ -14103,7 +14108,7 @@ ${note ? `<div class="note-box" style="margin-top:3mm"><div class="note-label">C
                 return { subtotal, discount, total: Math.max(0, subtotal - discount) };
             };
             const paidTotal = (inv) => (Array.isArray(inv.payments) ? inv.payments : []).reduce((sum, pay) => sum + safeMoney(pay.amount), 0);
-            const commissionTotal = (inv) => getInvoiceCommissionTotal(inv);
+            const commissionTotal = (inv) => getKomisiInvoiceBerlaku(inv);
             const visibleInvoices = (invoices || []).filter(isVisibleRecord).filter(inv => {
                 if (statusFilter !== 'Semua' && inv.paymentStatus !== statusFilter) return false;
                 return matchesSearch([inv.id, inv.date, inv.customer, inv.marketing, inv.type, inv.paymentStatus, inv.note], searchTerm);
@@ -15416,6 +15421,10 @@ ${linkedInvs.length > 0 ? `<div class="section"><div class="section-title">Invoi
                 }
                 if (riwayatUbah.length > 20) { const awal = riwayatUbah[0] && riwayatUbah[0].jenis === 'dibuat' ? [riwayatUbah[0]] : []; riwayatUbah = [...awal, ...riwayatUbah.slice(-(20 - awal.length))]; }
                 row.riwayatUbah = riwayatUbah;
+                // Link tagihan: invoice baru langsung punya kode link (acak & kuat) agar bisa dikirim kapan saja,
+                // termasuk oleh marketing dari link Laporan Marketing. Saat diedit, kode lama tetap dipakai.
+                if (!editId) row.invoiceShareToken = tokenKuat('INV-');
+                if (editId && invLama && invLama.invoiceShareToken && row.invoiceShareToken === undefined) row.invoiceShareToken = invLama.invoiceShareToken;
                 setInvoices(prev => {
                     const list = Array.isArray(prev) ? prev : [];
                     return editId ? list.map(inv => String(inv.id) === String(editId) ? row : inv) : [row, ...list];
@@ -15818,7 +15827,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 const key = inv.marketing || 'Tanpa Marketing';
                 if (!acc[key]) acc[key] = { marketing: key, invoices: 0, pcs: 0, sales: 0, barang: 0, commission: 0 };
                 const tot = getInvoiceTotals(inv);
-                acc[key].invoices += 1; acc[key].pcs += getInvoicePcsTotal(inv); acc[key].sales += tot.total; acc[key].barang += tot.productionTotal; acc[key].commission += getInvoiceCommissionTotal(inv);
+                acc[key].invoices += 1; acc[key].pcs += getInvoicePcsTotal(inv); acc[key].sales += tot.total; acc[key].barang += tot.productionTotal; acc[key].commission += getKomisiInvoiceBerlaku(inv);
                 return acc;
             }, {}));
             const statusClass = (status) => status === 'Lunas' ? 'bg-green-100 text-green-800' : status === 'Termin' ? 'bg-orange-100 text-orange-800' : 'bg-red-100 text-red-800';
@@ -16304,7 +16313,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     </>
                     }
                     {activeInvoiceTab === 'marketing' &&
-                    <Card><h3 className="text-lg font-bold text-gray-800 mb-1">Laporan Marketing</h3><p data-lm-catatan className="text-xs text-gray-500 mb-3">Total Penjualan termasuk ongkir{canViewKomisi ? '; komisi dihitung dari nilai barang (setelah diskon, tanpa ongkir).' : '.'}</p><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th>{canViewKomisi && <th className="p-3 text-right">Nilai Barang (dasar komisi)</th>}{canViewKomisi && <th className="p-3 text-right">Total Komisi</th>}{canViewKomisi && <th className="p-3 text-center">Share Link</th>}</tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td>{canViewKomisi && <td data-lm-nilai-barang className="p-3 text-right">{formatRupiah(row.barang)}</td>}{canViewKomisi && <td className="p-3 text-right font-bold text-purple-700">{formatRupiah(row.commission)}</td>}{canViewKomisi && <td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td>}</tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div>{canViewKomisi && <div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {formatRupiah(row.commission)} <span data-lm-nilai-barang className="font-normal text-gray-500">· dasar {formatRupiah(row.barang)}</span></div>}</div>{canViewKomisi && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
+                    <Card><h3 className="text-lg font-bold text-gray-800 mb-1">Laporan Marketing</h3><p data-lm-catatan className="text-xs text-gray-500 mb-3">Total Penjualan termasuk ongkir{canViewKomisi ? '; komisi dihitung dari nilai barang (setelah diskon, tanpa ongkir).' : '.'}</p><div className="overflow-x-auto hidden md:block"><table className="w-full text-sm text-left"><thead className="bg-gray-50"><tr><th className="p-3">Nama Marketing</th><th className="p-3 text-right">Jumlah Invoice</th><th className="p-3 text-right">Total Pcs</th><th className="p-3 text-right">Total Penjualan</th>{canViewKomisi && <th className="p-3 text-right">Nilai Barang (dasar komisi)</th>}{canViewKomisi && <th className="p-3 text-right">Total Komisi</th>}{canViewKomisi && <th className="p-3 text-center">Share Link</th>}</tr></thead><tbody>{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<tr key={row.marketing} className="border-t"><td className="p-3 font-bold">{row.marketing}</td><td className="p-3 text-right">{row.invoices}</td><td className="p-3 text-right">{row.pcs}</td><td className="p-3 text-right font-bold">{formatRupiah(row.sales)}</td>{canViewKomisi && <td data-lm-nilai-barang className="p-3 text-right">{formatRupiah(row.barang)}</td>}{canViewKomisi && <td className="p-3 text-right font-bold text-purple-700" data-lm-komisi={row.commission}>{row.marketing === 'Tanpa Marketing' && !row.commission ? <span className="text-gray-400 font-normal" title="Invoice tanpa marketing tidak punya komisi">—</span> : formatRupiah(row.commission)}</td>}{canViewKomisi && <td className="p-3 text-center">{emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</td>}</tr>); })}</tbody></table></div><div className="md:hidden divide-y divide-gray-100 -mx-4 sm:-mx-6">{commissionRows.map(row => { const emp = safeEmployeeRows.find(e => !e.isDeleted && String(e.name).toLowerCase().trim() === String(row.marketing).toLowerCase().trim()); const hasToken = !!(emp && emp.marketingShareToken); return (<div key={row.marketing} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="font-bold text-gray-900 text-sm">{row.marketing}</span></div><div className="text-xs text-gray-500 mt-0.5">{row.invoices} invoice · {row.pcs} pcs</div><div className="text-sm font-black text-blue-700 mt-1">{formatRupiah(row.sales)}</div>{canViewKomisi && <div className="text-xs text-purple-600 font-bold mt-0.5">Komisi: {row.marketing === 'Tanpa Marketing' && !row.commission ? '—' : formatRupiah(row.commission)} <span data-lm-nilai-barang className="font-normal text-gray-500">· dasar {formatRupiah(row.barang)}</span></div>}</div>{canViewKomisi && emp && <button onClick={() => { const tok = getOrCreateMktToken(row.marketing); if (tok) setMktShareModal({ marketing: row.marketing, token: tok }); }} className={`text-xs font-bold px-2.5 py-1 rounded shrink-0 ${hasToken ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{hasToken ? '🔗 Aktif' : '+ Share'}</button>}</div>); })}</div></Card>
                     }
                     {activeInvoiceTab === 'bagi_hasil' &&
                     <BagiHasilPromosiTab bukaDetail={bukaBhpDana} periodeTahun={invTahun} periodeBulan={invBulan} onSemuaPeriode={() => setInvPeriode('', '')} bagiHasilPromosi={bagiHasilPromosi} updateBagiHasilPromosi={updateBagiHasilPromosi} invoices={safeInvoiceRows} showToast={showToast} employees={employees} danaOperasional={danaOperasional} purchaseNotes={purchaseNotes} expenses={expenses} rekapKinerja={rekapKinerja} />
@@ -16438,7 +16447,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                     const termins = getInvoicePayments(inv);
                     const dpAmt = getInvoiceDpAmount(inv);
                     const linkedDp = getInvoiceLinkedDpAmount(inv);
-                    const commission = getInvoiceCommissionTotal(inv);
+                    const commission = getKomisiInvoiceBerlaku(inv);
                     const invItems = getInvoiceItems(inv);
                     const totalPcs = getInvoicePcsTotal(inv);
                     const statusColor = status === 'Lunas' ? { bar:'#22C55E', bg:'#DCFCE7', text:'#166534', label:'✓ LUNAS' }
@@ -17567,6 +17576,9 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const [error, setError] = useState('');
             const [statusFilter, setStatusFilter] = useState('Semua');
             const [lastUpdate, setLastUpdate] = useState(null);
+            const [tabMk, setTabMk] = useState('tagih'); // 'tagih' (customer yang masih ada tagihan) | 'semua'
+            const [urutMk, setUrutMk] = useState('sisa'); // 'sisa' | 'lama' | 'az'
+            const [bukaCust, setBukaCust] = useState({});
             const fmtRp = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
 
             const fetchData = React.useCallback(async () => {
@@ -17629,7 +17641,37 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const countBelum = invList.filter(inv => getPayStatus(inv) === 'Belum Dibayar').length;
             const totalBelum = invList.filter(inv => getPayStatus(inv) === 'Belum Dibayar').reduce((s, inv) => s + getTotal(inv), 0);
             const countTermin = invList.filter(inv => getPayStatus(inv) === 'Termin').length;
-            const totalTermin = invList.filter(inv => getPayStatus(inv) === 'Termin').reduce((s, inv) => s + getTotal(inv), 0);
+            // Termin: yang ditampilkan SISA yang belum dibayar (bukan total invoice)
+            const totalTermin = invList.filter(inv => getPayStatus(inv) === 'Termin').reduce((s, inv) => s + Math.max(0, getTotal(inv) - getInvoicePaidTotal(inv)), 0);
+            // ===== Perlu ditagih: invoice yang masih ada sisa, dikelompokkan per customer =====
+            const hariIniMk = toLocalDateStr();
+            const umurMk = (inv) => { const m = String(inv && inv.date || '').match(/^(\d{4}-\d{2}-\d{2})/); if (!m) return null; const h = Math.floor((Date.parse(hariIniMk + 'T00:00:00') - Date.parse(m[1] + 'T00:00:00')) / 864e5); return Number.isFinite(h) && h >= 0 ? h : null; };
+            const linkTagihan = (inv) => inv && inv.invoiceShareToken ? `${window.location.origin}${window.location.pathname}#invoice-share=${encodeURIComponent(inv.invoiceShareToken)}` : '';
+            const noInv = (inv) => inv.invoiceNumber || inv.id;
+            const belum = invList.map(inv => { const total = getTotal(inv), paid = getInvoicePaidTotal(inv); return { inv, total, paid, sisa: Math.max(0, total - paid), umur: umurMk(inv) }; }).filter(x => x.sisa > 0.5);
+            const custMap = new Map();
+            belum.forEach(x => {
+                const nama = String(x.inv.customer || '').trim() || 'Tanpa nama';
+                const k = x.inv.clientId ? 'id:' + x.inv.clientId : 'nm:' + normalizeText(nama);
+                const c = custMap.get(k) || { k, nama, namaTgl: '', list: [], sisa: 0, paid: 0, umur: 0 };
+                if (String(x.inv.date || '') >= c.namaTgl) { c.nama = nama; c.namaTgl = String(x.inv.date || ''); }
+                c.list.push(x); c.sisa += x.sisa; c.paid += x.paid; c.umur = Math.max(c.umur, x.umur || 0);
+                custMap.set(k, c);
+            });
+            const daftarCust = [...custMap.values()].map(c => ({ ...c, list: c.list.sort((a, b) => String(a.inv.date || '').localeCompare(String(b.inv.date || ''))) }))
+                .sort((a, b) => urutMk === 'lama' ? (b.umur - a.umur) || (b.sisa - a.sisa) : urutMk === 'az' ? a.nama.localeCompare(b.nama, 'id') : (b.sisa - a.sisa) || (b.umur - a.umur));
+            const totalSisaMk = belum.reduce((s, x) => s + x.sisa, 0);
+            const umurGrup = [['> 60 hari', x => (x.umur || 0) > 60, 'bg-red-100 text-red-800'], ['31–60 hari', x => (x.umur || 0) > 30 && (x.umur || 0) <= 60, 'bg-amber-100 text-amber-800'], ['≤ 30 hari', x => (x.umur || 0) <= 30, 'bg-sky-100 text-sky-800']]
+                .map(([l, f, cls]) => ({ l, cls, v: belum.filter(f).reduce((s, x) => s + x.sisa, 0) }));
+            const warnaUmur = (u) => u > 60 ? 'bg-red-100 text-red-800' : u > 30 ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800';
+            const pesanTagihCust = (c) => {
+                const adaLink = c.list.filter(x => linkTagihan(x.inv));
+                const sapa = punyaSapaan(c.nama) ? `*${c.nama}*` : `Bapak/Ibu *${c.nama}*`;
+                return [`Assalamu'alaikum, ${sapa}.`, ``, `Kami informasikan tagihan dari Simpati Konveksi yang belum lunas:`, ``,
+                    ...adaLink.flatMap((x, i) => [`${i + 1}. Invoice ${noInv(x.inv)} (${tglNotaWa(x.inv.date)}) — sisa *${rpWa(x.sisa)}*`, `👇 Ketuk untuk melihat tagihan:`, linkTagihan(x.inv), ``]),
+                    ...(adaLink.length > 1 ? [`Total sisa: *${rpWa(adaLink.reduce((s, x) => s + x.sisa, 0))}*`, ``] : []),
+                    `Terima kasih atas kerja samanya.`, `Hormat kami,`, `*${marketing.name}*`, `Simpati Konveksi`].join('\n');
+            };
             const countLunas = invList.filter(inv => getPayStatus(inv) === 'Lunas').length;
             const totalLunas = invList.filter(inv => getPayStatus(inv) === 'Lunas').reduce((s, inv) => s + getTotal(inv), 0);
 
@@ -17641,9 +17683,62 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                         <div className="bg-white rounded-2xl shadow-sm border border-green-100 p-6">
                             <div className="text-xs font-bold text-green-600 uppercase tracking-wider mb-2">Laporan Invoice Marketing — Simpati Konveksi</div>
                             <h1 className="text-2xl font-black text-gray-800">{marketing.name}</h1>
-                            <p className="text-sm text-gray-500 mt-1">{marketing.division || 'Marketing'} &bull; {invList.length} invoice</p>
+                            <p className="text-sm text-gray-500 mt-1">{marketing.division || 'Marketing'} &bull; {invList.length} invoice{lastUpdate ? <> &bull; data per {lastUpdate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} {lastUpdate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</> : null}</p>
                         </div>
 
+                        <div data-mk-ringkas={Math.round(totalSisaMk)} className={`rounded-2xl p-5 text-white shadow-sm ${totalSisaMk > 0.5 ? 'bg-gradient-to-br from-red-900 to-red-600' : 'bg-gradient-to-br from-emerald-800 to-emerald-600'}`}>
+                            <div className="text-xs font-bold uppercase tracking-wider opacity-90">{totalSisaMk > 0.5 ? 'Masih perlu ditagih' : 'Semua tagihan sudah lunas'}</div>
+                            <div className="text-3xl font-black tabular-nums my-1">{fmtRp(totalSisaMk)}</div>
+                            <div data-mk-jumlah className="text-sm opacity-90"><b>{daftarCust.length} customer</b> · {belum.length} invoice belum lunas</div>
+                            {totalSisaMk > 0.5 && <div className="flex flex-wrap gap-1.5 mt-2">{umurGrup.map(g => <span key={g.l} data-mk-umur={g.l} className="rounded-full bg-white/15 border border-white/30 px-2.5 py-0.5 text-xs font-bold tabular-nums">{g.l}: {fmtRp(g.v)}</span>)}</div>}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                            {[['tagih', `Perlu ditagih (${daftarCust.length})`], ['semua', `Semua invoice (${invList.length})`]].map(([v, l]) => (
+                                <button key={v} type="button" data-mk-tab={v} onClick={() => setTabMk(v)} className={`rounded-xl py-2.5 text-sm font-black border transition-colors ${tabMk === v ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{l}</button>
+                            ))}
+                        </div>
+
+                        {tabMk === 'tagih' && (
+                            <div className="space-y-3">
+                                {daftarCust.length > 1 && (
+                                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">Urutkan:
+                                        {[['sisa', 'Sisa terbesar'], ['lama', 'Paling lama'], ['az', 'A–Z']].map(([v, l]) => <button key={v} type="button" data-mk-urut={v} onClick={() => setUrutMk(v)} className={`rounded-full px-3 py-1 font-bold border ${urutMk === v ? 'bg-gray-800 text-white border-gray-800' : 'bg-white border-gray-200 text-gray-600'}`}>{l}</button>)}
+                                    </div>
+                                )}
+                                {daftarCust.length === 0 && <div data-mk-kosong className="bg-white rounded-2xl p-6 text-center text-sm text-gray-500 border border-gray-100">🎉 Tidak ada tagihan yang perlu ditagih.</div>}
+                                {daftarCust.map(c => {
+                                    const adaLink = c.list.some(x => linkTagihan(x.inv));
+                                    const buka = !!bukaCust[c.k] || c.list.length <= 3;
+                                    return (
+                                        <div key={c.k} data-mk-cust={c.nama} className={`bg-white rounded-2xl border border-gray-100 border-l-4 shadow-sm p-4 space-y-2 ${c.umur > 60 ? 'border-l-red-600' : c.umur > 30 ? 'border-l-amber-500' : 'border-l-sky-500'}`}>
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="font-black text-gray-800 break-words">{c.nama}</div>
+                                                    <div className="text-xs text-gray-500 mt-0.5">{c.list.length} invoice belum lunas · tertua <span data-mk-cust-umur={c.umur} className={`inline-block rounded-full px-2 py-0.5 font-bold ${warnaUmur(c.umur)}`}>{c.umur} hari</span>{c.paid > 0.5 ? <> · sudah bayar {fmtRp(c.paid)}</> : null}</div>
+                                                </div>
+                                                <div data-mk-cust-sisa={Math.round(c.sisa)} className="font-black text-red-700 tabular-nums whitespace-nowrap">{fmtRp(c.sisa)}</div>
+                                            </div>
+                                            {buka ? (
+                                                <div className="border-t border-dashed border-gray-200 pt-2 space-y-1">
+                                                    {c.list.map(x => (
+                                                        <div key={x.inv.id} data-mk-inv={x.inv.id} className="flex justify-between gap-3 text-xs">
+                                                            <span className="min-w-0 text-gray-600"><b className="text-gray-800 font-mono">{noInv(x.inv)}</b> · {tglNotaWa(x.inv.date)} · {x.paid > 0.5 ? 'Termin' : 'Belum bayar'}{x.umur != null ? ` · ${x.umur} hari` : ''}</span>
+                                                            <b className="shrink-0 tabular-nums text-gray-800">sisa {fmtRp(x.sisa)}</b>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : <button type="button" data-mk-cust-buka onClick={() => setBukaCust(v => ({ ...v, [c.k]: true }))} className="text-xs font-bold text-blue-700">Lihat {c.list.length} invoice ›</button>}
+                                            {adaLink
+                                                ? <a data-mk-kirim href={`https://api.whatsapp.com/send?text=${encodeURIComponent(pesanTagihCust(c))}`} target="_blank" rel="noopener noreferrer" className="block text-center rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-black py-2">💬 Kirim link tagihan (WA){c.list.some(x => !linkTagihan(x.inv)) ? ` · ${c.list.filter(x => linkTagihan(x.inv)).length} dari ${c.list.length} invoice` : ''}</a>
+                                                : <div data-mk-tanpa-link className="text-center rounded-xl border border-dashed border-gray-300 text-gray-500 text-xs font-bold py-2">Link tagihan belum dibuat — minta admin (menu Invoice → 📱 Tagih via WA)</div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {tabMk === 'semua' && <>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                             <div className="bg-white rounded-xl p-4 text-center border border-gray-100 shadow-sm">
                                 <div className="text-xs text-gray-500 font-bold mb-1">Total</div>
@@ -17656,7 +17751,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                                 <div className="text-xs text-gray-400">{countBelum} inv</div>
                             </div>
                             <div className="bg-white rounded-xl p-4 text-center border border-yellow-100 shadow-sm">
-                                <div className="text-xs text-yellow-600 font-bold mb-1">Termin</div>
+                                <div className="text-xs text-yellow-600 font-bold mb-1">Sisa Termin</div>
                                 <div className="font-black text-yellow-700 text-sm">{fmtRp(totalTermin)}</div>
                                 <div className="text-xs text-gray-400">{countTermin} inv</div>
                             </div>
@@ -17712,8 +17807,10 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                             )}
                         </div>
 
+                        </>}
+
                         <div className="text-center text-xs text-gray-400 pb-4 space-y-1">
-                            <p>Data diperbarui otomatis setiap 5 menit &bull; Read-only</p>
+                            <p>Data diperbarui otomatis setiap 1 jam &bull; hanya bisa dilihat</p>
                             {lastUpdate && <p>Terakhir diperbarui: {lastUpdate.toLocaleTimeString('id-ID')}</p>}
                             <button onClick={fetchData} className="text-green-600 hover:text-green-800 font-bold mt-1">↻ Perbarui Sekarang</button>
                         </div>
@@ -18925,7 +19022,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
                 tambah(inv.date, 'invBayar', bayar);
                 if (belum > 0.5) { tambah(inv.date, 'invBelum', belum); tambah(inv.date, 'nInvBelum', 1); }
                 // Komisi marketing: sama dengan Laporan Kinerja — Direktur/Komisaris tidak menerima komisi (mendapat bagi hasil)
-                if (!empDireksi.some(emp => isInvoiceOfMarketing(inv, emp))) tambah(inv.date, 'komisi', getInvoiceCommissionTotal(inv));
+                if (!empDireksi.some(emp => isInvoiceOfMarketing(inv, emp))) tambah(inv.date, 'komisi', getKomisiInvoiceBerlaku(inv));
             });
             safeArray(expenses).filter(isVisibleRecord).forEach(e => {
                 const v = safeMoney(e.amount);
@@ -19605,7 +19702,7 @@ ${(templates?.paymentBank1 || templates?.paymentBank2) ? `
             const invoiceRows = safeFinanceInvoices.filter(isVisibleRecord).filter(inv => isInPeriod(inv.date) && invoiceMatchesSearch(inv));
             const getInvoiceTotal = (inv) => getInvoiceTotals(inv).total;
             // Komisi dihitung akrual penuh: total invoice (bukan proporsional yang sudah dibayar)
-            const getInvoiceCommission = (inv) => getInvoiceCommissionTotal(inv);
+            const getInvoiceCommission = (inv) => getKomisiInvoiceBerlaku(inv);
 
             const clientDpRows = (clients || []).filter(isVisibleRecord).flatMap(client => (Array.isArray(client.clientDpPayments) ? client.clientDpPayments : []).filter(isVisibleRecord).map(dp => ({ ...dp, clientName: client.name || '-' }))).filter(dp => {
                 if (!isInPeriod(dp.date)) return false;

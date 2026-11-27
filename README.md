@@ -295,6 +295,13 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
   berkurang, muncul di *Penggunaan dana* (Gaji Driver / Kasbon Driver / Kasbon Karyawan + **Lihat ›**), dan **tidak**
   dikurangi lagi dari Posisi Uang (uangnya sudah keluar saat transfer dana). Kasbon karyawan tidak bisa diambil dari
   dana miliknya sendiri. Data lama tidak berubah.
+- **Link Laporan Marketing** (`#marketing-share=`): tab bawaan **Perlu ditagih** — invoice yang masih ada sisa,
+  dikelompokkan per customer (total sisa, umur invoice tertua, pembagian > 60 / 31–60 / ≤ 30 hari), urut sisa terbesar /
+  paling lama / A–Z, dan tombol **Kirim link tagihan (WA)** untuk invoice yang punya `invoiceShareToken`. Tab **Semua
+  invoice** tetap ada (kotak Termin = sisa). **Invoice baru otomatis punya link tagihan** saat disimpan (kode lama tetap
+  saat diedit; invoice lama tidak diubah — link dibuat lewat 📱 Tagih via WA).
+- **Komisi invoice tanpa marketing = Rp 0** (`getKomisiInvoiceBerlaku`) di Laporan Marketing ("—"), daftar invoice,
+  Laporan Keuangan (laba, komisi belum dibayar di Posisi Uang) dan Untung/Rugi. Rekap komisi marketing tidak berubah.
 - **Untung / Rugi di Posisi Uang**: periode bawaan **"Sejak awal pakai aplikasi"** — dari bulan transaksi pertama
   (order, invoice, pembelian bahan, biaya, SIJEK, rekap gaji, selisih lama) sampai bulan ini. Rangkaian bulan berdata
   dianggap bersambung bila jedanya ≤ 2 bulan kosong; catatan yang jauh lebih awal (mis. salah ketik tahun) tidak menggeser
