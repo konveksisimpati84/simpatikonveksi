@@ -2203,7 +2203,7 @@
         // dibuka ikon, grafik, dan datanya sudah ada. Data cloud hanya disalin ke perangkat bila salinan HPP di
         // perangkat tidak punya perubahan yang belum terkirim (kalau ada, penggabungan tetap dilakukan menu HPP).
         const HPP_PREFETCH_KEYS = [
-            'hpp_custom_presets', 'hpp_hidden_builtin_presets', 'hpp_master_materials', 'hpp_master_labor', 'hpp_panduan_bahan', 'hpp_ukuran',
+            'hpp_custom_presets', 'hpp_hidden_builtin_presets', 'hpp_master_materials', 'hpp_master_labor', 'hpp_panduan_bahan',
             'hpp_saved_orders', 'hpp_saved_quotations', 'hpp_price_list_items', 'hpp_price_list_title', 'hpp_price_list_note',
             'hpp_price_list_date', 'hpp_saved_price_lists'
         ];
@@ -33426,10 +33426,6 @@ ${getRekapShareLink(rekap)}
             const DB_KEY_PRICE_LIST_DATE  = 'hpp_price_list_date';
             const DB_KEY_SAVED_PRICE_LISTS = 'hpp_saved_price_lists';
             const DB_KEY_PANDUAN_BAHAN = 'hpp_panduan_bahan';
-            // Daftar UKURAN (untuk kebutuhan bahan per pcs). id tetap → ganti nama tidak menghilangkan angka kebutuhan bahan.
-            // Terpisah dari "Kategori" riwayat (yang bebas diisi nama sekolah / customer).
-            const DB_KEY_UKURAN = 'hpp_ukuran';
-            const DEFAULT_UKURAN = [{ id: 'SD', label: 'SD' }, { id: 'SMP', label: 'SMP' }, { id: 'SMA', label: 'SMA' }, { id: 'DWS', label: 'Dewasa' }];
 
             const DEFAULT_MASTER_MATERIALS = [
                 { id: 'MAT-1', name: 'Kain Cotton Combed 30s', unit: 'Kg',    price: 115000 },
@@ -33456,7 +33452,6 @@ ${getRekapShareLink(rekap)}
             const [activeSection, setActiveSection] = React.useState('calculator');
             const [masterMaterials, setMasterMaterials] = React.useState(() => readHppCache(DB_KEY_MATERIALS)?.value ?? DEFAULT_MASTER_MATERIALS);
             const [masterLabor, setMasterLabor] = React.useState(() => readHppCache(DB_KEY_LABOR)?.value ?? DEFAULT_MASTER_LABOR);
-            const [ukuranList, setUkuranList] = React.useState(() => readHppCache(DB_KEY_UKURAN)?.value ?? DEFAULT_UKURAN);
             const [customPresets, setCustomPresets] = React.useState(() => readHppCache(DB_KEY_PRESETS)?.value ?? []);
             const [hiddenBuiltinPresets, setHiddenBuiltinPresets] = React.useState(() => readHppCache(DB_KEY_HIDDEN_PRESETS)?.value ?? []);
             const [editingPresetId, setEditingPresetId] = React.useState(null);
@@ -33616,128 +33611,7 @@ ${getRekapShareLink(rekap)}
                     ? <p data-kat-petunjuk="ada" className="text-[11px] text-emerald-700 mt-1 leading-snug">✓ Sudah ada <b>{k}</b> — otomatis disimpan ke kategori itu.</p>
                     : <p data-kat-petunjuk="baru" className="text-[11px] text-slate-500 mt-1 leading-snug">Kategori baru: <b>{k}</b></p>;
             };
-            // ===== Ukuran & kebutuhan bahan per pcs =====
-            const UKURAN_WARNA = ['bg-blue-100 text-blue-700', 'bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-800', 'bg-purple-100 text-purple-700', 'bg-rose-100 text-rose-700', 'bg-cyan-100 text-cyan-800', 'bg-lime-100 text-lime-800', 'bg-orange-100 text-orange-700'];
-            const daftarUkuran = Array.isArray(ukuranList) ? ukuranList.filter(u => u && u.id != null && String(u.label || '').trim()) : [];
-            const ukuranAktif = daftarUkuran.filter(u => !u.hidden);
-            const cariUkuran = (id) => daftarUkuran.find(u => String(u.id) === String(id)) || null;
-            const labelUkuran = (id) => { const u = cariUkuran(id); return u ? String(u.label) : ''; };
-            const warnaUkuran = (id) => { const i = daftarUkuran.findIndex(u => String(u.id) === String(id)); return i < 0 ? 'bg-slate-100 text-slate-600' : UKURAN_WARNA[i % UKURAN_WARNA.length]; };
-            const WARNA_BAWAAN = 'bg-slate-200 text-slate-700';
-            const angkaKeb = (v) => { const n = typeof v === 'number' ? v : parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : null; };
-            const fmtKeb = (n) => (Math.round(Number(n) * 10000) / 10000).toLocaleString('id-ID', { maximumFractionDigits: 4 });
-            // Angka pemakaian yang disarankan: ukuran yang dipilih → bila kosong pakai Bawaan → bila kosong tidak ada (isi manual)
-            const sarankanPakai = (mat, ukuranId) => {
-                const k = mat && mat.kebutuhan && typeof mat.kebutuhan === 'object' ? mat.kebutuhan : null;
-                if (!k) return null;
-                const u = ukuranId && cariUkuran(ukuranId) ? angkaKeb(k[ukuranId]) : null;
-                if (u != null) return { nilai: u, sumber: `ukuran:${ukuranId}` };
-                const b = angkaKeb(k.bawaan);
-                return b != null ? { nilai: b, sumber: 'bawaan' } : null;
-            };
-            const kebutuhanBahan = (mat) => { const k = mat && mat.kebutuhan && typeof mat.kebutuhan === 'object' ? mat.kebutuhan : {}; return { bawaan: angkaKeb(k.bawaan), ukuran: ukuranAktif.map(u => ({ u, v: angkaKeb(k[u.id]) })).filter(x => x.v != null) }; };
-            const adaKebutuhan = (mat) => { const kb = kebutuhanBahan(mat); return kb.bawaan != null || kb.ukuran.length > 0; };
-            const fiturKebutuhanDipakai = masterMaterials.some(adaKebutuhan);
-            const [orderUkuran, setOrderUkuran] = React.useState('');
-            const [ukuranInfo, setUkuranInfo] = React.useState(null); // { prevMaterials, prevUkuran, ke, berubah[], manual[], kosong[] }
-            const namaBahanId = (id) => { const m = masterMaterials.find(x => x.id === id); return m ? m.name : 'bahan'; };
-            // Ganti ukuran: bahan yang punya angka untuk ukuran itu (atau Bawaan) disesuaikan; yang diketik sendiri tidak ditimpa
-            const gantiUkuran = (id) => {
-                const ke = String(id || '');
-                if (ke === String(orderUkuran || '')) return;
-                const prev = activeMaterials;
-                const berubah = [], manual = [], kosong = [];
-                const next = prev.map(item => {
-                    const mat = masterMaterials.find(m => m.id === item.masterId);
-                    const sar = sarankanPakai(mat, ke);
-                    if (item.sumberPakai === 'manual') { if (sar && sar.nilai !== item.usagePerPcs) manual.push(mat ? mat.name : 'bahan'); return item; }
-                    if (!sar) {
-                        if (item.sumberPakai) { kosong.push(mat ? mat.name : 'bahan'); const { sumberPakai, ...sisa } = item; return sisa; }
-                        return item;
-                    }
-                    if (sar.nilai !== item.usagePerPcs) berubah.push(`${mat.name} ${fmtKeb(item.usagePerPcs || 0)} → ${fmtKeb(sar.nilai)}`);
-                    return { ...item, usagePerPcs: sar.nilai, sumberPakai: sar.sumber };
-                });
-                setOrderUkuran(ke);
-                setActiveMaterials(next);
-                setUkuranInfo(berubah.length || manual.length || kosong.length ? { prevMaterials: prev, prevUkuran: String(orderUkuran || ''), ke, berubah, manual, kosong } : null);
-            };
-            const batalkanUkuran = () => {
-                if (!ukuranInfo) return;
-                setActiveMaterials(ukuranInfo.prevMaterials);
-                setOrderUkuran(ukuranInfo.prevUkuran);
-                setUkuranInfo(null);
-            };
-            // Label di kolom pemakaian: angka dari master (ukuran / bawaan), diketik sendiri, atau belum ada angka di master
-            const labelPakai = (item, mat) => {
-                if (item.sumberPakai === 'manual') return { teks: 'diubah manual', cls: 'bg-amber-50 text-amber-700 border border-amber-200', jenis: 'manual' };
-                const sar = sarankanPakai(mat, orderUkuran);
-                if (sar && item.sumberPakai === sar.sumber && item.usagePerPcs === sar.nilai) {
-                    return sar.sumber === 'bawaan' ? { teks: 'bawaan', cls: WARNA_BAWAAN, jenis: 'bawaan' } : { teks: labelUkuran(orderUkuran), cls: warnaUkuran(orderUkuran), jenis: 'ukuran' };
-                }
-                if (!sar && fiturKebutuhanDipakai && mat && mat.id) return { teks: 'isi manual', cls: 'bg-rose-50 text-rose-600 border border-rose-200', jenis: 'isi' };
-                return null;
-            };
-            // ===== Kelola daftar ukuran (Master Harga) =====
-            const hitungPakaiUkuran = (id) => ({
-                bahan: masterMaterials.filter(m => m && m.kebutuhan && angkaKeb(m.kebutuhan[id]) != null).length,
-                riwayat: (Array.isArray(savedOrders) ? savedOrders : []).filter(o => o && String(o.ukuran || '') === String(id)).length,
-            });
-            const [ukuranBaru, setUkuranBaru] = React.useState('');
-            const [ukuranEdit, setUkuranEdit] = React.useState(null); // { id, label }
-            const tambahUkuran = () => {
-                const r = rapiKat(ukuranBaru);
-                if (!r) { showToast('Ketik nama ukuran dulu.', 'warning'); return; }
-                if (r.length > 30) { showToast('Nama ukuran terlalu panjang (maks. 30 huruf).', 'warning'); return; }
-                const sama = daftarUkuran.find(u => kunciKat(u.label) === kunciKat(r));
-                if (sama && !sama.hidden) { showToast(`Ukuran "${sama.label}" sudah ada.`, 'warning'); return; }
-                if (sama && sama.hidden) {
-                    setUkuranList(prev => (Array.isArray(prev) ? prev : []).map(u => u && String(u.id) === String(sama.id) ? { ...u, hidden: false, label: r } : u));
-                    showToast(`Ukuran "${r}" dimunculkan lagi beserta angka kebutuhannya.`, 'success');
-                } else {
-                    setUkuranList(prev => [...(Array.isArray(prev) ? prev : []), { id: 'UK-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), label: r }]);
-                    showToast(`Ukuran "${r}" ditambahkan.`, 'success');
-                }
-                setUkuranBaru('');
-            };
-            const simpanNamaUkuran = () => {
-                if (!ukuranEdit) return;
-                const u = cariUkuran(ukuranEdit.id); if (!u) { setUkuranEdit(null); return; }
-                const r = rapiKat(ukuranEdit.label);
-                if (!r) { showToast('Nama ukuran tidak boleh kosong.', 'warning'); return; }
-                if (r.length > 30) { showToast('Nama ukuran terlalu panjang (maks. 30 huruf).', 'warning'); return; }
-                if (r === u.label) { setUkuranEdit(null); return; }
-                const sama = daftarUkuran.find(x => String(x.id) !== String(u.id) && kunciKat(x.label) === kunciKat(r));
-                if (sama) { showToast(sama.hidden ? `Nama "${r}" pernah dipakai ukuran yang dihapus. Tambahkan "${r}" dari kolom Tambah untuk memunculkannya lagi.` : `Ukuran "${sama.label}" sudah ada.`, 'warning'); return; }
-                const n = hitungPakaiUkuran(u.id);
-                if ((n.bahan || n.riwayat) && !window.confirm(`Ganti nama "${u.label}" menjadi "${r}"?\n\n• Angka kebutuhan di ${n.bahan} bahan ikut pindah ke "${r}" (tidak hilang).\n• ${n.riwayat} riwayat HPP berukuran "${u.label}" akan tampil sebagai "${r}" — isi riwayat tidak diubah.`)) return;
-                setUkuranList(prev => (Array.isArray(prev) ? prev : []).map(x => x && String(x.id) === String(u.id) ? { ...x, label: r } : x));
-                setUkuranEdit(null);
-                showToast(`Ukuran diganti menjadi "${r}".`, 'success');
-            };
-            const hapusUkuran = (id) => {
-                const u = cariUkuran(id); if (!u) return;
-                const n = hitungPakaiUkuran(id);
-                const pesan = (n.bahan || n.riwayat)
-                    ? `Hapus ukuran "${u.label}"?\n\n⚠ Dipakai di ${n.riwayat} riwayat dan ${n.bahan} bahan.\n• Ukuran hilang dari pilihan; riwayat lama tetap menampilkan "${u.label}".\n• Angka kebutuhan ${n.bahan} bahan tetap disimpan — kembali bila ukuran "${u.label}" ditambahkan lagi.`
-                    : `Hapus ukuran "${u.label}"?`;
-                if (!window.confirm(pesan)) return;
-                setUkuranList(prev => (Array.isArray(prev) ? prev : []).map(x => x && String(x.id) === String(id) ? { ...x, hidden: true } : x));
-                if (String(orderUkuran) === String(id)) { setOrderUkuran(''); setUkuranInfo(null); }
-                showToast(`Ukuran "${u.label}" dihapus dari pilihan.`, 'success');
-            };
-            const geserUkuran = (id, arah) => setUkuranList(prev => {
-                const arr = Array.isArray(prev) ? [...prev] : [];
-                const i = arr.findIndex(x => x && String(x.id) === String(id));
-                if (i < 0) return prev;
-                let j = i + arah;
-                while (j >= 0 && j < arr.length && (!arr[j] || arr[j].hidden)) j += arah; // lompati ukuran yang dihapus
-                if (j < 0 || j >= arr.length) return prev;
-                [arr[i], arr[j]] = [arr[j], arr[i]];
-                return arr;
-            });
             const [matSearch,  setMatSearch]  = React.useState('');
-            const [matFilterKeb, setMatFilterKeb] = React.useState('semua'); // semua | sudah | belum (kebutuhan per pcs)
             const [matPage,    setMatPage]    = React.useState(1);
             const [lbrSearch,  setLbrSearch]  = React.useState('');
             const [lbrPage,    setLbrPage]    = React.useState(1);
@@ -33774,7 +33648,7 @@ ${getRekapShareLink(rekap)}
             // - Ke cloud hanya ditulis bila benar-benar ada perubahan, dan SELALU setelah membaca cloud dulu lalu
             //   digabung per item (gabung 3 arah) agar perubahan dari perangkat lain tidak tertimpa
             // - Gagal membaca cloud -> tidak pernah menimpa cloud; dicoba ulang otomatis
-            const HPP_SMALL_KEYS = [DB_KEY_PRESETS, DB_KEY_HIDDEN_PRESETS, DB_KEY_MATERIALS, DB_KEY_LABOR, DB_KEY_PANDUAN_BAHAN, DB_KEY_UKURAN];
+            const HPP_SMALL_KEYS = [DB_KEY_PRESETS, DB_KEY_HIDDEN_PRESETS, DB_KEY_MATERIALS, DB_KEY_LABOR, DB_KEY_PANDUAN_BAHAN];
             const HPP_LARGE_KEYS = [DB_KEY_ORDERS, DB_KEY_QUOTATIONS, DB_KEY_PRICE_LIST_ITEMS, DB_KEY_PRICE_LIST_TITLE, DB_KEY_PRICE_LIST_NOTE, DB_KEY_PRICE_LIST_DATE, DB_KEY_SAVED_PRICE_LISTS];
             const HPP_ALL_KEYS = [...HPP_SMALL_KEYS, ...HPP_LARGE_KEYS];
             const hppValues = {
@@ -33782,14 +33656,12 @@ ${getRekapShareLink(rekap)}
                 [DB_KEY_HIDDEN_PRESETS]: hiddenBuiltinPresets, [DB_KEY_ORDERS]: savedOrders, [DB_KEY_QUOTATIONS]: savedQuotations,
                 [DB_KEY_PRICE_LIST_ITEMS]: priceListItems, [DB_KEY_PRICE_LIST_TITLE]: priceListTitle, [DB_KEY_PRICE_LIST_NOTE]: priceListNote,
                 [DB_KEY_PRICE_LIST_DATE]: priceListDate, [DB_KEY_SAVED_PRICE_LISTS]: savedPriceLists, [DB_KEY_PANDUAN_BAHAN]: panduanBahan,
-                [DB_KEY_UKURAN]: ukuranList,
             };
             const hppSetters = {
                 [DB_KEY_MATERIALS]: setMasterMaterials, [DB_KEY_LABOR]: setMasterLabor, [DB_KEY_PRESETS]: setCustomPresets,
                 [DB_KEY_HIDDEN_PRESETS]: setHiddenBuiltinPresets, [DB_KEY_ORDERS]: setSavedOrders, [DB_KEY_QUOTATIONS]: setSavedQuotations,
                 [DB_KEY_PRICE_LIST_ITEMS]: setPriceListItems, [DB_KEY_PRICE_LIST_TITLE]: setPriceListTitle, [DB_KEY_PRICE_LIST_NOTE]: setPriceListNote,
                 [DB_KEY_PRICE_LIST_DATE]: setPriceListDate, [DB_KEY_SAVED_PRICE_LISTS]: setSavedPriceLists, [DB_KEY_PANDUAN_BAHAN]: setPanduanBahan,
-                [DB_KEY_UKURAN]: setUkuranList,
             };
             const hppValuesRef = React.useRef(hppValues);
             hppValuesRef.current = hppValues;
@@ -34043,7 +33915,7 @@ ${getRekapShareLink(rekap)}
                 setActiveMaterials([{ masterId:'MAT-1', usagePerPcs:0.25 },{ masterId:'MAT-5', usagePerPcs:0.05 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-2' },{ masterId:'LBR-5' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
                 setKomisiPct(0); setEntertainPct(0);
-                setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom(''); setOrderUkuran(''); setUkuranInfo(null);
+                setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom('');
                 showToast('Preset KAOS dimuat!', 'success');
             };
             const loadPresetKemeja = () => {
@@ -34051,7 +33923,7 @@ ${getRekapShareLink(rekap)}
                 setActiveMaterials([{ masterId:'MAT-3', usagePerPcs:1.5 },{ masterId:'MAT-5', usagePerPcs:0.1 },{ masterId:'MAT-6', usagePerPcs:0.07 },{ masterId:'MAT-7', usagePerPcs:0.01 },{ masterId:'MAT-8', usagePerPcs:1 }]);
                 setActiveLabor([{ masterId:'LBR-1' },{ masterId:'LBR-3' },{ masterId:'LBR-6' },{ masterId:'LBR-7' },{ masterId:'LBR-8' }]);
                 setKomisiPct(0); setEntertainPct(0);
-                setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom(''); setOrderUkuran(''); setUkuranInfo(null);
+                setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom('');
                 showToast('Preset KEMEJA dimuat!', 'success');
             };
             const loadCustomPreset = (preset) => {
@@ -34074,7 +33946,6 @@ ${getRekapShareLink(rekap)}
                 if (preset.komisiPct !== undefined)    setKomisiPct(preset.komisiPct);    else setKomisiPct(0);
                 if (preset.entertainPct !== undefined) setEntertainPct(preset.entertainPct); else setEntertainPct(0);
                 setIsPriceManual(false); setEditingOrderId(null); setOrderKategori(''); setOrderKategoriCustom('');
-                setOrderUkuran(preset.ukuran && cariUkuran(preset.ukuran) ? String(preset.ukuran) : ''); setUkuranInfo(null);
                 showToast(`Preset "${preset.title}" dimuat!`, 'success');
             };
             // Semua preset (bawaan yang tidak disembunyikan + buatan sendiri), dikelompokkan otomatis dari namanya
@@ -34091,7 +33962,7 @@ ${getRekapShareLink(rekap)}
             const hapusPreset = (item) => { if (!item.preset) return; if (!window.confirm(`Hapus preset "${item.title}"?`)) return; deleteCustomPreset(item.preset.id); };
             const saveCurrentAsPreset = () => {
                 const title = (orderName || 'Preset Baru').trim();
-                const newPreset = { id:'PRESET-'+Date.now(), title, orderName:title, waste:orderWaste, materials:JSON.parse(JSON.stringify(activeMaterials)), labor:JSON.parse(JSON.stringify(activeLabor)), bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct, ukuran: orderUkuran || '' };
+                const newPreset = { id:'PRESET-'+Date.now(), title, orderName:title, waste:orderWaste, materials:JSON.parse(JSON.stringify(activeMaterials)), labor:JSON.parse(JSON.stringify(activeLabor)), bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct };
                 setCustomPresets(prev => [...prev, newPreset]);
                 showToast(`Preset "${title}" disimpan!`, 'success');
             };
@@ -34116,7 +33987,6 @@ ${getRekapShareLink(rekap)}
                         hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
                         projectedProfit: formatRp(calc.profitTotal),
                         kategori: kategoriDariPilihan(orderKategori, orderKategoriCustom),
-                        ukuran: orderUkuran || '', ukuranLabel: orderUkuran ? labelUkuran(orderUkuran) : '',
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
                         bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct,
@@ -34133,7 +34003,6 @@ ${getRekapShareLink(rekap)}
                         hppPcs: formatRp(calc.hppPcs), sellingPrice: calc.sellPrice,
                         projectedProfit: formatRp(calc.profitTotal),
                         kategori: kategoriDariPilihan(orderKategori, orderKategoriCustom),
-                        ukuran: orderUkuran || '', ukuranLabel: orderUkuran ? labelUkuran(orderUkuran) : '',
                         activeMaterials: JSON.parse(JSON.stringify(activeMaterials)),
                         activeLabor: JSON.parse(JSON.stringify(activeLabor)),
                         bopListrik, bopSewa, bopTransport, bopLain, bopMode, bopPctRate, bopJamOverhead, bopJamPekerja, bopJamPerHari, bopJamHariPerBulan, bopJamMenitPerPcs, marginPct, komisiPct, entertainPct,
@@ -34162,7 +34031,6 @@ ${getRekapShareLink(rekap)}
                 if (item.entertainPct !== undefined) setEntertainPct(item.entertainPct); else setEntertainPct(0);
                 if (item.sellingPrice !== undefined) { setCustomPrice(item.sellingPrice); setIsPriceManual(true); } else { setIsPriceManual(false); }
                 setOrderKategori(pilihanDariKategori(item.kategori)); setOrderKategoriCustom('');
-                setOrderUkuran(item.ukuran && cariUkuran(item.ukuran) ? String(item.ukuran) : ''); setUkuranInfo(null);
                 setEditingOrderId(item.id);
                 setActiveSection('calculator');
                 showToast(`"${item.name}" dimuat — perubahan akan diupdate ke riwayat.`, 'info');
@@ -34352,22 +34220,10 @@ ${getRekapShareLink(rekap)}
 
             const addMaterialRow = () => {
                 if (masterMaterials.length === 0) return;
-                const sar = sarankanPakai(masterMaterials[0], orderUkuran);
-                setActiveMaterials(prev => [...prev, sar ? { masterId: masterMaterials[0].id, usagePerPcs: sar.nilai, sumberPakai: sar.sumber } : { masterId: masterMaterials[0].id, usagePerPcs: 1 }]);
+                setActiveMaterials(prev => [...prev, { masterId: masterMaterials[0].id, usagePerPcs: 1 }]);
             };
             const removeMaterialRow = (idx) => setActiveMaterials(prev => prev.filter((_, i) => i !== idx));
-            // Pilih bahan: pemakaian diisi dari kebutuhan master (ukuran terpilih / bawaan) bila ada.
-            // Mengetik pemakaian sendiri → ditandai "manual" sehingga tidak ditimpa saat ukuran diganti.
-            const updateMaterialItem = (idx, key, val) => setActiveMaterials(prev => prev.map((item, i) => {
-                if (i !== idx) return item;
-                if (key === 'usagePerPcs') return { ...item, usagePerPcs: parseFloat(val) || 0, sumberPakai: 'manual' };
-                if (key === 'masterId') {
-                    const { sumberPakai, ...sisa } = item;
-                    const sar = sarankanPakai(masterMaterials.find(m => m.id === val), orderUkuran);
-                    return sar ? { ...sisa, masterId: val, usagePerPcs: sar.nilai, sumberPakai: sar.sumber } : { ...sisa, masterId: val };
-                }
-                return { ...item, [key]: val };
-            }));
+            const updateMaterialItem = (idx, key, val) => setActiveMaterials(prev => prev.map((item, i) => i === idx ? { ...item, [key]: key === 'usagePerPcs' ? (parseFloat(val) || 0) : val } : item));
             const addLaborRow = () => {
                 if (masterLabor.length === 0) return;
                 setActiveLabor(prev => [...prev, { masterId: masterLabor[0].id }]);
@@ -34390,8 +34246,7 @@ ${getRekapShareLink(rekap)}
             const [editModal, setEditModal] = React.useState(null); // { type: 'material'|'labor', data: {...} }
             const [editDraft, setEditDraft] = React.useState({});
 
-            const kebKeTeks = (k) => { const o = {}; if (k && typeof k === 'object') Object.entries(k).forEach(([key, v]) => { const n = angkaKeb(v); if (n != null) o[key] = fmtKeb(n); }); return o; };
-            const openEditMaterial = (m) => { setEditDraft({ ...m, kebTeks: kebKeTeks(m.kebutuhan) }); setEditModal({ type: 'material' }); };
+            const openEditMaterial = (m) => { setEditDraft({ ...m }); setEditModal({ type: 'material' }); };
             const openEditLabor   = (l) => { setEditDraft({ ...l }); setEditModal({ type: 'labor'    }); };
             const closeEditModal  = ()  => { setEditModal(null); setEditDraft({}); };
 
@@ -34401,19 +34256,7 @@ ${getRekapShareLink(rekap)}
                     if (!nameVal) { showToast('Nama bahan tidak boleh kosong.', 'warning'); return; }
                     const duplicate = masterMaterials.some(m => m.id !== editDraft.id && m.name.toLowerCase() === nameVal.toLowerCase());
                     if (duplicate) { showToast('Nama bahan sudah ada, gunakan nama yang berbeda.', 'warning'); return; }
-                    // Kebutuhan per pcs: kosong = tidak diisi; angka pakai koma/titik desimal; ukuran yang dihapus tetap disimpan
-                    const { kebTeks, ...draftBersih } = editDraft;
-                    const keb = {};
-                    if (draftBersih.kebutuhan && typeof draftBersih.kebutuhan === 'object') Object.entries(draftBersih.kebutuhan).forEach(([k, v]) => { const n = angkaKeb(v); if (n != null) keb[k] = n; });
-                    for (const [k, t] of Object.entries(kebTeks || {})) {
-                        const teks = String(t == null ? '' : t).trim();
-                        if (!teks) { delete keb[k]; continue; }
-                        const n = /^\d+([.,]\d+)?$/.test(teks) ? Number(teks.replace(',', '.')) : NaN; // "1,5" atau "1.5"
-                        if (!Number.isFinite(n) || n <= 0 || n > 100000) { showToast(`Kebutuhan "${k === 'bawaan' ? 'Bawaan' : (labelUkuran(k) || k)}" harus angka lebih dari 0 (mis. 1,5).`, 'warning'); return; }
-                        keb[k] = Math.round(n * 10000) / 10000;
-                    }
-                    const saved = { ...draftBersih, name: nameVal, price: parseFloat(editDraft.price) || 0 };
-                    if (Object.keys(keb).length) saved.kebutuhan = keb; else delete saved.kebutuhan;
+                    const saved = { ...editDraft, name: nameVal, price: parseFloat(editDraft.price) || 0 };
                     if (editModal.isNew) {
                         setMasterMaterials(prev => [saved, ...prev]);
                         setMatSearch(''); setMatPage(1);
@@ -34609,30 +34452,6 @@ ${getRekapShareLink(rekap)}
                                                 </div>
                                             )}
                                         </div>
-                                        <div data-ukuran-pilih className="mt-2">
-                                            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Ukuran <span className="normal-case font-semibold text-slate-400">· mengisi pemakaian bahan dari Master Harga</span></label>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {[{ id: '', label: 'Tanpa ukuran' }, ...ukuranAktif, ...(orderUkuran && cariUkuran(orderUkuran) && cariUkuran(orderUkuran).hidden ? [cariUkuran(orderUkuran)] : [])].map(u => {
-                                                    const on = String(orderUkuran || '') === String(u.id);
-                                                    return <button key={u.id || 'tanpa'} type="button" data-ukuran-chip={u.id || 'tanpa'} aria-pressed={on} onClick={() => gantiUkuran(u.id)}
-                                                        className={`px-3 py-1 rounded-full text-xs font-bold border transition ${on ? (u.id ? `${warnaUkuran(u.id)} border-transparent ring-2 ring-indigo-300` : 'bg-slate-700 text-white border-transparent') : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>{u.label}{u.hidden ? ' (dihapus)' : ''}</button>;
-                                                })}
-                                            </div>
-                                            {ukuranInfo && (
-                                                <div data-ukuran-info className="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1 text-[11.5px] leading-snug bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-3 py-2">
-                                                    <div className="min-w-0 flex-1">
-                                                        {ukuranInfo.berubah.length > 0 && <div data-ukuran-info-berubah={ukuranInfo.berubah.length}>✓ {ukuranInfo.berubah.length} bahan disesuaikan ke {ukuranInfo.ke ? `ukuran ${labelUkuran(ukuranInfo.ke)}` : 'angka bawaan'}: {ukuranInfo.berubah.join(' · ')}</div>}
-                                                        {ukuranInfo.manual.length > 0 && <div data-ukuran-info-manual={ukuranInfo.manual.length} className="text-amber-700">Tidak diubah (diketik sendiri): {ukuranInfo.manual.join(', ')}</div>}
-                                                        {ukuranInfo.kosong.length > 0 && <div data-ukuran-info-kosong={ukuranInfo.kosong.length} className="text-rose-600">Belum ada angka {ukuranInfo.ke ? `untuk ${labelUkuran(ukuranInfo.ke)}` : 'bawaan'} di master — periksa: {ukuranInfo.kosong.join(', ')}</div>}
-                                                    </div>
-                                                    <button type="button" data-ukuran-batal onClick={batalkanUkuran} className="font-black underline whitespace-nowrap">Batalkan</button>
-                                                    <button type="button" onClick={() => setUkuranInfo(null)} className="text-emerald-600 font-bold" title="Tutup">✕</button>
-                                                </div>
-                                            )}
-                                            {!orderUkuran && activeMaterials.some(it => kebutuhanBahan(masterMaterials.find(m => m.id === it.masterId)).ukuran.length > 0) && (
-                                                <div data-ukuran-pengingat className="mt-2 text-[11.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">💡 Pilih ukuran agar pemakaian bahan menyesuaikan. Tanpa ukuran dipakai angka <b>bawaan</b>.</div>
-                                            )}
-                                        </div>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Jumlah Order (Qty Pcs)</label>
@@ -34701,10 +34520,9 @@ ${getRekapShareLink(rekap)}
                                                                     />
                                                                 </td>
                                                                 <td data-label="Pemakaian / pcs" className="col-span-2 md:py-2.5 md:px-2 md:text-center before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">
-                                                                    <div className="flex flex-wrap items-center justify-start md:justify-center gap-1">
+                                                                    <div className="flex items-center justify-start md:justify-center gap-1">
                                                                         <InputAngka data-angka="usagePerPcs" step="0.01" value={item.usagePerPcs} onNilai={v => updateMaterialItem(idx, 'usagePerPcs', v)} className="w-16 text-center text-xs p-1.5 border border-slate-300 rounded-lg font-bold" />
                                                                         <span className="text-slate-500 text-[11px]">{curMat.unit}</span>
-                                                                        {(() => { const lb = labelPakai(item, curMat); return lb ? <span data-pakai-label={lb.jenis} className={`text-[10px] font-black rounded-full px-1.5 py-px whitespace-nowrap ${lb.cls}`}>{lb.teks}</span> : null; })()}
                                                                     </div>
                                                                 </td>
                                                                 <td data-label="Total kebutuhan" className="md:py-2.5 md:px-2 md:text-center font-bold text-slate-700 text-[11px] before:content-[attr(data-label)] before:block before:text-[10px] before:font-bold before:uppercase before:tracking-wide before:text-slate-400 md:before:content-none">{totalReq !== undefined ? Number(totalReq.toFixed(2)).toLocaleString('id-ID') : 0} {curMat.unit}</td>
@@ -35332,7 +35150,6 @@ ${getRekapShareLink(rekap)}
                                                                 <div className="flex items-center gap-2 flex-wrap">
                                                                     <p className="font-bold text-slate-800">{item.name}</p>
                                                                     {kanonKat(item.kategori) && <span data-kat-lencana className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 whitespace-nowrap">{kanonKat(item.kategori)}</span>}
-                                                                    {item.ukuran && (labelUkuran(item.ukuran) || item.ukuranLabel) && <span data-ukuran-lencana={labelUkuran(item.ukuran) || item.ukuranLabel} className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${warnaUkuran(item.ukuran)}`}>📏 {labelUkuran(item.ukuran) || item.ukuranLabel}</span>}
                                                                 </div>
                                                                 {editingKategoriId === item.id ? (
                                                                     <div className="flex gap-1.5 items-center mt-1.5 flex-wrap">
@@ -35386,13 +35203,12 @@ ${getRekapShareLink(rekap)}
                     {activeSection === 'master' && (() => {
                         // ── filter & paginate Bahan ──
                         const matQ   = matSearch.toLowerCase().trim();
-                        const nKebSudah = masterMaterials.filter(adaKebutuhan).length;
-                        const matFiltered = (matQ
+                        const matFiltered = matQ
                             ? masterMaterials.filter(m =>
                                 m.name.toLowerCase().includes(matQ) ||
                                 m.unit.toLowerCase().includes(matQ) ||
                                 String(m.price).includes(matQ))
-                            : masterMaterials).filter(m => matFilterKeb === 'semua' || (matFilterKeb === 'sudah' ? adaKebutuhan(m) : !adaKebutuhan(m)));
+                            : masterMaterials;
                         const matTotalPages = Math.max(1, Math.ceil(matFiltered.length / MASTER_PAGE_SIZE));
                         const matSafePage   = Math.min(matPage, matTotalPages);
                         const matSlice      = matFiltered.slice((matSafePage - 1) * MASTER_PAGE_SIZE, matSafePage * MASTER_PAGE_SIZE);
@@ -35435,46 +35251,6 @@ ${getRekapShareLink(rekap)}
                                 <h2 className="text-lg font-bold mb-0.5"><i className="fa-solid fa-database mr-2"></i>Master Data Bahan Baku & Tarif Kerja</h2>
                                 <p className="text-xs text-indigo-200">Ubah harga patokan kain, aksesoris, dan tarif borongan jahit agar kalkulator otomatis terupdate.</p>
                             </div>
-                            {/* Daftar UKURAN — untuk kebutuhan bahan per pcs (bukan kategori riwayat / nama sekolah) */}
-                            <div data-ukuran-kelola className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-                                <div className="flex flex-wrap justify-between items-baseline gap-2 mb-3">
-                                    <h3 className="font-bold text-slate-800 text-sm">📏 Ukuran <span className="font-normal text-slate-400 text-xs">· untuk kebutuhan bahan per pcs di kalkulator</span></h3>
-                                    <span className="text-[11px] text-slate-400">Nama sekolah / customer tetap di "Kategori" riwayat, tidak di sini.</span>
-                                </div>
-                                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                                    {ukuranAktif.map((u, i) => {
-                                        const n = hitungPakaiUkuran(u.id);
-                                        const edit = ukuranEdit && String(ukuranEdit.id) === String(u.id);
-                                        return (
-                                            <div key={u.id} data-ukuran-baris={u.label} className={`flex items-center gap-2 border rounded-xl px-2.5 py-2 min-w-0 ${edit ? 'border-indigo-400 ring-2 ring-indigo-100' : 'border-slate-200'}`}>
-                                                <div className="flex flex-col leading-none">
-                                                    <button type="button" data-ukuran-naik={u.label} disabled={i === 0} onClick={() => geserUkuran(u.id, -1)} className="text-slate-400 hover:text-indigo-600 disabled:opacity-20 text-[11px] px-1" title="Naik">▲</button>
-                                                    <button type="button" data-ukuran-turun={u.label} disabled={i === ukuranAktif.length - 1} onClick={() => geserUkuran(u.id, 1)} className="text-slate-400 hover:text-indigo-600 disabled:opacity-20 text-[11px] px-1" title="Turun">▼</button>
-                                                </div>
-                                                {edit ? (
-                                                    <>
-                                                        <input data-ukuran-nama-in autoFocus value={ukuranEdit.label} maxLength={30} onChange={e => setUkuranEdit(x => ({ ...x, label: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') simpanNamaUkuran(); if (e.key === 'Escape') setUkuranEdit(null); }} className="flex-1 min-w-0 px-2 py-1 border border-indigo-300 rounded-lg text-sm font-bold" />
-                                                        <button type="button" data-ukuran-nama-simpan onClick={simpanNamaUkuran} className="bg-indigo-600 text-white rounded-lg px-2 py-1 text-xs font-black">✓</button>
-                                                        <button type="button" onClick={() => setUkuranEdit(null)} className="text-slate-400 px-1 text-xs font-bold">✕</button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <span className={`text-[11px] font-black rounded-full px-2 py-0.5 whitespace-nowrap max-w-[45%] truncate ${warnaUkuran(u.id)}`}>{u.label}</span>
-                                                        <span className="flex-1 min-w-0 text-[11px] text-slate-400 truncate">{n.bahan} bahan · {n.riwayat} riwayat</span>
-                                                        <button type="button" data-ukuran-ubah={u.label} onClick={() => setUkuranEdit({ id: u.id, label: u.label })} title="Ganti nama" className="text-xs px-1 opacity-70 hover:opacity-100">✏️</button>
-                                                        <button type="button" data-ukuran-hapus={u.label} onClick={() => hapusUkuran(u.id)} title="Hapus" className="text-xs px-1 opacity-60 hover:opacity-100">🗑</button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                    <div className="flex items-center gap-2 border border-dashed border-indigo-200 rounded-xl px-2.5 py-2">
-                                        <input data-ukuran-baru value={ukuranBaru} maxLength={30} onChange={e => setUkuranBaru(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') tambahUkuran(); }} placeholder="Ukuran baru, mis. Jumbo" className="flex-1 min-w-0 px-2 py-1 border border-slate-200 rounded-lg text-sm" />
-                                        <button type="button" data-ukuran-tambah onClick={tambahUkuran} className="bg-indigo-600 text-white rounded-lg px-2.5 py-1 text-xs font-black whitespace-nowrap">+ Tambah</button>
-                                    </div>
-                                </div>
-                                {ukuranAktif.length === 0 && <div className="text-xs text-slate-400 mt-2">Belum ada ukuran. Tambahkan mis. Kids, Junior, Senior, Dewasa.</div>}
-                            </div>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                                 {/* Master Bahan */}
                                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
@@ -35499,20 +35275,11 @@ ${getRekapShareLink(rekap)}
                                             </button>
                                         )}
                                     </div>
-                                    <div data-keb-ringkas className="mb-2 text-[11px] text-slate-500">
-                                        <div>📏 <b className="text-slate-700">{nKebSudah} dari {masterMaterials.length} bahan</b> sudah punya kebutuhan per pcs</div>
-                                        <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1"><div className="h-full bg-indigo-500" style={{ width: `${masterMaterials.length ? Math.round(nKebSudah / masterMaterials.length * 100) : 0}%` }}></div></div>
-                                        <div className="flex flex-wrap gap-1.5 mt-2">
-                                            {[['semua', `Semua (${masterMaterials.length})`], ['sudah', `Sudah diisi (${nKebSudah})`], ['belum', `Belum diisi (${masterMaterials.length - nKebSudah})`]].map(([k, l]) => (
-                                                <button key={k} type="button" data-keb-filter={k} onClick={() => { setMatFilterKeb(k); setMatPage(1); }} className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition ${matFilterKeb === k ? 'bg-indigo-600 text-white border-transparent' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>{l}</button>
-                                            ))}
-                                        </div>
-                                    </div>
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-left text-xs">
                                             <thead>
                                                 <tr className="text-slate-400 uppercase tracking-wider border-b border-slate-200 font-semibold">
-                                                    <th className="pb-2">Nama Bahan · kebutuhan / pcs</th>
+                                                    <th className="pb-2">Nama Bahan</th>
                                                     <th className="pb-2">Satuan</th>
                                                     <th className="pb-2 text-right">Harga Standard</th>
                                                     <th className="pb-2 text-center">Aksi</th>
@@ -35521,21 +35288,11 @@ ${getRekapShareLink(rekap)}
                                             <tbody className="divide-y divide-slate-100">
                                                 {matSlice.length === 0 ? (
                                                     <tr><td colSpan={4} className="py-8 text-center text-slate-400">
-                                                        {matSearch ? <><i className="fa-solid fa-search mr-1"></i>Tidak ditemukan untuk "<span className="font-semibold">{matSearch}</span>"</> : 'Tidak ada bahan untuk pilihan ini.'}
+                                                        <i className="fa-solid fa-search mr-1"></i>Tidak ditemukan untuk "<span className="font-semibold">{matSearch}</span>"
                                                     </td></tr>
                                                 ) : matSlice.map((m) => (
                                                     <tr key={m.id} className="hover:bg-slate-50">
-                                                        <td className="py-2 pr-2 font-semibold text-slate-800">
-                                                            {m.name}
-                                                            {(() => {
-                                                                const kb = kebutuhanBahan(m);
-                                                                if (kb.bawaan == null && !kb.ukuran.length) return <div data-keb-kosong className="text-[10.5px] font-normal text-slate-400 mt-0.5">📏 kebutuhan belum diisi · isi manual di kalkulator</div>;
-                                                                return <div data-keb-chips className="flex flex-wrap gap-1 mt-1">
-                                                                    {kb.bawaan != null && <span className={`text-[10px] font-black rounded-full px-1.5 py-px whitespace-nowrap ${WARNA_BAWAAN}`}>{kb.ukuran.length ? 'Bawaan' : 'Semua ukuran'} {fmtKeb(kb.bawaan)}</span>}
-                                                                    {kb.ukuran.map(({ u, v }) => <span key={u.id} className={`text-[10px] font-black rounded-full px-1.5 py-px whitespace-nowrap ${warnaUkuran(u.id)}`}>{u.label} {fmtKeb(v)}</span>)}
-                                                                </div>;
-                                                            })()}
-                                                        </td>
+                                                        <td className="py-2 font-semibold text-slate-800">{m.name}</td>
                                                         <td className="py-2 text-slate-500">{m.unit}</td>
                                                         <td className="py-2 text-right font-bold text-slate-700">{formatRp(m.price)}</td>
                                                         <td className="py-2 text-center">
@@ -36531,7 +36288,7 @@ ${getRekapShareLink(rekap)}
                     {/* ── MODAL EDIT MASTER ─────────────────────────────────────── */}
                     {editModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{backgroundColor:'rgba(0,0,0,0.45)'}}>
-                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 max-h-[92vh] overflow-y-auto">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
                                 <div className="flex items-center justify-between mb-5">
                                     <h3 className="font-bold text-slate-900 text-base">
                                         {editModal.type === 'material'
@@ -36561,21 +36318,6 @@ ${getRekapShareLink(rekap)}
                                                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">Harga Standard (Rp)</label>
                                                 <InputAngka value={editDraft.price || 0} onNilai={v => setEditDraft(d => ({ ...d, price: v }))}
                                                     className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition" />
-                                            </div>
-                                            <div data-keb-form className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
-                                                <div className="text-xs font-black text-indigo-800 mb-0.5">📏 Kebutuhan per pcs</div>
-                                                <div className="text-[11px] text-slate-500 mb-2 leading-snug">Boleh dikosongkan. <b>Bawaan</b> dipakai bila ukuran tidak dipilih atau ukuran itu kosong. Contoh: 1,5</div>
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    {[{ id: 'bawaan', label: 'Bawaan' }, ...ukuranAktif].map(u => (
-                                                        <label key={u.id} className="bg-white border border-slate-200 rounded-lg p-1.5 text-center min-w-0">
-                                                            <span className={`inline-block max-w-full truncate text-[10px] font-black rounded-full px-1.5 ${u.id === 'bawaan' ? WARNA_BAWAAN : warnaUkuran(u.id)}`}>{u.label}</span>
-                                                            <input type="text" inputMode="decimal" data-keb-in={u.id} value={(editDraft.kebTeks || {})[u.id] || ''} placeholder="—"
-                                                                onChange={e => { const v = e.target.value.replace(/[^0-9.,]/g, ''); setEditDraft(d => ({ ...d, kebTeks: { ...(d.kebTeks || {}), [u.id]: v } })); }}
-                                                                className="mt-1 w-full text-center text-sm font-bold border border-slate-300 rounded-md py-1 focus:ring-2 focus:ring-indigo-300 outline-none" />
-                                                            <span className="block text-[10px] text-slate-400 truncate">{String(editDraft.unit || 'Pcs').toLowerCase()}</span>
-                                                        </label>
-                                                    ))}
-                                                </div>
                                             </div>
                                         </>
                                     ) : (
