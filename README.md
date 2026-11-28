@@ -331,6 +331,18 @@ Fitur **AI Insight** di Dashboard menggunakan Google Gemini API:
 - **Sumber dana pembayaran gaji (Laporan Kinerja)**: Riwayat Pembayaran rekap memakai kolom **Sumber dana**
   (`operasionalKaryawanId` → "👤 Dana <nama>", kosong → "🏦 Kas perusahaan") + ringkasan "Dibayar dari"; daftar rekap
   memberi tanda bila ada pembayaran dari dana karyawan. Hanya tampilan.
+- **Kalkulator HPP — Ukuran & kebutuhan bahan**: daftar **Ukuran** (`hpp_ukuran` = `[{id,label,hidden}]`, awal
+  SD/SMP/SMA/Dewasa, id tetap) diatur di Master Harga: ganti nama, tambah, hapus (disembunyikan; angka tetap
+  disimpan dan kembali bila ditambah lagi), urutkan. Master bahan punya `kebutuhan = { bawaan, <idUkuran>: angka }`
+  (Edit bahan → "Kebutuhan per pcs"; daftar bahan menampilkan label per ukuran + ringkasan & filter Sudah/Belum
+  diisi). Di kalkulator, isian **Ukuran** terpisah dari **Kategori** riwayat (nama sekolah tetap di Kategori):
+  memilih bahan / mengganti ukuran mengisi "Pemakaian / pcs" (ukuran → Bawaan → manual); baris yang diketik sendiri
+  (`sumberPakai: 'manual'`) tidak ditimpa; ada **Batalkan**. Riwayat menyimpan `ukuran` + `ukuranLabel`; riwayat,
+  preset, dan angka lama tidak diubah saat dimuat.
+- **Cetak Daftar Harga (Price List HPP)**: dokumen tersendiri (`htmlDaftarHargaHpp`) — `@page` A4 margin 0, latar
+  krem penuh, ornamen sudut (gambar latar SVG) & kaki nama/kontak di setiap halaman, judul kolom diulang, baris tidak
+  terpotong, tanpa halaman kosong.
+- **Surat Penawaran**: harga net per pcs setelah diskon % dibulatkan ke rupiah agar harga satuan × jumlah = total.
 - **Menu Biaya — cari & total**: kata yang dicari dicocokkan per baris rincian (semua kata harus ada, urutan bebas).
   Kotak **Total pencarian** menjumlah hanya baris yang cocok (qty × harga, diskon dibagi rata); bila kata ada di
   judul/kategori/penerima/catatan, seluruh transaksi dihitung. Uang masuk & keluar dijumlah terpisah, ada rincian per
